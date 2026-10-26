@@ -27,7 +27,7 @@ import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
-import { refreshResparkState } from "../lib/respark/state";
+import { refreshResparkState, refreshResparkTeam } from "../lib/respark/state";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { rebuildQualificationRow } from "../operations/projections";
 import { closeMergedReviews } from "../pipeline/bookingReviewRecords";
@@ -759,6 +759,10 @@ export async function executeMerge(
     opportunitiesMoved: sourceOpportunities.length,
     meetingsMoved: moved.meetings,
   });
+  // The target's Respark team is the earliest capture by a team of the two.
+  // After the history row, so the source's captures still waiting for a
+  // continuation page count too.
+  await refreshResparkTeam(ctx, tenantId, targetLeadId);
 
   // A full read skipped any rows past its bound.
   if (boundsHit.length > 0) {

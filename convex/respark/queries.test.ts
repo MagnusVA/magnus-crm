@@ -3,7 +3,7 @@ import { bookingHarness } from "../../tests/bookingHarness";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { DAY_MS } from "../lib/respark/settings";
-import { recomputeResparkState, resparkPool } from "../lib/respark/state";
+import { recomputeResparkState, resparkPool, resparkTeamPool } from "../lib/respark/state";
 import type { ResparkGroup } from "../lib/respark/validators";
 
 const NOW = Date.parse("2026-10-20T15:00:00Z");
@@ -76,7 +76,7 @@ async function panelFacts(h: Harness, leadId: Id<"leads">, userId: Id<"users">) 
 describe("Respark queries", () => {
   it("gates every query by lead-gen:respark, including anonymous callers", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const { item } = await held(h);
     for (const caller of [h.closer, h.t]) {
       await expect(caller.query(api.respark.queries.getMyResparkBatch, {})).rejects.toThrow();
@@ -88,7 +88,7 @@ describe("Respark queries", () => {
 
   it("keeps all four queries inside the caller's tenant", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const { item } = await held(h);
     await h.admin.mutation(api.respark.batches.markResparked, { itemId: item._id });
     const other = await otherUser(h, true);
@@ -100,7 +100,7 @@ describe("Respark queries", () => {
 
   it("returns null for another user's item and at batch expiry, including worked items", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const { item, batchId } = await held(h);
     const other = await otherUser(h);
     expect(await other.caller.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id })).toBeNull();
@@ -116,7 +116,7 @@ describe("Respark queries", () => {
 
   it("masks identity, notes and booking answers on the server; omits payment events and credit", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const { item, leadId } = await held(h);
     const facts = await panelFacts(h, leadId, item.userId);
     const panel = (await h.admin.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id }))!;
@@ -139,7 +139,7 @@ describe("Respark queries", () => {
 
   it("returns ordered cards, capture and qualification facts, latest deal, last touches, and the action's blocked reason", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const { item, leadId } = await held(h);
     await panelFacts(h, leadId, item.userId);
     const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
@@ -165,7 +165,7 @@ describe("Respark queries", () => {
 
   it("counts the same five buckets as a claim, including exclusive and inclusive boundaries", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await h.t.run((ctx) => ctx.db.patch("tenants", h.tenantId, { respark: { batchSize: 100, inactiveAfterDays: 90 } }));
     const cases: [ResparkGroup, number, number | null][] = [
       ["qualified", 30, 1], ["never_qualified", 30, 2], ["had_call", 90, 3],
@@ -178,6 +178,9 @@ describe("Respark queries", () => {
         const lead = (await ctx.db.get("leads", leadId))!;
         await resparkPool.replaceOrInsert(ctx, { namespace: h.tenantId, id: leadId,
           key: [lead.resparkGroup!, lead.lastTouch!.occurredAt] }, { namespace: h.tenantId, key: [group, lead.lastTouch!.occurredAt] });
+        await resparkTeamPool.replaceOrInsert(ctx, { namespace: h.tenantId, id: leadId,
+          key: [lead.resparkTeamId!, lead.resparkGroup!, lead.lastTouch!.occurredAt] },
+          { namespace: h.tenantId, key: [lead.resparkTeamId!, group, lead.lastTouch!.occurredAt] });
         await ctx.db.patch("leads", leadId, { resparkGroup: group });
       });
     }
@@ -194,7 +197,7 @@ describe("Respark queries", () => {
 
   it("serves a maximum-size batch within Convex transaction limits", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness({ transactionLimits: true });
+    const h = await bookingHarness({ transactionLimits: true, leadGenTeam: true });
     await h.t.run((ctx) => ctx.db.patch("tenants", h.tenantId, { respark: { batchSize: 100, inactiveAfterDays: 90 } }));
     for (let index = 0; index < 100; index += 1) await capture(h, `maximum.${index}`);
     await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
@@ -206,13 +209,13 @@ describe("Respark queries", () => {
 
   it("admits a lead generator with their own held batch", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await capture(h, "generator.person");
     await h.t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", { tenantId: h.tenantId, workosUserId: "generator",
         email: "generator@example.com", role: "lead_generator", isActive: true });
       await ctx.db.insert("leadGenWorkers", { tenantId: h.tenantId, userId, workosUserId: "generator",
-        email: "generator@example.com", isActive: true, createdAt: NOW, updatedAt: NOW });
+        email: "generator@example.com", isActive: true, teamId: h.leadGenTeamId, createdAt: NOW, updatedAt: NOW });
     });
     const caller = h.t.withIdentity({ subject: "generator", org_id: "org_test" });
     const { batchId } = await caller.mutation(api.respark.batches.claimResparkBatch, {});
@@ -240,7 +243,7 @@ describe("Respark queries", () => {
 
   it("marks a capped timeline explicitly and still returns notes and deals", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const { item, leadId } = await held(h);
     await panelFacts(h, leadId, item.userId);
     await h.t.run(async (ctx) => {
@@ -258,7 +261,7 @@ describe("Respark queries", () => {
 
   it("uses the tenant's business day for started batches and worked results", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await h.t.run((ctx) => ctx.db.patch("tenants", h.tenantId, { businessDay: { timeZone: "UTC", dayStartHour: 6 } }));
     await capture(h, "today.1");
     await capture(h, "today.2");

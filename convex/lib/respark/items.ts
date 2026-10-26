@@ -110,24 +110,26 @@ export function bucketOf(
 }
 
 /**
- * The pool, oldest last touch first, whatever the bucket (changed by the
- * tenant admin on 2026-10-25, replacing bucket order and newest first). Each
+ * A team's pool, oldest last touch first, whatever the bucket (changed by
+ * the tenant admin on 2026-10-25, replacing bucket order and newest first). Each
  * group is read in index order from its oldest person, and the oldest of the
  * four heads comes next, so a claim reads only as far as it needs. Everyone
  * here was last touched at least 30 days ago.
  */
 export async function* poolOldestFirst(
   ctx: ReadCtx,
-  args: { tenantId: Id<"tenants">; now: number; inactiveAfterDays: number },
+  args: { tenantId: Id<"tenants">; teamId: Id<"attributionTeams">; now: number; inactiveAfterDays: number },
 ): AsyncGenerator<{ lead: Doc<"leads">; bucket: ResparkBucket }> {
   const atOrBefore = args.now - THIRTY_DAYS_MS;
   const streams = POOL_GROUPS.map((group) => ({
     group,
     rows: ctx.db
       .query("leads")
-      .withIndex("by_tenantId_and_resparkGroup_and_lastTouchAt", (q) =>
+      .withIndex("by_tenantId_and_resparkTeamId_and_resparkGroup_and_lastTouchAt", (q) =>
         q
           .eq("tenantId", args.tenantId)
+          // Only the claiming lead generator's team (2026-10-25).
+          .eq("resparkTeamId", args.teamId)
           .eq("resparkGroup", group)
           // A missing time sorts below every number; such a person is `out`.
           .gte("lastTouch.occurredAt", 0)

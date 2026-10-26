@@ -24,6 +24,15 @@ export const resparkPool = new DirectAggregate<{
   Id: Id<"leads">;
 }>(components.resparkPool);
 
+// The same entries for people with a respark team, keyed by team first, so a
+// team's pool counts are range counts (2026-10-25: each lead gen team works
+// only its own people). Tolerant writes until its backfill and assert pass.
+export const resparkTeamPool = new DirectAggregate<{
+  Namespace: Id<"tenants">;
+  Key: [Id<"attributionTeams">, ResparkGroup, number];
+  Id: Id<"leads">;
+}>(components.resparkTeamPool);
+
 // Respark actions (plan §5.3). They join the event list here so the last
 // touch rule is complete before the actions ship.
 export const LEAD_RESPARKED = "lead.resparked";
@@ -159,11 +168,75 @@ function storedPoolKey(
   return lead.resparkGroup && lead.lastTouch ? poolKey(lead.resparkGroup, lead.lastTouch) : null;
 }
 
+/** The team pool entry the stored fields say the person has, if any. */
+function storedTeamKey(
+  lead: Pick<Doc<"leads">, "resparkGroup" | "lastTouch" | "resparkTeamId">,
+): [Id<"attributionTeams">, ResparkGroup, number] | null {
+  return lead.resparkTeamId && lead.resparkGroup && lead.lastTouch
+    ? [lead.resparkTeamId, lead.resparkGroup, lead.lastTouch.occurredAt]
+    : null;
+}
+
 export type ResparkState = {
   lastTouch: LastTouch | undefined;
   /** Undefined for a merged person, who has no pool entry. */
   resparkGroup: ResparkGroup | undefined;
+  /** The team of the person's first capture; none without one. */
+  resparkTeamId: Id<"attributionTeams"> | undefined;
 };
+
+// Far above the captures one person has; past it the team throws rather
+// than guess.
+const PERSON_PROSPECT_LIMIT = 200;
+// `LEAD_CAPTURED` in leadGen/prospectPeople, which imports this module's
+// callers.
+const LEAD_CAPTURED_EVENT = "lead.captured";
+const PROSPECT_SUBMISSION_LIMIT = 500;
+
+/**
+ * The team of the person's first capture by a team that wasn't voided,
+ * across every lead merged into them, or none: a person no lead gen team
+ * captured, or captured only by a specialist with no team, is in no team's
+ * pool. A capture by a specialist with no team doesn't keep a later team's
+ * capture from counting.
+ */
+export async function firstCaptureTeam(
+  ctx: ReadCtx,
+  tenantId: Id<"tenants">,
+  leadIds: Id<"leads">[],
+): Promise<Id<"attributionTeams"> | undefined> {
+  let first: { at: number; teamId: Id<"attributionTeams"> } | undefined;
+  for (const leadId of leadIds) {
+    const prospects = await ctx.db
+      .query("leadGenProspects")
+      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+      .take(PERSON_PROSPECT_LIMIT + 1);
+    if (prospects.length > PERSON_PROSPECT_LIMIT) {
+      throw new Error(`Lead ${leadId} has more than ${PERSON_PROSPECT_LIMIT} lead gen prospects`);
+    }
+    for (const prospect of prospects) {
+      // Oldest first, until the first capture by a team that wasn't voided.
+      let scanned = 0;
+      for await (const row of ctx.db
+        .query("leadGenSubmissions")
+        .withIndex("by_tenantId_and_prospectId_and_submittedAt", (q) =>
+          q.eq("tenantId", tenantId).eq("prospectId", prospect._id),
+        )
+        .order("asc")) {
+        scanned += 1;
+        if (scanned > PROSPECT_SUBMISSION_LIMIT) {
+          throw new Error(`Prospect ${prospect._id} has more than ${PROSPECT_SUBMISSION_LIMIT} captures before one by a team`);
+        }
+        if (first && row.submittedAt >= first.at) break;
+        if (row.voidedAt === undefined && row.teamId !== undefined) {
+          first = { at: row.submittedAt, teamId: row.teamId };
+          break;
+        }
+      }
+    }
+  }
+  return first?.teamId;
+}
 
 /**
  * Writes `lastTouch` and `resparkGroup` when they changed, and moves the
@@ -176,11 +249,15 @@ async function writeResparkState(
   writes: "strict" | "tolerant" = "strict",
 ): Promise<void> {
   const sameTouch = (lead.lastTouch?.eventId ?? null) === (next.lastTouch?.eventId ?? null);
-  if (sameTouch && lead.resparkGroup === next.resparkGroup) return;
+  if (sameTouch && lead.resparkGroup === next.resparkGroup && lead.resparkTeamId === next.resparkTeamId) {
+    return;
+  }
   await ctx.db.patch("leads", lead._id, {
     lastTouch: next.lastTouch,
     resparkGroup: next.resparkGroup,
+    resparkTeamId: next.resparkTeamId,
   });
+  await moveTeamEntry(ctx, lead, storedTeamKey(lead), storedTeamKey(next));
   const before = storedPoolKey(lead);
   const after = storedPoolKey(next);
   const namespace = lead.tenantId;
@@ -211,11 +288,12 @@ export async function refreshResparkState(
   tenantId: Id<"tenants">,
   leadId: Id<"leads">,
   touch?: LastTouch,
+  options: { recomputeTeam?: boolean } = {},
 ): Promise<void> {
   const lead = await ctx.db.get("leads", leadId);
   if (!lead || lead.tenantId !== tenantId) return;
   if (lead.status === "merged") {
-    await writeResparkState(ctx, lead, { lastTouch: lead.lastTouch, resparkGroup: undefined });
+    await writeResparkState(ctx, lead, { lastTouch: lead.lastTouch, resparkGroup: undefined, resparkTeamId: undefined });
     // A touch on a merged person, such as a capture of a prospect a merge
     // hasn't moved yet, is the survivor's: their history includes it.
     const survivor = touch && (await mergeSurvivor(ctx, lead));
@@ -227,7 +305,57 @@ export async function refreshResparkState(
     { ...lead, lastTouch },
     await hasOpenDeal(ctx, lead.tenantId, lead._id),
   );
-  await writeResparkState(ctx, lead, { lastTouch, resparkGroup });
+  // The first capture's team never changes once set, except when a merge,
+  // a void or a team fill asks for it again (`recomputeTeam`). Only a
+  // capture can give a person with no team one, so other touches don't read
+  // the capture history.
+  const resparkTeamId =
+    options.recomputeTeam || (!lead.resparkTeamId && touch?.eventType === LEAD_CAPTURED_EVENT)
+      ? await firstCaptureTeam(ctx, lead.tenantId, await mergedLeadIds(ctx, lead.tenantId, lead._id))
+      : lead.resparkTeamId;
+  await writeResparkState(ctx, lead, { lastTouch, resparkGroup, resparkTeamId });
+}
+
+/**
+ * Works the person's team out again from their captures, for the survivor
+ * when they were merged: after a capture is voided or a capture's team is
+ * filled in, since the live refresh keeps a team once set.
+ */
+export async function refreshResparkTeam(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+): Promise<void> {
+  const lead = await ctx.db.get("leads", leadId);
+  if (!lead || lead.tenantId !== tenantId) return;
+  const survivor = lead.status === "merged" ? await mergeSurvivor(ctx, lead) : lead._id;
+  if (survivor) await refreshResparkState(ctx, tenantId, survivor, undefined, { recomputeTeam: true });
+}
+
+/** `refreshResparkTeam` for the person a capture's prospect belongs to. */
+export async function refreshResparkTeamOfProspect(
+  ctx: MutationCtx,
+  prospectId: Id<"leadGenProspects">,
+): Promise<void> {
+  const prospect = await ctx.db.get("leadGenProspects", prospectId);
+  if (prospect?.leadId) await refreshResparkTeam(ctx, prospect.tenantId, prospect.leadId);
+}
+
+/** Keeps the person's team pool entry in step. Tolerant until verified. */
+async function moveTeamEntry(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+  before: [Id<"attributionTeams">, ResparkGroup, number] | null,
+  after: [Id<"attributionTeams">, ResparkGroup, number] | null,
+): Promise<void> {
+  const namespace = lead.tenantId;
+  if (before && after) {
+    await resparkTeamPool.replaceOrInsert(ctx, { namespace, key: before, id: lead._id }, { namespace, key: after });
+  } else if (after) {
+    await resparkTeamPool.insertIfDoesNotExist(ctx, { namespace, key: after, id: lead._id });
+  } else if (before) {
+    await resparkTeamPool.deleteIfExists(ctx, { namespace, key: before, id: lead._id });
+  }
 }
 
 // A merge repoints earlier merges at its target, so a chain is one hop
@@ -258,6 +386,10 @@ export async function deleteResparkPoolEntry(
   const key = storedPoolKey(lead);
   if (key) {
     await resparkPool.deleteIfExists(ctx, { namespace: lead.tenantId, key, id: lead._id });
+  }
+  const teamKey = storedTeamKey(lead);
+  if (teamKey) {
+    await resparkTeamPool.deleteIfExists(ctx, { namespace: lead.tenantId, key: teamKey, id: lead._id });
   }
 }
 
@@ -324,7 +456,7 @@ export async function computeResparkState(
   lead: Doc<"leads">,
 ): Promise<ResparkState> {
   if (lead.status === "merged") {
-    return { lastTouch: lead.lastTouch, resparkGroup: undefined };
+    return { lastTouch: lead.lastTouch, resparkGroup: undefined, resparkTeamId: undefined };
   }
   const leadIds = await mergedLeadIds(ctx, lead.tenantId, lead._id);
   // The walk stops at the limit; past it the history would be partial.
@@ -339,7 +471,8 @@ export async function computeResparkState(
     { ...lead, lastTouch },
     await hasOpenDeal(ctx, lead.tenantId, lead._id),
   );
-  return { lastTouch, resparkGroup };
+  const resparkTeamId = await firstCaptureTeam(ctx, lead.tenantId, leadIds);
+  return { lastTouch, resparkGroup, resparkTeamId };
 }
 
 /**
@@ -358,6 +491,10 @@ export async function recomputeResparkState(
   const key = fresh && storedPoolKey(fresh);
   if (fresh && key) {
     await resparkPool.insertIfDoesNotExist(ctx, { namespace: fresh.tenantId, key, id: fresh._id });
+  }
+  const teamKey = fresh && storedTeamKey(fresh);
+  if (fresh && teamKey) {
+    await resparkTeamPool.insertIfDoesNotExist(ctx, { namespace: fresh.tenantId, key: teamKey, id: fresh._id });
   }
 }
 
@@ -392,6 +529,15 @@ export async function resparkStateProblems(
   }
   if (lead.resparkGroup !== computed.resparkGroup) {
     problems.push(`resparkGroup ${lead.resparkGroup ?? "none"}, expected ${computed.resparkGroup}`);
+  }
+  if (lead.resparkTeamId !== computed.resparkTeamId) {
+    problems.push(`resparkTeamId ${lead.resparkTeamId ?? "none"}, expected ${computed.resparkTeamId ?? "none"}`);
+  }
+  const teamKey = storedTeamKey(lead);
+  if (teamKey) {
+    const bound = { key: teamKey, id: lead._id, inclusive: true };
+    const entries = await resparkTeamPool.count(ctx, { namespace: lead.tenantId, bounds: { lower: bound, upper: bound } });
+    if (entries !== 1) problems.push(`missing team pool entry [${teamKey.join(", ")}]`);
   }
   const key = storedPoolKey(lead);
   if (key && !(await hasPoolEntry(ctx, lead, key))) {

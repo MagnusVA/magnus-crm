@@ -39,7 +39,7 @@ A person with no touch for the tenant's N days (90 by default), worked out from 
 _Avoid_: stale (a deal loss reason), dormant
 
 **Respark**:
-A lead generator messaging a stalled person again from the respark pool, then marking them resparked, not a fit, or skipped. The pool is five buckets: qualified and never booked, never qualified, inactive, had a call and the deal was lost, not a fit. A batch takes the people whose last touch is oldest first, whatever their bucket; the bucket is the reason shown on the card. A batch is held for its lead generator until the business day ends. Resparked counts as an entry for them and as lead gen credit if the person's next deal comes from it.
+A lead generator messaging a stalled person again from the respark pool, then marking them resparked, not a fit, or skipped. The pool is five buckets: qualified and never booked, never qualified, inactive, had a call and the deal was lost, not a fit. Each lead gen team has its own pool: a person is in the pool of the team that first captured them, and a lead generator with no team has none. A batch takes the people whose last touch is oldest first, whatever their bucket; the bucket is the reason shown on the card. A batch is held for its lead generator until the business day ends. Resparked counts as an entry for them and as lead gen credit if the person's next deal comes from it.
 _Avoid_: reactivation, re-engagement
 
 ## Deals

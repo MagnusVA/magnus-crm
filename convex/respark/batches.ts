@@ -38,6 +38,21 @@ export const CLAIM_INDEX_READ_BUDGET = 3000;
 
 const RESPARK_ROLES = [...PERMISSIONS["lead-gen:respark"]];
 
+/**
+ * Ends a batch now: its unworked people go back to the pool, with nothing
+ * recorded on them, as at the end of the business day.
+ */
+async function endBatchNow(ctx: MutationCtx, batch: Doc<"resparkBatches">, now: number): Promise<void> {
+  const items = await ctx.db
+    .query("resparkBatchItems")
+    .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batch._id))
+    .take(batch.size);
+  for (const item of items) {
+    if (item.result === undefined) await ctx.db.patch("resparkBatchItems", item._id, { heldUntil: now });
+  }
+  await ctx.db.patch("resparkBatches", batch._id, { heldUntil: now });
+}
+
 /** The newest batch the user holds now that still has unworked people. */
 async function openBatch(
   ctx: MutationCtx,
@@ -61,8 +76,8 @@ async function openBatch(
 
 /**
  * Asking for a batch (plan §4.5). An unexpired batch with unworked people
- * comes back as it is. Otherwise the claim takes the pool oldest last touch
- * first, whatever the bucket (`poolOldestFirst`), skipping people someone
+ * comes back as it is. Otherwise the claim takes the lead generator's team's
+ * pool oldest last touch first, whatever the bucket (`poolOldestFirst`), skipping people someone
  * holds and people this user skipped today, until the batch is full or it
  * has read `CLAIM_READ_LIMIT` people.
  * Two claims at once read the same hold ranges and write into them, so one
@@ -70,14 +85,27 @@ async function openBatch(
  */
 export const claimResparkBatch = mutation({
   args: {},
-  // An empty pool creates no batch: `batchId` is null and `size` 0.
-  returns: v.object({ batchId: v.union(v.id("resparkBatches"), v.null()), resumed: v.boolean(), size: v.number() }),
+  // An empty pool creates no batch: `batchId` is null and `size` 0. A lead
+  // generator with no team has no pool (`noTeam`).
+  returns: v.object({
+    batchId: v.union(v.id("resparkBatches"), v.null()),
+    resumed: v.boolean(),
+    size: v.number(),
+    noTeam: v.optional(v.boolean()),
+  }),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
     const worker = await requireOperationalLeadGenWorker(ctx, access, now);
+    // The pool is the lead generator's team's (2026-10-25); no team, no pool.
+    const teamId = worker.teamId;
     const existing = await openBatch(ctx, access, now);
-    if (existing) return { batchId: existing._id, resumed: true, size: existing.size };
+    if (existing && teamId && existing.teamId === teamId) {
+      return { batchId: existing._id, resumed: true, size: existing.size };
+    }
+    // A batch from another team's pool, or from before team pools, ends.
+    if (existing) await endBatchNow(ctx, existing, now);
+    if (!teamId) return { batchId: null, resumed: false, size: 0, noTeam: true };
 
     const tenant = await ctx.db.get("tenants", access.tenantId);
     if (!tenant) throw new Error(`Missing tenant ${access.tenantId}`);
@@ -94,6 +122,7 @@ export const claimResparkBatch = mutation({
     indexReads += 4;
     for await (const { lead, bucket } of poolOldestFirst(ctx, {
       tenantId: access.tenantId,
+      teamId,
       now,
       inactiveAfterDays: settings.inactiveAfterDays,
     })) {
@@ -118,6 +147,7 @@ export const claimResparkBatch = mutation({
       heldUntil,
       size: picked.length,
       requestedSize: settings.batchSize,
+      teamId,
     });
     for (const [position, { lead, bucket }] of picked.entries()) {
       await insertResparkItem(ctx, {
@@ -168,9 +198,15 @@ async function workableItem(
 async function requirePersonInPool(
   ctx: MutationCtx,
   item: Doc<"resparkBatchItems">,
+  worker: Doc<"leadGenWorkers">,
 ): Promise<Doc<"leads">> {
   const lead = await ctx.db.get("leads", item.leadId);
-  const reason = await leftPoolReason(ctx, lead);
+  // A merge or a voided capture can move a held person to another team.
+  const reason =
+    (await leftPoolReason(ctx, lead)) ??
+    (lead && worker.teamId && lead.resparkTeamId === worker.teamId
+      ? null
+      : "This person is now in another team's pool.");
   if (reason || !lead) {
     throw rejectRequest("respark.person_left_pool", `${reason} Skip them instead.`, {
       tenantId: item.tenantId,
@@ -213,9 +249,9 @@ export const markResparked = mutation({
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
     // A lead generator whose lead gen access was turned off can't work on.
-    await requireOperationalLeadGenWorker(ctx, access, now);
+    const worker = await requireOperationalLeadGenWorker(ctx, access, now);
     const item = await workableItem(ctx, access, itemId, now);
-    await requirePersonInPool(ctx, item);
+    await requirePersonInPool(ctx, item, worker);
     const eventId = await emitResparkTouch(ctx, access, item, LEAD_RESPARKED, now);
     // The item is the stage evidence, so it is worked before the stage moves.
     await workResparkItem(ctx, item, { result: "resparked", workedAt: now, eventId });
@@ -237,9 +273,9 @@ export const markNotAFit = mutation({
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
     // A lead generator whose lead gen access was turned off can't work on.
-    await requireOperationalLeadGenWorker(ctx, access, now);
+    const worker = await requireOperationalLeadGenWorker(ctx, access, now);
     const item = await workableItem(ctx, access, itemId, now);
-    await requirePersonInPool(ctx, item);
+    await requirePersonInPool(ctx, item, worker);
     const eventId = await emitResparkTouch(ctx, access, item, LEAD_MARKED_NOT_A_FIT, now);
     await workResparkItem(ctx, item, { result: "not_a_fit", workedAt: now, eventId });
     const lead = (await ctx.db.get("leads", item.leadId))!;
