@@ -29,7 +29,7 @@ import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
-import { dailyStatKey } from "./leadGen/backfills";
+import { dailyStatKey } from "./leadGen/aggregates";
 import { runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";

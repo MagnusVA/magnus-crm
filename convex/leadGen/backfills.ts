@@ -14,7 +14,7 @@ import {
 } from "../reporting/lib/hondurasBusinessTime";
 import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
-import { teamOriginStatKey } from "./aggregates";
+import { dailyStatKey, teamOriginStatKey } from "./aggregates";
 import { runningBusinessDayRebuild } from "../lib/businessDayRebuildState";
 import {
   isRankableLeadGenOrigin,
@@ -49,19 +49,6 @@ function clampLimit(value: number | undefined) {
   return Math.min(Math.floor(value), MAX_LIMIT);
 }
 
-export function dailyStatKey(args: {
-  dayKey: string;
-  workerId: Id<"leadGenWorkers">;
-  teamId?: Id<"attributionTeams">;
-  source: LeadGenSource;
-}) {
-  return [
-    args.dayKey,
-    args.workerId,
-    args.teamId ?? "none",
-    args.source,
-  ].join(":");
-}
 
 function validateTeamOriginRebuildRange(args: {
   startDayKey: string;

@@ -33,11 +33,12 @@ async function capture(h: Harness, handle: string) {
   });
 }
 
+/** The captures and stats of DAY_KEY. */
 async function state(h: Harness) {
   return await h.t.run(async (ctx) => ({
-    submissions: await ctx.db.query("leadGenSubmissions").take(20),
-    daily: await ctx.db.query("leadGenDailyStats").take(20),
-    teamOrigin: await ctx.db.query("leadGenTeamOriginStats").take(20),
+    submissions: (await ctx.db.query("leadGenSubmissions").take(20)).filter((row) => row.submittedAt >= NOW - 3_600_000),
+    daily: (await ctx.db.query("leadGenDailyStats").take(20)).filter((row) => row.dayKey === DAY_KEY),
+    teamOrigin: (await ctx.db.query("leadGenTeamOriginStats").take(20)).filter((row) => row.dayKey === DAY_KEY),
   }));
 }
 
@@ -47,6 +48,16 @@ it("gives no-team captures, their daily stats and team-origin stats the speciali
   const h = await bookingHarness();
   migrationsTest.register(h.t);
 
+  // One minute before the business day starts (01:00 in Tegucigalpa), so it
+  // belongs to the day before and the rebuild must leave it alone.
+  vi.setSystemTime(Date.parse("2026-08-12T06:59:00Z"));
+  await capture(h, "day.before");
+  vi.setSystemTime(NOW);
+  const dayBefore = await h.t.run((ctx) =>
+    ctx.db.query("leadGenTeamOriginStats").withIndex("by_tenantId_and_dayKey", (q) =>
+      q.eq("tenantId", h.tenantId).eq("dayKey", "2026-08-11")).take(5),
+  );
+  expect(dayBefore).toHaveLength(1);
   // Captured while the specialist had no team.
   await capture(h, "no.team.one");
   await capture(h, "no.team.two");
@@ -96,6 +107,11 @@ it("gives no-team captures, their daily stats and team-origin stats the speciali
   expect(after.daily[0]).toMatchObject({ teamId, submissions: 3, uniqueProspectsSubmitted: 3 });
   expect(after.teamOrigin).toHaveLength(1);
   expect(after.teamOrigin[0]).toMatchObject({ teamId, submissions: 3, uniqueProspectsSubmitted: 3 });
+
+  // The day before wasn't rebuilt: its row is the same document, still with no team.
+  const dayBeforeAfter = await h.t.run((ctx) => ctx.db.get("leadGenTeamOriginStats", dayBefore[0]._id));
+  expect(dayBeforeAfter?.teamId).toBeUndefined();
+  expect(dayBeforeAfter?.submissions).toBe(1);
 
   // Rerunning changes nothing.
   await h.t.mutation(internal.migrations.run, { fn: "migrations:backfillCaptureTeams", reset: true });
