@@ -102,7 +102,15 @@ for (const range of ranges) {
     process.exit(2);
   }
   for (const item of plan) {
-    const convexRaw = convexRun(item.liveName, JSON.parse(item.liveArgsJson), ["--identity", JSON.stringify(identity)]);
+    let convexRaw;
+    try {
+      convexRaw = convexRun(item.liveName, JSON.parse(item.liveArgsJson), ["--identity", JSON.stringify(identity)]);
+    } catch (error) {
+      // A reader that needs a filter the run didn't pass (Leads' fieldKey).
+      failed = true;
+      console.log(`ERROR ${label}  ${item.reportId}: ${String(error.stderr ?? error.message).trim().split("\n").at(-1)}`);
+      continue;
+    }
     // Internal readers (the API's) return their answer as JSON text.
     const convex = typeof convexRaw === "string" ? JSON.parse(convexRaw) : convexRaw;
     const payload = convexRun("analytics/parity:runNew", {

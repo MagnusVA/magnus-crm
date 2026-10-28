@@ -183,7 +183,7 @@ The viewer's time zone is one constant per query, passed as a parameter (`{tz:St
   - `slackQualificationEvents`: `handleSnapshot`
   - `users` and `leadGenWorkers`: `email`
   - `slackUsers`: `username`, `avatarUrl`
-  - notes: `meetings.noShowNote`, `opportunities.notes` and `hostCalendlyEmail`, `paymentRecords.note`, `followUps.reminderNote` and `completionNote`
+  - notes: `meetings.notes` and `noShowNote`, `opportunities.notes` and `hostCalendlyEmail`, `paymentRecords.note`, `followUps.reminderNote` and `completionNote`
 
   Blocking keeps the values already copied, so clear them once with `clickhouse/admin/clear_contact_columns.sql`. Booking form answers stay in `meetingformresponses`, since the Leads reports count them; the `form_answers` view masks the ones that are contact details.
 - **New Convex tables** sync on their own unless the connector blocks them. Before A2 deploys, set new tables to blocked, then allow `analyticsSync`. `analyticsResults` and `apiKeys` never sync.
@@ -315,7 +315,7 @@ Fivetran syncs only the production deployment, so ClickHouse holds only producti
 - **Every PR deploys dark.** Until a page is switched, the only change its users see is the Today default, which works on the old readers too. A page's new path, its Today queries included, runs only when its report id is in `tenants.analyticsReports`, or when the URL has `?analytics=preview`. The preview keeps the page's role checks and counts against the daily budget.
 - **Additive until the narrow.** New ClickHouse objects live in `analytics`, and nothing writes to `convex_app`. Convex gets three new tables and one optional field. Only the switch writes to an existing table (`tenants`), nothing needs a backfill, and nothing is deleted before Phase E.
 - **A page switches in three steps**, right after a sync while ClickHouse is awake:
-  1. `pnpm analytics:parity <page> --tenant <tenantId>` (a page name such as `revenue`) runs every report on the page through its Convex reader and its ClickHouse path, and prints each difference. It checks yesterday, last month and last 90 days unless `--range` names others; Today isn't checked, since it never leaves Convex.
+  1. `pnpm analytics:parity <page> --tenant <tenantId>` (a page name such as `revenue`) runs every report on the page through its Convex reader and its ClickHouse path, and prints each difference. It checks yesterday, last month and last 90 days unless `--range` names others; Today isn't checked, since it never leaves Convex. `--filters` passes a page's filters to every report on it: Leads' answer distribution needs one field, `--filters '{"fieldKey":"<fieldKey>"}'`. A report whose reader fails prints `ERROR` and the run goes on.
   2. Open the page on production with `?analytics=preview` and check each range, the freshness line and the loading states.
   3. `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'`. Open pages switch without a reload.
 - **Rollback needs no deploy.** `analytics/switch:disable` puts a page back on its old reader at once. Removing `CLICKHOUSE_URL` from the production env stops every ClickHouse call, the post-sync batch included.

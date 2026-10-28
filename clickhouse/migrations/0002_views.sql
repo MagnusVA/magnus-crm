@@ -357,10 +357,12 @@ WHERE NOT _fivetran_deleted;
 -- Contact details answered on a booking form never reach the view: an answer
 -- becomes 'Hidden contact detail' when its question's label is one any of the
 -- tenant's event types maps as the phone or social handle field
--- (eventTypeConfigs.customFieldMappings), or when the answer itself looks
--- like an email, a phone number, an @handle or a social profile link. The
--- shape check keeps older answers hidden after a mapping changes. Response
--- counts hold; a masked field shows one answer.
+-- (eventTypeConfigs.customFieldMappings), or when the answer contains an
+-- email address, a run of 7 or more digits, an @handle or a social profile
+-- link anywhere in its text. The content check keeps older answers hidden
+-- after a mapping changes and catches contact details written into free text;
+-- it errs toward hiding (a 7-digit amount is hidden too). Response counts
+-- hold; a masked field shows one answer.
 CREATE OR REPLACE VIEW analytics.form_answers
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 WITH contact_labels AS (
@@ -386,11 +388,10 @@ SELECT
         trimBoth(ifNull(answertext, '')) != ''
             AND (
                 (tenantid, questionlabelsnapshot) IN (SELECT tenantid, label FROM contact_labels)
-                OR match(trimBoth(answertext), '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
-                OR (match(trimBoth(answertext), '^[+0-9 ().-]+$')
-                    AND length(replaceRegexpAll(answertext, '[^0-9]', '')) >= 7)
-                OR match(trimBoth(answertext), '^@[A-Za-z0-9._]{2,}$')
-                OR match(lower(answertext), '(instagram\\.com|tiktok\\.com|facebook\\.com|fb\\.com|twitter\\.com|x\\.com/|wa\\.me|t\\.me/)')
+                OR match(answertext, '[^@\\s]+@[^@\\s]+\\.[A-Za-z]{2,}')
+                OR match(answertext, '[0-9](?:[ ().-]?[0-9]){6,}')
+                OR match(answertext, '(?:^|\\s)@[A-Za-z0-9._]{2,}')
+                OR match(lower(answertext), '(?:instagram\\.com|tiktok\\.com|facebook\\.com|fb\\.com|twitter\\.com|x\\.com/|wa\\.me|t\\.me/)')
             ),
         'Hidden contact detail',
         answertext
