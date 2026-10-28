@@ -7,12 +7,14 @@ import {
   slackQualificationsByTime,
   slackQualificationsByUser,
 } from "./aggregates";
+import type { BusinessDaySetting } from "../../lib/businessDay";
 import {
   buildBusinessPeriods,
   businessDateToUtcStart,
   countBusinessDays,
   reportGranularityValidator,
   type BusinessPeriod,
+  type ReportGranularity,
 } from "./lib/hondurasBusinessTime";
 import {
   listQualificationEventsForRange,
@@ -56,6 +58,47 @@ type SetterContributionRow = {
   lastQualifiedAt: number | null;
 };
 
+export type QualificationReportArgs = {
+  startBusinessDate: string;
+  endBusinessDateExclusive: string;
+  granularity: ReportGranularity;
+  slackUserId?: string;
+};
+
+export type SetterQualificationSummary = QualificationEventSummary & {
+  lastQualifiedAt: number;
+};
+
+/**
+ * The range's qualification events, summarized for the report: in total, by
+ * period (keyed by the period's start), and by setter.
+ */
+export type QualificationReportCounts = {
+  summary: QualificationEventSummary;
+  byPeriodStart: Map<number, QualificationEventSummary>;
+  bySlackUserId: Map<string, SetterQualificationSummary>;
+  eventsTruncated: boolean;
+  legacyOpportunityAggregateCount: number;
+};
+
+function qualificationReportRange(args: QualificationReportArgs, setting: BusinessDaySetting) {
+  return {
+    periods: buildBusinessPeriods({
+      startBusinessDate: args.startBusinessDate,
+      endBusinessDateExclusive: args.endBusinessDateExclusive,
+      granularity: args.granularity,
+      setting,
+    }),
+    rangeStart: businessDateToUtcStart(args.startBusinessDate, setting),
+    rangeEnd: businessDateToUtcStart(args.endBusinessDateExclusive, setting),
+  };
+}
+
+/** The report's periods, for the ClickHouse report to group by. */
+export function qualificationReportPeriods(args: QualificationReportArgs, setting: BusinessDaySetting) {
+  return qualificationReportRange(args, setting).periods;
+}
+
 export const getQualificationReport = query({
   args: {
     startBusinessDate: v.string(),
@@ -69,43 +112,11 @@ export const getQualificationReport = query({
       "tenant_admin",
     ]);
 
-    const tenant = await ctx.db.get("tenants", tenantId);
-    if (!tenant) {
-      throw new Error("Tenant not found.");
-    }
-
     const selectedSlackUserId = args.slackUserId?.trim() || undefined;
-    const periods = buildBusinessPeriods({
-      startBusinessDate: args.startBusinessDate,
-      endBusinessDateExclusive: args.endBusinessDateExclusive,
-      granularity: args.granularity,
-      setting: await getTenantBusinessDay(ctx, tenantId),
-    });
-    const rangeStart = businessDateToUtcStart(args.startBusinessDate, await getTenantBusinessDay(ctx, tenantId));
-    const rangeEnd = businessDateToUtcStart(args.endBusinessDateExclusive, await getTenantBusinessDay(ctx, tenantId));
-    const businessDayCount = countBusinessDays(
-      args.startBusinessDate,
-      args.endBusinessDateExclusive,
+    const { periods, rangeStart, rangeEnd } = qualificationReportRange(
+      args,
+      await getTenantBusinessDay(ctx, tenantId),
     );
-    const teamDailyGoal = tenant.slackQualificationDailyTeamQuota ?? null;
-
-    const setterResult = await listTenantSlackSetters(ctx, tenantId);
-    const selectedSetter = selectedSlackUserId
-      ? setterResult.setters.find(
-          (setter) => setter.slackUserId === selectedSlackUserId,
-        )
-      : null;
-
-    if (selectedSlackUserId && !selectedSetter) {
-      throw new Error("Slack setter not found.");
-    }
-
-    const visibleSetters = selectedSlackUserId
-      ? selectedSetter
-        ? [selectedSetter]
-        : []
-      : setterResult.setters;
-    const isTeamView = selectedSlackUserId === undefined;
 
     const eventResult = await listQualificationEventsForRange(ctx, {
       tenantId,
@@ -117,22 +128,6 @@ export const getQualificationReport = query({
       ctx,
       eventResult.rows,
     );
-    const eventSummary = summarizeQualificationEvents(
-      eventResult.rows,
-      opportunityById,
-    );
-    const periodCounts = countPeriods({
-      periods,
-      teamDailyGoal,
-      qualificationEvents: eventResult.rows,
-      opportunityById,
-    });
-    const userCounts = countUsersForRange({
-      setters: visibleSetters,
-      qualificationEvents: eventResult.rows,
-      opportunityById,
-      includeContributionShare: isTeamView,
-    });
     const legacyOpportunityAggregateCount =
       await countLegacyOpportunityAggregate(ctx, {
         tenantId,
@@ -141,34 +136,130 @@ export const getQualificationReport = query({
         slackUserId: selectedSlackUserId,
       });
 
-    return {
-      timezone: (await getTenantBusinessDay(ctx, tenantId)).timeZone,
-      businessDayStartsAtHour: (await getTenantBusinessDay(ctx, tenantId)).dayStartHour,
-      startBusinessDate: args.startBusinessDate,
-      endBusinessDateExclusive: args.endBusinessDateExclusive,
-      granularity: args.granularity,
-      setting: await getTenantBusinessDay(ctx, tenantId),
-      selectedSlackUserId: selectedSlackUserId ?? null,
-      teamGoal: {
-        dailyTeamQualificationGoal: teamDailyGoal,
-      },
-      setters: setterResult.setters.map(toSetterOption),
-      settersTruncated: setterResult.truncated,
-      periods: periodCounts,
-      users: userCounts,
-      totals: summarizeReport({
-        periodCounts,
-        userCounts,
-        businessDayCount,
-        teamDailyGoal,
-        isTeamView,
-        eventSummary,
-        eventsTruncated: eventResult.truncated,
-        legacyOpportunityAggregateCount,
-      }),
-    };
+    return await buildQualificationReport(ctx, tenantId, args, {
+      summary: summarizeQualificationEvents(eventResult.rows, opportunityById),
+      byPeriodStart: new Map(
+        periods.map((period) => [
+          period.start,
+          summarizeQualificationEvents(
+            eventResult.rows.filter(
+              (event) =>
+                event.submittedAt >= period.start && event.submittedAt < period.end,
+            ),
+            opportunityById,
+          ),
+        ]),
+      ),
+      bySlackUserId: summarizeBySetter(eventResult.rows, opportunityById),
+      eventsTruncated: eventResult.truncated,
+      legacyOpportunityAggregateCount,
+    });
   },
 });
+
+function summarizeBySetter(
+  qualificationEvents: Doc<"slackQualificationEvents">[],
+  opportunityById: Map<Id<"opportunities">, Doc<"opportunities">>,
+): Map<string, SetterQualificationSummary> {
+  const eventsBySlackUserId = new Map<string, Doc<"slackQualificationEvents">[]>();
+  for (const event of qualificationEvents) {
+    const existing = eventsBySlackUserId.get(event.slackUserId) ?? [];
+    existing.push(event);
+    eventsBySlackUserId.set(event.slackUserId, existing);
+  }
+  return new Map(
+    [...eventsBySlackUserId].map(([slackUserId, events]) => [
+      slackUserId,
+      {
+        ...summarizeQualificationEvents(events, opportunityById),
+        lastQualifiedAt: Math.max(...events.map((event) => event.submittedAt)),
+      },
+    ]),
+  );
+}
+
+/**
+ * The Slack Qualifications report from the range's summarized events. Shared
+ * by the Convex reader and the ClickHouse report
+ * (convex/analytics/definitions/slackQualifications.ts).
+ */
+export async function buildQualificationReport(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  args: QualificationReportArgs,
+  counts: QualificationReportCounts,
+) {
+  const tenant = await ctx.db.get("tenants", tenantId);
+  if (!tenant) {
+    throw new Error("Tenant not found.");
+  }
+
+  const setting = await getTenantBusinessDay(ctx, tenantId);
+  const selectedSlackUserId = args.slackUserId?.trim() || undefined;
+  const { periods } = qualificationReportRange(args, setting);
+  const businessDayCount = countBusinessDays(
+    args.startBusinessDate,
+    args.endBusinessDateExclusive,
+  );
+  const teamDailyGoal = tenant.slackQualificationDailyTeamQuota ?? null;
+
+  const setterResult = await listTenantSlackSetters(ctx, tenantId);
+  const selectedSetter = selectedSlackUserId
+    ? setterResult.setters.find(
+        (setter) => setter.slackUserId === selectedSlackUserId,
+      )
+    : null;
+
+  if (selectedSlackUserId && !selectedSetter) {
+    throw new Error("Slack setter not found.");
+  }
+
+  const visibleSetters = selectedSlackUserId
+    ? selectedSetter
+      ? [selectedSetter]
+      : []
+    : setterResult.setters;
+  const isTeamView = selectedSlackUserId === undefined;
+
+  const periodCounts = countPeriods({
+    periods,
+    teamDailyGoal,
+    byPeriodStart: counts.byPeriodStart,
+  });
+  const userCounts = countUsersForRange({
+    setters: visibleSetters,
+    bySlackUserId: counts.bySlackUserId,
+    visibleTotal: counts.summary.qualificationEventCount,
+    includeContributionShare: isTeamView,
+  });
+
+  return {
+    timezone: setting.timeZone,
+    businessDayStartsAtHour: setting.dayStartHour,
+    startBusinessDate: args.startBusinessDate,
+    endBusinessDateExclusive: args.endBusinessDateExclusive,
+    granularity: args.granularity,
+    setting,
+    selectedSlackUserId: selectedSlackUserId ?? null,
+    teamGoal: {
+      dailyTeamQualificationGoal: teamDailyGoal,
+    },
+    setters: setterResult.setters.map(toSetterOption),
+    settersTruncated: setterResult.truncated,
+    periods: periodCounts,
+    users: userCounts,
+    totals: summarizeReport({
+      periodCounts,
+      userCounts,
+      businessDayCount,
+      teamDailyGoal,
+      isTeamView,
+      eventSummary: counts.summary,
+      eventsTruncated: counts.eventsTruncated,
+      legacyOpportunityAggregateCount: counts.legacyOpportunityAggregateCount,
+    }),
+  };
+}
 
 export const setTeamDailyGoal = mutation({
   args: {
@@ -202,22 +293,27 @@ export const setTeamDailyGoal = mutation({
   },
 });
 
+const EMPTY_SUMMARY: QualificationEventSummary = {
+  qualificationEventCount: 0,
+  uniqueLinkedOpportunityCount: 0,
+  uniqueSlackOpportunityCount: 0,
+  createdOpportunityEvents: 0,
+  duplicatePendingEvents: 0,
+  alreadyBookedEvents: 0,
+  unlinkedEvents: 0,
+};
+
 function countPeriods(args: {
   periods: BusinessPeriod[];
   teamDailyGoal: number | null;
-  qualificationEvents: Doc<"slackQualificationEvents">[];
-  opportunityById: Map<Id<"opportunities">, Doc<"opportunities">>;
+  byPeriodStart: Map<number, QualificationEventSummary>;
 }): PeriodReportRow[] {
   if (args.periods.length === 0) {
     return [];
   }
 
   return args.periods.map((period) => {
-    const periodEvents = args.qualificationEvents.filter(
-      (event) =>
-        event.submittedAt >= period.start && event.submittedAt < period.end,
-    );
-    const summary = summarizeQualificationEvents(periodEvents, args.opportunityById);
+    const summary = args.byPeriodStart.get(period.start) ?? EMPTY_SUMMARY;
     const qualifiedCount = summary.qualificationEventCount;
     const expectedTeamCount =
       args.teamDailyGoal === null ? null : args.teamDailyGoal * period.goalDays;
@@ -237,26 +333,20 @@ function countPeriods(args: {
 
 function countUsersForRange(args: {
   setters: SlackSetter[];
-  qualificationEvents: Doc<"slackQualificationEvents">[];
-  opportunityById: Map<Id<"opportunities">, Doc<"opportunities">>;
+  bySlackUserId: Map<string, SetterQualificationSummary>;
+  visibleTotal: number;
   includeContributionShare: boolean;
 }): SetterContributionRow[] {
   if (args.setters.length === 0) {
     return [];
   }
 
-  const eventsBySlackUserId = new Map<string, Doc<"slackQualificationEvents">[]>();
-  for (const event of args.qualificationEvents) {
-    const existing = eventsBySlackUserId.get(event.slackUserId) ?? [];
-    existing.push(event);
-    eventsBySlackUserId.set(event.slackUserId, existing);
-  }
-  const visibleTotal = args.qualificationEvents.length;
+  const visibleTotal = args.visibleTotal;
 
   return args.setters
     .map((setter) => {
-      const events = eventsBySlackUserId.get(setter.slackUserId) ?? [];
-      const summary = summarizeQualificationEvents(events, args.opportunityById);
+      const setterSummary = args.bySlackUserId.get(setter.slackUserId);
+      const summary = setterSummary ?? EMPTY_SUMMARY;
       return {
         slackUserId: setter.slackUserId,
         slackTeamId: setter.slackTeamId,
@@ -275,10 +365,7 @@ function countUsersForRange(args: {
           args.includeContributionShare && visibleTotal > 0
             ? summary.qualificationEventCount / visibleTotal
             : null,
-        lastQualifiedAt:
-          events.length > 0
-            ? Math.max(...events.map((event) => event.submittedAt))
-            : null,
+        lastQualifiedAt: setterSummary?.lastQualifiedAt ?? null,
       };
     })
     .sort((left, right) => {

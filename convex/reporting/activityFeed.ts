@@ -357,12 +357,14 @@ export async function readScannedActivitySummary(
   };
 }
 
+export const ACTIVITY_SUMMARY_USER_LIMIT = 500;
+
 export async function readAggregateActivitySummary(
   ctx: QueryCtx,
   tenant: Doc<"tenants">,
   startDate: number,
   endDate: number,
-  userLimit = 500,
+  userLimit = ACTIVITY_SUMMARY_USER_LIMIT,
   countRangeLimit = MAX_AGGREGATE_COUNT_RANGES,
 ) {
   const tenantId = tenant._id;
@@ -386,6 +388,20 @@ export async function readAggregateActivitySummary(
     endDate,
     keys,
   );
+  return await buildAggregateActivitySummary(ctx, users, rows);
+}
+
+/**
+ * The summary from the activityEventCounts rows for the range, one per key of
+ * `activityCountKeys`. Shared by the aggregate read and the ClickHouse report
+ * (convex/analytics/definitions/activity.ts), which counts the same rows from
+ * the events.
+ */
+export async function buildAggregateActivitySummary(
+  ctx: QueryCtx,
+  users: Array<Doc<"users">>,
+  rows: Array<{ dimension: string; value: string; count: number }>,
+) {
   const dimension = (name: string) =>
     Object.fromEntries(
       rows
