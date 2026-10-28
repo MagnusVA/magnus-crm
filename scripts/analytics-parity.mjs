@@ -19,7 +19,7 @@
 // deploy key first if .env.local holds a dev one; the script stops otherwise.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { parseEnv } from "node:util";
+import { parse as parseDotenv } from "dotenv";
 
 const args = process.argv.slice(2);
 const page = args.find((arg) => !arg.startsWith("--"));
@@ -50,9 +50,11 @@ function deployKey() {
     } catch {
       continue;
     }
-    // Parsed as the CLI's dotenv parses it: `export`, quotes, comments, and
-    // the last line wins. The first file that sets the key wins, even empty.
-    const values = parseEnv(text);
+    // With dotenv 16, the parser the Convex CLI bundles: `export`, quotes,
+    // comments, and the last line wins. Node's parseEnv differs (a blank value
+    // can swallow the next line). The first file that sets the key wins, even
+    // empty.
+    const values = parseDotenv(text);
     if (Object.hasOwn(values, "CONVEX_DEPLOY_KEY")) {
       return values.CONVEX_DEPLOY_KEY ? { key: values.CONVEX_DEPLOY_KEY, source: file } : null;
     }
