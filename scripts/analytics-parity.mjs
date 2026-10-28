@@ -89,15 +89,62 @@ function valueAt(root, path) {
   return value;
 }
 
+/** A field's top answer, its count and its share, when ClickHouse hid it. */
 function isMaskedDifference(clickhouse, path) {
-  // A field's top answer, its count and its share, when ClickHouse hid it.
   const field = path.match(/^(topAnswerPerField\[\d+\])\.(topAnswer|topAnswerCount|topAnswerShare)$/);
-  if (field) return valueAt(clickhouse, `${field[1]}.topAnswer`) === MASKED_ANSWER;
-  // A masked field's distribution: its answers, not its total.
-  if (/^(distribution|distinctAnswers)\b/.test(path)) {
-    return (clickhouse?.distribution ?? []).some((entry) => entry?.answer === MASKED_ANSWER);
+  return field !== null && valueAt(clickhouse, `${field[1]}.topAnswer`) === MASKED_ANSWER;
+}
+
+/**
+ * An answer distribution, compared by answer: every answer ClickHouse shows
+ * must have Convex's count, and the answers it hid must add up to its
+ * `Hidden contact detail` count. An answer that changed or went missing for
+ * another reason still fails.
+ */
+function distributionDifferences(convex, clickhouse) {
+  const out = [];
+  const left = new Map((convex?.distribution ?? []).map((entry) => [entry.answer, entry.count]));
+  const right = new Map((clickhouse?.distribution ?? []).map((entry) => [entry.answer, entry.count]));
+  const maskedCount = right.get(MASKED_ANSWER) ?? 0;
+  let hiddenCount = 0;
+  let hiddenAnswers = 0;
+  for (const [answer, count] of left) {
+    if (!right.has(answer)) {
+      hiddenCount += count;
+      hiddenAnswers += 1;
+    } else if (right.get(answer) !== count) {
+      out.push({ path: `distribution[${JSON.stringify(answer)}]`, convex: count, clickhouse: right.get(answer) });
+    }
   }
-  return false;
+  for (const [answer, count] of right) {
+    if (answer !== MASKED_ANSWER && !left.has(answer)) {
+      out.push({ path: `distribution[${JSON.stringify(answer)}]`, convex: undefined, clickhouse: count });
+    }
+  }
+  if (hiddenCount !== maskedCount) {
+    out.push({ path: `distribution[${JSON.stringify(MASKED_ANSWER)}]`, convex: hiddenCount, clickhouse: maskedCount });
+  }
+  const expectedDistinct = (convex?.distinctAnswers ?? left.size) - hiddenAnswers + (maskedCount > 0 ? 1 : 0);
+  if (clickhouse?.distinctAnswers !== expectedDistinct) {
+    out.push({ path: "distinctAnswers", convex: expectedDistinct, clickhouse: clickhouse?.distinctAnswers });
+  }
+  return out;
+}
+
+function withoutKeys(value, keys) {
+  return Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => !keys.includes(key)));
+}
+
+/** Every difference, masked ones excluded; the caller limits what it prints. */
+function reportDifferences(convex, clickhouse) {
+  if (Array.isArray(clickhouse?.distribution)) {
+    const keys = ["distribution", "distinctAnswers"];
+    return [
+      ...distributionDifferences(convex, clickhouse),
+      ...differences(withoutKeys(convex, keys), withoutKeys(clickhouse, keys), "", [], Number.POSITIVE_INFINITY),
+    ];
+  }
+  return differences(convex, clickhouse, "", [], Number.POSITIVE_INFINITY);
 }
 
 // Default only when there's exactly one tenant, so a run never checks the
@@ -146,15 +193,17 @@ for (const range of ranges) {
       range: item.range,
     });
     const clickhouse = typeof payload === "string" ? JSON.parse(payload) : payload;
-    const all = differences(convex, clickhouse, "", [], 200);
+    const all = reportDifferences(convex, clickhouse);
     const masked = all.filter((entry) => isMaskedDifference(clickhouse, entry.path));
-    const diff = all.filter((entry) => !isMaskedDifference(clickhouse, entry.path)).slice(0, 20);
+    const unmasked = all.filter((entry) => !isMaskedDifference(clickhouse, entry.path));
+    const diff = unmasked.slice(0, 20);
     if (diff.length === 0) {
       console.log(`ok    ${label}  ${item.reportId}${masked.length ? `  (${masked.length} masked contact answers)` : ""}`);
       continue;
     }
     failed = true;
     console.log(`DIFF  ${label}  ${item.reportId}`);
+    if (unmasked.length > diff.length) console.log(`      (${unmasked.length - diff.length} more)`);
     for (const entry of diff) {
       console.log(`      ${entry.path || "(root)"}: convex=${JSON.stringify(entry.convex)} clickhouse=${JSON.stringify(entry.clickhouse)}`);
     }
