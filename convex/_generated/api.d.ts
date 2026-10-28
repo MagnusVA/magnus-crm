@@ -40,6 +40,7 @@ import type * as analytics_definitions_slackQualifications from "../analytics/de
 import type * as analytics_definitions_team from "../analytics/definitions/team.js";
 import type * as analytics_keys from "../analytics/keys.js";
 import type * as analytics_parity from "../analytics/parity.js";
+import type * as analytics_pool from "../analytics/pool.js";
 import type * as analytics_registry from "../analytics/registry.js";
 import type * as analytics_reports from "../analytics/reports.js";
 import type * as analytics_results from "../analytics/results.js";
@@ -467,6 +468,7 @@ declare const fullApi: ApiFromModules<{
   "analytics/definitions/team": typeof analytics_definitions_team;
   "analytics/keys": typeof analytics_keys;
   "analytics/parity": typeof analytics_parity;
+  "analytics/pool": typeof analytics_pool;
   "analytics/registry": typeof analytics_registry;
   "analytics/reports": typeof analytics_reports;
   "analytics/results": typeof analytics_results;
@@ -885,6 +887,7 @@ export declare const internal: FilterApi<
 export declare const components: {
   webhookWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"webhookWorkpool">;
   reportingWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"reportingWorkpool">;
+  analyticsWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"analyticsWorkpool">;
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
   posthog: import("@posthog/convex/_generated/component.js").ComponentApi<"posthog">;

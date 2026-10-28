@@ -10,9 +10,15 @@
 //
 // Pages: revenue, team, pipeline, leads, activity, reminders,
 // slack_qualifications, sales_calls, booked_calls, qualifications, lead_gen,
-// overview, my_activity, and api for the external API's metrics. With no --range it checks yesterday, last_month and
-// last_90_days. Exits 1 when any report differs.
+// overview, my_activity, and api for the external API's metrics. With no
+// --range it checks yesterday, last_month and last_90_days. Exits 1 when any
+// report differs.
+//
+// The Convex CLI ignores --prod when CONVEX_DEPLOY_KEY is set, in the shell or
+// in .env.local, and runs against the key's deployment. Export the production
+// deploy key first if .env.local holds a dev one; the script stops otherwise.
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const page = args.find((arg) => !arg.startsWith("--"));
@@ -27,7 +33,37 @@ function option(name) {
   });
   return values;
 }
-const deployment = args.includes("--dev") ? [] : ["--prod"];
+const dev = args.includes("--dev");
+const deployment = dev ? [] : ["--prod"];
+
+/** The deploy key the CLI will use, and where it came from, or null. */
+function deployKey() {
+  // An exported value wins over the files, even an empty one.
+  if (process.env.CONVEX_DEPLOY_KEY !== undefined) {
+    return process.env.CONVEX_DEPLOY_KEY ? { key: process.env.CONVEX_DEPLOY_KEY, source: "the shell" } : null;
+  }
+  for (const file of [".env.local", ".env"]) {
+    let text;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const line = text.split("\n").find((entry) => entry.startsWith("CONVEX_DEPLOY_KEY="));
+    const key = line?.slice("CONVEX_DEPLOY_KEY=".length).trim().replace(/^["']|["']$/g, "");
+    if (key) return { key, source: file };
+  }
+  return null;
+}
+const found = deployKey();
+if (found && found.key.startsWith("prod:") === dev) {
+  const target = found.key.split("|")[0];
+  console.error(
+    `CONVEX_DEPLOY_KEY from ${found.source} is for ${target}, and the Convex CLI uses it instead of ${dev ? "the dev deployment" : "--prod"}. ` +
+      `Export the ${dev ? "dev" : "production"} deploy key in this shell and run it again.`,
+  );
+  process.exit(2);
+}
 const timeZone = option("tz")[0] ?? "America/Tegucigalpa";
 const filtersJson = option("filters")[0];
 const ranges = (option("range").length > 0 ? option("range") : ["yesterday", "last_month", "last_90_days"]).map(
@@ -47,6 +83,15 @@ function convexRun(name, fnArgs, extra = []) {
   // The CLI prints the return value last; function logs, if any, come first.
   const start = output.search(/^[[{"]/m);
   return JSON.parse(start === -1 ? output : output.slice(start));
+}
+
+/** The useful line of a failed CLI call: the server's error, or the last line. */
+function errorLine(error) {
+  const lines = String(error.stderr ?? error.message)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.find((line) => line.startsWith("Uncaught ")) ?? lines.at(-1);
 }
 
 const EPSILON = 1e-6;
@@ -185,23 +230,37 @@ for (const range of ranges) {
     process.exit(2);
   }
   for (const item of plan) {
+    if (item.error) {
+      // A filter the report needs and has no default for (Leads' fieldKey).
+      failed = true;
+      console.log(`ERROR ${label}  ${item.reportId}: ${item.error} Pass its filters with --filters.`);
+      continue;
+    }
     let convexRaw;
     try {
       convexRaw = convexRun(item.liveName, JSON.parse(item.liveArgsJson), ["--identity", JSON.stringify(identity)]);
     } catch (error) {
-      // A reader that needs a filter the run didn't pass (Leads' fieldKey).
+      // Production hides a public function's error; its request ID finds it
+      // in `npx convex logs --prod`.
       failed = true;
-      console.log(`ERROR ${label}  ${item.reportId}: ${String(error.stderr ?? error.message).trim().split("\n").at(-1)}`);
+      console.log(`ERROR ${label}  ${item.reportId} (Convex reader): ${errorLine(error)}`);
       continue;
     }
     // Internal readers (the API's) return their answer as JSON text.
     const convex = typeof convexRaw === "string" ? JSON.parse(convexRaw) : convexRaw;
-    const payload = convexRun("analytics/parity:runNew", {
-      tenantId,
-      reportId: item.reportId,
-      filtersJson: item.filtersJson,
-      range: item.range,
-    });
+    let payload;
+    try {
+      payload = convexRun("analytics/parity:runNew", {
+        tenantId,
+        reportId: item.reportId,
+        filtersJson: item.filtersJson,
+        range: item.range,
+      });
+    } catch (error) {
+      failed = true;
+      console.log(`ERROR ${label}  ${item.reportId} (ClickHouse): ${errorLine(error)}`);
+      continue;
+    }
     const clickhouse = typeof payload === "string" ? JSON.parse(payload) : payload;
     const all = reportDifferences(convex, clickhouse);
     const masked = all.filter((entry) => isMaskedDifference(convex, clickhouse, entry.path));

@@ -1,6 +1,6 @@
 # ClickHouse reporting layer
 
-Status: built on branch `t3/clickhouse-reporting-layer-plan` (2026-10-28): the engine, the views, every page in Phase B and the API (Phase C). Nothing is deployed and no page is switched; §12.3 is the rollout. One change from the budget: answers live in a fourth table, `analyticsPayloads`, so the budget, batch and cleanup scans never read large payloads. Phases D (exports) and E (narrow) are still to do. Only production feeds ClickHouse, so every ClickHouse check runs on production, and each page ships dark behind a per-page switch (§12.1). CSV export limits are still to be agreed (§10).
+Status: deployed 2026-10-28 (PR #211) with the engine, the views, every page in Phase B and the API (Phase C), and every report page is switched for the one tenant (§12.3). One change from the budget: answers live in a fourth table, `analyticsPayloads`, so the budget, batch and cleanup scans never read large payloads. Phases D (exports) and E (narrow) are still to do. Only production feeds ClickHouse, so every ClickHouse check runs on production, and each page ships dark behind a per-page switch (§12.1). CSV export limits are still to be agreed (§10).
 
 Terms follow [`CONTEXT.md`](../../CONTEXT.md) and [ADR 0001](../adr/0001-lead-lifecycle-model.md). This file holds IDs, counts and table names only. It contains no personal data.
 
@@ -98,7 +98,7 @@ The service runs only while something uses it, so this plan creates no reason to
 - **How Convex hears that a sync ended**: Fivetran's `sync_end` webhook, sent to a signed Convex HTTP route. If the webhook isn't on our Fivetran plan, a 5-minute Convex cron calls `GET https://api.fivetran.com/v1/connections/{id}` and compares `succeeded_at`. That's Fivetran's API, which costs nothing on ClickHouse.
 - **Idle timeout**: set ClickHouse Cloud's idle timeout to its minimum (A1). The post-sync batch has to start within it, which the webhook ensures. The 5-minute poll may miss it and add one wake per sync.
 - **Mart rebuilds**: none to start. Reports query views over the raw tables (§7.1). A mart rebuilt per sync is added only for a query that A1 measures over 2 s. It's rebuilt inside the post-sync batch, so it adds no wake.
-- **On-demand misses**: a per-tenant budget of 30 uncached ClickHouse queries a day across the UI and the API. Past that, an uncached range waits for the next sync's batch and shows "Will be ready after the next refresh (~20:30)".
+- **On-demand misses**: no daily limit unless `ANALYTICS_DAILY_RUN_BUDGET` sets one per tenant, across the UI and the API. Past it, an uncached range waits for the next sync's batch and shows "Will be ready after the next refresh". The first budget, 30, ran out on the day the pages switched: a page starts one run per panel, so one look at Lead Gen took 8.
 - **Optional: Convex starts the sync.** Fivetran's `POST /v1/connections/{id}/sync` lets a Convex cron trigger syncs at fixed times. A sync just after midnight in the team's time zone would make Yesterday complete at the start of the day. With today's schedule, the 08:30 UTC sync (02:30 Honduras) already does that. **(Later, if wanted.)**
 
 ## 6. Today in Convex
@@ -186,7 +186,7 @@ The viewer's time zone is one constant per query, passed as a parameter (`{tz:St
   - notes: `meetings.notes` and `noShowNote`, `opportunities.notes` and `hostCalendlyEmail`, `paymentRecords.note`, `followUps.reminderNote` and `completionNote`
 
   Blocking keeps the values already copied, so clear them once with `clickhouse/admin/clear_contact_columns.sql`. Booking form answers stay in `meetingformresponses`, since the Leads reports count them; the `form_answers` view masks the ones that are contact details.
-- **New Convex tables** sync on their own unless the connector blocks them. Before A2 deploys, set new tables to blocked, then allow `analyticsSync`. `analyticsResults` and `apiKeys` never sync.
+- **New Convex tables** sync on their own unless the connector blocks them. Before A2 deploys, set new tables to blocked, then allow `analyticsSync`. `analyticsResults`, `analyticsPayloads`, `apiKeys` and the `analyticsWorkpool` component never sync.
 - **Values already synced.** Blocking or hashing a column stops new values. A1 checks whether the plain values already in ClickHouse stay, and whether hashing a synced column re-syncs its table. Any that stay get dropped by hand.
 - **Confirm deletes** (A1): delete a test row in Convex and check whether the next sync marks `_fivetran_deleted`. The daily cleanup crons and deal deletions in merges depend on it.
 
@@ -220,7 +220,7 @@ If `lastSyncEndedAt` is more than 8 hours old, the cron reports `analytics.sync_
 `analyticsResults`: `tenantId`, `reportId`, `argsKey` (filters, preset or custom dates, and time zone; never millisecond bounds, so the key stays stable across days), `watermark`, `status` (`pending`, `ready`, `failed`), `payload`, `requestedAt`, `completedAt`, `lastRequestedAt`. Indexed by `["tenantId", "reportId", "argsKey", "watermark"]`.
 
 1. **Read.** A non-Today range calls `useQuery(api.analytics.reports.get, { reportId, args })`. The query checks auth and permission and returns the newest `ready` result for the key. If that result predates the current watermark, it's still shown, with "refreshing".
-2. **Miss.** If no result exists, the client calls `api.analytics.reports.request` (a mutation). It records `lastRequestedAt`, inserts a `pending` row unless one exists (that deduplicates concurrent misses), checks the daily budget (§5), and schedules `runReport`. The reactive query shows the result when it lands. A cold start can take tens of seconds, so the panel says "Loading from the reporting database…".
+2. **Miss.** If no result exists, the client calls `api.analytics.reports.request` (a mutation). It records `lastRequestedAt`, inserts a `pending` row unless one exists (that deduplicates concurrent misses), checks the daily budget if one is set (§5), and enqueues `runReport` on `analyticsPool`. The pool runs 2 at a time, so a page's panels and the batch's 2 stay within `magnus_app`'s 4 simultaneous queries. The reactive query shows the result when it lands. A cold start can take tens of seconds, so the panel says "Loading from the reporting database…".
 3. **Post-sync batch** (`runPostSyncBatch`, started by the webhook or the poll): read the watermark, rebuild any marts, then run `runReport` for every key requested in the last 7 days, two at a time, capped at 300 keys per tenant. Each preset key is recomputed for the new watermark ("This month" now ends at the new watermark). At current volumes that's a few dozen queries, a minute or two of the time ClickHouse is awake anyway. The API's `analytics.refreshed` webhook goes out at the end.
 4. **Cleanup.** A daily cron deletes results older than the previous watermark, and keys unrequested for 14 days.
 
@@ -255,7 +255,7 @@ The batch, the dedupe, the budget and showing the last result while it refreshes
   ```
 
   `/today` returns `"source": "live"`. Responses carry an `ETag` (a hash of the watermark and the arguments) and `Cache-Control: private, max-age=300`.
-- **Cost**: `/metrics` reads `analyticsResults`. A miss counts against the same daily budget as the UI (§5). It waits up to 25 s, then returns `202` with `Retry-After`, and the result lands in the cache. The post-sync batch recomputes keys the API asked for, so a dashboard that pulls after each `analytics.refreshed` webhook never wakes ClickHouse.
+- **Cost**: `/metrics` reads `analyticsResults`. A miss counts against the same daily budget as the UI, when one is set (§5). It waits up to 25 s, then returns `202` with `Retry-After`, and the result lands in the cache. The post-sync batch recomputes keys the API asked for, so a dashboard that pulls after each `analytics.refreshed` webhook never wakes ClickHouse.
 - **Push**: an optional webhook per key, `analytics.refreshed`, signed with HMAC-SHA256 over the timestamp and body.
 - An OpenAPI 3.1 spec lives in the repo and defines every metric in plain words.
 
@@ -315,7 +315,7 @@ Fivetran syncs only the production deployment, so ClickHouse holds only producti
 - **Every PR deploys dark.** Until a page is switched, the only change its users see is the Today default, which works on the old readers too. A page's new path, its Today queries included, runs only when its report id is in `tenants.analyticsReports`, or when the URL has `?analytics=preview`. The preview keeps the page's role checks and counts against the daily budget.
 - **Additive until the narrow.** New ClickHouse objects live in `analytics`, and nothing writes to `convex_app`. Convex gets three new tables and one optional field. Only the switch writes to an existing table (`tenants`), nothing needs a backfill, and nothing is deleted before Phase E.
 - **A page switches in three steps**, right after a sync while ClickHouse is awake:
-  1. `pnpm analytics:parity <page> --tenant <tenantId>` (a page name such as `revenue`) runs every report on the page through its Convex reader and its ClickHouse path, and prints each difference. It checks yesterday, last month and last 90 days unless `--range` names others; Today isn't checked, since it never leaves Convex. `--filters` passes a page's filters to every report on it: Leads' answer distribution needs one field, `--filters '{"fieldKey":"<fieldKey>"}'`. A report whose reader fails prints `ERROR` and the run goes on.
+  1. `pnpm analytics:parity <page> --tenant <tenantId>` (a page name such as `revenue`) runs every report on the page through its Convex reader and its ClickHouse path, and prints each difference. It checks yesterday, last month and last 90 days unless `--range` names others; Today isn't checked, since it never leaves Convex. `--filters` passes a page's filters to every report on it: Each report's filters are parsed as the page parses them, defaults included. Leads' answer distribution needs one field, `--filters '{"fieldKey":"<fieldKey>"}'`, and Overview's leaderboard a `kind`. A report whose filters don't parse, or whose reader or ClickHouse query fails, prints `ERROR` and the run goes on. My Activity runs as the tenant owner, who has no lead gen worker, so its check compares two empty answers.
   2. Open the page on production with `?analytics=preview` and check each range, the freshness line and the loading states.
   3. `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'`. Open pages switch without a reload.
 - **Rollback needs no deploy.** `analytics/switch:disable` puts a page back on its old reader at once. Removing `CLICKHOUSE_URL` from the production env stops every ClickHouse call, the post-sync batch included.
@@ -369,7 +369,7 @@ In this order. Production is `usable-guineapig-697`; its HTTP actions are at `ht
 2. **Deploy the branch.** The ClickHouse env vars are optional, so the deploy works without them. The first heartbeat creates `analyticsSync`.
 3. **Fivetran, after the deploy.**
    - Enable the new `analyticsSync` table.
-   - Keep `analyticsResults` and `apiKeys` blocked.
+   - Keep `analyticsResults`, `analyticsPayloads` and `apiKeys` blocked.
    - Let the next sync run, or start one.
 4. **ClickHouse, right after that sync.** In the SQL console as the admin user, or with `pnpm ch:migrate`:
    1. `clickhouse/migrations/0001_analytics_database.sql`

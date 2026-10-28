@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { env, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { businessDateForInstant, type BusinessDaySetting } from "../../lib/businessDay";
 import { analyticsRangeDates, type ResolvedAnalyticsRange } from "../../lib/analyticsRange";
 import { isClickHouseConfigured } from "./clickhouse";
+import { analyticsPool } from "./pool";
 import { getReportDefinition } from "./registry";
 import { analyticsRangeValidator } from "./schema";
 
@@ -16,8 +17,6 @@ export const REQUEST_TOUCH_INTERVAL_MS = HOUR_MS;
 export const RUN_STALE_MS = 10 * 60 * 1000;
 /** A failed answer waits this long before a page's request retries it. */
 export const FAILURE_RETRY_MS = 5 * 60 * 1000;
-/** Runs a page may start per tenant in 24 hours (§5). The batch doesn't count. */
-export const DAILY_MISS_BUDGET = 30;
 /** Keys the post-sync batch refreshes: opened in the last 7 days. */
 export const RECENT_KEY_WINDOW_MS = 7 * DAY_MS;
 /** Keys nobody opened for this long are deleted. */
@@ -99,6 +98,17 @@ export function runIsInFlight(row: Doc<"analyticsResults">, now: number) {
   return row.status === "pending" && row.run !== undefined && now - row.run.startedAt < RUN_STALE_MS;
 }
 
+/**
+ * Runs a tenant's pages and API callers may start in 24 hours (§5), from
+ * `ANALYTICS_DAILY_RUN_BUDGET`. Unset, or not a whole number, means no limit.
+ */
+export function dailyRunBudget(): number | null {
+  const value = env.ANALYTICS_DAILY_RUN_BUDGET?.trim();
+  if (!value) return null;
+  const budget = Number(value);
+  return Number.isInteger(budget) && budget >= 0 ? budget : null;
+}
+
 export async function readSyncRow(ctx: QueryCtx) {
   return await ctx.db.query("analyticsSync").first();
 }
@@ -108,13 +118,13 @@ export async function readSyncRow(ctx: QueryCtx) {
  * key that keeps failing uses the budget too. A key's count covers its
  * current window, which can start up to a day before its latest run.
  */
-export async function countRecentMisses(ctx: QueryCtx, tenantId: Id<"tenants">, now: number) {
+export async function countRecentMisses(ctx: QueryCtx, tenantId: Id<"tenants">, now: number, budget: number) {
   const rows = await ctx.db
     .query("analyticsResults")
     .withIndex("by_tenantId_and_missedAt", (q) =>
       q.eq("tenantId", tenantId).gte("missedAt", now - DAY_MS),
     )
-    .take(DAILY_MISS_BUDGET + 1);
+    .take(budget + 1);
   return rows.reduce((total, row) => total + (row.missCount ?? 1), 0);
 }
 
@@ -201,7 +211,8 @@ export async function registerRequest(
   if (row.status === "failed" && row.failedAt !== undefined && now - row.failedAt < FAILURE_RETRY_MS) {
     return idle;
   }
-  if ((await countRecentMisses(ctx, input.tenantId, now)) >= DAILY_MISS_BUDGET) {
+  const budget = dailyRunBudget();
+  if (budget !== null && (await countRecentMisses(ctx, input.tenantId, now, budget)) >= budget) {
     // The next post-sync batch answers it.
     if (row.status !== "queued" && !row.payloadId) {
       await ctx.db.patch("analyticsResults", row._id, { status: "queued" });
@@ -210,7 +221,7 @@ export async function registerRequest(
   }
 
   const runId = await startRun(ctx, row, { watermark, now, miss: true });
-  await ctx.scheduler.runAfter(0, internal.analytics.run.runReport, { resultId: row._id, runId });
+  await analyticsPool.enqueueAction(ctx, internal.analytics.run.runReport, { resultId: row._id, runId });
   return { started: true, resultId: row._id };
 }
 

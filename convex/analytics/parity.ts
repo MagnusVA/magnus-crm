@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalQuery } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internalAction, internalQuery, type QueryCtx } from "../_generated/server";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { browserDay, resolveAnalyticsRange } from "../../lib/analyticsRange";
 import type { AnalyticsFilters } from "./definition";
@@ -24,6 +25,22 @@ export const tenants = internalQuery({
   },
 });
 
+/** The user the script runs the Convex readers as: the tenant's owner. */
+async function readerUser(ctx: QueryCtx, tenantId: Id<"tenants">) {
+  const tenant = await ctx.db.get("tenants", tenantId);
+  if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
+  let owner = tenant.tenantOwnerId ? await ctx.db.get("users", tenant.tenantOwnerId) : null;
+  if (!owner || !owner.isActive) {
+    const active = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId).eq("isActive", true))
+      .take(200);
+    owner = active.find((user) => user.role === "tenant_master") ?? null;
+  }
+  if (!owner) throw new Error("The tenant has no active owner to run the readers as.");
+  return { tenant, owner };
+}
+
 /** The identity the script runs the Convex readers as: the tenant's owner. */
 export const identity = internalQuery({
   args: { tenantId: v.id("tenants") },
@@ -34,17 +51,7 @@ export const identity = internalQuery({
     org_id: v.string(),
   }),
   handler: async (ctx, { tenantId }) => {
-    const tenant = await ctx.db.get("tenants", tenantId);
-    if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
-    let owner = tenant.tenantOwnerId ? await ctx.db.get("users", tenant.tenantOwnerId) : null;
-    if (!owner || !owner.isActive) {
-      const active = await ctx.db
-        .query("users")
-        .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId).eq("isActive", true))
-        .take(200);
-      owner = active.find((user) => user.role === "tenant_master") ?? null;
-    }
-    if (!owner) throw new Error("The tenant has no active owner to run the readers as.");
+    const { tenant, owner } = await readerUser(ctx, tenantId);
     const separator = owner.workosUserId.lastIndexOf("|");
     return {
       subject: separator === -1 ? owner.workosUserId : owner.workosUserId.slice(separator + 1),
@@ -55,7 +62,12 @@ export const identity = internalQuery({
   },
 });
 
-/** For each report on a page: the reader to call, its args, and the new path's inputs. */
+/**
+ * For each report on a page: the reader to call, its args, and the new path's
+ * inputs. Filters are parsed as `reports.request` parses them, defaults
+ * included, so both paths get the same ones. A report whose filters don't
+ * parse returns the error instead.
+ */
 export const plan = internalQuery({
   args: {
     tenantId: v.id("tenants"),
@@ -66,20 +78,37 @@ export const plan = internalQuery({
     filtersJson: v.optional(v.string()),
   },
   returns: v.array(
-    v.object({
-      reportId: v.string(),
-      liveName: v.string(),
-      liveArgsJson: v.string(),
-      filtersJson: v.string(),
-      range: resolvedRangeValidator,
-    }),
+    v.union(
+      v.object({
+        reportId: v.string(),
+        liveName: v.string(),
+        liveArgsJson: v.string(),
+        filtersJson: v.string(),
+        range: resolvedRangeValidator,
+      }),
+      v.object({ reportId: v.string(), error: v.string() }),
+    ),
   ),
   handler: async (ctx, args) => {
-    const filters = JSON.parse(args.filtersJson ?? "{}") as AnalyticsFilters;
+    const raw = JSON.parse(args.filtersJson ?? "{}") as AnalyticsFilters;
+    const { owner } = await readerUser(ctx, args.tenantId);
+    const viewer = {
+      userId: owner._id,
+      tenantId: args.tenantId,
+      role: owner.role,
+      workosUserId: owner.workosUserId,
+    };
     const now = Date.now();
     const items = [];
     for (const definition of listReportDefinitions()) {
       if (definition.page !== (args.page === "api" ? null : args.page)) continue;
+      let filters: AnalyticsFilters;
+      try {
+        filters = await definition.parseFilters(ctx, raw, viewer);
+      } catch (error) {
+        items.push({ reportId: definition.id, error: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
       const day =
         definition.day === "browser"
           ? browserDay(args.timeZone)

@@ -45,8 +45,9 @@ function userMessage(error: unknown) {
 }
 
 /**
- * Runs a report's queries one after another (the app user may run 4 at once,
- * and the batch runs 2 reports at a time) and returns the rows as JSON.
+ * Runs a report's queries one after another and returns the rows as JSON.
+ * magnus_app may run 4 queries at once: the batch runs 2 reports at a time,
+ * and `analyticsPool` the 2 others.
  */
 export async function fetchReportRows(
   definition: AnyReportDefinition,

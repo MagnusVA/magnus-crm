@@ -22,7 +22,8 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
 | `definitions/*.ts` | One file per page, each with a parity test |
 | `registry.ts` | Every report; add a page's definitions here |
 | `reports.ts` | `get` (the query pages subscribe to) and `request` (registers a key and runs it on a miss) |
-| `results.ts` | The `analyticsResults` lifecycle (answers live in `analyticsPayloads`, so bookkeeping reads small rows), the daily budget, and finalize |
+| `results.ts` | The `analyticsResults` lifecycle (answers live in `analyticsPayloads`, so bookkeeping reads small rows), the optional daily budget, and finalize |
+| `pool.ts` | `analyticsPool`, which runs what pages and API callers start, 2 at a time |
 | `run.ts` | `runReport` and `runPostSyncBatch` |
 | `sync.ts` | The heartbeat cron, the Fivetran `sync_end` webhook (`/analytics/fivetran`), and the stale-sync alert |
 | `switch.ts`, `parity.ts` | CLI tools for switching pages and comparing sources on production |
@@ -30,7 +31,7 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
 
 ### Lifecycle of a key
 
-1. A page opens a key with `request`. If no answer covers the current sync and period, `request` runs it. Each tenant gets 30 such runs a day, retries of a failing key included; past that the key waits for the next batch (`queued`). An open panel renews its key hourly.
+1. A page opens a key with `request`. If no answer covers the current sync and period, `request` runs it on `analyticsPool`. The pool runs 2 at a time, so a page's panels and the batch stay within `magnus_app`'s 4 simultaneous queries. There's no daily limit unless `ANALYTICS_DAILY_RUN_BUDGET` sets one; past it, a tenant's new keys wait for the next batch (`queued`), and retries of a failing key count too. An open panel renews its key hourly.
 2. After each sync, Fivetran calls `/analytics/fivetran`, and `runPostSyncBatch` reruns every key opened in the last 7 days, two at a time, while ClickHouse is awake.
 3. `analyticsSync` is one row. A 5-minute heartbeat stamps it, and Fivetran copies it, so ClickHouse's copy is the watermark: the newest write the sync included. No page reads this table.
 
@@ -65,12 +66,15 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
 
 ## Operating on production
 
+The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell or in `.env.local`, and runs against the key's deployment. If `.env.local` holds a dev key, export the production deploy key in the shell before these commands. `pnpm analytics:parity` stops when the key is for the wrong deployment.
+
 | Task | Command |
 | --- | --- |
-| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`) |
+| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`) |
 | Switch a page to ClickHouse | `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'` |
 | Roll a page back | `npx convex run --prod analytics/switch:disable '{"tenantId":"…","page":"revenue"}'` |
 | Rerun the batch by hand | `npx convex run --prod analytics/run:runPostSyncBatch '{"force":true}'` |
+| Limit the runs a tenant starts in 24 hours | `npx convex env set --prod ANALYTICS_DAILY_RUN_BUDGET 100` (`env remove` lifts it) |
 | Stop every ClickHouse call | Remove `CLICKHOUSE_URL` from the production env |
 
 To preview a page before it's switched, add `?analytics=preview` to its URL.
