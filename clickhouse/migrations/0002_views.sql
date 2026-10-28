@@ -143,7 +143,7 @@ SELECT
     role AS role,
     teammemberid AS team_member_id,
     assumeNotNull(tenantid) AS tenant_id,
-    source AS source,
+    source AS source_json,
     CAST(meetingscheduledat AS Nullable(Int64)) AS meeting_scheduled_at_ms,
     teamid AS team_id,
     meetingid AS meeting_id
