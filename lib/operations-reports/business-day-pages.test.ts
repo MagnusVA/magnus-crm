@@ -11,18 +11,19 @@ const fixture = vi.hoisted(() => ({
   ready: false,
   queries: vi.fn(),
 }));
+// A tenant whose pages still read Convex (useAnalyticsSource).
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     const name = getFunctionName(reference);
     fixture.queries(name, args);
     if (name === "tenants:getCurrentTenant" && fixture.loaded) {
-      return { businessDay: fixture.businessDay, businessDayReady: fixture.ready, leadGenBusinessDayReady: true };
+      return { businessDay: fixture.businessDay, businessDayReady: fixture.ready, leadGenBusinessDayReady: true, analyticsReports: [] };
     }
     return undefined;
   },
-  useMutation: () => async () => null,
+  useMutation: () => async () => ({ started: false }),
 }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/app/workspace/reports/_components/report-date-controls", () => ({ ReportDateControls: () => null }));
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
@@ -35,14 +36,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
-// The day keys each page's default range sends on 2026-10-22: Team opens on
-// the month, Pipeline Health on Today.
+// The day keys each page's default range sends on 2026-10-22: both open on Today.
 const pages = [
   {
     name: "Team Performance",
     component: TeamReportPageClient,
     query: "reporting/teamPerformance:getTeamOperationsDimensions",
-    defaultKeys: { startDayKey: "2026-10-01", endDayKeyExclusive: "2026-11-01" },
+    defaultKeys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" },
   },
   {
     name: "Pipeline Health",
@@ -96,8 +96,8 @@ describe("meeting bucket page readiness", () => {
   });
 
   it.each([
-    { setting: undefined, start: "2026-10-01T07:00:00Z", end: "2026-11-01T07:00:00Z" },
-    { setting: { timeZone: "America/Tegucigalpa", dayStartHour: 4 }, start: "2026-10-01T10:00:00Z", end: "2026-11-01T10:00:00Z" },
+    { setting: undefined, start: "2026-10-22T07:00:00Z", end: "2026-10-23T07:00:00Z" },
+    { setting: { timeZone: "America/Tegucigalpa", dayStartHour: 4 }, start: "2026-10-22T10:00:00Z", end: "2026-10-23T10:00:00Z" },
   ])("aligns all four Team queries with the tenant business days: $setting", ({ setting, start, end }) => {
     vi.useFakeTimers();
     try {
@@ -116,8 +116,8 @@ describe("meeting bucket page readiness", () => {
         });
       }
       expect(fixture.queries).toHaveBeenCalledWith("reporting/teamPerformance:getTeamOperationsDimensions", {
-        startDayKey: "2026-10-01",
-        endDayKeyExclusive: "2026-11-01",
+        startDayKey: "2026-10-22",
+        endDayKeyExclusive: "2026-10-23",
       });
     } finally {
       vi.useRealTimers();

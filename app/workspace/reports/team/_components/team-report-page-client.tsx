@@ -1,5 +1,5 @@
 "use client";
-import { businessDayStart } from "@/lib/businessDay";
+import { addBusinessDays, businessDateForInstant, businessDayStart } from "@/lib/businessDay";
 import { reportRangeDayKeys } from "@/lib/reportDateRange";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
@@ -8,10 +8,14 @@ import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/res
 
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangleIcon } from "lucide-react";
-import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { startOfMonth, endOfMonth } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Alert,
   AlertDescription,
@@ -51,17 +55,21 @@ import { MeetingOutcomeDistributionChart } from "./meeting-outcome-distribution-
 import { TeamReportSkeleton } from "./team-report-skeleton";
 import { formatRate } from "./team-report-formatters";
 
+function getDefaultDateRange(): DateRange {
+  const now = new Date();
+  return {
+    startDate: startOfDay(now).getTime(),
+    endDate: startOfDay(addDays(now, 1)).getTime(),
+  };
+}
+
 export function TeamReportPageClient() {
   usePageTitle("Team Performance — Reports");
   const { setting, loaded, rebuilding } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("team_performance");
 
-  const now = new Date();
-  const [dateRange, setDateRange] = useState<DateRange>({
-    startDate: startOfMonth(now).getTime(),
-    endDate: endOfMonth(now).getTime(),
-  });
+  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [operationsFilters, setOperationsFilters] =
     useState<ReportAttributionFilterValue>({});
 
@@ -88,33 +96,71 @@ export function TeamReportPageClient() {
     endDate: businessDayStart(dayKeys.endDayKeyExclusive, setting),
   };
 
-  const metrics = useQuery(
-    api.reporting.teamPerformance.getTeamPerformanceMetrics,
-    queryRange,
+  // The page reads tenant business days, so Today is the tenant's. Today
+  // reads Convex live; any other range reads ClickHouse once the page is
+  // switched (docs/plans/clickhouse-reporting.md §4).
+  const now = useNow();
+  const range = dashboardRangeToAnalyticsRange(
+    {
+      kind: "custom",
+      startBusinessDate: dayKeys.startDayKey,
+      endBusinessDateInclusive: addBusinessDays(dayKeys.endDayKeyExclusive, -1),
+    },
+    businessDateForInstant(now, setting),
   );
-  const outcomeMix = useQuery(
-    api.reporting.teamOutcomes.getTeamOutcomeMix,
-    queryRange,
-  );
-  const actionsPerCloser = useQuery(
-    api.reporting.teamActions.getActionsPerCloserPerDay,
-    queryRange,
-  );
-  const operationsDimensions = useQuery(
-    api.reporting.teamPerformance.getTeamOperationsDimensions,
-    !loaded || rebuilding ? "skip" : {
+  const metricsReport = useAnalyticsReport({
+    page: "team",
+    reportId: "team.metrics",
+    range,
+    live: api.reporting.teamPerformance.getTeamPerformanceMetrics,
+    liveArgs: queryRange,
+  });
+  const outcomeMixReport = useAnalyticsReport({
+    page: "team",
+    reportId: "team.outcomes",
+    range,
+    live: api.reporting.teamOutcomes.getTeamOutcomeMix,
+    liveArgs: queryRange,
+  });
+  const actionsReport = useAnalyticsReport({
+    page: "team",
+    reportId: "team.actions",
+    range,
+    live: api.reporting.teamActions.getActionsPerCloserPerDay,
+    liveArgs: queryRange,
+  });
+  const operationsReport = useAnalyticsReport({
+    page: "team",
+    reportId: "team.operations",
+    range,
+    filters: operationsFilters,
+    live: api.reporting.teamPerformance.getTeamOperationsDimensions,
+    liveArgs: !loaded || rebuilding ? "skip" : {
       ...dayKeys,
       ...operationsFilters,
     },
-  );
+  });
+  const metrics = metricsReport.data;
+  const outcomeMix = outcomeMixReport.data;
+  const actionsPerCloser = actionsReport.data;
+  const operationsDimensions = operationsReport.data;
+  const freshness = [
+    metricsReport.freshness,
+    outcomeMixReport.freshness,
+    actionsReport.freshness,
+    operationsReport.freshness,
+  ];
 
   if (rebuilding) return <BusinessDayRebuildingState />;
 
+  // A ClickHouse range can take a while to load; keep the controls and its
+  // status on screen instead of the full-page skeleton.
   if (
-    metrics === undefined ||
-    outcomeMix === undefined ||
-    actionsPerCloser === undefined ||
-    operationsDimensions === undefined
+    (metrics === undefined ||
+      outcomeMix === undefined ||
+      actionsPerCloser === undefined ||
+      operationsDimensions === undefined) &&
+    freshness.every((item) => item.source === "live")
   ) {
     return <TeamReportSkeleton />;
   }
@@ -125,7 +171,7 @@ export function TeamReportPageClient() {
     description: string;
   }> = [];
 
-  if (outcomeMix.isTruncated) {
+  if (outcomeMix?.isTruncated) {
     notices.push({
       id: "outcome-cap",
       title: "Meeting sample capped",
@@ -134,7 +180,7 @@ export function TeamReportPageClient() {
     });
   }
 
-  if (metrics.isPaymentDataTruncated) {
+  if (metrics?.isPaymentDataTruncated) {
     notices.push({
       id: "payment-cap",
       title: "Payment sample capped",
@@ -143,7 +189,7 @@ export function TeamReportPageClient() {
     });
   }
 
-  if (actionsPerCloser.isTruncated) {
+  if (actionsPerCloser?.isTruncated) {
     notices.push({
       id: "action-cap",
       title: "Action sample capped",
@@ -152,7 +198,7 @@ export function TeamReportPageClient() {
     });
   }
 
-  if (operationsDimensions.truncated) {
+  if (operationsDimensions?.truncated) {
     notices.push({
       id: "operations-rollup-cap",
       title: "Operations rollup sample capped",
@@ -182,6 +228,7 @@ export function TeamReportPageClient() {
             captureOperationsFilterChange();
           }}
         />
+        <AnalyticsFreshnessLine items={freshness} />
         <ReportAttributionFilters
           value={operationsFilters}
           onChange={(next) => {
@@ -203,14 +250,24 @@ export function TeamReportPageClient() {
         </div>
       ) : null}
 
-      <TeamKpiSummaryCards
-        attendanceCountsPartial={metrics.attendanceCountsPartial}
-        totals={metrics.teamTotals}
-        derivedOutcomes={outcomeMix.derived}
-        actionsPerCloser={actionsPerCloser}
-      />
+      {metrics !== undefined &&
+      outcomeMix !== undefined &&
+      actionsPerCloser !== undefined ? (
+        <TeamKpiSummaryCards
+          attendanceCountsPartial={metrics.attendanceCountsPartial}
+          totals={metrics.teamTotals}
+          derivedOutcomes={outcomeMix.derived}
+          actionsPerCloser={actionsPerCloser}
+        />
+      ) : (
+        <Skeleton className="h-48 rounded-lg" />
+      )}
 
-      <PhoneCloserOperationsTable data={operationsDimensions} />
+      {operationsDimensions !== undefined ? (
+        <PhoneCloserOperationsTable data={operationsDimensions} />
+      ) : (
+        <Skeleton className="h-64 rounded-lg" />
+      )}
 
       <div className="flex flex-col gap-8">
         <section>
@@ -220,12 +277,16 @@ export function TeamReportPageClient() {
               Attendance metrics on the left, conversion metrics on the right.
             </p>
           </div>
-          <CloserPerformanceTable
-            closers={metrics.closers}
-            callType="new"
-            attendanceCountsPartial={metrics.attendanceCountsPartial}
-            teamTotals={metrics.teamTotals}
-          />
+          {metrics !== undefined ? (
+            <CloserPerformanceTable
+              closers={metrics.closers}
+              callType="new"
+              attendanceCountsPartial={metrics.attendanceCountsPartial}
+              teamTotals={metrics.teamTotals}
+            />
+          ) : (
+            <Skeleton className="h-64 rounded-lg" />
+          )}
         </section>
 
         <section>
@@ -236,18 +297,26 @@ export function TeamReportPageClient() {
               follow-up activity.
             </p>
           </div>
-          <CloserPerformanceTable
-            closers={metrics.closers}
-            callType="follow_up"
-            attendanceCountsPartial={metrics.attendanceCountsPartial}
-            teamTotals={metrics.teamTotals}
-          />
+          {metrics !== undefined ? (
+            <CloserPerformanceTable
+              closers={metrics.closers}
+              callType="follow_up"
+              attendanceCountsPartial={metrics.attendanceCountsPartial}
+              teamTotals={metrics.teamTotals}
+            />
+          ) : (
+            <Skeleton className="h-64 rounded-lg" />
+          )}
         </section>
 
         <Separator />
 
         <section className="flex flex-col gap-6">
-          <MeetingOutcomeDistributionChart outcomeMix={outcomeMix.displayOutcome} />
+          {outcomeMix !== undefined ? (
+            <MeetingOutcomeDistributionChart outcomeMix={outcomeMix.displayOutcome} />
+          ) : (
+            <Skeleton className="h-72 rounded-lg" />
+          )}
         </section>
       </div>
     </div>

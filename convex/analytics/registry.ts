@@ -5,8 +5,10 @@ import { leadGenReports } from "./definitions/leadGen";
 import { leadsReports } from "./definitions/leads";
 import { operationsReports } from "./definitions/operations";
 import { pipelineReports } from "./definitions/pipeline";
+import { remindersReports } from "./definitions/reminders";
 import { revenueReports } from "./definitions/revenue";
 import { slackQualificationReports } from "./definitions/slackQualifications";
+import { teamReports } from "./definitions/team";
 
 // Every report ClickHouse can answer. Add a page's definitions here.
 const definitions: readonly AnyReportDefinition[] = [
@@ -16,8 +18,10 @@ const definitions: readonly AnyReportDefinition[] = [
   ...leadsReports,
   ...operationsReports,
   ...pipelineReports,
+  ...remindersReports,
   ...revenueReports,
   ...slackQualificationReports,
+  ...teamReports,
 ];
 
 const byId = new Map(definitions.map((definition) => [definition.id, definition]));

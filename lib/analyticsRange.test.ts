@@ -75,5 +75,8 @@ describe("dashboardRangeToAnalyticsRange", () => {
       startDate: "2026-10-01",
       endDateInclusive: "2026-10-26",
     });
+    // Dates that match a preset share the preset's cached answer.
+    expect(dashboardRangeToAnalyticsRange({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-27" }, "2026-10-27")).toEqual({ kind: "preset", preset: "this_month" });
+    expect(dashboardRangeToAnalyticsRange({ kind: "custom", startBusinessDate: "2026-09-01", endBusinessDateInclusive: "2026-09-30" }, "2026-10-27")).toEqual({ kind: "preset", preset: "last_month" });
   });
 });

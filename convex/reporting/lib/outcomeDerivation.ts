@@ -39,7 +39,7 @@ export function isPersonLoss(deal: DealLossFields): boolean {
  * link: only a held meeting on a deal at Follow-up does.
  */
 export function needsRescheduleLinkCheck(
-  meeting: Doc<"meetings">,
+  meeting: Pick<Doc<"meetings">, "status">,
   opportunity: DealLossFields,
 ): boolean {
   return isHeldStatus(meeting.status) && dealStageOf(opportunity).stage === "follow_up";
@@ -59,8 +59,8 @@ export function needsRescheduleLinkCheck(
  * reason, or a tagged comment.
  */
 export function deriveCallOutcomeByStage(
-  meeting: Doc<"meetings">,
-  opportunity: Doc<"opportunities">,
+  meeting: Pick<Doc<"meetings">, "_id" | "status">,
+  opportunity: DealLossFields & Pick<Doc<"opportunities">, "latestMeetingId">,
   hasPayment: boolean,
   isRescheduled: boolean,
   hasPendingRescheduleLink: boolean,

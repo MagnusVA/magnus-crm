@@ -33,8 +33,10 @@ import type * as analytics_definitions_leadGenShared from "../analytics/definiti
 import type * as analytics_definitions_leads from "../analytics/definitions/leads.js";
 import type * as analytics_definitions_operations from "../analytics/definitions/operations.js";
 import type * as analytics_definitions_pipeline from "../analytics/definitions/pipeline.js";
+import type * as analytics_definitions_reminders from "../analytics/definitions/reminders.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_definitions_slackQualifications from "../analytics/definitions/slackQualifications.js";
+import type * as analytics_definitions_team from "../analytics/definitions/team.js";
 import type * as analytics_keys from "../analytics/keys.js";
 import type * as analytics_parity from "../analytics/parity.js";
 import type * as analytics_registry from "../analytics/registry.js";
@@ -457,8 +459,10 @@ declare const fullApi: ApiFromModules<{
   "analytics/definitions/leads": typeof analytics_definitions_leads;
   "analytics/definitions/operations": typeof analytics_definitions_operations;
   "analytics/definitions/pipeline": typeof analytics_definitions_pipeline;
+  "analytics/definitions/reminders": typeof analytics_definitions_reminders;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/definitions/slackQualifications": typeof analytics_definitions_slackQualifications;
+  "analytics/definitions/team": typeof analytics_definitions_team;
   "analytics/keys": typeof analytics_keys;
   "analytics/parity": typeof analytics_parity;
   "analytics/registry": typeof analytics_registry;

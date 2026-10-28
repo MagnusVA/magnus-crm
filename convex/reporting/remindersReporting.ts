@@ -1,7 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
-import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
+import { query, type QueryCtx } from "../_generated/server";
+import {
+  paymentTypeValidator,
+  resolvePaymentType,
+  type PaymentType,
+} from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   assertValidDateRange,
@@ -77,6 +81,153 @@ function bucketChainLength(length: number): ChainBucket {
   return "5+";
 }
 
+/**
+ * The manual reminder funnel and reminder-driven revenue for a range. Shared
+ * by the Convex reader and the ClickHouse report
+ * (convex/analytics/definitions/reminders.ts).
+ */
+export async function buildReminderOutcomeFunnel(
+  ctx: QueryCtx,
+  {
+    programId,
+    paymentType,
+  }: { programId?: Id<"tenantPrograms"> | null; paymentType?: PaymentType | null },
+  {
+    followUps,
+    isTruncated,
+    reminderRevenue,
+    isReminderRevenueTruncated,
+  }: {
+    /** Follow-ups created in the range. */
+    followUps: Array<Doc<"followUps">>;
+    isTruncated: boolean;
+    /** Non-disputed reminder payments recorded in the range. */
+    reminderRevenue: Array<Doc<"paymentRecords">>;
+    isReminderRevenueTruncated: boolean;
+  },
+) {
+  const manualReminders = followUps.filter(
+    (row): row is Doc<"followUps"> & { type: "manual_reminder" } =>
+      row.type === "manual_reminder",
+  );
+  const filteredReminderRevenue = reminderRevenue.filter(
+    (payment) =>
+      (!programId || payment.programId === programId) &&
+      (!paymentType ||
+        resolvePaymentType(payment.paymentType) === paymentType),
+  );
+  const reminderRevenueSummary = summarizePaymentsForRevenueReporting(
+    filteredReminderRevenue,
+  );
+
+  const reminderDrivenFinalRevenueMinor =
+    reminderRevenueSummary.finalRevenueMinor;
+  const reminderDrivenDepositRevenueMinor =
+    reminderRevenueSummary.depositRevenueMinor;
+  const reminderDrivenRevenueMinor =
+    reminderDrivenFinalRevenueMinor + reminderDrivenDepositRevenueMinor;
+
+  const outcomeMix = emptyOutcomeMix();
+  const perCloser = new Map<Id<"users">, PerCloserBucket>();
+  const chainByOpportunity = new Map<Id<"opportunities">, number>();
+  let totalCompleted = 0;
+  let completedWithoutOutcomeCount = 0;
+
+  for (const reminder of manualReminders) {
+    const closerBucket =
+      perCloser.get(reminder.closerId) ?? emptyPerCloserBucket();
+    closerBucket.created += 1;
+
+    if (reminder.status === "completed") {
+      totalCompleted += 1;
+      closerBucket.completed += 1;
+
+      if (reminder.completionOutcome) {
+        outcomeMix[reminder.completionOutcome] += 1;
+        closerBucket[reminder.completionOutcome] += 1;
+      } else {
+        completedWithoutOutcomeCount += 1;
+        closerBucket.completedWithoutOutcomeCount += 1;
+      }
+    }
+
+    perCloser.set(reminder.closerId, closerBucket);
+    chainByOpportunity.set(
+      reminder.opportunityId,
+      (chainByOpportunity.get(reminder.opportunityId) ?? 0) + 1,
+    );
+  }
+
+  const closerIds = [...perCloser.keys()];
+  const closerDocs = await Promise.all(
+    closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
+  );
+  const closerById = new Map(closerDocs);
+
+  const perCloserRows = (await Promise.all([...perCloser.entries()]
+    .map(async ([closerId, bucket]) => ({
+      closerId,
+      closerName: getUserDisplayName(closerById.get(closerId) ?? null),
+      closer: await reportingUserIdentity(
+        ctx,
+        closerById.get(closerId),
+        "Removed closer",
+      ),
+      created: bucket.created,
+      completed: bucket.completed,
+      completionRate: toRate(bucket.completed, bucket.created),
+      paymentReceivedCount: bucket.payment_received,
+      completedWithoutOutcomeCount: bucket.completedWithoutOutcomeCount,
+      outcomeMix: {
+        payment_received: bucket.payment_received,
+        lost: bucket.lost,
+        no_response_rescheduled: bucket.no_response_rescheduled,
+        no_response_given_up: bucket.no_response_given_up,
+        no_response_close_only: bucket.no_response_close_only,
+      },
+    }))))
+    .sort(
+      (left, right) =>
+        right.paymentReceivedCount - left.paymentReceivedCount ||
+        (right.completionRate ?? -1) - (left.completionRate ?? -1) ||
+        right.created - left.created ||
+        left.closerName.localeCompare(right.closerName),
+    );
+
+  const chainLengthHistogramCounts = Object.fromEntries(
+    CHAIN_BUCKETS.map((bucket) => [bucket, 0]),
+  ) as Record<ChainBucket, number>;
+  for (const chainLength of chainByOpportunity.values()) {
+    const bucket = bucketChainLength(chainLength);
+    chainLengthHistogramCounts[bucket] += 1;
+  }
+
+  return {
+    totalCreated: manualReminders.length,
+    totalCompleted,
+    completionRate: toRate(totalCompleted, manualReminders.length),
+    outcomeMix,
+    outcomeBreakdown: COMPLETION_OUTCOMES.map((outcome) => ({
+      outcome,
+      count: outcomeMix[outcome],
+      percentOfCompleted: toRate(outcomeMix[outcome], totalCompleted),
+    })),
+    completedWithoutOutcomeCount,
+    perCloser: perCloserRows,
+    chainLengthHistogram: CHAIN_BUCKETS.map((bucket) => ({
+      bucket,
+      count: chainLengthHistogramCounts[bucket],
+    })),
+    opportunitiesWithReminderChains: chainByOpportunity.size,
+    reminderDrivenFinalRevenueMinor,
+    reminderDrivenDepositRevenueMinor,
+    reminderDrivenRevenueMinor,
+    reminderDrivenPaymentCount: filteredReminderRevenue.length,
+    isReminderRevenueTruncated,
+    isTruncated,
+  };
+}
+
 export const getReminderOutcomeFunnel = query({
   args: {
     startDate: v.number(),
@@ -98,10 +249,6 @@ export const getReminderOutcomeFunnel = query({
       )
       .take(MAX_FOLLOWUP_SCAN_ROWS);
 
-    const manualReminders = rows.filter(
-      (row): row is Doc<"followUps"> & { type: "manual_reminder" } =>
-        row.type === "manual_reminder",
-    );
     const reminderRevenueRows: Array<Doc<"paymentRecords">> = [];
     let isReminderRevenueTruncated = false;
 
@@ -133,121 +280,15 @@ export const getReminderOutcomeFunnel = query({
       0,
       MAX_REMINDER_REVENUE_SCAN_ROWS,
     );
-    const filteredReminderRevenue = reminderRevenue.filter(
-      (payment) =>
-        (!programId || payment.programId === programId) &&
-        (!paymentType ||
-          resolvePaymentType(payment.paymentType) === paymentType),
+    return await buildReminderOutcomeFunnel(
+      ctx,
+      { programId, paymentType },
+      {
+        followUps: rows,
+        isTruncated: rows.length >= MAX_FOLLOWUP_SCAN_ROWS,
+        reminderRevenue,
+        isReminderRevenueTruncated,
+      },
     );
-    const reminderRevenueSummary = summarizePaymentsForRevenueReporting(
-      filteredReminderRevenue,
-    );
-
-    const reminderDrivenFinalRevenueMinor =
-      reminderRevenueSummary.finalRevenueMinor;
-    const reminderDrivenDepositRevenueMinor =
-      reminderRevenueSummary.depositRevenueMinor;
-    const reminderDrivenRevenueMinor =
-      reminderDrivenFinalRevenueMinor + reminderDrivenDepositRevenueMinor;
-
-    const outcomeMix = emptyOutcomeMix();
-    const perCloser = new Map<Id<"users">, PerCloserBucket>();
-    const chainByOpportunity = new Map<Id<"opportunities">, number>();
-    let totalCompleted = 0;
-    let completedWithoutOutcomeCount = 0;
-
-    for (const reminder of manualReminders) {
-      const closerBucket =
-        perCloser.get(reminder.closerId) ?? emptyPerCloserBucket();
-      closerBucket.created += 1;
-
-      if (reminder.status === "completed") {
-        totalCompleted += 1;
-        closerBucket.completed += 1;
-
-        if (reminder.completionOutcome) {
-          outcomeMix[reminder.completionOutcome] += 1;
-          closerBucket[reminder.completionOutcome] += 1;
-        } else {
-          completedWithoutOutcomeCount += 1;
-          closerBucket.completedWithoutOutcomeCount += 1;
-        }
-      }
-
-      perCloser.set(reminder.closerId, closerBucket);
-      chainByOpportunity.set(
-        reminder.opportunityId,
-        (chainByOpportunity.get(reminder.opportunityId) ?? 0) + 1,
-      );
-    }
-
-    const closerIds = [...perCloser.keys()];
-    const closerDocs = await Promise.all(
-      closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
-    );
-    const closerById = new Map(closerDocs);
-
-    const perCloserRows = (await Promise.all([...perCloser.entries()]
-      .map(async ([closerId, bucket]) => ({
-        closerId,
-        closerName: getUserDisplayName(closerById.get(closerId) ?? null),
-        closer: await reportingUserIdentity(
-          ctx,
-          closerById.get(closerId),
-          "Removed closer",
-        ),
-        created: bucket.created,
-        completed: bucket.completed,
-        completionRate: toRate(bucket.completed, bucket.created),
-        paymentReceivedCount: bucket.payment_received,
-        completedWithoutOutcomeCount: bucket.completedWithoutOutcomeCount,
-        outcomeMix: {
-          payment_received: bucket.payment_received,
-          lost: bucket.lost,
-          no_response_rescheduled: bucket.no_response_rescheduled,
-          no_response_given_up: bucket.no_response_given_up,
-          no_response_close_only: bucket.no_response_close_only,
-        },
-      }))))
-      .sort(
-        (left, right) =>
-          right.paymentReceivedCount - left.paymentReceivedCount ||
-          (right.completionRate ?? -1) - (left.completionRate ?? -1) ||
-          right.created - left.created ||
-          left.closerName.localeCompare(right.closerName),
-      );
-
-    const chainLengthHistogramCounts = Object.fromEntries(
-      CHAIN_BUCKETS.map((bucket) => [bucket, 0]),
-    ) as Record<ChainBucket, number>;
-    for (const chainLength of chainByOpportunity.values()) {
-      const bucket = bucketChainLength(chainLength);
-      chainLengthHistogramCounts[bucket] += 1;
-    }
-
-    return {
-      totalCreated: manualReminders.length,
-      totalCompleted,
-      completionRate: toRate(totalCompleted, manualReminders.length),
-      outcomeMix,
-      outcomeBreakdown: COMPLETION_OUTCOMES.map((outcome) => ({
-        outcome,
-        count: outcomeMix[outcome],
-        percentOfCompleted: toRate(outcomeMix[outcome], totalCompleted),
-      })),
-      completedWithoutOutcomeCount,
-      perCloser: perCloserRows,
-      chainLengthHistogram: CHAIN_BUCKETS.map((bucket) => ({
-        bucket,
-        count: chainLengthHistogramCounts[bucket],
-      })),
-      opportunitiesWithReminderChains: chainByOpportunity.size,
-      reminderDrivenFinalRevenueMinor,
-      reminderDrivenDepositRevenueMinor,
-      reminderDrivenRevenueMinor,
-      reminderDrivenPaymentCount: filteredReminderRevenue.length,
-      isReminderRevenueTruncated,
-      isTruncated: rows.length >= MAX_FOLLOWUP_SCAN_ROWS,
-    };
   },
 });

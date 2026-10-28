@@ -140,9 +140,18 @@ export function reportRangeToAnalyticsRange(
   range: { startDate: number; endDate: number },
   nowMs: number,
 ): AnalyticsRange | null {
-  const startDate = localDateKey(range.startDate);
-  const endDateInclusive = localDateKey(range.endDate - 1);
-  const today = localDateKey(nowMs);
+  return datesToAnalyticsRange(localDateKey(range.startDate), localDateKey(range.endDate - 1), localDateKey(nowMs));
+}
+
+/**
+ * Today is null (read live). Dates that match a preset become the preset, so
+ * the cached answer rolls forward with the calendar; anything else is custom.
+ */
+export function datesToAnalyticsRange(
+  startDate: string,
+  endDateInclusive: string,
+  today: string,
+): AnalyticsRange | null {
   if (startDate === today && endDateInclusive === today) return null;
   for (const preset of ANALYTICS_PRESETS) {
     const dates = analyticsRangeDates({ kind: "preset", preset }, today);
@@ -166,15 +175,5 @@ export function dashboardRangeToAnalyticsRange(
   if (range.kind === "preset") {
     return range.preset === "today" ? null : { kind: "preset", preset: range.preset };
   }
-  if (
-    range.startBusinessDate === todayBusinessDate &&
-    range.endBusinessDateInclusive === todayBusinessDate
-  ) {
-    return null;
-  }
-  return {
-    kind: "custom",
-    startDate: range.startBusinessDate,
-    endDateInclusive: range.endBusinessDateInclusive,
-  };
+  return datesToAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate);
 }
