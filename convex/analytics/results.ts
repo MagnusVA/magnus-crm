@@ -219,9 +219,14 @@ export async function registerRequest(
   }
   const budget = dailyRunBudget();
   if (budget !== null && (await countRecentMisses(ctx, input.tenantId, now, budget)) >= budget) {
-    // The next post-sync batch answers it.
-    if (row.status !== "queued" && !row.payloadId) {
-      await ctx.db.patch("analyticsResults", row._id, { status: "queued" });
+    // The next post-sync batch answers it. A stale run is dropped, so its
+    // action, if it still waits on the pool, finds no run and doesn't query.
+    const queue = row.status !== "queued" && !row.payloadId;
+    if (queue || row.run !== undefined) {
+      await ctx.db.patch("analyticsResults", row._id, {
+        ...(queue ? { status: "queued" as const } : {}),
+        run: undefined,
+      });
     }
     return idle;
   }

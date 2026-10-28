@@ -144,20 +144,22 @@ async function post(
           null,
         );
       }
-      if ((response.status === 502 || response.status === 503) && wakeRetries < WAKE_RETRIES) {
-        wakeRetries += 1;
-        await sleep(WAKE_RETRY_DELAY_MS);
-        continue;
-      }
       if (!response.ok) {
         const text = (await response.text()).slice(0, ERROR_TEXT_LIMIT);
         const busy =
           response.headers.get("X-ClickHouse-Exception-Code") === "202" ||
           text.includes("TOO_MANY_SIMULTANEOUS_QUERIES");
-        if (busy && busyRetries < BUSY_RETRY_DELAYS_MS.length) {
-          // Jittered, so runs that collided don't collide again.
-          await sleep(BUSY_RETRY_DELAYS_MS[busyRetries] * (0.5 + Math.random()));
-          busyRetries += 1;
+        // Busy first, so a busy 502 or 503 doesn't also use the wake retries.
+        if (busy) {
+          if (busyRetries < BUSY_RETRY_DELAYS_MS.length) {
+            // Jittered, so runs that collided don't collide again.
+            await sleep(BUSY_RETRY_DELAYS_MS[busyRetries] * (0.5 + Math.random()));
+            busyRetries += 1;
+            continue;
+          }
+        } else if ((response.status === 502 || response.status === 503) && wakeRetries < WAKE_RETRIES) {
+          wakeRetries += 1;
+          await sleep(WAKE_RETRY_DELAY_MS);
           continue;
         }
         throw new ClickHouseQueryError(text || `HTTP ${response.status}`, response.status);

@@ -353,6 +353,29 @@ describe("analytics reports", () => {
 });
 
 describe("analytics budget and batch", () => {
+  it("drops a stale run when the budget turns its key away", async () => {
+    const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", "1");
+    const calls = stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const now = Date.now();
+    await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: "other", missedAt: now - 1_000 });
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      run: { id: "stale", watermark: 1_000, startedAt: now - 2 * 60 * 60 * 1000 },
+    });
+
+    const result = await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    expect(result.started).toBe(false);
+    const row = await fixture.t.run(async (ctx) => ctx.db.get("analyticsResults", resultId));
+    expect(row?.status).toBe("queued");
+    expect(row?.run).toBeUndefined();
+    expect(await fixture.t.mutation(internal.analytics.results.beginRun, { resultId, runId: "stale" })).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
   it("counts every run of a key that keeps failing against the budget", async () => {
     const fixture = await createFixture();
     vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", String(BUDGET));
@@ -452,6 +475,29 @@ describe("ClickHouse parameters", () => {
 
     expect(await watermark).toBe(7_000);
     expect(calls).toBe(2);
+  });
+
+  it("gives a busy 503 the busy retries only, not the wake retries too", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", "https://clickhouse.example:8443");
+    vi.stubEnv("CLICKHOUSE_USER", "magnus_app");
+    vi.stubEnv("CLICKHOUSE_PASSWORD", "secret");
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls += 1;
+      return new Response("Code: 202. DB::Exception: Too many simultaneous queries for user magnus_app.", {
+        status: 503,
+        headers: { "X-ClickHouse-Exception-Code": "202" },
+      });
+    });
+
+    const outcome = queryWatermark().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(calls).toBe(4);
   });
 });
 

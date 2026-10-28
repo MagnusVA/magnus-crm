@@ -75,6 +75,18 @@ if (found && !found.key.startsWith(dev ? "dev:" : "prod:")) {
 }
 const timeZone = option("tz")[0] ?? "America/Tegucigalpa";
 const filtersJson = option("filters")[0];
+if (filtersJson !== undefined) {
+  let filters;
+  try {
+    filters = JSON.parse(filtersJson);
+  } catch {
+    filters = undefined;
+  }
+  if (filters === null || typeof filters !== "object" || Array.isArray(filters)) {
+    console.error(`--filters must be a JSON object, such as '{"fieldKey":"…"}'.`);
+    process.exit(2);
+  }
+}
 const ranges = (option("range").length > 0 ? option("range") : ["yesterday", "last_month", "last_90_days"]).map(
   (value) => {
     if (!value.includes(":")) return { kind: "preset", preset: value };
