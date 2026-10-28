@@ -547,34 +547,17 @@ async function groupTeamOriginRows(
     byTeam.set(teamKey, currentTeam);
   }
 
-  const teamIds = [...byTeam.values()]
-    .map((row) => row.teamId)
-    .filter((teamId): teamId is LeadGenTeamId => teamId !== null);
-  const teams = await loadTeams(ctx, args.tenantId, teamIds);
-
-  return [...byTeam.values()]
-    .map((row) => {
-      const team = row.teamId ? teams.get(row.teamId) : null;
-      return {
-        teamId: row.teamId,
-        teamName: team?.name ?? "Unassigned",
-        isActive: team?.isActive ?? (row.teamId ? false : null),
-        totalUniqueProspects: row.totalUniqueProspects,
-        totalSubmissions: row.totalSubmissions,
-        origins: [...row.origins.values()]
-          .sort((a, b) => compareTopOriginRows(a, b, args.sortBy))
-          .slice(0, args.limitPerTeam),
-      };
-    })
-    .sort((a, b) => {
-      if (a.totalUniqueProspects !== b.totalUniqueProspects) {
-        return b.totalUniqueProspects - a.totalUniqueProspects;
-      }
-      if (a.totalSubmissions !== b.totalSubmissions) {
-        return b.totalSubmissions - a.totalSubmissions;
-      }
-      return a.teamName.localeCompare(b.teamName);
-    });
+  return await buildTopOriginsByTeam(ctx, {
+    tenantId: args.tenantId,
+    groups: [...byTeam.values()].map((row) => ({
+      teamId: row.teamId,
+      totalUniqueProspects: row.totalUniqueProspects,
+      totalSubmissions: row.totalSubmissions,
+      origins: [...row.origins.values()],
+    })),
+    limitPerTeam: args.limitPerTeam,
+    sortBy: args.sortBy,
+  });
 }
 
 async function listTopOriginsByTeamFromBoundedSubmissions(
@@ -643,30 +626,20 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
     byTeam.set(teamKey, currentTeam);
   }
 
-  const teamIds = [...byTeam.values()]
-    .map((row) => row.teamId)
-    .filter((teamId): teamId is LeadGenTeamId => teamId !== null);
-  const teams = await loadTeams(ctx, args.tenantId, teamIds);
-
-  return [...byTeam.values()]
-    .map((row) => {
-      const team = row.teamId ? teams.get(row.teamId) : null;
-      const origins = [...row.origins.values()]
-        .map((origin) => ({
-          originKey: origin.originKey,
-          source: origin.source,
-          originKind: origin.originKind,
-          originValue: origin.originValue,
-          uniqueProspects: origin.uniqueProspectDayKeys.size,
-          submissions: origin.submissions,
-          dayCount: origin.dayKeys.size,
-        }))
-        .sort((a, b) => compareTopOriginRows(a, b, args.sortBy));
-
+  return await buildTopOriginsByTeam(ctx, {
+    tenantId: args.tenantId,
+    groups: [...byTeam.values()].map((row) => {
+      const origins = [...row.origins.values()].map((origin) => ({
+        originKey: origin.originKey,
+        source: origin.source,
+        originKind: origin.originKind,
+        originValue: origin.originValue,
+        uniqueProspects: origin.uniqueProspectDayKeys.size,
+        submissions: origin.submissions,
+        dayCount: origin.dayKeys.size,
+      }));
       return {
         teamId: row.teamId,
-        teamName: team?.name ?? "Unassigned",
-        isActive: team?.isActive ?? (row.teamId ? false : null),
         totalUniqueProspects: origins.reduce(
           (sum, origin) => sum + origin.uniqueProspects,
           0,
@@ -675,7 +648,63 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
           (sum, origin) => sum + origin.submissions,
           0,
         ),
-        origins: origins.slice(0, args.limitPerTeam),
+        origins,
+      };
+    }),
+    limitPerTeam: args.limitPerTeam,
+    sortBy: args.sortBy,
+  });
+}
+
+export type TopOriginRow = {
+  originKey: string;
+  source: LeadGenSource;
+  originKind: "post" | "reel";
+  originValue: string;
+  uniqueProspects: number;
+  submissions: number;
+  dayCount: number;
+};
+
+export type TopOriginTeamGroup = {
+  teamId: LeadGenTeamId | null;
+  totalUniqueProspects: number;
+  totalSubmissions: number;
+  /** Every origin of the team, or at least those ranked within the limit. */
+  origins: TopOriginRow[];
+};
+
+/**
+ * Ranks each team's origins and the teams. Both Convex paths of
+ * `listTopOriginsByTeam` total a team's origins first; the ClickHouse report
+ * (convex/analytics/definitions/leadGen.ts) totals them in SQL.
+ */
+export async function buildTopOriginsByTeam(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    groups: TopOriginTeamGroup[];
+    limitPerTeam: number;
+    sortBy?: "uniqueProspects" | "submissions";
+  },
+) {
+  const teamIds = args.groups
+    .map((row) => row.teamId)
+    .filter((teamId): teamId is LeadGenTeamId => teamId !== null);
+  const teams = await loadTeams(ctx, args.tenantId, teamIds);
+
+  return args.groups
+    .map((row) => {
+      const team = row.teamId ? teams.get(row.teamId) : null;
+      return {
+        teamId: row.teamId,
+        teamName: team?.name ?? "Unassigned",
+        isActive: team?.isActive ?? (row.teamId ? false : null),
+        totalUniqueProspects: row.totalUniqueProspects,
+        totalSubmissions: row.totalSubmissions,
+        origins: [...row.origins]
+          .sort((a, b) => compareTopOriginRows(a, b, args.sortBy))
+          .slice(0, args.limitPerTeam),
       };
     })
     .sort((a, b) => {
@@ -687,6 +716,57 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
       }
       return a.teamName.localeCompare(b.teamName);
     });
+}
+
+/**
+ * The fields of a `leadGenDailyStats` row the reports read. The ClickHouse
+ * reports rebuild these rows from captures
+ * (convex/analytics/definitions/leadGenDaily.ts).
+ */
+export type LeadGenDailyStatInput = Pick<
+  DailyStatsRow,
+  | "dayKey"
+  | "workerId"
+  | "teamId"
+  | "source"
+  | "submissions"
+  | "uniqueProspectsSubmitted"
+  | "duplicateProspectSubmissions"
+  | "scheduledHours"
+>;
+
+/** The Lead Gen cards from a range's daily rows; `capped` when a read stopped short. */
+export async function buildLeadGenOverview(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  dailyResult: { rows: LeadGenDailyStatInput[]; capped: boolean },
+) {
+  const workerCount = new Set(dailyResult.rows.map((row) => row.workerId)).size;
+  if (dailyResult.capped || workerCount > LIVE_WORKER_HYDRATION_LIMIT) {
+    return {
+      ...summarizeDailyRows([], new Map()),
+      capped: true,
+    };
+  }
+  const rows = dailyResult.rows;
+  const scheduleReadState = createLiveReadState();
+  const currentScheduledHoursByWorkerDay =
+    await loadCurrentScheduledHoursByWorkerDay(ctx, {
+      tenantId,
+      rows,
+      liveReadState: scheduleReadState,
+    });
+  if (scheduleReadState.capped) {
+    return {
+      ...summarizeDailyRows([], new Map()),
+      capped: true,
+    };
+  }
+
+  return {
+    ...summarizeDailyRows(rows, currentScheduledHoursByWorkerDay),
+    capped: false,
+  };
 }
 
 export const getOverview = query({
@@ -708,38 +788,84 @@ export const getOverview = query({
       }),
       isTopOriginsReadCapped(ctx, { tenantId, ...args }),
     ]);
-    const workerCount = new Set(dailyResult.rows.map((row) => row.workerId)).size;
-    if (
-      dailyResult.capped ||
-      originsCapped ||
-      workerCount > LIVE_WORKER_HYDRATION_LIMIT
-    ) {
-      return {
-        ...summarizeDailyRows([], new Map()),
-        capped: true,
-      };
-    }
-    const rows = dailyResult.rows;
-    const scheduleReadState = createLiveReadState();
-    const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, {
-        tenantId,
-        rows,
-        liveReadState: scheduleReadState,
-      });
-    if (scheduleReadState.capped) {
-      return {
-        ...summarizeDailyRows([], new Map()),
-        capped: true,
-      };
-    }
-
-    return {
-      ...summarizeDailyRows(rows, currentScheduledHoursByWorkerDay),
-      capped: false,
-    };
+    return await buildLeadGenOverview(ctx, tenantId, {
+      rows: dailyResult.rows,
+      capped: dailyResult.capped || originsCapped,
+    });
   },
 });
+
+export async function buildWorkerPerformance(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  rows: LeadGenDailyStatInput[],
+) {
+  const currentScheduledHoursByWorkerDay =
+    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+
+  const byWorker = new Map<
+    Id<"leadGenWorkers">,
+    {
+      workerId: Id<"leadGenWorkers">;
+      submissions: number;
+      uniqueProspects: number;
+      duplicates: number;
+      scheduledHours: number;
+      scheduledKeys: Set<string>;
+    }
+  >();
+
+  for (const row of rows) {
+    const current =
+      byWorker.get(row.workerId) ??
+      {
+        workerId: row.workerId,
+        submissions: 0,
+        uniqueProspects: 0,
+        duplicates: 0,
+        scheduledHours: 0,
+        scheduledKeys: new Set<string>(),
+      };
+
+    current.submissions += row.submissions;
+    current.uniqueProspects += row.uniqueProspectsSubmitted;
+    current.duplicates += row.duplicateProspectSubmissions;
+
+    const scheduledKey = `${row.workerId}:${row.dayKey}`;
+    if (!current.scheduledKeys.has(scheduledKey)) {
+      current.scheduledKeys.add(scheduledKey);
+      current.scheduledHours += scheduledHoursForDailyStat(
+        row,
+        currentScheduledHoursByWorkerDay,
+      );
+    }
+
+    byWorker.set(row.workerId, current);
+  }
+
+  const workers = await loadWorkers(ctx, tenantId, [...byWorker.keys()]);
+  return (await Promise.all([...byWorker.values()]
+    .map(async (row) => {
+      const worker = workers.get(row.workerId);
+      return {
+        workerId: row.workerId,
+        worker: await leadGenWorkerMemberIdentity(ctx, worker),
+        displayName: worker?.displayName ?? worker?.email ?? "Unknown worker",
+        email: worker?.email ?? null,
+        teamId: worker?.teamId ?? null,
+        isActive: worker?.isActive ?? false,
+        submissions: row.submissions,
+        uniqueProspects: row.uniqueProspects,
+        duplicates: row.duplicates,
+        scheduledHours: row.scheduledHours,
+        leadsPerHour:
+          row.scheduledHours > 0
+            ? row.submissions / row.scheduledHours
+            : null,
+      };
+    })))
+    .sort((a, b) => b.submissions - a.submissions);
+}
 
 export const listWorkerPerformance = query({
   args: reportFiltersValidator,
@@ -757,73 +883,87 @@ export const listWorkerPerformance = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
-    const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
-
-    const byWorker = new Map<
-      Id<"leadGenWorkers">,
-      {
-        workerId: Id<"leadGenWorkers">;
-        submissions: number;
-        uniqueProspects: number;
-        duplicates: number;
-        scheduledHours: number;
-        scheduledKeys: Set<string>;
-      }
-    >();
-
-    for (const row of rows) {
-      const current =
-        byWorker.get(row.workerId) ??
-        {
-          workerId: row.workerId,
-          submissions: 0,
-          uniqueProspects: 0,
-          duplicates: 0,
-          scheduledHours: 0,
-          scheduledKeys: new Set<string>(),
-        };
-
-      current.submissions += row.submissions;
-      current.uniqueProspects += row.uniqueProspectsSubmitted;
-      current.duplicates += row.duplicateProspectSubmissions;
-
-      const scheduledKey = `${row.workerId}:${row.dayKey}`;
-      if (!current.scheduledKeys.has(scheduledKey)) {
-        current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += scheduledHoursForDailyStat(
-          row,
-          currentScheduledHoursByWorkerDay,
-        );
-      }
-
-      byWorker.set(row.workerId, current);
-    }
-
-    const workers = await loadWorkers(ctx, tenantId, [...byWorker.keys()]);
-    return (await Promise.all([...byWorker.values()]
-      .map(async (row) => {
-        const worker = workers.get(row.workerId);
-        return {
-          workerId: row.workerId,
-          worker: await leadGenWorkerMemberIdentity(ctx, worker),
-          displayName: worker?.displayName ?? worker?.email ?? "Unknown worker",
-          email: worker?.email ?? null,
-          teamId: worker?.teamId ?? null,
-          isActive: worker?.isActive ?? false,
-          submissions: row.submissions,
-          uniqueProspects: row.uniqueProspects,
-          duplicates: row.duplicates,
-          scheduledHours: row.scheduledHours,
-          leadsPerHour:
-            row.scheduledHours > 0
-              ? row.submissions / row.scheduledHours
-              : null,
-        };
-      })))
-      .sort((a, b) => b.submissions - a.submissions);
+    return await buildWorkerPerformance(ctx, tenantId, rows);
   },
 });
+
+export async function buildTeamPerformance(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  rows: LeadGenDailyStatInput[],
+) {
+  const currentScheduledHoursByWorkerDay =
+    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+
+  const byTeam = new Map<
+    string,
+    {
+      teamId: LeadGenTeamId | null;
+      submissions: number;
+      uniqueProspects: number;
+      duplicates: number;
+      scheduledHours: number;
+      workerIds: Set<Id<"leadGenWorkers">>;
+      scheduledKeys: Set<string>;
+    }
+  >();
+
+  for (const row of rows) {
+    const teamKey = row.teamId ?? "unassigned";
+    const current =
+      byTeam.get(teamKey) ??
+      {
+        teamId: row.teamId ?? null,
+        submissions: 0,
+        uniqueProspects: 0,
+        duplicates: 0,
+        scheduledHours: 0,
+        workerIds: new Set<Id<"leadGenWorkers">>(),
+        scheduledKeys: new Set<string>(),
+      };
+
+    current.submissions += row.submissions;
+    current.uniqueProspects += row.uniqueProspectsSubmitted;
+    current.duplicates += row.duplicateProspectSubmissions;
+    current.workerIds.add(row.workerId);
+
+    const scheduledKey = `${teamKey}:${row.workerId}:${row.dayKey}`;
+    if (!current.scheduledKeys.has(scheduledKey)) {
+      current.scheduledKeys.add(scheduledKey);
+      current.scheduledHours += scheduledHoursForDailyStat(
+        row,
+        currentScheduledHoursByWorkerDay,
+      );
+    }
+
+    byTeam.set(teamKey, current);
+  }
+
+  const teamIds = [...byTeam.values()]
+    .map((row) => row.teamId)
+    .filter((teamId): teamId is LeadGenTeamId => teamId !== null);
+  const teams = await loadTeams(ctx, tenantId, teamIds);
+
+  return [...byTeam.values()]
+    .map((row) => {
+      const team = row.teamId ? teams.get(row.teamId) : null;
+      return {
+        teamId: row.teamId,
+        teamName: team?.name ?? "Unassigned",
+        isActive: team?.isActive ?? (row.teamId ? false : null),
+        workerCount: row.workerIds.size,
+        submissions: row.submissions,
+        uniqueProspects: row.uniqueProspects,
+        duplicates: row.duplicates,
+        scheduledHours: row.scheduledHours,
+        leadsPerHour:
+          row.scheduledHours > 0
+            ? row.submissions / row.scheduledHours
+            : null,
+      };
+    })
+    .sort((a, b) => b.submissions - a.submissions);
+}
 
 export const listTeamPerformance = query({
   args: reportFiltersValidator,
@@ -841,79 +981,72 @@ export const listTeamPerformance = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
-    const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
-
-    const byTeam = new Map<
-      string,
-      {
-        teamId: LeadGenTeamId | null;
-        submissions: number;
-        uniqueProspects: number;
-        duplicates: number;
-        scheduledHours: number;
-        workerIds: Set<Id<"leadGenWorkers">>;
-        scheduledKeys: Set<string>;
-      }
-    >();
-
-    for (const row of rows) {
-      const teamKey = row.teamId ?? "unassigned";
-      const current =
-        byTeam.get(teamKey) ??
-        {
-          teamId: row.teamId ?? null,
-          submissions: 0,
-          uniqueProspects: 0,
-          duplicates: 0,
-          scheduledHours: 0,
-          workerIds: new Set<Id<"leadGenWorkers">>(),
-          scheduledKeys: new Set<string>(),
-        };
-
-      current.submissions += row.submissions;
-      current.uniqueProspects += row.uniqueProspectsSubmitted;
-      current.duplicates += row.duplicateProspectSubmissions;
-      current.workerIds.add(row.workerId);
-
-      const scheduledKey = `${teamKey}:${row.workerId}:${row.dayKey}`;
-      if (!current.scheduledKeys.has(scheduledKey)) {
-        current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += scheduledHoursForDailyStat(
-          row,
-          currentScheduledHoursByWorkerDay,
-        );
-      }
-
-      byTeam.set(teamKey, current);
-    }
-
-    const teamIds = [...byTeam.values()]
-      .map((row) => row.teamId)
-      .filter((teamId): teamId is LeadGenTeamId => teamId !== null);
-    const teams = await loadTeams(ctx, tenantId, teamIds);
-
-    return [...byTeam.values()]
-      .map((row) => {
-        const team = row.teamId ? teams.get(row.teamId) : null;
-        return {
-          teamId: row.teamId,
-          teamName: team?.name ?? "Unassigned",
-          isActive: team?.isActive ?? (row.teamId ? false : null),
-          workerCount: row.workerIds.size,
-          submissions: row.submissions,
-          uniqueProspects: row.uniqueProspects,
-          duplicates: row.duplicates,
-          scheduledHours: row.scheduledHours,
-          leadsPerHour:
-            row.scheduledHours > 0
-              ? row.submissions / row.scheduledHours
-              : null,
-        };
-      })
-      .sort((a, b) => b.submissions - a.submissions);
+    return await buildTeamPerformance(ctx, tenantId, rows);
   },
 });
+
+export async function buildSourcePerformance(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  args: { source?: LeadGenSource },
+  rows: LeadGenDailyStatInput[],
+) {
+  const currentScheduledHoursByWorkerDay =
+    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+
+  const bySource = new Map<
+    LeadGenSource,
+    {
+      source: LeadGenSource;
+      submissions: number;
+      uniqueProspects: number;
+      duplicates: number;
+      scheduledHours: number;
+      scheduledKeys: Set<string>;
+    }
+  >();
+
+  for (const source of LEAD_GEN_SOURCES) {
+    if (!args.source || args.source === source) {
+      bySource.set(source, {
+        source,
+        submissions: 0,
+        uniqueProspects: 0,
+        duplicates: 0,
+        scheduledHours: 0,
+        scheduledKeys: new Set<string>(),
+      });
+    }
+  }
+
+  for (const row of rows) {
+    const current = bySource.get(row.source);
+    if (!current) continue;
+
+    current.submissions += row.submissions;
+    current.uniqueProspects += row.uniqueProspectsSubmitted;
+    current.duplicates += row.duplicateProspectSubmissions;
+
+    const scheduledKey = `${row.source}:${row.workerId}:${row.dayKey}`;
+    if (!current.scheduledKeys.has(scheduledKey)) {
+      current.scheduledKeys.add(scheduledKey);
+      current.scheduledHours += scheduledHoursForDailyStat(
+        row,
+        currentScheduledHoursByWorkerDay,
+      );
+    }
+  }
+
+  return [...bySource.values()].map((row) => ({
+    source: row.source,
+    submissions: row.submissions,
+    uniqueProspects: row.uniqueProspects,
+    duplicates: row.duplicates,
+    scheduledHours: row.scheduledHours,
+    leadsPerHour:
+      row.scheduledHours > 0 ? row.submissions / row.scheduledHours : null,
+  }));
+}
 
 export const listSourcePerformance = query({
   args: reportFiltersValidator,
@@ -931,63 +1064,30 @@ export const listSourcePerformance = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
-    const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
-
-    const bySource = new Map<
-      LeadGenSource,
-      {
-        source: LeadGenSource;
-        submissions: number;
-        uniqueProspects: number;
-        duplicates: number;
-        scheduledHours: number;
-        scheduledKeys: Set<string>;
-      }
-    >();
-
-    for (const source of LEAD_GEN_SOURCES) {
-      if (!args.source || args.source === source) {
-        bySource.set(source, {
-          source,
-          submissions: 0,
-          uniqueProspects: 0,
-          duplicates: 0,
-          scheduledHours: 0,
-          scheduledKeys: new Set<string>(),
-        });
-      }
-    }
-
-    for (const row of rows) {
-      const current = bySource.get(row.source);
-      if (!current) continue;
-
-      current.submissions += row.submissions;
-      current.uniqueProspects += row.uniqueProspectsSubmitted;
-      current.duplicates += row.duplicateProspectSubmissions;
-
-      const scheduledKey = `${row.source}:${row.workerId}:${row.dayKey}`;
-      if (!current.scheduledKeys.has(scheduledKey)) {
-        current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += scheduledHoursForDailyStat(
-          row,
-          currentScheduledHoursByWorkerDay,
-        );
-      }
-    }
-
-    return [...bySource.values()].map((row) => ({
-      source: row.source,
-      submissions: row.submissions,
-      uniqueProspects: row.uniqueProspects,
-      duplicates: row.duplicates,
-      scheduledHours: row.scheduledHours,
-      leadsPerHour:
-        row.scheduledHours > 0 ? row.submissions / row.scheduledHours : null,
-    }));
+    return await buildSourcePerformance(ctx, tenantId, args, rows);
   },
 });
+
+export type TopOriginEntry = {
+  originKey: string;
+  source: LeadGenSource;
+  originKind: Doc<"leadGenSubmissions">["originKind"];
+  originValue: string;
+  submissions: number;
+  uniqueProspects: number;
+  dayCount: number;
+};
+
+/**
+ * The top origins by submissions. `entries` come in the order the reader
+ * first met them, which breaks ties; the ClickHouse report returns them in
+ * that order.
+ */
+export function buildTopOrigins(entries: TopOriginEntry[], limit: number) {
+  return [...entries]
+    .sort((a, b) => b.submissions - a.submissions)
+    .slice(0, limit);
+}
 
 export const listTopOrigins = query({
   args: {
@@ -1051,8 +1151,8 @@ export const listTopOrigins = query({
         byOrigin.set(key, current);
       }
 
-      return [...byOrigin.values()]
-        .map((row) => ({
+      return buildTopOrigins(
+        [...byOrigin.values()].map((row) => ({
           originKey: row.originKey,
           source: row.source,
           originKind: row.originKind,
@@ -1060,9 +1160,9 @@ export const listTopOrigins = query({
           submissions: row.submissions,
           uniqueProspects: row.uniqueProspectDayKeys.size,
           dayCount: row.dayKeys.size,
-        }))
-        .sort((a, b) => b.submissions - a.submissions)
-        .slice(0, limit);
+        })),
+        limit,
+      );
     }
 
     const readLimit = ORIGIN_STATS_READ_LIMIT + 1;
@@ -1091,18 +1191,7 @@ export const listTopOrigins = query({
       throw new Error("Origin report range is too large. Narrow the filters.");
     }
 
-    const byOrigin = new Map<
-      string,
-      {
-        originKey: string;
-        source: LeadGenSource;
-        originKind: Doc<"leadGenOriginStats">["originKind"];
-        originValue: string;
-        submissions: number;
-        uniqueProspects: number;
-        dayCount: number;
-      }
-    >();
+    const byOrigin = new Map<string, TopOriginEntry>();
 
     for (const row of rows) {
       if (args.source && row.source !== args.source) continue;
@@ -1124,9 +1213,7 @@ export const listTopOrigins = query({
       byOrigin.set(key, current);
     }
 
-    return [...byOrigin.values()]
-      .sort((a, b) => b.submissions - a.submissions)
-      .slice(0, limit);
+    return buildTopOrigins([...byOrigin.values()], limit);
   },
 });
 

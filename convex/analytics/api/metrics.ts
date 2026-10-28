@@ -180,7 +180,14 @@ SELECT
   uniqExact(c.prospect_id) AS unique_prospects
 FROM analytics.captures AS c
 LEFT JOIN analytics.workers AS w ON w.id = c.worker_id AND w.tenant_id = {tenant_id:String}
-WHERE c.tenant_id = {tenant_id:String} AND ${inRange("c.submitted_at_ms")} AND c.voided_at_ms IS NULL
+WHERE c.tenant_id = {tenant_id:String} AND ${inRange("c.submitted_at_ms")}
+  -- Voided captures. voided_at_ms is NULL until the first void syncs, so
+  -- voids come from their events, as the lead gen reports read them.
+  AND c.id NOT IN (
+    SELECT JSONExtractString(e.metadata, 'submissionId')
+    FROM analytics.events AS e
+    WHERE e.tenant_id = {tenant_id:String} AND e.event_type = 'lead.capture_voided'
+  )
 GROUP BY period, group_id`,
   resparks: `
 SELECT
