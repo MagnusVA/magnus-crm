@@ -1,6 +1,6 @@
 # ClickHouse reporting layer
 
-Status: draft plan, revised 2026-10-27 with the decisions in §2. The design report (`/tmp/magnus-feature/clickhouse-reporting/index.html`) settles the parts list, budget and open decisions. Nothing here is built yet. Only production feeds ClickHouse, so every ClickHouse check runs on production, and each page ships dark behind a per-page switch (§12.1). CSV export limits are still to be agreed (§10).
+Status: built on branch `t3/clickhouse-reporting-layer-plan` (2026-10-28): the engine, the views, every page in Phase B and the API (Phase C). Nothing is deployed and no page is switched; §12.3 is the rollout. Phases D (exports) and E (narrow) are still to do. Only production feeds ClickHouse, so every ClickHouse check runs on production, and each page ships dark behind a per-page switch (§12.1). CSV export limits are still to be agreed (§10).
 
 Terms follow [`CONTEXT.md`](../../CONTEXT.md) and [ADR 0001](../adr/0001-lead-lifecycle-model.md). This file holds IDs, counts and table names only. It contains no personal data.
 
@@ -350,6 +350,37 @@ Parity differences that come from today's caps or the switch to browser-clock da
 - "Write side effects" in `docs/agents/convex.md` without the retired hooks
 - the topic list in `AGENTS.md`
 - ADR 0002 for "Today in Convex, the rest in ClickHouse" and the watermark
+
+### 12.3 Rollout runbook
+
+In this order. Production is `usable-guineapig-697`; its HTTP actions are at `https://usable-guineapig-697.convex.site`.
+
+1. **Fivetran, before the deploy.**
+   - Set the Convex connector's schema change handling to "Allow columns". New tables then arrive blocked, while new columns on synced tables still sync, which the views' NULL placeholders rely on.
+   - Block the component databases, the projection and job tables, and the raw payload tables (§7.4).
+2. **Deploy the branch.** The ClickHouse env vars are optional, so the deploy works without them. The first heartbeat creates `analyticsSync`.
+3. **Fivetran, after the deploy.**
+   - Enable the new `analyticsSync` table.
+   - Keep `analyticsResults` and `apiKeys` blocked.
+   - Let the next sync run, or start one.
+4. **ClickHouse, right after that sync.** In the SQL console as the admin user, or with `pnpm ch:migrate`:
+   1. `clickhouse/migrations/0001_analytics_database.sql`
+   2. `0002_views.sql`
+   3. `0003_watermark.sql`, which needs `convex_app.analyticssync`
+   4. `clickhouse/admin/magnus_app.sql`, with a new password
+   5. Set the service's idle timeout to its minimum.
+5. **Convex production env.** Set `CLICKHOUSE_URL`, `CLICKHOUSE_USER` (`magnus_app`), `CLICKHOUSE_PASSWORD` and `FIVETRAN_WEBHOOK_SECRET`.
+6. **The Fivetran webhook.** Point a `sync_end` webhook at `/analytics/fivetran` with the same secret. Fivetran's test delivery logs `analytics.fivetran.test_received`. After the next real sync, `npx convex data analyticsSync --prod` shows `lastSyncEndedAt`, `watermark` and `lastBatchAt`.
+7. **Each page:**
+   1. Run `pnpm analytics:parity <page>` after a sync.
+   2. Open the page with `?analytics=preview`.
+   3. Run `analytics/switch:enable`.
+   4. Watch the signals in §12.1.
+   Expected parity differences: the readers' caps (2,500 payments, 1,000 Slack events, 500 bucket rows, 120 days), the answer distribution's first-2,500-responses window, ties ordered differently, and the 2026-05-25 team-origin bucket the write path never filled.
+8. **API.**
+   1. Create a key on Settings › Integrations and call `/api/v1/freshness` and `/api/v1/metrics` with it.
+   2. Revoke it.
+   3. Send Adrian a key and `docs/api/openapi.yaml`.
 
 ## 13. Still open
 
