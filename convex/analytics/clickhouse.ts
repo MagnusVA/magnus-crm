@@ -38,7 +38,9 @@ export class ClickHouseQueryError extends Error {
   }
 }
 
-const QUERY_TIMEOUT_MS = 60_000;
+// A query on real data takes under a second; the rest covers waking the
+// service from idle, which has taken over a minute.
+const QUERY_TIMEOUT_MS = 150_000;
 const WAKE_RETRY_DELAY_MS = 5_000;
 const WAKE_RETRIES = 2;
 const ERROR_TEXT_LIMIT = 400;
