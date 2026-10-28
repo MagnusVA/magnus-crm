@@ -108,41 +108,113 @@ export const getAnswerDistribution = query({
 				return true;
 			});
 
-		const counts = new Map<string, number>();
-		for (const row of filteredRows) {
-			const answer = row.answerText.trim();
-			if (answer.length === 0) {
-				continue;
-			}
-			counts.set(answer, (counts.get(answer) ?? 0) + 1);
-		}
-
-		const totalResponses = [...counts.values()].reduce(
-			(sum, count) => sum + count,
-			0,
+		return buildAnswerDistribution(
+			normalizedFieldKey,
+			filteredRows.map((row) => ({ answerText: row.answerText, count: 1 })),
+			rows.length > MAX_FORM_RESPONSE_ROWS,
 		);
-		const distribution = [...counts.entries()]
-			.map(([answer, count]) => ({
-				answer,
-				count,
-				percent:
-					totalResponses > 0 ? (count / totalResponses) * 100 : 0,
-			}))
-			.sort(
-				(left, right) =>
-					right.count - left.count ||
-					left.answer.localeCompare(right.answer),
-			);
-
-		return {
-			fieldKey: normalizedFieldKey,
-			totalResponses,
-			distinctAnswers: distribution.length,
-			distribution,
-			isTruncated: rows.length > MAX_FORM_RESPONSE_ROWS,
-		};
 	},
 });
+
+/** Answers as stored, with how many responses gave each. */
+export type AnswerCount = { answerText: string; count: number };
+
+/**
+ * One field's answer distribution, from its answers in first-seen order.
+ * Shared by the Convex reader and the ClickHouse report
+ * (convex/analytics/definitions/leads.ts).
+ */
+export function buildAnswerDistribution(
+	fieldKey: string,
+	answers: AnswerCount[],
+	isTruncated: boolean,
+) {
+	const counts = new Map<string, number>();
+	for (const row of answers) {
+		const answer = row.answerText.trim();
+		if (answer.length === 0) {
+			continue;
+		}
+		counts.set(answer, (counts.get(answer) ?? 0) + row.count);
+	}
+
+	const totalResponses = [...counts.values()].reduce(
+		(sum, count) => sum + count,
+		0,
+	);
+	const distribution = [...counts.entries()]
+		.map(([answer, count]) => ({
+			answer,
+			count,
+			percent: totalResponses > 0 ? (count / totalResponses) * 100 : 0,
+		}))
+		.sort(
+			(left, right) =>
+				right.count - left.count || left.answer.localeCompare(right.answer),
+		);
+
+	return {
+		fieldKey,
+		totalResponses,
+		distinctAnswers: distribution.length,
+		distribution,
+		isTruncated,
+	};
+}
+
+/** One field's non-empty answers to the range's meetings. */
+export type FieldAnswerCounts = {
+	fieldKey: string;
+	totalResponses: number;
+	/** Trimmed answers and their counts: all of them, or at least every one tied for the most. */
+	answers: Array<{ answer: string; count: number }>;
+};
+
+export type FormResponseKpiInput = {
+	totalMeetings: number;
+	respondedMeetingsCount: number;
+	fields: FieldAnswerCounts[];
+	isMeetingsTruncated: boolean;
+	isFormResponsesTruncated: boolean;
+};
+
+/**
+ * The form response rate and each field's top answer. Shared by the Convex
+ * reader and the ClickHouse report (convex/analytics/definitions/leads.ts).
+ */
+export function buildFormResponseKpis(input: FormResponseKpiInput) {
+	const topAnswerPerField = input.fields
+		.map(({ fieldKey, totalResponses, answers }) => {
+			const topEntry = [...answers].sort(
+				(left, right) =>
+					right.count - left.count || left.answer.localeCompare(right.answer),
+			)[0];
+
+			return {
+				fieldKey,
+				topAnswer: topEntry?.answer ?? "",
+				topAnswerCount: topEntry?.count ?? 0,
+				totalResponses,
+				topAnswerShare:
+					totalResponses > 0 && topEntry
+						? topEntry.count / totalResponses
+						: 0,
+			};
+		})
+		.sort((left, right) => left.fieldKey.localeCompare(right.fieldKey));
+
+	return {
+		totalMeetings: input.totalMeetings,
+		respondedMeetingsCount: input.respondedMeetingsCount,
+		formResponseRate:
+			input.totalMeetings > 0
+				? input.respondedMeetingsCount / input.totalMeetings
+				: null,
+		topAnswerPerField,
+		isMeetingsTruncated: input.isMeetingsTruncated,
+		isFormResponsesTruncated: input.isFormResponsesTruncated,
+	};
+}
 
 export const getFormResponseKpis = query({
 	args: {
@@ -213,41 +285,23 @@ export const getFormResponseKpis = query({
 			}
 		}
 
-		const topAnswerPerField = [...answersByField.entries()]
-			.map(([fieldKey, answerCounts]) => {
-				const topEntry = [...answerCounts.entries()].sort(
-					(left, right) =>
-						right[1] - left[1] || left[0].localeCompare(right[0]),
-				)[0];
-				const totalResponses = [...answerCounts.values()].reduce(
-					(sum, count) => sum + count,
-					0,
-				);
-
-				return {
-					fieldKey,
-					topAnswer: topEntry?.[0] ?? "",
-					topAnswerCount: topEntry?.[1] ?? 0,
-					totalResponses,
-					topAnswerShare:
-						totalResponses > 0 && topEntry
-							? topEntry[1] / totalResponses
-							: 0,
-				};
-			})
-			.sort((left, right) => left.fieldKey.localeCompare(right.fieldKey));
-
-		return {
+		return buildFormResponseKpis({
 			totalMeetings: meetings.length,
 			respondedMeetingsCount: respondedMeetingIds.size,
-			formResponseRate:
-				meetings.length > 0
-					? respondedMeetingIds.size / meetings.length
-					: null,
-			topAnswerPerField,
+			fields: [...answersByField.entries()].map(([fieldKey, answerCounts]) => ({
+				fieldKey,
+				totalResponses: [...answerCounts.values()].reduce(
+					(sum, count) => sum + count,
+					0,
+				),
+				answers: [...answerCounts.entries()].map(([answer, count]) => ({
+					answer,
+					count,
+				})),
+			})),
 			isMeetingsTruncated:
 				meetingRows.length > MAX_FORM_RESPONSE_KPI_MEETING_ROWS,
 			isFormResponsesTruncated,
-		};
+		});
 	},
 });

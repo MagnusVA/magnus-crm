@@ -1,13 +1,21 @@
 import type { AnyReportDefinition } from "./definition";
 import { apiReports } from "./api/metrics";
+import { activityReports } from "./definitions/activity";
+import { leadsReports } from "./definitions/leads";
 import { operationsReports } from "./definitions/operations";
+import { pipelineReports } from "./definitions/pipeline";
 import { revenueReports } from "./definitions/revenue";
+import { slackQualificationReports } from "./definitions/slackQualifications";
 
 // Every report ClickHouse can answer. Add a page's definitions here.
 const definitions: readonly AnyReportDefinition[] = [
   ...apiReports,
+  ...activityReports,
+  ...leadsReports,
   ...operationsReports,
+  ...pipelineReports,
   ...revenueReports,
+  ...slackQualificationReports,
 ];
 
 const byId = new Map(definitions.map((definition) => [definition.id, definition]));

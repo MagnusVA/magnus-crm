@@ -1,5 +1,5 @@
 import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
-import { readMeetingStatsCounts } from "../operations/meetingStats";
+import { readMeetingStatsCounts, type MeetingStatsCount } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -564,6 +564,90 @@ export const getPipelineAging = query({
   },
 });
 
+export type PendingFollowUpScan = Array<Pick<Doc<"followUps">, "type" | "createdSource">>;
+
+export type NoShowSourceCount = {
+  noShowSource: Doc<"meetings">["noShowSource"];
+  count: number;
+};
+
+export type PipelineBacklogAndLossInput = {
+  /** Pending follow-ups by creation, up to one past the report's cap. */
+  pendingFollowUps: PendingFollowUpScan;
+  noShowSources: NoShowSourceCount[];
+  isNoShowSourceTruncated: boolean;
+  lossCounts: ReturnType<typeof countLossesByActor>;
+  isLossAttributionTruncated: boolean;
+};
+
+/**
+ * The backlog and loss panels from the range's counts. Shared by the Convex
+ * reader and the ClickHouse report (convex/analytics/definitions/pipeline.ts).
+ */
+export async function buildPipelineBacklogAndLoss(
+  ctx: QueryCtx,
+  input: PipelineBacklogAndLossInput,
+) {
+  const unresolvedManualReminders = input.pendingFollowUps
+    .slice(0, REPORT_ROW_CAP)
+    .filter((followUp) => followUp.type === "manual_reminder");
+  const unresolvedReminderSplit = emptyReminderCreatedSourceSplit();
+  for (const followUp of unresolvedManualReminders) {
+    unresolvedReminderSplit[toReminderCreatedSource(followUp.createdSource)] += 1;
+  }
+
+  const noShowSourceSplit = emptyNoShowSourceSplit();
+  for (const { noShowSource, count } of input.noShowSources) {
+    noShowSourceSplit[toNoShowSource(noShowSource)] += count;
+  }
+
+  const { lossCountsByActor, unknownLossCount } = input.lossCounts;
+
+  const actorIds = [...lossCountsByActor.keys()];
+  const actorDocs = await Promise.all(
+    actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
+  );
+  const actorById = new Map(actorDocs);
+
+  const byActor = (await Promise.all(actorIds
+    .map(async (actorId) => {
+      const actor = actorById.get(actorId);
+      return {
+        userId: actorId,
+        actorName: actor ? getUserDisplayName(actor) : "Removed user",
+        actor: await reportingUserIdentity(ctx, actor, "Removed user"),
+        actorRole: toLossAttributionRole(actor?.role),
+        count: lossCountsByActor.get(actorId) ?? 0,
+      };
+    })))
+    .sort(
+      (left, right) =>
+        right.count - left.count ||
+        left.actorName.localeCompare(right.actorName),
+    );
+
+  const lossAttribution = {
+    admin: 0,
+    closer: 0,
+    unknown: unknownLossCount,
+    byActor,
+  };
+
+  for (const actor of byActor) {
+    lossAttribution[actor.actorRole] += actor.count;
+  }
+
+  return {
+    unresolvedRemindersCount: unresolvedManualReminders.length,
+    unresolvedReminderSplit,
+    isUnresolvedRemindersTruncated: input.pendingFollowUps.length > REPORT_ROW_CAP,
+    noShowSourceSplit,
+    isNoShowSourceTruncated: input.isNoShowSourceTruncated,
+    lossAttribution,
+    isLossAttributionTruncated: input.isLossAttributionTruncated,
+  };
+}
+
 export const getPipelineBacklogAndLoss = query({
   args: {
     startDate: v.number(),
@@ -599,65 +683,15 @@ export const getPipelineBacklogAndLoss = query({
     // passes over those too, so it can stop at its bound: truncated.
     const losses = await readLossesByStage(ctx, tenantId, startDate, endDate);
 
-    const unresolvedManualReminders = pendingFollowUpRows
-      .slice(0, REPORT_ROW_CAP)
-      .filter((followUp) => followUp.type === "manual_reminder");
-    const unresolvedReminderSplit = emptyReminderCreatedSourceSplit();
-    for (const followUp of unresolvedManualReminders) {
-      unresolvedReminderSplit[toReminderCreatedSource(followUp.createdSource)] += 1;
-    }
-
-    const noShowMeetings = noShowRows.slice(0, REPORT_ROW_CAP);
-    const noShowSourceSplit = emptyNoShowSourceSplit();
-    for (const meeting of noShowMeetings) {
-      noShowSourceSplit[toNoShowSource(meeting.noShowSource)] += 1;
-    }
-
-    const { lossCountsByActor, unknownLossCount } = countLossesByActor(losses.losses);
-
-    const actorIds = [...lossCountsByActor.keys()];
-    const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
-    );
-    const actorById = new Map(actorDocs);
-
-    const byActor = (await Promise.all(actorIds
-      .map(async (actorId) => {
-        const actor = actorById.get(actorId);
-        return {
-          userId: actorId,
-          actorName: actor ? getUserDisplayName(actor) : "Removed user",
-          actor: await reportingUserIdentity(ctx, actor, "Removed user"),
-          actorRole: toLossAttributionRole(actor?.role),
-          count: lossCountsByActor.get(actorId) ?? 0,
-        };
-      })))
-      .sort(
-        (left, right) =>
-          right.count - left.count ||
-          left.actorName.localeCompare(right.actorName),
-      );
-
-    const lossAttribution = {
-      admin: 0,
-      closer: 0,
-      unknown: unknownLossCount,
-      byActor,
-    };
-
-    for (const actor of byActor) {
-      lossAttribution[actor.actorRole] += actor.count;
-    }
-
-    return {
-      unresolvedRemindersCount: unresolvedManualReminders.length,
-      unresolvedReminderSplit,
-      isUnresolvedRemindersTruncated: pendingFollowUpRows.length > REPORT_ROW_CAP,
-      noShowSourceSplit,
+    return await buildPipelineBacklogAndLoss(ctx, {
+      pendingFollowUps: pendingFollowUpRows,
+      noShowSources: noShowRows
+        .slice(0, REPORT_ROW_CAP)
+        .map((meeting) => ({ noShowSource: meeting.noShowSource, count: 1 })),
       isNoShowSourceTruncated: noShowRows.length > REPORT_ROW_CAP,
-      lossAttribution,
+      lossCounts: countLossesByActor(losses.losses),
       isLossAttributionTruncated: losses.truncated,
-    };
+    });
   },
 });
 
@@ -694,7 +728,7 @@ export const getSchedulingShowRateByOperationsDimensions = query({
 
     // A team or DM closer filter reads the credited meetings' rows
     // (dealAttributions); otherwise the buckets.
-    const { counts, truncated } = await readMeetingStatsCounts(ctx, {
+    const meetingStats = await readMeetingStatsCounts(ctx, {
       tenantId,
       startDayKey: args.startDayKey,
       endDayKeyExclusive: args.endDayKeyExclusive,
@@ -702,44 +736,57 @@ export const getSchedulingShowRateByOperationsDimensions = query({
       dmCloserId: args.dmCloserId,
     });
 
-    const filtered = counts.filter(
-      (row) =>
-        !args.bookingProgramId ||
-        row.bookingProgramId === args.bookingProgramId,
-    );
-
-    let scheduled = 0;
-    let shown = 0;
-    let canceled = 0;
-    let noShows = 0;
-    let notRecorded = 0;
-    const attendance = await withAttendanceCounts(ctx, tenantId, filtered);
-    for (const row of attendance.counts) {
-      scheduled += row.count;
-      notRecorded += row.notRecorded;
-      if (isHeldStatus(row.meetingStatus)) {
-        shown += row.count;
-      }
-      if (row.meetingStatus === "canceled") {
-        canceled += row.count;
-      }
-      if (row.meetingStatus === "no_show") {
-        noShows += row.count;
-      }
-    }
-    const denominator = shown + noShows;
-
-    return {
-      scheduled,
-      shown,
-      canceled,
-      noShows,
-      resultsRecorded: denominator,
-      pastCalls: denominator + notRecorded,
-      showRate: toRate(shown, denominator),
-      noShowRate: toRate(noShows, denominator),
-      attendanceCountsPartial: attendance.attendanceCountsPartial,
-      truncated,
-    };
+    return await buildSchedulingShowRate(ctx, tenantId, args, meetingStats);
   },
 });
+
+/**
+ * Show and no-show rates from a range's meeting counts. Shared by the Convex
+ * reader and the ClickHouse report (convex/analytics/definitions/pipeline.ts).
+ */
+export async function buildSchedulingShowRate(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  args: { bookingProgramId?: Id<"tenantPrograms"> | null },
+  { counts, truncated }: { counts: MeetingStatsCount[]; truncated: boolean },
+) {
+  const filtered = counts.filter(
+    (row) =>
+      !args.bookingProgramId ||
+      row.bookingProgramId === args.bookingProgramId,
+  );
+
+  let scheduled = 0;
+  let shown = 0;
+  let canceled = 0;
+  let noShows = 0;
+  let notRecorded = 0;
+  const attendance = await withAttendanceCounts(ctx, tenantId, filtered);
+  for (const row of attendance.counts) {
+    scheduled += row.count;
+    notRecorded += row.notRecorded;
+    if (isHeldStatus(row.meetingStatus)) {
+      shown += row.count;
+    }
+    if (row.meetingStatus === "canceled") {
+      canceled += row.count;
+    }
+    if (row.meetingStatus === "no_show") {
+      noShows += row.count;
+    }
+  }
+  const denominator = shown + noShows;
+
+  return {
+    scheduled,
+    shown,
+    canceled,
+    noShows,
+    resultsRecorded: denominator,
+    pastCalls: denominator + notRecorded,
+    showRate: toRate(shown, denominator),
+    noShowRate: toRate(noShows, denominator),
+    attendanceCountsPartial: attendance.attendanceCountsPartial,
+    truncated,
+  };
+}

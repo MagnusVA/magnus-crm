@@ -2,16 +2,20 @@
 
 import type { FunctionArgs } from "convex/server";
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "convex/react";
 // The feed pages a stream, so it needs the helper's hook, which pins each
 // loaded page's end cursor; Convex's own hook doesn't for stream pagination.
 import { usePaginatedQuery } from "convex-helpers/react";
-import { startOfMonth, endOfMonth } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
 import { AlertTriangleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ReportDateControls,
   type DateRange,
@@ -43,10 +47,12 @@ interface Filters {
 export function ActivityFeedPageClient() {
   usePageTitle("Activity Feed");
 
-  const now = new Date();
-  const [dateRange, setDateRange] = useState<DateRange>({
-    startDate: startOfMonth(now).getTime(),
-    endDate: endOfMonth(now).getTime(),
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const today = new Date();
+    return {
+      startDate: startOfDay(today).getTime(),
+      endDate: startOfDay(addDays(today, 1)).getTime(),
+    };
   });
   const [filters, setFilters] = useState<Filters>({});
   const resetKey = [
@@ -58,10 +64,18 @@ export function ActivityFeedPageClient() {
     filters.programId ?? "",
     filters.paymentType ?? "",
   ].join("|");
-  const summary = useQuery(
-    api.reporting.activityFeed.getActivitySummary,
-    dateRange,
-  );
+  // Today reads Convex live; any other range reads ClickHouse once the page
+  // is switched (docs/plans/clickhouse-reporting.md §4). The feed is paged
+  // and always reads Convex.
+  const now = useNow();
+  const summaryReport = useAnalyticsReport({
+    page: "activity",
+    reportId: "activity.summary",
+    range: reportRangeToAnalyticsRange(dateRange, now),
+    live: api.reporting.activityFeed.getActivitySummary,
+    liveArgs: dateRange,
+  });
+  const summary = summaryReport.data;
 
   // Only include defined filter values in query args
   const feedArgs = {
@@ -75,7 +89,9 @@ export function ActivityFeedPageClient() {
     ...(filters.paymentType ? { paymentType: filters.paymentType } : {}),
   };
 
-  if (summary === undefined) {
+  // A ClickHouse range can take a while to load; keep the controls and its
+  // status on screen instead of the full-page skeleton.
+  if (summary === undefined && summaryReport.freshness.source === "live") {
     return (
       <div className="flex flex-col gap-6">
         <div>
@@ -103,12 +119,17 @@ export function ActivityFeedPageClient() {
 
       {/* Date range controls */}
       <ReportDateControls value={dateRange} onChange={setDateRange} />
+      <AnalyticsFreshnessLine items={[summaryReport.freshness]} />
 
       {/* Summary cards */}
-      <ActivitySummaryCards summary={summary} dateRange={dateRange} />
+      {summary !== undefined ? (
+        <ActivitySummaryCards summary={summary} dateRange={dateRange} />
+      ) : (
+        <Skeleton className="h-44 rounded-lg" />
+      )}
 
       {/* Truncation warning */}
-      {summary.isTruncated && (
+      {summary?.isTruncated && (
         <Alert variant="destructive">
           <AlertTriangleIcon className="h-4 w-4" />
           <AlertDescription>
@@ -121,7 +142,7 @@ export function ActivityFeedPageClient() {
       <ActivityFeedFilters
         filters={filters}
         onChange={setFilters}
-        actorBreakdown={summary.actorBreakdown ?? []}
+        actorBreakdown={summary?.actorBreakdown ?? []}
       />
 
       {/* Event list */}

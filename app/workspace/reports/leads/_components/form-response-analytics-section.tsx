@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -21,27 +21,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FieldAnswerDistribution } from "./field-answer-distribution";
 
 interface FormResponseAnalyticsSectionProps {
-  dateRange: { startDate: number; endDate: number };
+  selectedFieldKey: string | null;
+  onSelectedFieldKeyChange: (fieldKey: string) => void;
+  /** The selected field's answers for the page's range; the page loads them. */
+  distribution:
+    | FunctionReturnType<
+        typeof api.reporting.formResponseAnalytics.getAnswerDistribution
+      >
+    | undefined;
 }
 
 export function FormResponseAnalyticsSection({
-  dateRange,
+  selectedFieldKey,
+  onSelectedFieldKeyChange,
+  distribution,
 }: FormResponseAnalyticsSectionProps) {
-  const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
-
   const catalog = useQuery(
     api.reporting.formResponseAnalytics.getFieldCatalog,
-  );
-
-  const distribution = useQuery(
-    api.reporting.formResponseAnalytics.getAnswerDistribution,
-    selectedFieldKey
-      ? {
-          fieldKey: selectedFieldKey,
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        }
-      : "skip",
   );
 
   return (
@@ -67,7 +63,7 @@ export function FormResponseAnalyticsSection({
           <div className="space-y-4">
             <Select
               value={selectedFieldKey ?? undefined}
-              onValueChange={(value) => setSelectedFieldKey(value)}
+              onValueChange={(value) => onSelectedFieldKeyChange(value)}
             >
               <SelectTrigger className="w-[300px]">
                 <SelectValue placeholder="Select a form field..." />

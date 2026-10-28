@@ -20,7 +20,9 @@ vi.mock("convex/react", () => ({
     }
     return undefined;
   },
+  useMutation: () => async () => null,
 }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/app/workspace/reports/_components/report-date-controls", () => ({ ReportDateControls: () => null }));
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
@@ -33,9 +35,21 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
+// The day keys each page's default range sends on 2026-10-22: Team opens on
+// the month, Pipeline Health on Today.
 const pages = [
-  { name: "Team Performance", component: TeamReportPageClient, query: "reporting/teamPerformance:getTeamOperationsDimensions" },
-  { name: "Pipeline Health", component: PipelineReportPageClient, query: "reporting/pipelineHealth:getSchedulingShowRateByOperationsDimensions" },
+  {
+    name: "Team Performance",
+    component: TeamReportPageClient,
+    query: "reporting/teamPerformance:getTeamOperationsDimensions",
+    defaultKeys: { startDayKey: "2026-10-01", endDayKeyExclusive: "2026-11-01" },
+  },
+  {
+    name: "Pipeline Health",
+    component: PipelineReportPageClient,
+    query: "reporting/pipelineHealth:getSchedulingShowRateByOperationsDimensions",
+    defaultKeys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" },
+  },
 ];
 
 describe("meeting bucket page readiness", () => {
@@ -57,16 +71,13 @@ describe("meeting bucket page readiness", () => {
     expect(fixture.queries).toHaveBeenCalledWith(query, expect.any(Object));
   });
 
-  it.each(pages)("passes browser calendar keys to $name buckets", ({ component, query }) => {
+  it.each(pages)("passes browser calendar keys to $name buckets", ({ component, query, defaultKeys }) => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date(2026, 9, 22, 12));
       fixture.ready = true;
       renderToStaticMarkup(createElement(component));
-      expect(fixture.queries).toHaveBeenCalledWith(query, {
-        startDayKey: "2026-10-01",
-        endDayKeyExclusive: "2026-11-01",
-      });
+      expect(fixture.queries).toHaveBeenCalledWith(query, defaultKeys);
     } finally {
       vi.useRealTimers();
     }
