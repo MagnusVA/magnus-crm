@@ -352,14 +352,7 @@ export async function buildQualifierEfficiencyRows(
   return { rows, truncated: events.truncated };
 }
 
-export async function buildDmCloserEfficiencyRows(
-  ctx: QueryCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    range: DerivedOverviewRange;
-    includeAllCandidates: boolean;
-  },
-): Promise<{
+export type DmCloserEfficiencyResult = {
   rows: TopDmCloserRow[];
   truncated: boolean;
   // First bookings in range per team, from their dm_team rows: the DM-closer
@@ -370,7 +363,18 @@ export async function buildDmCloserEfficiencyRows(
   // First bookings with a dm_team row and no dm_closer row. They count toward
   // their team and the goal, never toward a DM closer or the DM closer total.
   teamOnlyBooked: number;
-}> {
+};
+
+export type BookedMeetingCounts = ReturnType<typeof countBookedMeetings>;
+
+export async function buildDmCloserEfficiencyRows(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: DerivedOverviewRange;
+    includeAllCandidates: boolean;
+  },
+): Promise<DmCloserEfficiencyResult> {
   // One bounded meetings read for the population and two bounded row reads
   // (dm_team, dm_closer) for the credit, over the same window: a booking's
   // rows have attributedAt equal to the meeting's createdAt. Rows per role
@@ -403,8 +407,28 @@ export async function buildDmCloserEfficiencyRows(
     };
   }
 
-  const { byDmCloser, byAttributionTeam, teamOnlyBooked } =
-    countBookedMeetings(meetingScan.rows, creditScan.credits);
+  return await buildDmCloserRowsFromCounts(
+    ctx,
+    args,
+    countBookedMeetings(meetingScan.rows, creditScan.credits),
+  );
+}
+
+/**
+ * The DM closer rows from the range's first-booking counts. The Convex path
+ * counts the bookings it reads; the Booked Calls ClickHouse report
+ * (convex/analytics/definitions/operations.ts) counts them in SQL.
+ */
+export async function buildDmCloserRowsFromCounts(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: Pick<DerivedOverviewRange, "startBusinessDate" | "endBusinessDateInclusive">;
+    includeAllCandidates: boolean;
+  },
+  counts: BookedMeetingCounts,
+): Promise<DmCloserEfficiencyResult> {
+  const { byDmCloser, byAttributionTeam, teamOnlyBooked } = counts;
   const truncatedResult = {
     rows: [],
     truncated: true,

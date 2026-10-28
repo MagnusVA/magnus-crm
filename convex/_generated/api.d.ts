@@ -20,6 +20,7 @@ import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
 import type * as analytics_clickhouse from "../analytics/clickhouse.js";
 import type * as analytics_definition from "../analytics/definition.js";
+import type * as analytics_definitions_operations from "../analytics/definitions/operations.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_keys from "../analytics/keys.js";
 import type * as analytics_parity from "../analytics/parity.js";
@@ -430,6 +431,7 @@ declare const fullApi: ApiFromModules<{
   "admin/tenantsQueries": typeof admin_tenantsQueries;
   "analytics/clickhouse": typeof analytics_clickhouse;
   "analytics/definition": typeof analytics_definition;
+  "analytics/definitions/operations": typeof analytics_definitions_operations;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/keys": typeof analytics_keys;
   "analytics/parity": typeof analytics_parity;

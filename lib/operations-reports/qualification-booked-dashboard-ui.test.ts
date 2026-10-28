@@ -1,10 +1,19 @@
 // @vitest-environment node
 import { createElement } from "react";
+import { getFunctionName } from "convex/server";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-vi.mock("convex/react", () => ({ useQuery: () => undefined }));
+// A tenant whose Operations pages still read Convex (useAnalyticsSource).
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock("convex/react", () => ({
+  useQuery: (reference: Parameters<typeof getFunctionName>[0]) =>
+    getFunctionName(reference) === "tenants:getCurrentTenant"
+      ? { analyticsReports: [], businessDayReady: true }
+      : undefined,
+  useMutation: () => async () => ({ started: false }),
+}));
 vi.mock("@/app/workspace/_components/use-dashboard-range", () => ({
   useDashboardRange: () => ({
     range: { kind: "preset", preset: "this_month" },

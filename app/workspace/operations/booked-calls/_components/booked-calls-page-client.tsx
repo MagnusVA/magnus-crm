@@ -4,9 +4,15 @@ import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
 import { ClockIcon, Settings2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import {
+  useAnalyticsReport,
+  useAnalyticsSource,
+} from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -74,11 +80,25 @@ export function BookedCallsPageClient() {
     [queryRange, now, setting],
   );
 
-  const dashboard = useQuery(
-    api.operations.bookedCallsDashboard.getBookedCallsDashboard,
-    requiresSnapshot ? "skip" : { range: queryRange },
+  // Today reads Convex live. Any other range reads ClickHouse once the page
+  // is switched, and then needs no snapshot job; until then ranges over 7
+  // days use the snapshot (docs/plans/clickhouse-reporting.md §4).
+  const analyticsRange = dashboardRangeToAnalyticsRange(
+    queryRange,
+    businessDateForInstant(now, setting),
   );
-  const needsSnapshot = requiresSnapshot || dashboard?.capped === true;
+  const source = useAnalyticsSource("booked_calls", analyticsRange);
+  const report = useAnalyticsReport({
+    page: "booked_calls",
+    reportId: "booked_calls.dashboard",
+    range: analyticsRange,
+    live: api.operations.bookedCallsDashboard.getBookedCallsDashboard,
+    liveArgs:
+      source !== "warehouse" && requiresSnapshot ? "skip" : { range: queryRange },
+  });
+  const dashboard = report.data;
+  const needsSnapshot =
+    source === "live" && (requiresSnapshot || dashboard?.capped === true);
   const snapshot = useOperationsDashboardReport({
     reportKind: "booked-calls",
     range: queryRange,
@@ -233,6 +253,9 @@ export function BookedCallsPageClient() {
           <p className="text-xs text-muted-foreground">
             Showing: {rangeLabel}
           </p>
+          {needsSnapshot ? null : (
+            <AnalyticsFreshnessLine items={[report.freshness]} />
+          )}
         </div>
       </header>
 

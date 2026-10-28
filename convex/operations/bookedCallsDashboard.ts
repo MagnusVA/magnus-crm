@@ -4,11 +4,15 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
-import { buildDmCloserEfficiencyRows } from "../dashboard/overviewLeaderboardBuilders";
+import {
+  buildDmCloserEfficiencyRows,
+  type DmCloserEfficiencyResult,
+} from "../dashboard/overviewLeaderboardBuilders";
 import { isRangeCapErrorMessage } from "../dashboard/overviewRange";
 import {
   deriveOverviewRange,
   overviewRangeValidator,
+  type DerivedOverviewRange,
 } from "../dashboard/overviewRange";
 import {
   attributionsForDeal,
@@ -332,202 +336,217 @@ export const getBookedCallsDashboard = query({
       }
       throw error;
     }
-    const { rows, truncated, bookedByTeam, teamOnlyBooked } = builderResult;
-    if (truncated) {
-      return {
-        totalBooked: 0,
-        dmClosers: [],
-        goal: {
-          totalTarget: null,
-          progress: 0,
-          businessDayCount: range.dayCount,
-          teams: [],
-        },
-        window: {
-          start: range.slackWindowStart,
-          end: range.slackWindowEnd,
-        },
-        capped: true,
-      };
-    }
-    // The DM closer table and its total count DM-closer bookings only.
-    const totalBooked = rows.reduce((sum, row) => sum + row.booked, 0);
+    return await buildBookedCallsDashboard(ctx, tenantId, range, builderResult);
+  },
+});
 
-    const [registryCloserScan, teamScan] = await Promise.all([
-      readLiveQueryRows(
-        ctx.db
-          .query("dmClosers")
-          .withIndex("by_tenantId_and_teamId", (q) =>
-            q.eq("tenantId", tenantId),
-          ),
-        DM_CLOSER_REGISTRY_LIMIT,
-      ),
-      readLiveQueryRows(
-        ctx.db
-          .query("attributionTeams")
-          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
-        TEAM_REGISTRY_LIMIT,
-      ),
-    ]);
-    const registryClosers = registryCloserScan.rows;
-    const teams = teamScan.rows;
-
-    const closerById = new Map(
-      registryClosers.map((closer) => [closer._id, closer]),
-    );
-    if (
-      registryCloserScan.capped ||
-      teamScan.capped
-    ) {
-      return {
-        totalBooked: 0,
-        dmClosers: [],
-        goal: {
-          totalTarget: null,
-          progress: 0,
-          businessDayCount: range.dayCount,
-          teams: [],
-        },
-        window: {
-          start: range.slackWindowStart,
-          end: range.slackWindowEnd,
-        },
-        capped: true,
-      };
-    }
-    // Rows can reference closers beyond the registry cap; fetch the misses
-    // individually (bounded by rows.length).
-    const missingCloserScan = await readLiveDocuments(
-      rows
-        .map((row) => row.dmCloserId)
-        .filter((id) => !closerById.has(id)),
-      async (id) => await ctx.db.get("dmClosers", id),
-    );
-    if (missingCloserScan.capped) {
-      return {
-        totalBooked: 0,
-        dmClosers: [],
-        goal: {
-          totalTarget: null,
-          progress: 0,
-          businessDayCount: range.dayCount,
-          teams: [],
-        },
-        window: {
-          start: range.slackWindowStart,
-          end: range.slackWindowEnd,
-        },
-        capped: true,
-      };
-    }
-    for (const closer of missingCloserScan.rows) {
-      if (closer && closer.tenantId === tenantId) {
-        closerById.set(closer._id, closer);
-      }
-    }
-
-    const linkedUserIds = uniqueIds(
-      rows.map((row) => closerById.get(row.dmCloserId)?.userId),
-    );
-    const linkedUserScan = await readLiveDocuments(
-      linkedUserIds,
-      async (id) => await ctx.db.get("users", id),
-    );
-    if (linkedUserScan.capped) {
-      return {
-        totalBooked: 0,
-        dmClosers: [],
-        goal: {
-          totalTarget: null,
-          progress: 0,
-          businessDayCount: range.dayCount,
-          teams: [],
-        },
-        window: {
-          start: range.slackWindowStart,
-          end: range.slackWindowEnd,
-        },
-        capped: true,
-      };
-    }
-    const linkedUserById = new Map(
-      linkedUserScan.rows
-        .filter((user) => user.tenantId === tenantId)
-        .map((user) => [user._id, user]),
-    );
-
-    const dmCloserRows = await Promise.all(
-      rows.map(async (row) => {
-        const closer = closerById.get(row.dmCloserId) ?? null;
-        const linkedUser = closer?.userId
-          ? (linkedUserById.get(closer.userId) ?? null)
-          : null;
-
-        return {
-          key: row.dmCloserId as string,
-          label: row.displayName,
-          teamLabel: row.teamName,
-          booked: row.booked,
-          bookedPerHour: row.bookedPerHour,
-          scheduledHours: row.scheduledHours > 0 ? row.scheduledHours : null,
-          hourlyRateMinor: closer?.hourlyRateMinor ?? null,
-          avatar: closer
-            ? await dmCloserMemberIdentity(ctx, closer, linkedUser)
-            : unknownMemberIdentity("Removed DM closer", "unknown"),
-        };
-      }),
-    );
-    dmCloserRows.sort(
-      (left, right) =>
-        right.booked - left.booked || compareLabels(left.label, right.label),
-    );
-
-    // Per-team goal: dailyQuota x business days in range. A team's progress
-    // is the first bookings its dm_team row names, with or without a DM
-    // closer (D9).
-    const goalTeams = teams
-      .filter(
-        (team) => team.isActive || (bookedByTeam.get(team._id) ?? 0) > 0,
-      )
-      .map((team) => {
-        const dailyQuota = team.bookingDailyQuota ?? null;
-        return {
-          teamId: team._id,
-          label: team.displayName,
-          dailyQuota,
-          target: dailyQuota === null ? null : dailyQuota * range.dayCount,
-          progress: bookedByTeam.get(team._id) ?? 0,
-        };
-      })
-      .sort((left, right) => compareLabels(left.label, right.label));
-
-    const targets = goalTeams
-      .map((team) => team.target)
-      .filter((target): target is number => target !== null);
-    const totalTarget =
-      targets.length > 0
-        ? targets.reduce((sum, target) => sum + target, 0)
-        : null;
-
+/**
+ * The Booked Calls dashboard from the DM closer rows and the range's
+ * first-booking counts. The Convex reader counts the bookings it reads; the
+ * ClickHouse report (convex/analytics/definitions/operations.ts) counts them
+ * in SQL and builds the rows with buildDmCloserRowsFromCounts.
+ */
+export async function buildBookedCallsDashboard(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  range: Pick<DerivedOverviewRange, "dayCount" | "slackWindowStart" | "slackWindowEnd">,
+  builderResult: DmCloserEfficiencyResult,
+) {
+  const { rows, truncated, bookedByTeam, teamOnlyBooked } = builderResult;
+  if (truncated) {
     return {
-      totalBooked,
-      dmClosers: dmCloserRows,
+      totalBooked: 0,
+      dmClosers: [],
       goal: {
-        totalTarget,
-        // The DM-closer bookings plus the team-only ones, which count toward
-        // their team's goal but no DM closer (D9).
-        progress: totalBooked + teamOnlyBooked,
+        totalTarget: null,
+        progress: 0,
         businessDayCount: range.dayCount,
-        teams: goalTeams,
+        teams: [],
       },
       window: {
         start: range.slackWindowStart,
         end: range.slackWindowEnd,
       },
-      capped: false,
+      capped: true,
     };
-  },
-});
+  }
+  // The DM closer table and its total count DM-closer bookings only.
+  const totalBooked = rows.reduce((sum, row) => sum + row.booked, 0);
+
+  const [registryCloserScan, teamScan] = await Promise.all([
+    readLiveQueryRows(
+      ctx.db
+        .query("dmClosers")
+        .withIndex("by_tenantId_and_teamId", (q) =>
+          q.eq("tenantId", tenantId),
+        ),
+      DM_CLOSER_REGISTRY_LIMIT,
+    ),
+    readLiveQueryRows(
+      ctx.db
+        .query("attributionTeams")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+      TEAM_REGISTRY_LIMIT,
+    ),
+  ]);
+  const registryClosers = registryCloserScan.rows;
+  const teams = teamScan.rows;
+
+  const closerById = new Map(
+    registryClosers.map((closer) => [closer._id, closer]),
+  );
+  if (
+    registryCloserScan.capped ||
+    teamScan.capped
+  ) {
+    return {
+      totalBooked: 0,
+      dmClosers: [],
+      goal: {
+        totalTarget: null,
+        progress: 0,
+        businessDayCount: range.dayCount,
+        teams: [],
+      },
+      window: {
+        start: range.slackWindowStart,
+        end: range.slackWindowEnd,
+      },
+      capped: true,
+    };
+  }
+  // Rows can reference closers beyond the registry cap; fetch the misses
+  // individually (bounded by rows.length).
+  const missingCloserScan = await readLiveDocuments(
+    rows
+      .map((row) => row.dmCloserId)
+      .filter((id) => !closerById.has(id)),
+    async (id) => await ctx.db.get("dmClosers", id),
+  );
+  if (missingCloserScan.capped) {
+    return {
+      totalBooked: 0,
+      dmClosers: [],
+      goal: {
+        totalTarget: null,
+        progress: 0,
+        businessDayCount: range.dayCount,
+        teams: [],
+      },
+      window: {
+        start: range.slackWindowStart,
+        end: range.slackWindowEnd,
+      },
+      capped: true,
+    };
+  }
+  for (const closer of missingCloserScan.rows) {
+    if (closer && closer.tenantId === tenantId) {
+      closerById.set(closer._id, closer);
+    }
+  }
+
+  const linkedUserIds = uniqueIds(
+    rows.map((row) => closerById.get(row.dmCloserId)?.userId),
+  );
+  const linkedUserScan = await readLiveDocuments(
+    linkedUserIds,
+    async (id) => await ctx.db.get("users", id),
+  );
+  if (linkedUserScan.capped) {
+    return {
+      totalBooked: 0,
+      dmClosers: [],
+      goal: {
+        totalTarget: null,
+        progress: 0,
+        businessDayCount: range.dayCount,
+        teams: [],
+      },
+      window: {
+        start: range.slackWindowStart,
+        end: range.slackWindowEnd,
+      },
+      capped: true,
+    };
+  }
+  const linkedUserById = new Map(
+    linkedUserScan.rows
+      .filter((user) => user.tenantId === tenantId)
+      .map((user) => [user._id, user]),
+  );
+
+  const dmCloserRows = await Promise.all(
+    rows.map(async (row) => {
+      const closer = closerById.get(row.dmCloserId) ?? null;
+      const linkedUser = closer?.userId
+        ? (linkedUserById.get(closer.userId) ?? null)
+        : null;
+
+      return {
+        key: row.dmCloserId as string,
+        label: row.displayName,
+        teamLabel: row.teamName,
+        booked: row.booked,
+        bookedPerHour: row.bookedPerHour,
+        scheduledHours: row.scheduledHours > 0 ? row.scheduledHours : null,
+        hourlyRateMinor: closer?.hourlyRateMinor ?? null,
+        avatar: closer
+          ? await dmCloserMemberIdentity(ctx, closer, linkedUser)
+          : unknownMemberIdentity("Removed DM closer", "unknown"),
+      };
+    }),
+  );
+  dmCloserRows.sort(
+    (left, right) =>
+      right.booked - left.booked || compareLabels(left.label, right.label),
+  );
+
+  // Per-team goal: dailyQuota x business days in range. A team's progress
+  // is the first bookings its dm_team row names, with or without a DM
+  // closer (D9).
+  const goalTeams = teams
+    .filter(
+      (team) => team.isActive || (bookedByTeam.get(team._id) ?? 0) > 0,
+    )
+    .map((team) => {
+      const dailyQuota = team.bookingDailyQuota ?? null;
+      return {
+        teamId: team._id,
+        label: team.displayName,
+        dailyQuota,
+        target: dailyQuota === null ? null : dailyQuota * range.dayCount,
+        progress: bookedByTeam.get(team._id) ?? 0,
+      };
+    })
+    .sort((left, right) => compareLabels(left.label, right.label));
+
+  const targets = goalTeams
+    .map((team) => team.target)
+    .filter((target): target is number => target !== null);
+  const totalTarget =
+    targets.length > 0
+      ? targets.reduce((sum, target) => sum + target, 0)
+      : null;
+
+  return {
+    totalBooked,
+    dmClosers: dmCloserRows,
+    goal: {
+      totalTarget,
+      // The DM-closer bookings plus the team-only ones, which count toward
+      // their team's goal but no DM closer (D9).
+      progress: totalBooked + teamOnlyBooked,
+      businessDayCount: range.dayCount,
+      teams: goalTeams,
+    },
+    window: {
+      start: range.slackWindowStart,
+      end: range.slackWindowEnd,
+    },
+    capped: false,
+  };
+}
 
 /**
  * Paginated bookings for the collapsible details list: the DM closer table's
