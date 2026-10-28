@@ -3,9 +3,15 @@ import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
 import { ClockIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import {
+  useAnalyticsReport,
+  useAnalyticsSource,
+} from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,7 +64,7 @@ export function QualificationsPageClient() {
   const { range, setRange, queryRange, rangeLabel, validationMessage } =
     useDashboardRange({
       urlSync: true,
-      defaultRange: { kind: "preset", preset: "this_week" },
+      defaultRange: { kind: "preset", preset: "today" },
       validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
     });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
@@ -68,11 +74,25 @@ export function QualificationsPageClient() {
     [queryRange, now, setting],
   );
 
-  const dashboard = useQuery(
-    api.operations.qualificationsDashboard.getQualificationsDashboard,
-    requiresSnapshot ? "skip" : { range: queryRange },
+  // Today reads Convex live. Any other range reads ClickHouse once the page
+  // is switched, and then needs no snapshot job; until then ranges over 7
+  // days use the snapshot (docs/plans/clickhouse-reporting.md §4).
+  const analyticsRange = dashboardRangeToAnalyticsRange(
+    queryRange,
+    businessDateForInstant(now, setting),
   );
-  const needsSnapshot = requiresSnapshot || dashboard?.capped === true;
+  const source = useAnalyticsSource("qualifications", analyticsRange);
+  const report = useAnalyticsReport({
+    page: "qualifications",
+    reportId: "qualifications.dashboard",
+    range: analyticsRange,
+    live: api.operations.qualificationsDashboard.getQualificationsDashboard,
+    liveArgs:
+      source !== "warehouse" && requiresSnapshot ? "skip" : { range: queryRange },
+  });
+  const dashboard = report.data;
+  const needsSnapshot =
+    source === "live" && (requiresSnapshot || dashboard?.capped === true);
   const snapshot = useOperationsDashboardReport({
     reportKind: "qualifications",
     range: queryRange,
@@ -175,6 +195,9 @@ export function QualificationsPageClient() {
           <p className="text-xs text-muted-foreground">
             Showing: {rangeLabel}
           </p>
+          {needsSnapshot ? null : (
+            <AnalyticsFreshnessLine items={[report.freshness]} />
+          )}
         </div>
       </header>
 

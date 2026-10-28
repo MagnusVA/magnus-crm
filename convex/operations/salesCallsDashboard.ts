@@ -3,10 +3,11 @@ import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { requireReportingReady } from "./reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import {
   deriveOverviewRange,
   overviewRangeValidator,
+  type DerivedOverviewRange,
 } from "../dashboard/overviewRange";
 import {
   attributionResolutionValidator,
@@ -27,7 +28,9 @@ import {
   reportingUserIdentity,
   summarizePaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
+import type { PaymentScan } from "../reporting/revenue";
 import { requireTenantUser } from "../requireTenantUser";
+import type { MeetingStatsCount } from "./meetingStats";
 import { enrichPhoneSalesRows } from "./phoneSales";
 
 // Matches overviewOperations: the daily-stats rollup read is bounded and the
@@ -118,7 +121,7 @@ function emptyMeetingTotals(): MeetingTotals {
   return { booked: 0, canceled: 0, noShows: 0, showed: 0, notRecorded: 0 };
 }
 
-function addStatsRow(totals: MeetingTotals, row: Doc<"operationsMeetingStatsV2"> & { notRecorded: number }) {
+function addStatsRow(totals: MeetingTotals, row: MeetingStatsCount & { notRecorded: number }) {
   totals.booked += row.count;
   totals.notRecorded += row.notRecorded;
   if (isHeldStatus(row.meetingStatus)) totals.showed += row.count;
@@ -295,7 +298,7 @@ export const getSalesCallsDashboard = query({
 
     const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
-    const [statsScan, activeUserScan, paymentScan] = await Promise.all([
+    const [statsScan, paymentScan] = await Promise.all([
       readLiveQueryRows(
         ctx.db
           .query("operationsMeetingStatsV2")
@@ -309,14 +312,6 @@ export const getSalesCallsDashboard = query({
         undefined,
         4 * 1024 * 1024,
       ),
-      readLiveQueryRows(
-        ctx.db
-          .query("users")
-          .withIndex("by_tenantId_and_isActive", (q) =>
-            q.eq("tenantId", tenantId).eq("isActive", true),
-          ),
-        LIVE_DIMENSION_LIMIT,
-      ),
       getNonDisputedPaymentsInRange(
         ctx,
         tenantId,
@@ -324,266 +319,297 @@ export const getSalesCallsDashboard = query({
         range.operationsEndDate,
       ),
     ]);
-    const statsRows = statsScan.rows;
-    const activeUserRows = activeUserScan.rows;
+    return await buildSalesCallsDashboard(ctx, tenantId, range, {
+      statsRows: statsScan.rows,
+      statsCapped: statsScan.capped,
+      paymentScan,
+    });
+  },
+});
 
-    if (
-      statsScan.capped ||
-      paymentScan.isTruncated ||
-      activeUserScan.capped
-    ) {
-      return emptyDashboard(
-        range.operationsStartDate,
-        range.operationsEndDate,
+/**
+ * The Sales Calls dashboard from a range's meeting buckets and non-disputed
+ * payments. The Convex reader reads the operationsMeetingStatsV2 buckets; the
+ * ClickHouse report (convex/analytics/definitions/operations.ts) rebuilds the
+ * same buckets from the meetings and their deals.
+ */
+export async function buildSalesCallsDashboard(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  range: Pick<DerivedOverviewRange, "operationsStartDate" | "operationsEndDate">,
+  loaded: {
+    statsRows: MeetingStatsCount[];
+    statsCapped: boolean;
+    paymentScan: PaymentScan;
+  },
+) {
+  const activeUserScan = await readLiveQueryRows(
+    ctx.db
+      .query("users")
+      .withIndex("by_tenantId_and_isActive", (q) =>
+        q.eq("tenantId", tenantId).eq("isActive", true),
+      ),
+    LIVE_DIMENSION_LIMIT,
+  );
+  const { statsRows, paymentScan } = loaded;
+  const activeUserRows = activeUserScan.rows;
+
+  if (
+    loaded.statsCapped ||
+    paymentScan.isTruncated ||
+    activeUserScan.capped
+  ) {
+    return emptyDashboard(
+      range.operationsStartDate,
+      range.operationsEndDate,
+    );
+  }
+  const activeClosers = activeUserRows.filter(
+    (user) => user.role === "closer",
+  );
+  const paymentSummary = summarizePaymentsForRevenueReporting(
+    paymentScan.payments,
+  );
+  const finalPayments = paymentSummary.finalPayments;
+
+  // One rollup read powers the stat cards, the per-program meeting counts,
+  // and the per-closer meeting counts, so the three sections can never
+  // disagree with each other (or with the legacy phone-sales stat cards).
+  const overallMeetings = emptyMeetingTotals();
+  const meetingsByCloser = new Map<Id<"users">, MeetingTotals>();
+  const meetingsByProgram = new Map<
+    Id<"tenantPrograms"> | null,
+    MeetingTotals
+  >();
+  const attendance = await withAttendanceCounts(ctx, tenantId, statsRows);
+  for (const row of attendance.counts) {
+    addStatsRow(overallMeetings, row);
+
+    const closerTotals =
+      meetingsByCloser.get(row.assignedCloserId) ?? emptyMeetingTotals();
+    addStatsRow(closerTotals, row);
+    meetingsByCloser.set(row.assignedCloserId, closerTotals);
+
+    const programKey = row.bookingProgramId ?? null;
+    const programTotals =
+      meetingsByProgram.get(programKey) ?? emptyMeetingTotals();
+    addStatsRow(programTotals, row);
+    meetingsByProgram.set(programKey, programTotals);
+  }
+
+  // Per-program payments use the payment's own programId (the "payment
+  // program" dimension, exactly like the Revenue report's byProgram).
+  const paymentsByProgram = new Map<
+    Id<"tenantPrograms">,
+    { byCurrency: Map<string, PaymentTotals>; fallbackName: string | null }
+  >();
+  const paymentsByCloser = new Map<
+    Id<"users">,
+    Map<string, PaymentTotals>
+  >();
+  const allPaymentsByCurrency = new Map<string, PaymentTotals>();
+  const attributedPaymentsByCurrency = new Map<string, PaymentTotals>();
+  for (const payment of finalPayments) {
+    addPayment(allPaymentsByCurrency, payment.currency, payment.amountMinor);
+    const current = paymentsByProgram.get(payment.programId) ?? {
+      byCurrency: new Map<string, PaymentTotals>(),
+      fallbackName: null,
+    };
+    addPayment(current.byCurrency, payment.currency, payment.amountMinor);
+    current.fallbackName = current.fallbackName ?? payment.programName ?? null;
+    paymentsByProgram.set(payment.programId, current);
+    if (payment.effectiveCloserId) {
+      const closerPayments = paymentsByCloser.get(payment.effectiveCloserId) ?? new Map<string, PaymentTotals>();
+      addPayment(closerPayments, payment.currency, payment.amountMinor);
+      paymentsByCloser.set(payment.effectiveCloserId, closerPayments);
+      addPayment(
+        attributedPaymentsByCurrency,
+        payment.currency,
+        payment.amountMinor,
       );
     }
-    const activeClosers = activeUserRows.filter(
-      (user) => user.role === "closer",
+  }
+
+  // Program labels — bounded by the tenant's program registry.
+  const programIds = uniqueIds<Id<"tenantPrograms">>([
+    ...[...meetingsByProgram.keys()].map((id) => id ?? undefined),
+    ...paymentsByProgram.keys(),
+  ]);
+  if (programIds.length > LIVE_DIMENSION_LIMIT) {
+    return emptyDashboard(
+      range.operationsStartDate,
+      range.operationsEndDate,
     );
-    const paymentSummary = summarizePaymentsForRevenueReporting(
-      paymentScan.payments,
+  }
+  const programScan = await readLiveDocuments(
+    programIds,
+    async (id) => await ctx.db.get("tenantPrograms", id),
+  );
+  if (programScan.capped) {
+    return emptyDashboard(
+      range.operationsStartDate,
+      range.operationsEndDate,
     );
-    const finalPayments = paymentSummary.finalPayments;
+  }
+  const programNameById = new Map(
+    programScan.rows
+      .filter((program) => program.tenantId === tenantId)
+      .map((program) => [program._id, program.name]),
+  );
 
-    // One rollup read powers the stat cards, the per-program meeting counts,
-    // and the per-closer meeting counts, so the three sections can never
-    // disagree with each other (or with the legacy phone-sales stat cards).
-    const overallMeetings = emptyMeetingTotals();
-    const meetingsByCloser = new Map<Id<"users">, MeetingTotals>();
-    const meetingsByProgram = new Map<
-      Id<"tenantPrograms"> | null,
-      MeetingTotals
-    >();
-    const attendance = await withAttendanceCounts(ctx, tenantId, statsRows);
-    for (const row of attendance.counts) {
-      addStatsRow(overallMeetings, row);
-
-      const closerTotals =
-        meetingsByCloser.get(row.assignedCloserId) ?? emptyMeetingTotals();
-      addStatsRow(closerTotals, row);
-      meetingsByCloser.set(row.assignedCloserId, closerTotals);
-
-      const programKey = row.bookingProgramId ?? null;
-      const programTotals =
-        meetingsByProgram.get(programKey) ?? emptyMeetingTotals();
-      addStatsRow(programTotals, row);
-      meetingsByProgram.set(programKey, programTotals);
-    }
-
-    // Per-program payments use the payment's own programId (the "payment
-    // program" dimension, exactly like the Revenue report's byProgram).
-    const paymentsByProgram = new Map<
-      Id<"tenantPrograms">,
-      { byCurrency: Map<string, PaymentTotals>; fallbackName: string | null }
-    >();
-    const paymentsByCloser = new Map<
-      Id<"users">,
-      Map<string, PaymentTotals>
-    >();
-    const allPaymentsByCurrency = new Map<string, PaymentTotals>();
-    const attributedPaymentsByCurrency = new Map<string, PaymentTotals>();
-    for (const payment of finalPayments) {
-      addPayment(allPaymentsByCurrency, payment.currency, payment.amountMinor);
-      const current = paymentsByProgram.get(payment.programId) ?? {
-        byCurrency: new Map<string, PaymentTotals>(),
-        fallbackName: null,
+  const perProgramKeys = new Set<Id<"tenantPrograms"> | null>([
+    ...meetingsByProgram.keys(),
+    ...paymentsByProgram.keys(),
+  ]);
+  const perProgram = [...perProgramKeys]
+    .map((programId) => {
+      const meetings = meetingsByProgram.get(programId);
+      const payments =
+        programId === null ? undefined : paymentsByProgram.get(programId);
+      const meetingTotals = meetings ?? emptyMeetingTotals();
+      return {
+        programId,
+        label:
+          programId === null
+            ? "No program"
+            : (programNameById.get(programId) ??
+              payments?.fallbackName ??
+              "Unknown program"),
+        calls: meetingTotals.booked,
+        showed: meetingTotals.showed,
+        canceled: meetingTotals.canceled,
+        noShows: meetingTotals.noShows,
+        resultsRecorded: meetingTotals.showed + meetingTotals.noShows,
+        pastCalls: meetingTotals.showed + meetingTotals.noShows + meetingTotals.notRecorded,
+        showUpRate: toRate(
+          meetingTotals.showed,
+          meetingTotals.showed + meetingTotals.noShows,
+        ),
+        moneyByCurrency: moneyByCurrency(
+          payments?.byCurrency,
+          meetingTotals.showed,
+        ),
       };
-      addPayment(current.byCurrency, payment.currency, payment.amountMinor);
-      current.fallbackName = current.fallbackName ?? payment.programName ?? null;
-      paymentsByProgram.set(payment.programId, current);
-      if (payment.effectiveCloserId) {
-        const closerPayments = paymentsByCloser.get(payment.effectiveCloserId) ?? new Map<string, PaymentTotals>();
-        addPayment(closerPayments, payment.currency, payment.amountMinor);
-        paymentsByCloser.set(payment.effectiveCloserId, closerPayments);
-        addPayment(
-          attributedPaymentsByCurrency,
-          payment.currency,
-          payment.amountMinor,
-        );
-      }
-    }
-
-    // Program labels — bounded by the tenant's program registry.
-    const programIds = uniqueIds<Id<"tenantPrograms">>([
-      ...[...meetingsByProgram.keys()].map((id) => id ?? undefined),
-      ...paymentsByProgram.keys(),
-    ]);
-    if (programIds.length > LIVE_DIMENSION_LIMIT) {
-      return emptyDashboard(
-        range.operationsStartDate,
-        range.operationsEndDate,
-      );
-    }
-    const programScan = await readLiveDocuments(
-      programIds,
-      async (id) => await ctx.db.get("tenantPrograms", id),
-    );
-    if (programScan.capped) {
-      return emptyDashboard(
-        range.operationsStartDate,
-        range.operationsEndDate,
-      );
-    }
-    const programNameById = new Map(
-      programScan.rows
-        .filter((program) => program.tenantId === tenantId)
-        .map((program) => [program._id, program.name]),
-    );
-
-    const perProgramKeys = new Set<Id<"tenantPrograms"> | null>([
-      ...meetingsByProgram.keys(),
-      ...paymentsByProgram.keys(),
-    ]);
-    const perProgram = [...perProgramKeys]
-      .map((programId) => {
-        const meetings = meetingsByProgram.get(programId);
-        const payments =
-          programId === null ? undefined : paymentsByProgram.get(programId);
-        const meetingTotals = meetings ?? emptyMeetingTotals();
-        return {
-          programId,
-          label:
-            programId === null
-              ? "No program"
-              : (programNameById.get(programId) ??
-                payments?.fallbackName ??
-                "Unknown program"),
-          calls: meetingTotals.booked,
-          showed: meetingTotals.showed,
-          canceled: meetingTotals.canceled,
-          noShows: meetingTotals.noShows,
-          resultsRecorded: meetingTotals.showed + meetingTotals.noShows,
-          pastCalls: meetingTotals.showed + meetingTotals.noShows + meetingTotals.notRecorded,
-          showUpRate: toRate(
-            meetingTotals.showed,
-            meetingTotals.showed + meetingTotals.noShows,
-          ),
-          moneyByCurrency: moneyByCurrency(
-            payments?.byCurrency,
-            meetingTotals.showed,
-          ),
-        };
-      })
-      .sort(
-        (left, right) =>
-          right.calls - left.calls ||
-          compareLabels(left.label, right.label),
-      );
-
-    // Closer rows: every active closer (zero rows included, like
-    // teamPerformance) plus any closer that appears in the meeting rollup or
-    // in payment attribution (so removed/deactivated closers keep their
-    // history visible, like getTeamOperationsDimensions).
-    const userById = new Map<Id<"users">, Doc<"users">>(
-      activeClosers.map((closer) => [closer._id, closer]),
-    );
-    const closerIds = new Set<Id<"users">>([
-      ...userById.keys(),
-      ...meetingsByCloser.keys(),
-      ...paymentsByCloser.keys(),
-    ]);
-    if (closerIds.size > LIVE_DIMENSION_LIMIT) {
-      return emptyDashboard(
-        range.operationsStartDate,
-        range.operationsEndDate,
-      );
-    }
-    const missingCloserIds = [...closerIds].filter(
-      (closerId) => !userById.has(closerId),
-    );
-    const missingUserScan = await readLiveDocuments(
-      missingCloserIds,
-      async (closerId) => await ctx.db.get("users", closerId),
-    );
-    if (missingUserScan.capped) {
-      return emptyDashboard(
-        range.operationsStartDate,
-        range.operationsEndDate,
-      );
-    }
-    for (const user of missingUserScan.rows) {
-      if (user && user.tenantId === tenantId) {
-        userById.set(user._id, user);
-      }
-    }
-
-    const closers = await Promise.all(
-      [...closerIds].map(async (closerId) => {
-        const user = userById.get(closerId) ?? null;
-        const meetings = meetingsByCloser.get(closerId) ?? emptyMeetingTotals();
-
-        return {
-          closerId,
-          label: user ? getUserDisplayName(user) : "Removed closer",
-          avatar: await reportingUserIdentity(ctx, user, "Removed closer"),
-          ...withMeetingRates(meetings),
-          moneyByCurrency: moneyByCurrency(
-            paymentsByCloser.get(closerId),
-            meetings.showed,
-          ),
-        };
-      }),
-    );
-    closers.sort(
+    })
+    .sort(
       (left, right) =>
-        right.booked - left.booked ||
+        right.calls - left.calls ||
         compareLabels(left.label, right.label),
     );
 
-    // Team total meeting counts come from the closer rows; money includes
-    // only closer-attributed payments and remains split by currency.
-    const teamSums = closers.reduce(
-      (acc, closer) => ({
-        booked: acc.booked + closer.booked,
-        canceled: acc.canceled + closer.canceled,
-        noShows: acc.noShows + closer.noShows,
-        showed: acc.showed + closer.showed,
-        notRecorded: acc.notRecorded + closer.notRecorded,
-      }),
-      emptyMeetingTotals(),
+  // Closer rows: every active closer (zero rows included, like
+  // teamPerformance) plus any closer that appears in the meeting rollup or
+  // in payment attribution (so removed/deactivated closers keep their
+  // history visible, like getTeamOperationsDimensions).
+  const userById = new Map<Id<"users">, Doc<"users">>(
+    activeClosers.map((closer) => [closer._id, closer]),
+  );
+  const closerIds = new Set<Id<"users">>([
+    ...userById.keys(),
+    ...meetingsByCloser.keys(),
+    ...paymentsByCloser.keys(),
+  ]);
+  if (closerIds.size > LIVE_DIMENSION_LIMIT) {
+    return emptyDashboard(
+      range.operationsStartDate,
+      range.operationsEndDate,
     );
+  }
+  const missingCloserIds = [...closerIds].filter(
+    (closerId) => !userById.has(closerId),
+  );
+  const missingUserScan = await readLiveDocuments(
+    missingCloserIds,
+    async (closerId) => await ctx.db.get("users", closerId),
+  );
+  if (missingUserScan.capped) {
+    return emptyDashboard(
+      range.operationsStartDate,
+      range.operationsEndDate,
+    );
+  }
+  for (const user of missingUserScan.rows) {
+    if (user && user.tenantId === tenantId) {
+      userById.set(user._id, user);
+    }
+  }
 
-    // Stat cards: meeting counts are the tenant-wide rollup totals;
-    // cash collected / sales count are ALL final payments in
-    // the window (including closer-unattributed ones), matching the Revenue
-    // report. The team-total row can therefore be lower than the cards when
-    // unattributed payments exist.
-    const showed = overallMeetings.showed;
-    return {
-      stats: {
-        totalCalls: overallMeetings.booked,
-        showed,
-        canceled: overallMeetings.canceled,
-        noShows: overallMeetings.noShows,
-        resultsRecorded: showed + overallMeetings.noShows,
-        pastCalls: showed + overallMeetings.noShows + overallMeetings.notRecorded,
-        showUpRate: toRate(
-          showed,
-          showed + overallMeetings.noShows,
-        ),
-        moneyByCurrency: summaryMoneyByCurrency(
-          allPaymentsByCurrency,
-          showed,
-        ),
-      },
-      perProgram,
-      closers,
-      teamTotal: {
-        ...withMeetingRates(teamSums),
+  const closers = await Promise.all(
+    [...closerIds].map(async (closerId) => {
+      const user = userById.get(closerId) ?? null;
+      const meetings = meetingsByCloser.get(closerId) ?? emptyMeetingTotals();
+
+      return {
+        closerId,
+        label: user ? getUserDisplayName(user) : "Removed closer",
+        avatar: await reportingUserIdentity(ctx, user, "Removed closer"),
+        ...withMeetingRates(meetings),
         moneyByCurrency: moneyByCurrency(
-          attributedPaymentsByCurrency,
-          teamSums.showed,
+          paymentsByCloser.get(closerId),
+          meetings.showed,
         ),
-      },
-      window: {
-        start: range.operationsStartDate,
-        end: range.operationsEndDate,
-      },
-      attendanceCountsPartial: attendance.attendanceCountsPartial,
-      capped: false,
-    };
-  },
-});
+      };
+    }),
+  );
+  closers.sort(
+    (left, right) =>
+      right.booked - left.booked ||
+      compareLabels(left.label, right.label),
+  );
+
+  // Team total meeting counts come from the closer rows; money includes
+  // only closer-attributed payments and remains split by currency.
+  const teamSums = closers.reduce(
+    (acc, closer) => ({
+      booked: acc.booked + closer.booked,
+      canceled: acc.canceled + closer.canceled,
+      noShows: acc.noShows + closer.noShows,
+      showed: acc.showed + closer.showed,
+      notRecorded: acc.notRecorded + closer.notRecorded,
+    }),
+    emptyMeetingTotals(),
+  );
+
+  // Stat cards: meeting counts are the tenant-wide rollup totals;
+  // cash collected / sales count are ALL final payments in
+  // the window (including closer-unattributed ones), matching the Revenue
+  // report. The team-total row can therefore be lower than the cards when
+  // unattributed payments exist.
+  const showed = overallMeetings.showed;
+  return {
+    stats: {
+      totalCalls: overallMeetings.booked,
+      showed,
+      canceled: overallMeetings.canceled,
+      noShows: overallMeetings.noShows,
+      resultsRecorded: showed + overallMeetings.noShows,
+      pastCalls: showed + overallMeetings.noShows + overallMeetings.notRecorded,
+      showUpRate: toRate(
+        showed,
+        showed + overallMeetings.noShows,
+      ),
+      moneyByCurrency: summaryMoneyByCurrency(
+        allPaymentsByCurrency,
+        showed,
+      ),
+    },
+    perProgram,
+    closers,
+    teamTotal: {
+      ...withMeetingRates(teamSums),
+      moneyByCurrency: moneyByCurrency(
+        attributedPaymentsByCurrency,
+        teamSums.showed,
+      ),
+    },
+    window: {
+      start: range.operationsStartDate,
+      end: range.operationsEndDate,
+    },
+    attendanceCountsPartial: attendance.attendanceCountsPartial,
+    capped: false,
+  };
+}
 
 /**
  * Search phone-sales meetings by lead/prospect name for the collapsible view

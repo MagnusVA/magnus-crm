@@ -24,8 +24,14 @@ vi.mock("convex-helpers/react", () => ({
     loadMore: () => undefined,
   }),
 }));
+// A tenant whose Operations pages still read Convex (useAnalyticsSource).
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("convex/react", () => ({
-  useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => { fixture.queries(getFunctionName(reference), args); return undefined; },
+  useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
+    fixture.queries(getFunctionName(reference), args);
+    return getFunctionName(reference) === "tenants:getCurrentTenant" ? { analyticsReports: [] } : undefined;
+  },
+  useMutation: () => async () => ({ started: false }),
   usePaginatedQuery: () => ({
     results: [],
     status: "Exhausted",

@@ -7,6 +7,7 @@ import {
   summarizeQualificationEvents,
 } from "../reporting/lib/slackQualificationLedger";
 import { buildWorkerPerformanceRows } from "../leadGen/reportBuilders";
+import type { LeadGenDailyStatInput } from "../leadGen/reporting";
 import { TOP_DM_CLOSER_BOOKING_LIMIT } from "../leadGen/reportLimits";
 import {
   loadLeadGenTeamsForRows,
@@ -157,6 +158,23 @@ export async function buildLeadGenEfficiencyRows(
     startDayKey: args.range.startBusinessDate,
     endDayKey: args.range.endBusinessDateInclusive,
   });
+  return await buildLeadGenEfficiencyRowsFromDaily(ctx, args, rows);
+}
+
+/**
+ * The lead generator rows from the range's `leadGenDailyStats` rows. The
+ * Overview ClickHouse report (convex/analytics/definitions/overview.ts)
+ * rebuilds those rows from captures.
+ */
+export async function buildLeadGenEfficiencyRowsFromDaily(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: Pick<DerivedOverviewRange, "startBusinessDate" | "endBusinessDateInclusive">;
+    includeAllCandidates: boolean;
+  },
+  rows: LeadGenDailyStatInput[],
+): Promise<LeadGenOverview["topWorkers"]> {
   const currentScheduledHoursByWorkerDay =
     await loadCurrentScheduledHoursByWorkerDay(ctx, {
       tenantId: args.tenantId,
@@ -237,48 +255,31 @@ export async function buildLeadGenEfficiencyRows(
   );
 }
 
-export async function buildQualifierEfficiencyRows(
+/**
+ * What the qualifier rows count from the range's Slack activity. The Convex
+ * path reads the events, their deals and the slackQualificationsByUser
+ * aggregate; the Overview ClickHouse report counts the same in SQL.
+ */
+export type QualifierActivity = {
+  /** Each qualifier with events in the range, in the order of their first event. */
+  bySlackUserId: Map<string, { total: number; booked: number }>;
+  truncated: boolean;
+  /** The Slack-sourced deals a qualifier logged in the range. */
+  countQualified: (slackUserId: string) => Promise<number>;
+};
+
+export async function readQualifierActivity(
   ctx: QueryCtx,
   args: {
     tenantId: Id<"tenants">;
-    range: DerivedOverviewRange;
-    includeAllCandidates: boolean;
+    range: Pick<DerivedOverviewRange, "slackWindowStart" | "slackWindowEnd">;
   },
-): Promise<{ rows: TopQualifierRow[]; truncated: boolean }> {
-  const [slackUsers, qualifierSchedules, events] = await Promise.all([
-    ctx.db
-      .query("slackUsers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
-      .take(SLACK_USER_REGISTRY_LIMIT),
-    ctx.db
-      .query("slackQualifierSchedules")
-      .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId))
-      .take(2_100),
-    listQualificationEventsForRange(ctx, {
-      tenantId: args.tenantId,
-      start: args.range.slackWindowStart,
-      end: args.range.slackWindowEnd,
-    }),
-  ]);
-
-  const candidateSlackUserIds = new Set<string>();
-  const scheduledSlackUserIds = new Set<string>();
-  for (const schedule of qualifierSchedules) {
-    candidateSlackUserIds.add(schedule.slackUserId);
-    scheduledSlackUserIds.add(schedule.slackUserId);
-  }
-  for (const event of events.rows) {
-    candidateSlackUserIds.add(event.slackUserId);
-  }
-  if (args.includeAllCandidates || events.truncated) {
-    for (const user of slackUsers) {
-      candidateSlackUserIds.add(user.slackUserId);
-    }
-  }
-
-  const slackUserById = new Map(
-    slackUsers.map((user) => [user.slackUserId, user]),
-  );
+): Promise<QualifierActivity> {
+  const events = await listQualificationEventsForRange(ctx, {
+    tenantId: args.tenantId,
+    start: args.range.slackWindowStart,
+    end: args.range.slackWindowEnd,
+  });
   const opportunityById = await loadOpportunityMapForQualificationEvents(
     ctx,
     events.rows,
@@ -289,6 +290,82 @@ export async function buildQualifierEfficiencyRows(
     current.push(event);
     eventsBySlackUserId.set(event.slackUserId, current);
   }
+
+  const bySlackUserId = new Map<string, { total: number; booked: number }>();
+  for (const [slackUserId, userEvents] of eventsBySlackUserId) {
+    const summary = summarizeQualificationEvents(userEvents, opportunityById);
+    bySlackUserId.set(slackUserId, {
+      total: summary.qualificationEventCount,
+      booked: countBookedSlackOpportunities(userEvents, opportunityById),
+    });
+  }
+
+  return {
+    bySlackUserId,
+    truncated: events.truncated,
+    countQualified: async (slackUserId) =>
+      await countSlackQualifiedForUser(ctx, {
+        tenantId: args.tenantId,
+        slackUserId,
+        start: args.range.slackWindowStart,
+        end: args.range.slackWindowEnd,
+      }),
+  };
+}
+
+export async function buildQualifierEfficiencyRows(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: DerivedOverviewRange;
+    includeAllCandidates: boolean;
+  },
+): Promise<{ rows: TopQualifierRow[]; truncated: boolean }> {
+  return await buildQualifierRowsFromActivity(
+    ctx,
+    args,
+    await readQualifierActivity(ctx, args),
+  );
+}
+
+export async function buildQualifierRowsFromActivity(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: Pick<DerivedOverviewRange, "startBusinessDate" | "endBusinessDateInclusive">;
+    includeAllCandidates: boolean;
+  },
+  activity: QualifierActivity,
+): Promise<{ rows: TopQualifierRow[]; truncated: boolean }> {
+  const [slackUsers, qualifierSchedules] = await Promise.all([
+    ctx.db
+      .query("slackUsers")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+      .take(SLACK_USER_REGISTRY_LIMIT),
+    ctx.db
+      .query("slackQualifierSchedules")
+      .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId))
+      .take(2_100),
+  ]);
+
+  const candidateSlackUserIds = new Set<string>();
+  const scheduledSlackUserIds = new Set<string>();
+  for (const schedule of qualifierSchedules) {
+    candidateSlackUserIds.add(schedule.slackUserId);
+    scheduledSlackUserIds.add(schedule.slackUserId);
+  }
+  for (const slackUserId of activity.bySlackUserId.keys()) {
+    candidateSlackUserIds.add(slackUserId);
+  }
+  if (args.includeAllCandidates || activity.truncated) {
+    for (const user of slackUsers) {
+      candidateSlackUserIds.add(user.slackUserId);
+    }
+  }
+
+  const slackUserById = new Map(
+    slackUsers.map((user) => [user.slackUserId, user]),
+  );
 
   const scheduledHoursBySlackUserId =
     await loadSlackQualifierScheduledHoursForRange(ctx, {
@@ -301,21 +378,15 @@ export async function buildQualifierEfficiencyRows(
   const rows: TopQualifierRow[] = [];
   for (const slackUserId of candidateSlackUserIds) {
     const user = slackUserById.get(slackUserId);
-    const userEvents = eventsBySlackUserId.get(slackUserId) ?? [];
-    const summary = summarizeQualificationEvents(userEvents, opportunityById);
-    const uniqueOpportunityCount = await countSlackQualifiedForUser(ctx, {
-      tenantId: args.tenantId,
-      slackUserId,
-      start: args.range.slackWindowStart,
-      end: args.range.slackWindowEnd,
-    });
+    const events = activity.bySlackUserId.get(slackUserId) ?? { total: 0, booked: 0 };
+    const uniqueOpportunityCount = await activity.countQualified(slackUserId);
     const scheduledHours = scheduledHoursBySlackUserId.get(slackUserId) ?? 0;
-    const booked = countBookedSlackOpportunities(userEvents, opportunityById);
+    const booked = events.booked;
 
     if (
       !args.includeAllCandidates &&
       !scheduledSlackUserIds.has(slackUserId) &&
-      userEvents.length === 0 &&
+      events.total === 0 &&
       uniqueOpportunityCount === 0
     ) {
       continue;
@@ -327,7 +398,7 @@ export async function buildQualifierEfficiencyRows(
         user?.displayName ?? user?.realName ?? user?.username ?? null,
       avatarUrl: user?.avatarUrl ?? null,
       isDeleted: user?.isDeleted ?? false,
-      total: summary.qualificationEventCount,
+      total: events.total,
       uniqueOpportunityCount,
       booked,
       ratio:
@@ -349,17 +420,10 @@ export async function buildQualifierEfficiencyRows(
     }),
   );
 
-  return { rows, truncated: events.truncated };
+  return { rows, truncated: activity.truncated };
 }
 
-export async function buildDmCloserEfficiencyRows(
-  ctx: QueryCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    range: DerivedOverviewRange;
-    includeAllCandidates: boolean;
-  },
-): Promise<{
+export type DmCloserEfficiencyResult = {
   rows: TopDmCloserRow[];
   truncated: boolean;
   // First bookings in range per team, from their dm_team rows: the DM-closer
@@ -370,7 +434,18 @@ export async function buildDmCloserEfficiencyRows(
   // First bookings with a dm_team row and no dm_closer row. They count toward
   // their team and the goal, never toward a DM closer or the DM closer total.
   teamOnlyBooked: number;
-}> {
+};
+
+export type BookedMeetingCounts = ReturnType<typeof countBookedMeetings>;
+
+export async function buildDmCloserEfficiencyRows(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: DerivedOverviewRange;
+    includeAllCandidates: boolean;
+  },
+): Promise<DmCloserEfficiencyResult> {
   // One bounded meetings read for the population and two bounded row reads
   // (dm_team, dm_closer) for the credit, over the same window: a booking's
   // rows have attributedAt equal to the meeting's createdAt. Rows per role
@@ -403,8 +478,28 @@ export async function buildDmCloserEfficiencyRows(
     };
   }
 
-  const { byDmCloser, byAttributionTeam, teamOnlyBooked } =
-    countBookedMeetings(meetingScan.rows, creditScan.credits);
+  return await buildDmCloserRowsFromCounts(
+    ctx,
+    args,
+    countBookedMeetings(meetingScan.rows, creditScan.credits),
+  );
+}
+
+/**
+ * The DM closer rows from the range's first-booking counts. The Convex path
+ * counts the bookings it reads; the Booked Calls ClickHouse report
+ * (convex/analytics/definitions/operations.ts) counts them in SQL.
+ */
+export async function buildDmCloserRowsFromCounts(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    range: Pick<DerivedOverviewRange, "startBusinessDate" | "endBusinessDateInclusive">;
+    includeAllCandidates: boolean;
+  },
+  counts: BookedMeetingCounts,
+): Promise<DmCloserEfficiencyResult> {
+  const { byDmCloser, byAttributionTeam, teamOnlyBooked } = counts;
   const truncatedResult = {
     rows: [],
     truncated: true,
@@ -680,6 +775,16 @@ async function applyLeaderboardFilters(
   return dmCloserRows;
 }
 
+/**
+ * Every candidate's row for an expanded leaderboard. The Convex path reads
+ * the range; the Overview ClickHouse report builds them from its SQL counts.
+ */
+export type LeaderboardRowSource = {
+  leadGen: () => Promise<LeadGenOverview["topWorkers"]>;
+  qualifiers: () => Promise<{ rows: TopQualifierRow[]; truncated: boolean }>;
+  dmClosers: () => Promise<DmCloserEfficiencyResult>;
+};
+
 export async function buildExpandedOverviewLeaderboard(
   ctx: QueryCtx,
   args: {
@@ -689,13 +794,30 @@ export async function buildExpandedOverviewLeaderboard(
     filters?: LeaderboardFilters;
   },
 ): Promise<ExpandedOverviewLeaderboard> {
+  const candidates = {
+    tenantId: args.tenantId,
+    range: args.range,
+    includeAllCandidates: true,
+  };
+  return await buildExpandedOverviewLeaderboardFromRows(ctx, args, {
+    leadGen: () => buildLeadGenEfficiencyRows(ctx, candidates),
+    qualifiers: () => buildQualifierEfficiencyRows(ctx, candidates),
+    dmClosers: () => buildDmCloserEfficiencyRows(ctx, candidates),
+  });
+}
+
+export async function buildExpandedOverviewLeaderboardFromRows(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    kind: OverviewLeaderboardKind;
+    filters?: LeaderboardFilters;
+  },
+  source: LeaderboardRowSource,
+): Promise<ExpandedOverviewLeaderboard> {
   switch (args.kind) {
     case "lead_gen": {
-      const allRows = await buildLeadGenEfficiencyRows(ctx, {
-        tenantId: args.tenantId,
-        range: args.range,
-        includeAllCandidates: true,
-      });
+      const allRows = await source.leadGen();
       const rows = (await applyLeaderboardFilters(
         ctx,
         args.tenantId,
@@ -713,14 +835,7 @@ export async function buildExpandedOverviewLeaderboard(
       };
     }
     case "qualifiers": {
-      const { rows: allRows, truncated } = await buildQualifierEfficiencyRows(
-        ctx,
-        {
-          tenantId: args.tenantId,
-          range: args.range,
-          includeAllCandidates: true,
-        },
-      );
+      const { rows: allRows, truncated } = await source.qualifiers();
       const rows = (await applyLeaderboardFilters(
         ctx,
         args.tenantId,
@@ -741,11 +856,7 @@ export async function buildExpandedOverviewLeaderboard(
       let allRows: TopDmCloserRow[];
       let truncated: boolean;
       try {
-        const result = await buildDmCloserEfficiencyRows(ctx, {
-          tenantId: args.tenantId,
-          range: args.range,
-          includeAllCandidates: true,
-        });
+        const result = await source.dmClosers();
         allRows = result.rows;
         truncated = result.truncated;
       } catch (error) {

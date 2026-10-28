@@ -1,8 +1,8 @@
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
-import { LIFECYCLE_STAGES } from "../leads/lifecycle";
+import { LIFECYCLE_STAGES, type LifecycleStage } from "../leads/lifecycle";
 import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
 import {
   leadGenWorkerMemberIdentity,
@@ -95,6 +95,59 @@ async function countLeadGenDeals(
   return { byWorker, capped: read.capped };
 }
 
+export type ProspectConversionCounts = Record<LifecycleStage, number>;
+
+/** The tenant's lead gen workers, the table's rows, up to `WORKER_LIMIT`. */
+export async function loadConversionWorkers(ctx: QueryCtx, tenantId: Id<"tenants">) {
+  const workers = await ctx.db
+    .query("leadGenWorkers")
+    .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
+    .take(WORKER_LIMIT + 1);
+  return { page: workers.slice(0, WORKER_LIMIT), capped: workers.length > WORKER_LIMIT };
+}
+
+/**
+ * The conversion table from each worker's stage counts and deals. The Convex
+ * reader counts the aggregates; the ClickHouse report
+ * (convex/analytics/definitions/leadGenPeople.ts) counts prospects and
+ * attribution rows.
+ */
+export async function buildProspectConversions(
+  ctx: QueryCtx,
+  workers: { page: Doc<"leadGenWorkers">[]; capped: boolean },
+  loaded: {
+    counts: Map<Id<"leadGenWorkers">, ProspectConversionCounts>;
+    deals: { byWorker: Map<Id<"leadGenWorkers">, number>; capped: boolean };
+  },
+) {
+  const rows = [];
+  for (const worker of workers.page) {
+    const counts =
+      loaded.counts.get(worker._id) ??
+      (Object.fromEntries(LIFECYCLE_STAGES.map((stage) => [stage, 0])) as ProspectConversionCounts);
+    const workerDeals = loaded.deals.byWorker.get(worker._id) ?? 0;
+    // A deal's capture is its prospect's first capture, so a worker with
+    // deals in the range has prospects in it too. Should the two ever
+    // disagree, the row stays, so no deal drops out of the table.
+    if (counts.prospect === 0 && workerDeals === 0) {
+      continue;
+    }
+    rows.push({
+      workerId: worker._id,
+      worker: await leadGenWorkerMemberIdentity(ctx, worker),
+      displayName: worker.displayName ?? worker.email,
+      teamId: worker.teamId ?? null,
+      counts,
+      deals: workerDeals,
+    });
+  }
+  return {
+    rows: rows.sort((left, right) => right.counts.prospect - left.counts.prospect),
+    capped: workers.capped,
+    dealsCapped: loaded.deals.capped,
+  };
+}
+
 export const listProspectConversions = query({
   args: { startDayKey: v.string(), endDayKey: v.string() },
   returns: v.object({
@@ -122,41 +175,17 @@ export const listProspectConversions = query({
     const startAt = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, tenantId));
     const endAt = businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, tenantId));
 
-    const workers = await ctx.db
-      .query("leadGenWorkers")
-      .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
-      .take(WORKER_LIMIT + 1);
-    const capped = workers.length > WORKER_LIMIT;
-    const workerPage = workers.slice(0, WORKER_LIMIT);
-    const deals = await countLeadGenDeals(
-      ctx, tenantId, startAt, endAt, workerPage.map((worker) => worker._id),
-    );
-    const rows = [];
-    for (const worker of workerPage) {
-      const counts = {} as Record<(typeof LIFECYCLE_STAGES)[number], number>;
+    const workers = await loadConversionWorkers(ctx, tenantId);
+    const workerIds = workers.page.map((worker) => worker._id);
+    const deals = await countLeadGenDeals(ctx, tenantId, startAt, endAt, workerIds);
+    const counts = new Map<Id<"leadGenWorkers">, ProspectConversionCounts>();
+    for (const workerId of workerIds) {
+      const workerCounts = {} as ProspectConversionCounts;
       for (const stage of LIFECYCLE_STAGES) {
-        counts[stage] = await countProspectConversions(ctx, tenantId, worker._id, stage, startAt, endAt);
+        workerCounts[stage] = await countProspectConversions(ctx, tenantId, workerId, stage, startAt, endAt);
       }
-      const workerDeals = deals.byWorker.get(worker._id) ?? 0;
-      // A deal's capture is its prospect's first capture, so a worker with
-      // deals in the range has prospects in it too. Should the two ever
-      // disagree, the row stays, so no deal drops out of the table.
-      if (counts.prospect === 0 && workerDeals === 0) {
-        continue;
-      }
-      rows.push({
-        workerId: worker._id,
-        worker: await leadGenWorkerMemberIdentity(ctx, worker),
-        displayName: worker.displayName ?? worker.email,
-        teamId: worker.teamId ?? null,
-        counts,
-        deals: workerDeals,
-      });
+      counts.set(workerId, workerCounts);
     }
-    return {
-      rows: rows.sort((left, right) => right.counts.prospect - left.counts.prospect),
-      capped,
-      dealsCapped: deals.capped,
-    };
+    return await buildProspectConversions(ctx, workers, { counts, deals });
   },
 });

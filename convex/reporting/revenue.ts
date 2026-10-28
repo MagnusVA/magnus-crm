@@ -1,9 +1,10 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { query, type QueryCtx } from "../_generated/server";
 import {
   paymentTypeValidator,
   resolvePaymentType,
+  type PaymentType,
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -16,6 +17,16 @@ import {
   reportingUserIdentity,
   summarizePaymentsForRevenueReporting,
 } from "./lib/helpers";
+
+export type RevenueFilters = {
+  programId?: Id<"tenantPrograms"> | null;
+  paymentType?: PaymentType | null;
+};
+
+export type PaymentScan = {
+  payments: Array<Doc<"paymentRecords">>;
+  isTruncated: boolean;
+};
 
 const DEAL_SIZE_BUCKETS = {
   over10k: { count: 0, label: "$10k+" },
@@ -65,6 +76,95 @@ function makeProgramBreakdown(
   );
 }
 
+/**
+ * The Revenue cards from a range's non-disputed payments. The Convex reader
+ * scans them; the ClickHouse report (convex/analytics/definitions/revenue.ts)
+ * reads the same rows from the reporting database.
+ */
+export async function buildRevenueMetrics(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  args: RevenueFilters,
+  paymentScan: PaymentScan,
+) {
+  const closers = await getActiveClosers(ctx, tenantId);
+  const attributedPayments = await attributePaymentsToClosers(
+    ctx,
+    paymentScan.payments,
+  );
+  const filteredPayments = attributedPayments.filter(
+    (payment) =>
+      (!args.programId || payment.programId === args.programId) &&
+      (!args.paymentType ||
+        resolvePaymentType(payment.paymentType) === args.paymentType),
+  );
+  const summary = summarizePaymentsForRevenueReporting(filteredPayments);
+
+  const byOrigin = Object.fromEntries(
+    PAYMENT_ORIGINS.map((origin) => [origin, 0]),
+  ) as Record<(typeof PAYMENT_ORIGINS)[number], number>;
+  for (const payment of summary.finalPayments) {
+    if (payment.origin && payment.origin in byOrigin) {
+      byOrigin[
+        payment.origin as keyof typeof byOrigin
+      ] += payment.amountMinor;
+    }
+  }
+
+  const byCloser = (await Promise.all(closers
+    .map(async (closer) => {
+      const closerPayments = summary.finalPayments.filter(
+        (payment) => payment.effectiveCloserId === closer._id,
+      );
+      const revenueMinor = closerPayments.reduce(
+        (sum, payment) => sum + payment.amountMinor,
+        0,
+      );
+      const dealCount = closerPayments.length;
+      return {
+        closerId: closer._id,
+        closerName: getUserDisplayName(closer),
+        closer: await reportingUserIdentity(ctx, closer),
+        revenueMinor,
+        dealCount,
+        avgDealMinor: dealCount > 0 ? revenueMinor / dealCount : null,
+      };
+    })))
+    .sort(
+      (left, right) =>
+        right.revenueMinor - left.revenueMinor ||
+        left.closerName.localeCompare(right.closerName),
+    );
+
+  const byPaymentType = {
+    monthly: 0,
+    split: 0,
+    pif: 0,
+    deposit: 0,
+  };
+  for (const payment of summary.allPayments) {
+    byPaymentType[resolvePaymentType(payment.paymentType)] += payment.amountMinor;
+  }
+
+  return {
+    revenue: {
+      finalRevenueMinor: summary.finalRevenueMinor,
+      depositRevenueMinor: summary.depositRevenueMinor,
+      totalDeals: summary.finalPayments.length,
+      avgDealMinor:
+        summary.finalPayments.length > 0
+          ? summary.finalRevenueMinor /
+            summary.finalPayments.length
+          : null,
+      byOrigin,
+      byCloser,
+      byProgram: makeProgramBreakdown(summary.allPayments),
+    },
+    byPaymentType,
+    isPaymentDataTruncated: paymentScan.isTruncated,
+  };
+}
+
 export const getRevenueMetrics = query({
   args: {
     startDate: v.number(),
@@ -80,90 +180,105 @@ export const getRevenueMetrics = query({
       "tenant_admin",
     ]);
 
-    const closers = await getActiveClosers(ctx, tenantId);
     const paymentScan = await getNonDisputedPaymentsInRange(
       ctx,
       tenantId,
       args.startDate,
       args.endDate,
     );
-    const attributedPayments = await attributePaymentsToClosers(
-      ctx,
-      paymentScan.payments,
-    );
-    const filteredPayments = attributedPayments.filter(
-      (payment) =>
-        (!args.programId || payment.programId === args.programId) &&
-        (!args.paymentType ||
-          resolvePaymentType(payment.paymentType) === args.paymentType),
-    );
-    const summary = summarizePaymentsForRevenueReporting(filteredPayments);
-
-    const byOrigin = Object.fromEntries(
-      PAYMENT_ORIGINS.map((origin) => [origin, 0]),
-    ) as Record<(typeof PAYMENT_ORIGINS)[number], number>;
-    for (const payment of summary.finalPayments) {
-      if (payment.origin && payment.origin in byOrigin) {
-        byOrigin[
-          payment.origin as keyof typeof byOrigin
-        ] += payment.amountMinor;
-      }
-    }
-
-    const byCloser = (await Promise.all(closers
-      .map(async (closer) => {
-        const closerPayments = summary.finalPayments.filter(
-          (payment) => payment.effectiveCloserId === closer._id,
-        );
-        const revenueMinor = closerPayments.reduce(
-          (sum, payment) => sum + payment.amountMinor,
-          0,
-        );
-        const dealCount = closerPayments.length;
-        return {
-          closerId: closer._id,
-          closerName: getUserDisplayName(closer),
-          closer: await reportingUserIdentity(ctx, closer),
-          revenueMinor,
-          dealCount,
-          avgDealMinor: dealCount > 0 ? revenueMinor / dealCount : null,
-        };
-      })))
-      .sort(
-        (left, right) =>
-          right.revenueMinor - left.revenueMinor ||
-          left.closerName.localeCompare(right.closerName),
-      );
-
-    const byPaymentType = {
-      monthly: 0,
-      split: 0,
-      pif: 0,
-      deposit: 0,
-    };
-    for (const payment of summary.allPayments) {
-      byPaymentType[resolvePaymentType(payment.paymentType)] += payment.amountMinor;
-    }
-
-    return {
-      revenue: {
-        finalRevenueMinor: summary.finalRevenueMinor,
-        depositRevenueMinor: summary.depositRevenueMinor,
-        totalDeals: summary.finalPayments.length,
-        avgDealMinor:
-          summary.finalPayments.length > 0
-            ? summary.finalRevenueMinor /
-              summary.finalPayments.length
-            : null,
-        byOrigin,
-        byCloser,
-        byProgram: makeProgramBreakdown(summary.allPayments),
-      },
-      byPaymentType,
-      isPaymentDataTruncated: paymentScan.isTruncated,
-    };
+    return await buildRevenueMetrics(ctx, tenantId, args, paymentScan);
   },
 });
+
+/** Revenue's top deals and deal sizes from a range's non-disputed payments. */
+export async function buildRevenueDetails(
+  ctx: QueryCtx,
+  args: RevenueFilters,
+  paymentScan: PaymentScan,
+) {
+  const attributedPayments = await attributePaymentsToClosers(
+    ctx,
+    paymentScan.payments,
+  );
+  const filteredPayments = attributedPayments.filter(
+    (payment) =>
+      (!args.programId || payment.programId === args.programId) &&
+      (!args.paymentType ||
+        resolvePaymentType(payment.paymentType) === args.paymentType),
+  );
+  const summary = summarizePaymentsForRevenueReporting(filteredPayments);
+  const topPayments = [...summary.finalPayments]
+    .sort(
+      (left, right) =>
+        right.amountMinor - left.amountMinor ||
+        right.recordedAt - left.recordedAt,
+    )
+    .slice(0, 10);
+
+  const closerIds = [
+    ...new Set(
+      topPayments
+        .map((payment) => payment.effectiveCloserId)
+        .filter((closerId): closerId is Id<"users"> => closerId !== null),
+    ),
+  ];
+  const closerDocs = await Promise.all(
+    closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
+  );
+  const closerById = new Map(closerDocs);
+
+  const dealSizeDistribution = {
+    under500: { ...DEAL_SIZE_BUCKETS.under500 },
+    to2k: { ...DEAL_SIZE_BUCKETS.to2k },
+    to5k: { ...DEAL_SIZE_BUCKETS.to5k },
+    to10k: { ...DEAL_SIZE_BUCKETS.to10k },
+    over10k: { ...DEAL_SIZE_BUCKETS.over10k },
+  };
+
+  for (const payment of summary.finalPayments) {
+    const amountDollars = payment.amountMinor / 100;
+    if (amountDollars < 500) {
+      dealSizeDistribution.under500.count += 1;
+    } else if (amountDollars < 2000) {
+      dealSizeDistribution.to2k.count += 1;
+    } else if (amountDollars < 5000) {
+      dealSizeDistribution.to5k.count += 1;
+    } else if (amountDollars < 10000) {
+      dealSizeDistribution.to10k.count += 1;
+    } else {
+      dealSizeDistribution.over10k.count += 1;
+    }
+  }
+
+  return {
+    topDeals: await Promise.all(topPayments.map(async (payment) => {
+      const attributedCloser = payment.effectiveCloserId
+        ? closerById.get(payment.effectiveCloserId) ?? null
+        : null;
+      return {
+        paymentRecordId: payment._id,
+        amountMinor: payment.amountMinor,
+        currency: payment.currency,
+        attributedCloserId: payment.effectiveCloserId,
+        attributedCloserName: getUserDisplayName(attributedCloser) ?? "Unknown",
+        attributedCloser: await reportingUserIdentity(
+          ctx,
+          attributedCloser,
+          "Unknown closer",
+        ),
+        meetingId: payment.meetingId ?? null,
+        opportunityId: payment.opportunityId ?? null,
+        programId: payment.programId,
+        programName: payment.programName,
+        paymentType: payment.paymentType,
+        origin: payment.origin,
+        recordedAt: payment.recordedAt,
+      };
+    })),
+    dealSizeDistribution,
+    isPaymentDataTruncated: paymentScan.isTruncated,
+  };
+}
 
 export const getRevenueDetails = query({
   args: {
@@ -186,87 +301,6 @@ export const getRevenueDetails = query({
       args.startDate,
       args.endDate,
     );
-    const attributedPayments = await attributePaymentsToClosers(
-      ctx,
-      paymentScan.payments,
-    );
-    const filteredPayments = attributedPayments.filter(
-      (payment) =>
-        (!args.programId || payment.programId === args.programId) &&
-        (!args.paymentType ||
-          resolvePaymentType(payment.paymentType) === args.paymentType),
-    );
-    const summary = summarizePaymentsForRevenueReporting(filteredPayments);
-    const topPayments = [...summary.finalPayments]
-      .sort(
-        (left, right) =>
-          right.amountMinor - left.amountMinor ||
-          right.recordedAt - left.recordedAt,
-      )
-      .slice(0, 10);
-
-    const closerIds = [
-      ...new Set(
-        topPayments
-          .map((payment) => payment.effectiveCloserId)
-          .filter((closerId): closerId is Id<"users"> => closerId !== null),
-      ),
-    ];
-    const closerDocs = await Promise.all(
-      closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
-    );
-    const closerById = new Map(closerDocs);
-
-    const dealSizeDistribution = {
-      under500: { ...DEAL_SIZE_BUCKETS.under500 },
-      to2k: { ...DEAL_SIZE_BUCKETS.to2k },
-      to5k: { ...DEAL_SIZE_BUCKETS.to5k },
-      to10k: { ...DEAL_SIZE_BUCKETS.to10k },
-      over10k: { ...DEAL_SIZE_BUCKETS.over10k },
-    };
-
-    for (const payment of summary.finalPayments) {
-      const amountDollars = payment.amountMinor / 100;
-      if (amountDollars < 500) {
-        dealSizeDistribution.under500.count += 1;
-      } else if (amountDollars < 2000) {
-        dealSizeDistribution.to2k.count += 1;
-      } else if (amountDollars < 5000) {
-        dealSizeDistribution.to5k.count += 1;
-      } else if (amountDollars < 10000) {
-        dealSizeDistribution.to10k.count += 1;
-      } else {
-        dealSizeDistribution.over10k.count += 1;
-      }
-    }
-
-    return {
-      topDeals: await Promise.all(topPayments.map(async (payment) => {
-        const attributedCloser = payment.effectiveCloserId
-          ? closerById.get(payment.effectiveCloserId) ?? null
-          : null;
-        return {
-          paymentRecordId: payment._id,
-          amountMinor: payment.amountMinor,
-          currency: payment.currency,
-          attributedCloserId: payment.effectiveCloserId,
-          attributedCloserName: getUserDisplayName(attributedCloser) ?? "Unknown",
-          attributedCloser: await reportingUserIdentity(
-            ctx,
-            attributedCloser,
-            "Unknown closer",
-          ),
-          meetingId: payment.meetingId ?? null,
-          opportunityId: payment.opportunityId ?? null,
-          programId: payment.programId,
-          programName: payment.programName,
-          paymentType: payment.paymentType,
-          origin: payment.origin,
-          recordedAt: payment.recordedAt,
-        };
-      })),
-      dealSizeDistribution,
-      isPaymentDataTruncated: paymentScan.isTruncated,
-    };
+    return await buildRevenueDetails(ctx, args, paymentScan);
   },
 });

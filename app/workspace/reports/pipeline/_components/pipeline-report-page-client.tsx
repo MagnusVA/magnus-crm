@@ -6,9 +6,13 @@ import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-defi
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
 import { useCallback, useEffect, useState } from "react";
-import { endOfMonth, startOfMonth } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useNow } from "@/hooks/use-now";
+import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -37,11 +41,11 @@ import { StalePipelineList } from "./stale-pipeline-list";
 import { PipelineReportSkeleton } from "./pipeline-report-skeleton";
 import { UnresolvedRemindersCard } from "./unresolved-reminders-card";
 
-function getDefaultDateRange(): DateRange {
-  const now = new Date();
+function getTodayRange(nowMs = Date.now()): DateRange {
+  const now = new Date(nowMs);
   return {
-    startDate: startOfMonth(now).getTime(),
-    endDate: endOfMonth(now).getTime(),
+    startDate: startOfDay(now).getTime(),
+    endDate: startOfDay(addDays(now, 1)).getTime(),
   };
 }
 
@@ -51,7 +55,7 @@ export function PipelineReportPageClient() {
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("pipeline_health");
 
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const [dateRange, setDateRange] = useState<DateRange>(() => getTodayRange());
   const [attributionFilters, setAttributionFilters] =
     useState<ReportAttributionFilterValue>({});
 
@@ -76,20 +80,49 @@ export function PipelineReportPageClient() {
     api.reporting.pipelineHealth.getPipelineDistribution,
   );
   const aging = useQuery(api.reporting.pipelineHealth.getPipelineAging);
-  const backlogAndLoss = useQuery(
-    api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
-    {
+  // Today reads Convex live; any other range reads ClickHouse once the page
+  // is switched (docs/plans/clickhouse-reporting.md §4).
+  const now = useNow();
+  const range = reportRangeToAnalyticsRange(dateRange, now);
+  const backlogAndLossReport = useAnalyticsReport({
+    page: "pipeline",
+    reportId: "pipeline.backlog_and_loss",
+    range,
+    live: api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
+    liveArgs: {
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
     },
-  );
-  const operationsShowRate = useQuery(
-    api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
-    !loaded || rebuilding ? "skip" : {
+  });
+  const operationsShowRateReport = useAnalyticsReport({
+    page: "pipeline",
+    reportId: "pipeline.show_rate",
+    range,
+    filters: {
+      bookingProgramId: attributionFilters.bookingProgramId,
+      attributionTeamId: attributionFilters.attributionTeamId,
+      dmCloserId: attributionFilters.dmCloserId,
+    },
+    live: api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
+    liveArgs: !loaded || rebuilding ? "skip" : {
       ...reportRangeDayKeys(dateRange),
       ...attributionFilters,
     },
+  });
+  const backlogAndLoss = backlogAndLossReport.data;
+  const operationsShowRate = operationsShowRateReport.data;
+  // The reminder backlog has no range, so it stays real time: a ClickHouse
+  // range takes it from today's live read.
+  const liveBacklog = useQuery(
+    api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
+    backlogAndLossReport.source === "warehouse" ? getTodayRange(now) : "skip",
   );
+  const reminderBacklog =
+    backlogAndLossReport.source === "warehouse" ? liveBacklog : backlogAndLoss;
+  const freshness = [
+    backlogAndLossReport.freshness,
+    operationsShowRateReport.freshness,
+  ];
 
   // Both queries still loading — show full skeleton
   if (
@@ -97,7 +130,8 @@ export function PipelineReportPageClient() {
     distribution === undefined &&
     aging === undefined &&
     backlogAndLoss === undefined &&
-    operationsShowRate === undefined
+    operationsShowRate === undefined &&
+    freshness.every((item) => item.source === "live")
   ) {
     return <PipelineReportSkeleton />;
   }
@@ -131,11 +165,11 @@ export function PipelineReportPageClient() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {backlogAndLoss !== undefined ? (
+        {reminderBacklog !== undefined ? (
           <UnresolvedRemindersCard
-            count={backlogAndLoss.unresolvedRemindersCount}
-            split={backlogAndLoss.unresolvedReminderSplit}
-            isTruncated={backlogAndLoss.isUnresolvedRemindersTruncated}
+            count={reminderBacklog.unresolvedRemindersCount}
+            split={reminderBacklog.unresolvedReminderSplit}
+            isTruncated={reminderBacklog.isUnresolvedRemindersTruncated}
           />
         ) : (
           <Skeleton className="h-28 rounded-lg" />
@@ -178,6 +212,7 @@ export function PipelineReportPageClient() {
                 captureOperationsFilterChange();
               }}
             />
+            <AnalyticsFreshnessLine items={freshness} />
             <ReportAttributionFilters
               value={attributionFilters}
               onChange={(next) => {

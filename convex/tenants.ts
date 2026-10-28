@@ -85,6 +85,8 @@ export const getCurrentTenant = query({
       calendlyWebhookUri: connection?.webhookUri,
       onboardingCompletedAt: tenant.onboardingCompletedAt,
       billingOpsEnabled: tenant.billingOpsEnabled === true,
+      // Report pages that read ClickHouse (docs/plans/clickhouse-reporting.md §12.1).
+      analyticsReports: tenant.analyticsReports ?? [],
       businessDay: tenant.businessDay ?? DEFAULT_BUSINESS_DAY,
       businessDayVersion: tenant.businessDayVersion ?? 0,
       businessDayReady: businessDayBucketsReady(tenant),

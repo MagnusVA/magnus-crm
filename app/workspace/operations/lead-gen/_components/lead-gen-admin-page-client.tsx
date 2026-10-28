@@ -7,6 +7,13 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { SettingsIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import {
+	useAnalyticsReport,
+	useAnalyticsSource,
+} from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Button } from "@/components/ui/button";
 import { DashboardDateRangeFilter } from "@/app/workspace/_components/dashboard-date-range-filter";
 import {
@@ -50,7 +57,7 @@ export function LeadGenAdminPageClient() {
 	const { range, setRange, queryRange, rangeLabel, validationMessage } =
 		useDashboardRange({
 			urlSync: true,
-			defaultRange: { kind: "preset", preset: "this_week" },
+			defaultRange: { kind: "preset", preset: "today" },
 			validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
 		});
 	const [source, setSource] = useState<LeadGenSource | undefined>(undefined);
@@ -64,29 +71,73 @@ export function LeadGenAdminPageClient() {
 		[queryRange, now, setting],
 	);
 
-	const overview = useQuery(
-		api.leadGen.reporting.getOverview,
-		requiresSnapshot || rebuilding || !loaded ? "skip" : filters,
+	// Today reads Convex live; any other range reads ClickHouse once the page
+	// is switched (docs/plans/clickhouse-reporting.md §4), and then needs no
+	// snapshot job. Until then the readers and the snapshot path answer.
+	const analyticsRange = dashboardRangeToAnalyticsRange(
+		queryRange,
+		businessDateForInstant(now, setting),
 	);
-	const needsSnapshot = requiresSnapshot || overview?.capped === true;
+	const analyticsSource = useAnalyticsSource("lead_gen", analyticsRange);
+	const warehouse = analyticsSource === "warehouse";
+	const analyticsFilters = { source: source ?? null };
+
+	const overviewReport = useAnalyticsReport({
+		page: "lead_gen",
+		reportId: "lead_gen.overview",
+		range: analyticsRange,
+		filters: analyticsFilters,
+		live: api.leadGen.reporting.getOverview,
+		liveArgs: !loaded || (!warehouse && (requiresSnapshot || rebuilding)) ? "skip" : filters,
+	});
+	const overview = overviewReport.data;
+	const needsSnapshot =
+		analyticsSource === "live" && (requiresSnapshot || overview?.capped === true);
 	const teams = useQuery(api.leadGen.workers.listTeams, needsSnapshot ? "skip" : {
 		includeInactive: true,
 	});
-	const specialistRows = useQuery(
-		api.leadGen.reporting.listWorkerPerformance,
-		needsSnapshot || overview === undefined ? "skip" : filters,
-	);
-	const origins = useQuery(
-		api.leadGen.reporting.listTopOriginsByTeam,
-		needsSnapshot || overview === undefined ? "skip" : { ...filters, limitPerTeam: 10, sortBy: "submissions" },
-	);
-	// Counted from an aggregate, so it stays live for any range.
-	const conversions = useQuery(api.leadGen.conversions.listProspectConversions, {
-		startDayKey: filters.startDayKey,
-		endDayKey: filters.endDayKey,
+	// Live, the tables wait for the overview to say the range isn't capped.
+	const waitForOverview = !warehouse && (needsSnapshot || overview === undefined);
+	const specialistReport = useAnalyticsReport({
+		page: "lead_gen",
+		reportId: "lead_gen.workers",
+		range: analyticsRange,
+		filters: analyticsFilters,
+		live: api.leadGen.reporting.listWorkerPerformance,
+		liveArgs: !loaded || waitForOverview ? "skip" : filters,
 	});
-	const resparks = useQuery(api.leadGen.resparkReports.listResparkPerformance,
-    rebuilding || !loaded ? "skip" : filters);
+	const specialistRows = specialistReport.data;
+	const originsReport = useAnalyticsReport({
+		page: "lead_gen",
+		reportId: "lead_gen.top_origins_by_team",
+		range: analyticsRange,
+		filters: { ...analyticsFilters, limitPerTeam: 10, sortBy: "submissions" },
+		live: api.leadGen.reporting.listTopOriginsByTeam,
+		liveArgs: !loaded || waitForOverview
+			? "skip"
+			: { ...filters, limitPerTeam: 10, sortBy: "submissions" },
+	});
+	const origins = originsReport.data;
+	const conversionsReport = useAnalyticsReport({
+		page: "lead_gen",
+		reportId: "lead_gen.prospect_conversions",
+		range: analyticsRange,
+		live: api.leadGen.conversions.listProspectConversions,
+		liveArgs: !loaded ? "skip" : {
+			startDayKey: filters.startDayKey,
+			endDayKey: filters.endDayKey,
+		},
+	});
+	const conversions = conversionsReport.data;
+	const resparksReport = useAnalyticsReport({
+		page: "lead_gen",
+		reportId: "lead_gen.respark_performance",
+		range: analyticsRange,
+		filters: analyticsFilters,
+		live: api.leadGen.resparkReports.listResparkPerformance,
+		liveArgs: !loaded || (!warehouse && rebuilding) ? "skip" : filters,
+	});
+	const resparks = resparksReport.data;
 	const snapshot = useOperationsDashboardReport({
 		reportKind: "lead-gen",
 		range: queryRange,
@@ -152,6 +203,15 @@ export function LeadGenAdminPageClient() {
 						validationMessage={validationMessage}
 						value={range}
 						onChange={setRange}
+					/>
+					<AnalyticsFreshnessLine
+						items={[
+							overviewReport.freshness,
+							specialistReport.freshness,
+							originsReport.freshness,
+							conversionsReport.freshness,
+							resparksReport.freshness,
+						]}
 					/>
 				</div>
 			</header>

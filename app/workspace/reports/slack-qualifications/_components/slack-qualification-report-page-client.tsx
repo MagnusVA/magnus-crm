@@ -5,8 +5,11 @@ import { useNow } from "@/hooks/use-now";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangleIcon, ListChecksIcon, TargetIcon } from "lucide-react";
-import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import {
   Alert,
   AlertDescription,
@@ -58,10 +61,25 @@ export function SlackQualificationReportPageClient() {
       : base;
   }, [filters, rangeError]);
 
-  const report = useQuery(
-    api.reporting.slackQualifications.getQualificationReport,
-    queryArgs,
+  // Today reads Convex live; any other range of business days reads
+  // ClickHouse once the page is switched (docs/plans/clickhouse-reporting.md §4).
+  const range = dashboardRangeToAnalyticsRange(
+    {
+      kind: "custom",
+      startBusinessDate: filters.startBusinessDate,
+      endBusinessDateInclusive: getInclusiveEndBusinessDate(filters.endBusinessDateExclusive),
+    },
+    businessDateForInstant(now, setting),
   );
+  const reportResult = useAnalyticsReport({
+    page: "slack_qualifications",
+    reportId: "slack_qualifications.report",
+    range,
+    filters: { granularity: filters.granularity, slackUserId: filters.slackUserId },
+    live: api.reporting.slackQualifications.getQualificationReport,
+    liveArgs: queryArgs,
+  });
+  const report = reportResult.data;
 
   useEffect(() => {
     captureViewed();
@@ -76,7 +94,9 @@ export function SlackQualificationReportPageClient() {
     return `/workspace/operations/qualifications?${params.toString()}`;
   }, [filters]);
 
-  if (report === undefined && !rangeError) {
+  // A ClickHouse range can take a while to load; keep the controls and its
+  // status on screen instead of the full-page skeleton.
+  if (report === undefined && !rangeError && reportResult.freshness.source === "live") {
     return <SlackQualificationReportSkeleton />;
   }
 
@@ -126,6 +146,8 @@ export function SlackQualificationReportPageClient() {
           });
         }}
       />
+
+      <AnalyticsFreshnessLine items={[reportResult.freshness]} />
 
       {rangeError ? (
         <Alert variant="destructive">

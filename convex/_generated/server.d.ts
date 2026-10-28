@@ -33,6 +33,10 @@ type Env = {
   readonly APP_URL: string | undefined;
   readonly CALENDLY_CLIENT_ID: string;
   readonly CALENDLY_CLIENT_SECRET: string;
+  readonly CLICKHOUSE_PASSWORD: string | undefined;
+  readonly CLICKHOUSE_URL: string | undefined;
+  readonly CLICKHOUSE_USER: string | undefined;
+  readonly FIVETRAN_WEBHOOK_SECRET: string | undefined;
   readonly INVITE_SIGNING_SECRET: string;
   readonly LINK_PORTAL_PASSWORD_PEPPER: string | undefined;
   readonly LINK_PORTAL_SESSION_SECRET: string | undefined;

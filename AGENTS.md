@@ -48,6 +48,7 @@ Next.js 16 App Router, React 19, Convex, WorkOS AuthKit, shadcn/ui with Tailwind
 - Pages, components, forms, styling, and analytics: `docs/agents/frontend.md`
 - Roles, permissions, guards, system admin, and the DM portal: `docs/agents/auth.md`
 - Error tracking, logs, and server events in PostHog: `docs/agents/observability.md`
+- Report pages on ClickHouse, the report engine, and the external metrics API: `docs/agents/reporting.md`
 - Vendor API docs (Calendly, Slack, Convex, PostHog, WorkOS) live in `.docs/<vendor>/`; Calendly starts at `.docs/calendly/index.md`
 
 <!-- BEGIN:nextjs-agent-rules -->

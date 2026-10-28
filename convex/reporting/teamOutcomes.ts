@@ -180,7 +180,7 @@ export async function meetingOutcomesByStage(
 }
 
 export function tallyOutcomesByCloser(
-  outcomes: MeetingOutcome[],
+  outcomes: TeamMeetingOutcome[],
 ): Map<Id<"users">, OutcomeCounts> {
   const perCloser = new Map<Id<"users">, OutcomeCounts>();
   for (const { meeting, outcome } of outcomes) {
@@ -189,6 +189,71 @@ export function tallyOutcomesByCloser(
     perCloser.set(meeting.assignedCloserId, counts);
   }
   return perCloser;
+}
+
+/** What the outcome mix reads of each meeting. */
+export type TeamMeetingOutcome = {
+  meeting: Pick<Doc<"meetings">, "assignedCloserId" | "status" | "scheduledAt" | "durationMinutes">;
+  outcome: CallOutcome;
+};
+
+/**
+ * The team's outcome mix from each meeting's outcome. Shared by the Convex
+ * reader and the ClickHouse report (convex/analytics/definitions/team.ts).
+ */
+export async function buildTeamOutcomeMix(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  outcomes: TeamMeetingOutcome[],
+  isTruncated: boolean,
+) {
+  const closers = await getActiveClosers(ctx, tenantId);
+  const perCloser = tallyOutcomesByCloser(outcomes);
+
+  const teamOutcome = Array.from(perCloser.values()).reduce<OutcomeCounts>(
+    (accumulator, counts) => {
+      for (const outcome of Object.keys(counts) as CallOutcome[]) {
+        accumulator[outcome] += counts[outcome];
+      }
+      return accumulator;
+    },
+    emptyOutcomeCounts(),
+  );
+
+  // Keep deal-outcome counts intact; only split the chart's scheduled slice.
+  const displayOutcome = { ...teamOutcome, not_recorded: 0, upcoming: 0 };
+  const now = Date.now();
+  for (const { meeting, outcome } of outcomes) {
+    if (outcome !== "scheduled" || meeting.status !== "scheduled") continue;
+    displayOutcome.scheduled -= 1;
+    if (meetingAttendanceDisplay(meeting, now) === "not_recorded") {
+      displayOutcome.not_recorded += 1;
+    } else {
+      displayOutcome.upcoming += 1;
+    }
+  }
+
+  const rebookDenominator = teamOutcome.canceled + teamOutcome.no_show;
+  const rebookRate =
+    rebookDenominator > 0 ? teamOutcome.rescheduled / rebookDenominator : null;
+
+  return {
+    teamOutcome,
+    displayOutcome,
+    closerOutcomes: await Promise.all(closers.map(async (closer) => ({
+      closerId: closer._id,
+      closerName: getUserDisplayName(closer),
+      closer: await reportingUserIdentity(ctx, closer),
+      outcomes: perCloser.get(closer._id) ?? emptyOutcomeCounts(),
+    }))),
+    derived: {
+      lostDeals: teamOutcome.lost,
+      rebookRate,
+      rebookNumerator: teamOutcome.rescheduled,
+      rebookDenominator,
+    },
+    isTruncated,
+  };
 }
 
 export const getTeamOutcomeMix = query({
@@ -204,58 +269,10 @@ export const getTeamOutcomeMix = query({
       "tenant_admin",
     ]);
 
-    const [closers, inputs] = await Promise.all([
-      getActiveClosers(ctx, tenantId),
-      readTeamOutcomeInputs(ctx, tenantId, startDate, endDate),
-    ]);
+    const inputs = await readTeamOutcomeInputs(ctx, tenantId, startDate, endDate);
     // Each meeting's outcome from its deal's stage, outcome and loss
     // (docs/plans/phase-5-deal-status.md §6.6).
     const outcomes = await meetingOutcomesByStage(ctx, inputs);
-    const perCloser = tallyOutcomesByCloser(outcomes);
-
-    const teamOutcome = Array.from(perCloser.values()).reduce<OutcomeCounts>(
-      (accumulator, counts) => {
-        for (const outcome of Object.keys(counts) as CallOutcome[]) {
-          accumulator[outcome] += counts[outcome];
-        }
-        return accumulator;
-      },
-      emptyOutcomeCounts(),
-    );
-
-    // Keep deal-outcome counts intact; only split the chart's scheduled slice.
-    const displayOutcome = { ...teamOutcome, not_recorded: 0, upcoming: 0 };
-    const now = Date.now();
-    for (const { meeting, outcome } of outcomes) {
-      if (outcome !== "scheduled" || meeting.status !== "scheduled") continue;
-      displayOutcome.scheduled -= 1;
-      if (meetingAttendanceDisplay(meeting, now) === "not_recorded") {
-        displayOutcome.not_recorded += 1;
-      } else {
-        displayOutcome.upcoming += 1;
-      }
-    }
-
-    const rebookDenominator = teamOutcome.canceled + teamOutcome.no_show;
-    const rebookRate =
-      rebookDenominator > 0 ? teamOutcome.rescheduled / rebookDenominator : null;
-
-    return {
-      teamOutcome,
-      displayOutcome,
-      closerOutcomes: await Promise.all(closers.map(async (closer) => ({
-        closerId: closer._id,
-        closerName: getUserDisplayName(closer),
-        closer: await reportingUserIdentity(ctx, closer),
-        outcomes: perCloser.get(closer._id) ?? emptyOutcomeCounts(),
-      }))),
-      derived: {
-        lostDeals: teamOutcome.lost,
-        rebookRate,
-        rebookNumerator: teamOutcome.rescheduled,
-        rebookDenominator,
-      },
-      isTruncated: inputs.isTruncated,
-    };
+    return await buildTeamOutcomeMix(ctx, tenantId, outcomes, inputs.isTruncated);
   },
 });

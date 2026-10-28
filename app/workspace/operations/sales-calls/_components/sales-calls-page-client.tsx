@@ -4,8 +4,14 @@ import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import {
+  useAnalyticsReport,
+  useAnalyticsSource,
+} from "@/app/workspace/_components/analytics/use-analytics-report";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { DashboardDateRangeFilter } from "@/app/workspace/_components/dashboard-date-range-filter";
 import {
@@ -46,18 +52,34 @@ export function SalesCallsPageClient() {
   const { range, setRange, queryRange, rangeLabel, validationMessage } =
     useDashboardRange({
       urlSync: true,
-      defaultRange: { kind: "preset", preset: "this_week" },
+      defaultRange: { kind: "preset", preset: "today" },
       validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
     });
   const requiresSnapshot = useMemo(
     () => requiresOperationsReportSnapshot(queryRange, setting, now),
     [queryRange, now, setting],
   );
-  const dashboard = useQuery(
-    api.operations.salesCallsDashboard.getSalesCallsDashboard,
-    requiresSnapshot || rebuilding || !loaded ? "skip" : { range: queryRange },
+  // Today reads Convex live. Any other range reads ClickHouse once the page
+  // is switched, and then needs no snapshot job; until then ranges over 7
+  // days use the snapshot (docs/plans/clickhouse-reporting.md §4).
+  const analyticsRange = dashboardRangeToAnalyticsRange(
+    queryRange,
+    businessDateForInstant(now, setting),
   );
-  const needsSnapshot = requiresSnapshot || dashboard?.capped === true;
+  const source = useAnalyticsSource("sales_calls", analyticsRange);
+  const report = useAnalyticsReport({
+    page: "sales_calls",
+    reportId: "sales_calls.dashboard",
+    range: analyticsRange,
+    live: api.operations.salesCallsDashboard.getSalesCallsDashboard,
+    liveArgs:
+      rebuilding || !loaded || (source !== "warehouse" && requiresSnapshot)
+        ? "skip"
+        : { range: queryRange },
+  });
+  const dashboard = report.data;
+  const needsSnapshot =
+    source === "live" && (requiresSnapshot || dashboard?.capped === true);
   const snapshot = useOperationsDashboardReport({
     reportKind: "sales-calls",
     range: queryRange,
@@ -199,6 +221,9 @@ export function SalesCallsPageClient() {
               ? ` · Money values: ${currency} of ${currencies.length} currencies`
               : ` · Money values: ${currency}`}
           </p>
+          {needsSnapshot ? null : (
+            <AnalyticsFreshnessLine items={[report.freshness]} />
+          )}
         </div>
       </header>
 

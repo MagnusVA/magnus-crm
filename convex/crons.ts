@@ -99,4 +99,8 @@ crons.cron(
 
 crons.interval("reporting-work-health", { minutes: 15 }, internal.operations.workStatus.reportProblems, {});
 
+// The heartbeat Fivetran copies to ClickHouse as the reporting watermark, and
+// the stale-sync alert (docs/plans/clickhouse-reporting.md §8.2).
+crons.interval("analytics-heartbeat", { minutes: 5 }, internal.analytics.sync.beat, {});
+
 export default crons;

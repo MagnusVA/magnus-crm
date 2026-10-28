@@ -44,6 +44,7 @@ import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
 import { weekdayValidator } from "./lib/workSchedule";
 import { operationsReportTables } from "./operations/reports/schema";
+import { analyticsPageValidator, analyticsTables } from "./analytics/schema";
 
 import { meetingProjectionTables } from "./operations/meetingProjectionSchema";
 import { pipelineTables } from "./pipeline/schema";
@@ -53,6 +54,7 @@ export default defineSchema({
   ...businessDayTables,
   ...meetingProjectionTables,
   ...operationsReportTables,
+  ...analyticsTables,
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
     // Historical event types and reminder metadata are free strings. Keep
@@ -78,6 +80,9 @@ export default defineSchema({
     respark: v.optional(resparkSettingsValidator),
     leadGenDealsAggregateVerifiedAt: v.optional(v.number()),
     pipelineHealthAggregatesVerifiedAt: v.optional(v.number()),
+    // Report pages that read ClickHouse for ranges other than Today, set from
+    // the CLI after a parity run (docs/plans/clickhouse-reporting.md §12.1).
+    analyticsReports: v.optional(v.array(analyticsPageValidator)),
     // Identity
     companyName: v.string(),
     contactEmail: v.string(),

@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "convex/react";
 import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useRole } from "@/components/auth/role-context";
 import {
@@ -43,7 +48,8 @@ function useReportOverviewSectionError(
 export function DashboardPageClient() {
 	usePageTitle("Overview");
 	const { isAdmin } = useRole();
-	const { loaded } = useBusinessDay();
+	const { loaded, setting } = useBusinessDay();
+	const now = useNow();
 	const [range, setRange] = useState<DashboardRangeInput>({
 		kind: "preset",
 		preset: "today",
@@ -59,10 +65,20 @@ export function DashboardPageClient() {
 					endBusinessDateInclusive: range.endBusinessDateInclusive,
 				})
 			: null;
-	const overview = useQuery(
-		api.dashboard.overview.getOverviewDashboard,
-		isAdmin && loaded ? { range: queryRange } : "skip",
+	// Today reads Convex live; any other range reads ClickHouse once the page
+	// is switched (docs/plans/clickhouse-reporting.md §4).
+	const analyticsRange = dashboardRangeToAnalyticsRange(
+		queryRange,
+		businessDateForInstant(now, setting),
 	);
+	const report = useAnalyticsReport({
+		page: "overview",
+		reportId: "overview.dashboard",
+		range: analyticsRange,
+		live: api.dashboard.overview.getOverviewDashboard,
+		liveArgs: isAdmin && loaded ? { range: queryRange } : "skip",
+	});
+	const overview = report.data;
 	useReportOverviewSectionError("leadGen", overview?.leadGen);
 	useReportOverviewSectionError("topQualifiers", overview?.topQualifiers);
 	useReportOverviewSectionError("topDmClosers", overview?.topDmClosers);
@@ -72,7 +88,9 @@ export function DashboardPageClient() {
 	);
 	useReportOverviewSectionError("topOrigins", overview?.topOrigins);
 
-	if (!isAdmin || !overview) {
+	// A ClickHouse range can take a while to load; keep the controls and its
+	// status on screen instead of the full-page skeleton.
+	if (!isAdmin || (!overview && report.source !== "warehouse")) {
 		return <OverviewDashboardSkeleton />;
 	}
 
@@ -83,33 +101,50 @@ export function DashboardPageClient() {
 					<div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
 					<div>
 						<h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-						<p className="mt-1 text-sm text-muted-foreground">
-							{overview.range.label}
-						</p>
+						{overview ? (
+							<p className="mt-1 text-sm text-muted-foreground">
+								{overview.range.label}
+							</p>
+						) : (
+							<Skeleton className="mt-1 h-4 w-40" />
+						)}
 					</div>
 				</div>
-				<DashboardDateRangeFilter
-					value={range}
-					onChange={(nextRange) => {
-						setRange(nextRange);
-						if (
-							nextRange.kind === "preset" ||
-							validateCustomDashboardRange({
-								startBusinessDate: nextRange.startBusinessDate,
-								endBusinessDateInclusive:
-									nextRange.endBusinessDateInclusive,
-							}) === null
-						) {
-							setQueryRange(nextRange);
-						}
-					}}
-					validationMessage={rangeValidationMessage}
-				/>
+				<div className="flex flex-col gap-2 lg:items-end">
+					<DashboardDateRangeFilter
+						value={range}
+						onChange={(nextRange) => {
+							setRange(nextRange);
+							if (
+								nextRange.kind === "preset" ||
+								validateCustomDashboardRange({
+									startBusinessDate: nextRange.startBusinessDate,
+									endBusinessDateInclusive:
+										nextRange.endBusinessDateInclusive,
+								}) === null
+							) {
+								setQueryRange(nextRange);
+							}
+						}}
+						validationMessage={rangeValidationMessage}
+					/>
+					<AnalyticsFreshnessLine items={[report.freshness]} />
+				</div>
 			</header>
 
-			<OverviewTopCards overview={overview} queryRange={queryRange} />
-			<PhoneCloserOperationsSection section={overview.phoneCloserOperations} />
-			<TopOriginsOverviewSection section={overview.topOrigins} />
+			{overview ? (
+				<>
+					<OverviewTopCards overview={overview} queryRange={queryRange} />
+					<PhoneCloserOperationsSection section={overview.phoneCloserOperations} />
+					<TopOriginsOverviewSection section={overview.topOrigins} />
+				</>
+			) : (
+				<div className="flex flex-col gap-5" aria-hidden="true">
+					<Skeleton className="h-64 w-full rounded-lg" />
+					<Skeleton className="h-[320px] w-full rounded-lg" />
+					<Skeleton className="h-[360px] w-full rounded-lg" />
+				</div>
+			)}
 		</div>
 	);
 }

@@ -4,7 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-vi.mock("convex/react", () => ({ useQuery: () => undefined }));
+// A tenant with the page not switched to ClickHouse, so a long range takes the
+// snapshot path.
+vi.mock("convex/react", async () => {
+  const { getFunctionName } = await import("convex/server");
+  return {
+    useQuery: (query: Parameters<typeof getFunctionName>[0]) =>
+      getFunctionName(query) === "tenants:getCurrentTenant"
+        ? { analyticsReports: [], leadGenBusinessDayReady: true }
+        : undefined,
+    useMutation: () => async () => null,
+  };
+});
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/app/workspace/_components/use-dashboard-range", () => ({
   useDashboardRange: () => ({ range: { kind: "preset", preset: "this_month" }, queryRange: { kind: "preset", preset: "this_month" }, rangeLabel: "This month", setRange: () => {} }),
 }));

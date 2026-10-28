@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { PERMISSIONS } from "../lib/permissions";
@@ -69,6 +69,64 @@ export async function countWorkerResparkResults(
   );
 }
 
+/** The tenant's lead gen workers, the table's rows, up to `WORKER_LIMIT`. */
+export async function loadResparkWorkers(ctx: QueryCtx, tenantId: Id<"tenants">) {
+  return await readLiveQueryRows(
+    ctx.db
+      .query("leadGenWorkers")
+      .withIndex("by_tenantId_and_isActive", (q) =>
+        q.eq("tenantId", tenantId),
+      ),
+    WORKER_LIMIT,
+  );
+}
+
+/**
+ * The Respark table from per-worker counts. `rawByWorker` is null when the
+ * daily read stopped short. The ClickHouse report
+ * (convex/analytics/definitions/leadGenPeople.ts) counts the same things in SQL.
+ */
+export async function buildResparkPerformance(
+  ctx: QueryCtx,
+  workers: { rows: Doc<"leadGenWorkers">[]; capped: boolean },
+  loaded: {
+    rawByWorker: Map<Id<"leadGenWorkers">, number> | null;
+    counts: Map<Id<"leadGenWorkers">, { resparks: number; notAFit: number }>;
+    bookedByWorker: Map<Id<"leadGenWorkers">, number>;
+    bookedCapped: boolean;
+  },
+) {
+  const rows = await Promise.all(
+    workers.rows.map(async (worker) => {
+      const { resparks, notAFit } = loaded.counts.get(worker._id) ?? {
+        resparks: 0,
+        notAFit: 0,
+      };
+      const rawLeads =
+        loaded.rawByWorker === null
+          ? null
+          : (loaded.rawByWorker.get(worker._id) ?? 0);
+      return {
+        workerId: worker._id,
+        worker: await leadGenWorkerMemberIdentity(ctx, worker),
+        rawLeads,
+        resparks,
+        notAFit,
+        entries: rawLeads === null ? null : rawLeads + resparks,
+        notAFitShare:
+          resparks + notAFit > 0 ? notAFit / (resparks + notAFit) : null,
+        resparkedThenBooked: loaded.bookedByWorker.get(worker._id) ?? 0,
+      };
+    }),
+  );
+  return {
+    rows,
+    capped: workers.capped,
+    rawLeadsCapped: loaded.rawByWorker === null,
+    bookedCapped: loaded.bookedCapped,
+  };
+}
+
 export const listResparkPerformance = query({
   args: {
     startDayKey: v.string(),
@@ -103,14 +161,7 @@ export const listResparkPerformance = query({
       addBusinessDays(args.endDayKey, 1),
       setting,
     );
-    const workers = await readLiveQueryRows(
-      ctx.db
-        .query("leadGenWorkers")
-        .withIndex("by_tenantId_and_isActive", (q) =>
-          q.eq("tenantId", tenantId),
-        ),
-      WORKER_LIMIT,
-    );
+    const workers = await loadResparkWorkers(ctx, tenantId);
     const dailyQuery = args.source
       ? ctx.db
           .query("leadGenDailyStats")
@@ -184,30 +235,11 @@ export const listResparkPerformance = query({
       const id = credit.source.workerId;
       bookedByWorker.set(id, (bookedByWorker.get(id) ?? 0) + 1);
     }
-    const rows = await Promise.all(
-      workers.rows.map(async (worker) => {
-        const { resparks, notAFit } = counts.get(worker._id)!;
-        const rawLeads = daily.capped
-          ? null
-          : (rawByWorker.get(worker._id) ?? 0);
-        return {
-          workerId: worker._id,
-          worker: await leadGenWorkerMemberIdentity(ctx, worker),
-          rawLeads,
-          resparks,
-          notAFit,
-          entries: rawLeads === null ? null : rawLeads + resparks,
-          notAFitShare:
-            resparks + notAFit > 0 ? notAFit / (resparks + notAFit) : null,
-          resparkedThenBooked: bookedByWorker.get(worker._id) ?? 0,
-        };
-      }),
-    );
-    return {
-      rows,
-      capped: workers.capped,
-      rawLeadsCapped: daily.capped,
+    return await buildResparkPerformance(ctx, workers, {
+      rawByWorker: daily.capped ? null : rawByWorker,
+      counts,
+      bookedByWorker,
       bookedCapped: creditState.capped || dealState.capped,
-    };
+    });
   },
 });

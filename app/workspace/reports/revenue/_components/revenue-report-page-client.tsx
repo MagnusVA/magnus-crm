@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useQuery } from "convex/react";
-import { startOfMonth, endOfMonth } from "date-fns";
+import { addDays, startOfDay } from "date-fns";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import {
   ReportDateControls,
   type DateRange,
@@ -32,8 +35,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 function getDefaultDateRange(): DateRange {
   const now = new Date();
   return {
-    startDate: startOfMonth(now).getTime(),
-    endDate: endOfMonth(now).getTime(),
+    startDate: startOfDay(now).getTime(),
+    endDate: startOfDay(addDays(now, 1)).getTime(),
   };
 }
 
@@ -75,32 +78,66 @@ export function RevenueReportPageClient() {
     ...(paymentType ? { paymentType } : {}),
   };
 
-  const metrics = useQuery(
-    api.reporting.revenue.getRevenueMetrics,
-    queryFilters,
-  );
-  const details = useQuery(
-    api.reporting.revenue.getRevenueDetails,
-    queryFilters,
-  );
-  const trend = useQuery(api.reporting.revenueTrend.getRevenueTrend, {
-    ...queryFilters,
-    granularity,
+  // Today reads Convex live; any other range reads ClickHouse once the page
+  // is switched (docs/plans/clickhouse-reporting.md §4).
+  const now = useNow();
+  const range = reportRangeToAnalyticsRange(dateRange, now);
+  const filters = { programId, paymentType };
+  const metricsReport = useAnalyticsReport({
+    page: "revenue",
+    reportId: "revenue.metrics",
+    range,
+    filters,
+    live: api.reporting.revenue.getRevenueMetrics,
+    liveArgs: queryFilters,
   });
-  const bookedVsSold = useQuery(
-    api.reporting.bookedVsSold.getBookedVsSoldMatrix,
-    {
+  const detailsReport = useAnalyticsReport({
+    page: "revenue",
+    reportId: "revenue.details",
+    range,
+    filters,
+    live: api.reporting.revenue.getRevenueDetails,
+    liveArgs: queryFilters,
+  });
+  const trendReport = useAnalyticsReport({
+    page: "revenue",
+    reportId: "revenue.trend",
+    range,
+    filters: { ...filters, granularity },
+    live: api.reporting.revenueTrend.getRevenueTrend,
+    liveArgs: { ...queryFilters, granularity },
+  });
+  const bookedVsSoldReport = useAnalyticsReport({
+    page: "revenue",
+    reportId: "revenue.booked_vs_sold",
+    range,
+    filters,
+    live: api.reporting.bookedVsSold.getBookedVsSoldMatrix,
+    liveArgs: {
       ...dateRange,
       ...(programId ? { paymentProgramId: programId } : {}),
       ...(paymentType ? { paymentType } : {}),
     },
-  );
+  });
+  const metrics = metricsReport.data;
+  const details = detailsReport.data;
+  const trend = trendReport.data;
+  const bookedVsSold = bookedVsSoldReport.data;
 
+  const freshness = [
+    metricsReport.freshness,
+    detailsReport.freshness,
+    trendReport.freshness,
+    bookedVsSoldReport.freshness,
+  ];
+  // A ClickHouse range can take a while to load; keep the controls and its
+  // status on screen instead of the full-page skeleton.
   const allLoading =
     metrics === undefined &&
     details === undefined &&
     trend === undefined &&
-    bookedVsSold === undefined;
+    bookedVsSold === undefined &&
+    freshness.every((item) => item.source === "live");
 
   if (allLoading) {
     return <RevenueReportSkeleton />;
@@ -135,6 +172,7 @@ export function RevenueReportPageClient() {
         granularity={granularity}
         onGranularityChange={setGranularity}
       />
+      <AnalyticsFreshnessLine items={freshness} />
 
       <div className="flex flex-wrap items-center gap-3">
         <ReportProgramDimensionFilter

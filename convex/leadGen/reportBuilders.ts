@@ -201,7 +201,17 @@ async function loadFilterLabels(
 }
 
 export function summarizeDailyRows(
-  rows: DailyStatsRow[],
+  rows: Array<
+    Pick<
+      DailyStatsRow,
+      | "workerId"
+      | "dayKey"
+      | "submissions"
+      | "uniqueProspectsSubmitted"
+      | "duplicateProspectSubmissions"
+      | "scheduledHours"
+    >
+  >,
   currentScheduledHoursByWorkerDay: Map<string, number>,
 ) {
   const scheduledHoursByWorkerDay = new Map<string, number>();
@@ -239,7 +249,16 @@ export function summarizeDailyRows(
 }
 
 export function buildWorkerPerformanceRows(args: {
-  rows: DailyStatsRow[];
+  rows: Pick<
+    DailyStatsRow,
+    | "dayKey"
+    | "workerId"
+    | "teamId"
+    | "submissions"
+    | "uniqueProspectsSubmitted"
+    | "duplicateProspectSubmissions"
+    | "scheduledHours"
+  >[];
   currentScheduledHoursByWorkerDay: Map<string, number>;
   workers: WorkerMap;
   teams: TeamMap;
