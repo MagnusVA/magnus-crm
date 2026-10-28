@@ -8,6 +8,7 @@ import type { ResolvedAnalyticsRange } from "../lib/analyticsRange";
 
 /** Fields each view leaves out (clickhouse/migrations/0002_views.sql). */
 const VIEW_OMITTED_FIELDS: Partial<Record<TableNames, readonly string[]>> = {
+  meetings: ["notes"],
   paymentRecords: ["note"],
   opportunities: ["notes", "hostCalendlyEmail", "manualCreationKey"],
   leadGenSubmissions: ["clientSubmissionKey"],
@@ -16,7 +17,7 @@ const VIEW_OMITTED_FIELDS: Partial<Record<TableNames, readonly string[]>> = {
   operationsQualificationRows: ["searchText"],
   followUps: ["reminderNote", "completionNote", "schedulingLinkUrl"],
   leads: ["email", "phone", "socialHandles", "searchText", "customFields", "customFieldLabels"],
-  users: ["email", "workosUserId", "workosInvitationId", "calendlyUserUri", "customProfilePictureStorageId"],
+  users: ["email", "workosUserId", "workosInvitationId", "calendlyUserUri", "customProfilePictureStorageId", "profilePictureUrl"],
   leadGenWorkers: ["email", "workosUserId", "profilePictureUrl", "customProfilePictureStorageId"],
   slackUsers: ["avatarUrl"],
 };

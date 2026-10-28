@@ -6,10 +6,12 @@
 -- the Convex schema no longer has. SQL SECURITY DEFINER lets `magnus_app` read
 -- the views without any grant on convex_app.
 --
--- Columns appear in convex_app only once a value has been synced, so a field
--- the schema has but no row has set yet is missing here until it appears.
+-- Fivetran adds a column only once a synced row sets it, so a schema field no
+-- row has set yet is a typed NULL here (listed above each view). When one
+-- appears in convex_app, replace the NULL with the column in a new migration.
 
 -- meetings
+-- Not synced yet, NULL until Fivetran adds the column: reassignedfromcloserid
 CREATE OR REPLACE VIEW analytics.meetings
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -49,11 +51,13 @@ SELECT
     soldprogramname AS sold_program_name,
     zoomjoinurl AS zoom_join_url,
     noshownote AS no_show_note,
-    CAST(heldmarkedat AS Nullable(Int64)) AS held_marked_at_ms
+    CAST(heldmarkedat AS Nullable(Int64)) AS held_marked_at_ms,
+    CAST(NULL AS Nullable(String)) AS reassigned_from_closer_id
 FROM convex_app.meetings FINAL
 WHERE NOT _fivetran_deleted;
 
 -- paymentRecords
+-- Not synced yet, NULL until Fivetran adds the column: referencecode, fathomlink, verifiedat, verifiedbyuserid
 CREATE OR REPLACE VIEW analytics.payments
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -73,7 +77,11 @@ SELECT
     recordedbyuserid AS recorded_by_user_id,
     programid AS program_id,
     status AS status,
-    prooffileid AS proof_file_id
+    prooffileid AS proof_file_id,
+    CAST(NULL AS Nullable(String)) AS reference_code,
+    CAST(NULL AS Nullable(String)) AS fathom_link,
+    CAST(NULL AS Nullable(Int64)) AS verified_at_ms,
+    CAST(NULL AS Nullable(String)) AS verified_by_user_id
 FROM convex_app.paymentrecords FINAL
 WHERE NOT _fivetran_deleted;
 
@@ -143,6 +151,7 @@ FROM convex_app.dealattributions FINAL
 WHERE NOT _fivetran_deleted;
 
 -- leadGenSubmissions
+-- Not synced yet, NULL until Fivetran adds the column: voidedat, voidedbyuserid, voidreason
 CREATE OR REPLACE VIEW analytics.captures
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -158,7 +167,10 @@ SELECT
     teamid AS team_id,
     assumeNotNull(tenantid) AS tenant_id,
     CAST(submittedat AS Nullable(Int64)) AS submitted_at_ms,
-    originvalue AS origin_value
+    originvalue AS origin_value,
+    CAST(NULL AS Nullable(Int64)) AS voided_at_ms,
+    CAST(NULL AS Nullable(String)) AS voided_by_user_id,
+    CAST(NULL AS Nullable(String)) AS void_reason
 FROM convex_app.leadgensubmissions FINAL
 WHERE NOT _fivetran_deleted;
 
@@ -324,6 +336,7 @@ FROM convex_app.resparkbatches FINAL
 WHERE NOT _fivetran_deleted;
 
 -- enrollments
+-- Not synced yet, NULL until Fivetran adds the column: statuschangedat, statuschangedbyuserid
 CREATE OR REPLACE VIEW analytics.enrollments
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -335,7 +348,9 @@ SELECT
     programid AS program_id,
     CAST(enrolledat AS Nullable(Int64)) AS enrolled_at_ms,
     leadid AS lead_id,
-    status AS status
+    status AS status,
+    CAST(NULL AS Nullable(Int64)) AS status_changed_at_ms,
+    CAST(NULL AS Nullable(String)) AS status_changed_by_user_id
 FROM convex_app.enrollments FINAL
 WHERE NOT _fivetran_deleted;
 
@@ -375,6 +390,7 @@ FROM convex_app.eventtypefieldcatalog FINAL
 WHERE NOT _fivetran_deleted;
 
 -- leads
+-- Not synced yet, NULL until Fivetran adds the column: initialsource, lifecyclestagemovedbackat
 CREATE OR REPLACE VIEW analytics.people
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -399,7 +415,9 @@ SELECT
     latesttouch AS latest_touch_json,
     resparkgroup AS respark_group,
     lasttouch AS last_touch_json,
-    resparkteamid AS respark_team_id
+    resparkteamid AS respark_team_id,
+    CAST(NULL AS Nullable(String)) AS initial_source,
+    CAST(NULL AS Nullable(Int64)) AS lifecycle_stage_moved_back_at_ms
 FROM convex_app.leads FINAL
 WHERE NOT _fivetran_deleted;
 
@@ -417,6 +435,7 @@ FROM convex_app.teammembers FINAL
 WHERE NOT _fivetran_deleted;
 
 -- users
+-- Not synced yet, NULL until Fivetran adds the column: personaleventtypeuri
 CREATE OR REPLACE VIEW analytics.users
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -431,11 +450,13 @@ SELECT
     calendlymembername AS calendly_member_name,
     CAST(customprofilepictureuploadedat AS Nullable(Int64)) AS custom_profile_picture_uploaded_at_ms,
     CAST(deletedat AS Nullable(Int64)) AS deleted_at_ms,
-    teammemberid AS team_member_id
+    teammemberid AS team_member_id,
+    CAST(NULL AS Nullable(String)) AS personal_event_type_uri
 FROM convex_app.users FINAL
 WHERE NOT _fivetran_deleted;
 
 -- tenantPrograms
+-- Not synced yet, NULL until Fivetran adds the column: description, archivedat
 CREATE OR REPLACE VIEW analytics.programs
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -447,7 +468,9 @@ SELECT
     name AS name,
     assumeNotNull(tenantid) AS tenant_id,
     normalizedname AS normalized_name,
-    CAST(updatedat AS Nullable(Int64)) AS updated_at_ms
+    CAST(updatedat AS Nullable(Int64)) AS updated_at_ms,
+    CAST(NULL AS Nullable(String)) AS description,
+    CAST(NULL AS Nullable(Int64)) AS archived_at_ms
 FROM convex_app.tenantprograms FINAL
 WHERE NOT _fivetran_deleted;
 
@@ -470,6 +493,7 @@ FROM convex_app.attributionteams FINAL
 WHERE NOT _fivetran_deleted;
 
 -- dmClosers
+-- Not synced yet, NULL until Fivetran adds the column: hourlyrateminor
 CREATE OR REPLACE VIEW analytics.dm_closers
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -485,7 +509,8 @@ SELECT
     slug AS slug,
     CAST(updatedat AS Nullable(Int64)) AS updated_at_ms,
     userid AS user_id,
-    teammemberid AS team_member_id
+    teammemberid AS team_member_id,
+    CAST(NULL AS Nullable(Float64)) AS hourly_rate_minor
 FROM convex_app.dmclosers FINAL
 WHERE NOT _fivetran_deleted;
 
@@ -507,6 +532,7 @@ FROM convex_app.leadgenworkers FINAL
 WHERE NOT _fivetran_deleted;
 
 -- slackUsers
+-- Not synced yet, NULL until Fivetran adds the column: crmuserid, dailyqualificationquota
 CREATE OR REPLACE VIEW analytics.slack_users
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -525,11 +551,14 @@ SELECT
     assumeNotNull(tenantid) AS tenant_id,
     installationid AS installation_id,
     username AS username,
-    teammemberid AS team_member_id
+    teammemberid AS team_member_id,
+    CAST(NULL AS Nullable(String)) AS crm_user_id,
+    CAST(NULL AS Nullable(Float64)) AS daily_qualification_quota
 FROM convex_app.slackusers FINAL
 WHERE NOT _fivetran_deleted;
 
 -- eventTypeConfigs
+-- Not synced yet, NULL until Fivetran adds the column: paymentlinks, calendlydeletedat
 CREATE OR REPLACE VIEW analytics.event_types
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
@@ -569,7 +598,9 @@ SELECT
     bookingprogramname AS booking_program_name,
     linkportalenabled AS link_portal_enabled,
     bookingprogramid AS booking_program_id,
-    isextended AS is_extended
+    isextended AS is_extended,
+    CAST(NULL AS Nullable(String)) AS payment_links_json,
+    CAST(NULL AS Nullable(String)) AS calendly_deleted_at
 FROM convex_app.eventtypeconfigs FINAL
 WHERE NOT _fivetran_deleted;
 
