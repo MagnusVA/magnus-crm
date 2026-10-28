@@ -5,24 +5,22 @@
 -- Booking form answers stay in convex_app.meetingformresponses because the
 -- Leads reports count them; the form_answers view masks the contact ones.
 --
--- Run it in one session (pnpm ch:migrate-style, or the console with every
--- statement selected): mutations_sync makes each UPDATE wait until it has
--- finished on every replica instead of running in the background. Then run
--- the check at the end; it must return no rows.
-SET mutations_sync = 2;
-
-ALTER TABLE convex_app.leads UPDATE email = NULL, phone = NULL, socialhandles = NULL, searchtext = NULL, customfields = NULL, customfieldlabels = NULL WHERE 1;
-ALTER TABLE convex_app.leadgenprospects UPDATE rawhandle = NULL, normalizedhandle = NULL, profileurl = NULL, dedupekey = NULL WHERE 1;
-ALTER TABLE convex_app.slackqualificationevents UPDATE handlesnapshot = NULL WHERE 1;
-ALTER TABLE convex_app.users UPDATE email = NULL WHERE 1;
-ALTER TABLE convex_app.leadgenworkers UPDATE email = NULL WHERE 1;
-ALTER TABLE convex_app.meetings UPDATE noshownote = NULL WHERE 1;
-ALTER TABLE convex_app.opportunities UPDATE notes = NULL, hostcalendlyemail = NULL WHERE 1;
-ALTER TABLE convex_app.paymentrecords UPDATE note = NULL WHERE 1;
-ALTER TABLE convex_app.followups UPDATE remindernote = NULL, completionnote = NULL WHERE 1;
-ALTER TABLE convex_app.slackusers UPDATE username = NULL, avatarurl = NULL WHERE 1;
+-- Each UPDATE carries mutations_sync = 2, so it returns only once it has
+-- finished on every replica, however the statements are sent (the console
+-- runs them one at a time). Then run the check at the end; it must return no
+-- rows.
+ALTER TABLE convex_app.leads UPDATE email = NULL, phone = NULL, socialhandles = NULL, searchtext = NULL, customfields = NULL, customfieldlabels = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.leadgenprospects UPDATE rawhandle = NULL, normalizedhandle = NULL, profileurl = NULL, dedupekey = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.slackqualificationevents UPDATE handlesnapshot = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.users UPDATE email = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.leadgenworkers UPDATE email = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.meetings UPDATE noshownote = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.opportunities UPDATE notes = NULL, hostcalendlyemail = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.paymentrecords UPDATE note = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.followups UPDATE remindernote = NULL, completionnote = NULL WHERE 1 SETTINGS mutations_sync = 2;
+ALTER TABLE convex_app.slackusers UPDATE username = NULL, avatarurl = NULL WHERE 1 SETTINGS mutations_sync = 2;
 -- meetings.notes hasn't synced yet. Once system.columns shows it, run:
--- ALTER TABLE convex_app.meetings UPDATE notes = NULL WHERE 1;
+-- ALTER TABLE convex_app.meetings UPDATE notes = NULL WHERE 1 SETTINGS mutations_sync = 2;
 
 -- Must return no rows: a row is a cleanup still running or one that failed.
 SELECT table, command, is_done, latest_fail_reason

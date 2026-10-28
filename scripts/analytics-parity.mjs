@@ -74,6 +74,32 @@ function differences(left, right, path = "", out = [], limit = 20) {
   return out;
 }
 
+// The form_answers view shows contact answers as this text (clickhouse/
+// migrations/0002_views.sql), so Leads' top answers and distributions differ
+// there by design. Those differences are reported as masked, not failures;
+// every response count must still match.
+const MASKED_ANSWER = "Hidden contact detail";
+
+function valueAt(root, path) {
+  let value = root;
+  for (const part of path.match(/[^.[\]]+/g) ?? []) {
+    if (value === null || typeof value !== "object") return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+function isMaskedDifference(clickhouse, path) {
+  // A field's top answer, its count and its share, when ClickHouse hid it.
+  const field = path.match(/^(topAnswerPerField\[\d+\])\.(topAnswer|topAnswerCount|topAnswerShare)$/);
+  if (field) return valueAt(clickhouse, `${field[1]}.topAnswer`) === MASKED_ANSWER;
+  // A masked field's distribution: its answers, not its total.
+  if (/^(distribution|distinctAnswers)\b/.test(path)) {
+    return (clickhouse?.distribution ?? []).some((entry) => entry?.answer === MASKED_ANSWER);
+  }
+  return false;
+}
+
 // Default only when there's exactly one tenant, so a run never checks the
 // wrong one.
 let tenantId = option("tenant")[0];
@@ -120,9 +146,11 @@ for (const range of ranges) {
       range: item.range,
     });
     const clickhouse = typeof payload === "string" ? JSON.parse(payload) : payload;
-    const diff = differences(convex, clickhouse);
+    const all = differences(convex, clickhouse, "", [], 200);
+    const masked = all.filter((entry) => isMaskedDifference(clickhouse, entry.path));
+    const diff = all.filter((entry) => !isMaskedDifference(clickhouse, entry.path)).slice(0, 20);
     if (diff.length === 0) {
-      console.log(`ok    ${label}  ${item.reportId}`);
+      console.log(`ok    ${label}  ${item.reportId}${masked.length ? `  (${masked.length} masked contact answers)` : ""}`);
       continue;
     }
     failed = true;

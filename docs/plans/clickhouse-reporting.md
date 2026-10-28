@@ -385,7 +385,7 @@ In this order. Production is `usable-guineapig-697`; its HTTP actions are at `ht
    2. Open the page with `?analytics=preview`.
    3. Run `analytics/switch:enable`.
    4. Watch the signals in §12.1.
-   Expected parity differences: the readers' caps (2,500 payments, 1,000 Slack events, 500 bucket rows, 120 days), the answer distribution's first-2,500-responses window, ties ordered differently, and the 2026-05-25 team-origin bucket the write path never filled.
+   Expected parity differences: the readers' caps (2,500 payments, 1,000 Slack events, 500 bucket rows, 120 days), the answer distribution's first-2,500-responses window, ties ordered differently, and the 2026-05-25 team-origin bucket the write path never filled. On Leads, contact answers show as `Hidden contact detail` in ClickHouse: the script reports those top answers and distributions as masked rather than failing, and every response count must still match.
 8. **API.**
    1. Create a key on Settings › Integrations and call `/api/v1/freshness` and `/api/v1/metrics` with it.
    2. Revoke it.
