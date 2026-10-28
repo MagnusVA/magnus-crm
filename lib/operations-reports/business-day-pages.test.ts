@@ -11,15 +11,18 @@ const fixture = vi.hoisted(() => ({
   ready: false,
   queries: vi.fn(),
 }));
+// A tenant whose Team page still reads Convex (useAnalyticsSource).
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     const name = getFunctionName(reference);
     fixture.queries(name, args);
     if (name === "tenants:getCurrentTenant" && fixture.loaded) {
-      return { businessDay: fixture.businessDay, businessDayReady: fixture.ready, leadGenBusinessDayReady: true };
+      return { businessDay: fixture.businessDay, businessDayReady: fixture.ready, leadGenBusinessDayReady: true, analyticsReports: [] };
     }
     return undefined;
   },
+  useMutation: () => async () => ({ started: false }),
 }));
 vi.mock("@/app/workspace/reports/_components/report-date-controls", () => ({ ReportDateControls: () => null }));
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
@@ -34,8 +37,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
 const pages = [
-  { name: "Team Performance", component: TeamReportPageClient, query: "reporting/teamPerformance:getTeamOperationsDimensions" },
-  { name: "Pipeline Health", component: PipelineReportPageClient, query: "reporting/pipelineHealth:getSchedulingShowRateByOperationsDimensions" },
+  // Team opens on Today; Pipeline Health on this month.
+  { name: "Team Performance", component: TeamReportPageClient, query: "reporting/teamPerformance:getTeamOperationsDimensions", keys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" } },
+  { name: "Pipeline Health", component: PipelineReportPageClient, query: "reporting/pipelineHealth:getSchedulingShowRateByOperationsDimensions", keys: { startDayKey: "2026-10-01", endDayKeyExclusive: "2026-11-01" } },
 ];
 
 describe("meeting bucket page readiness", () => {
@@ -57,16 +61,13 @@ describe("meeting bucket page readiness", () => {
     expect(fixture.queries).toHaveBeenCalledWith(query, expect.any(Object));
   });
 
-  it.each(pages)("passes browser calendar keys to $name buckets", ({ component, query }) => {
+  it.each(pages)("passes browser calendar keys to $name buckets", ({ component, query, keys }) => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date(2026, 9, 22, 12));
       fixture.ready = true;
       renderToStaticMarkup(createElement(component));
-      expect(fixture.queries).toHaveBeenCalledWith(query, {
-        startDayKey: "2026-10-01",
-        endDayKeyExclusive: "2026-11-01",
-      });
+      expect(fixture.queries).toHaveBeenCalledWith(query, keys);
     } finally {
       vi.useRealTimers();
     }
@@ -85,8 +86,8 @@ describe("meeting bucket page readiness", () => {
   });
 
   it.each([
-    { setting: undefined, start: "2026-10-01T07:00:00Z", end: "2026-11-01T07:00:00Z" },
-    { setting: { timeZone: "America/Tegucigalpa", dayStartHour: 4 }, start: "2026-10-01T10:00:00Z", end: "2026-11-01T10:00:00Z" },
+    { setting: undefined, start: "2026-10-22T07:00:00Z", end: "2026-10-23T07:00:00Z" },
+    { setting: { timeZone: "America/Tegucigalpa", dayStartHour: 4 }, start: "2026-10-22T10:00:00Z", end: "2026-10-23T10:00:00Z" },
   ])("aligns all four Team queries with the tenant business days: $setting", ({ setting, start, end }) => {
     vi.useFakeTimers();
     try {
@@ -105,8 +106,8 @@ describe("meeting bucket page readiness", () => {
         });
       }
       expect(fixture.queries).toHaveBeenCalledWith("reporting/teamPerformance:getTeamOperationsDimensions", {
-        startDayKey: "2026-10-01",
-        endDayKeyExclusive: "2026-11-01",
+        startDayKey: "2026-10-22",
+        endDayKeyExclusive: "2026-10-23",
       });
     } finally {
       vi.useRealTimers();
