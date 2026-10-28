@@ -89,10 +89,19 @@ function valueAt(root, path) {
   return value;
 }
 
-/** A field's top answer, its count and its share, when ClickHouse hid it. */
-function isMaskedDifference(clickhouse, path) {
+/**
+ * A field's top answer, its count and its share, when masking changed them:
+ * ClickHouse shows the mask and Convex's top answer is something else. A
+ * field whose real top answer is the literal mask text is compared in full,
+ * so the rule errs toward failing.
+ */
+function isMaskedDifference(convex, clickhouse, path) {
   const field = path.match(/^(topAnswerPerField\[\d+\])\.(topAnswer|topAnswerCount|topAnswerShare)$/);
-  return field !== null && valueAt(clickhouse, `${field[1]}.topAnswer`) === MASKED_ANSWER;
+  return (
+    field !== null &&
+    valueAt(clickhouse, `${field[1]}.topAnswer`) === MASKED_ANSWER &&
+    valueAt(convex, `${field[1]}.topAnswer`) !== MASKED_ANSWER
+  );
 }
 
 /**
@@ -109,7 +118,8 @@ function distributionDifferences(convex, clickhouse) {
   let hiddenCount = 0;
   let hiddenAnswers = 0;
   for (const [answer, count] of left) {
-    if (!right.has(answer)) {
+    // ClickHouse folds a literal answer of the mask text into its bucket.
+    if (answer === MASKED_ANSWER || !right.has(answer)) {
       hiddenCount += count;
       hiddenAnswers += 1;
     } else if (right.get(answer) !== count) {
@@ -194,8 +204,8 @@ for (const range of ranges) {
     });
     const clickhouse = typeof payload === "string" ? JSON.parse(payload) : payload;
     const all = reportDifferences(convex, clickhouse);
-    const masked = all.filter((entry) => isMaskedDifference(clickhouse, entry.path));
-    const unmasked = all.filter((entry) => !isMaskedDifference(clickhouse, entry.path));
+    const masked = all.filter((entry) => isMaskedDifference(convex, clickhouse, entry.path));
+    const unmasked = all.filter((entry) => !isMaskedDifference(convex, clickhouse, entry.path));
     const diff = unmasked.slice(0, 20);
     if (diff.length === 0) {
       console.log(`ok    ${label}  ${item.reportId}${masked.length ? `  (${masked.length} masked contact answers)` : ""}`);
