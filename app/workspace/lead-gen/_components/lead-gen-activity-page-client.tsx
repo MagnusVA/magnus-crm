@@ -1,9 +1,9 @@
 "use client";
 
 import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 import { useState, type ComponentType, type SVGProps } from "react";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex/react";
 import { usePaginatedQuery } from "convex-helpers/react";
 import {
   ClipboardCheckIcon,
@@ -13,6 +13,13 @@ import {
   UserXIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import {
+  useAnalyticsReport,
+  useAnalyticsSource,
+} from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,7 +57,8 @@ const wholeNumberFormatter = new Intl.NumberFormat(undefined, {
 });
 
 export function LeadGenActivityPageClient() {
-  const { rebuilding, loaded } = useBusinessDay("lead-gen");
+  const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
+  const now = useNow();
   const [range, setRange] = useState<DashboardRangeInput>({
     kind: "preset",
     preset: "today",
@@ -66,14 +74,26 @@ export function LeadGenActivityPageClient() {
           endBusinessDateInclusive: range.endBusinessDateInclusive,
         })
       : null;
-  const summary = useQuery(
-    api.leadGen.activity.getMyActivitySummary,
-    rebuilding || !loaded
+  // Today reads Convex live; any other range reads ClickHouse once the page
+  // is switched (docs/plans/clickhouse-reporting.md §4). The worker is the
+  // caller's own, taken from auth.
+  const analyticsRange = dashboardRangeToAnalyticsRange(
+    queryRange,
+    businessDateForInstant(now, setting),
+  );
+  const warehouse = useAnalyticsSource("my_activity", analyticsRange) === "warehouse";
+  const summaryReport = useAnalyticsReport({
+    page: "my_activity",
+    reportId: "my_activity.summary",
+    range: analyticsRange,
+    live: api.leadGen.activity.getMyActivitySummary,
+    liveArgs: !loaded || (!warehouse && rebuilding)
       ? "skip"
       : {
           range: queryRange,
         },
-  );
+  });
+  const summary = summaryReport.data;
   const recent = usePaginatedQuery(
     api.leadGen.activity.listMyRecentSubmissions,
     { range: queryRange },
@@ -93,23 +113,26 @@ export function LeadGenActivityPageClient() {
             {summary?.range.label ?? "Loading activity range"}
           </p>
         </div>
-        <DashboardDateRangeFilter
-          bucketKind="lead-gen"
-          value={range}
-          onChange={(nextRange) => {
-            setRange(nextRange);
-            if (
-              nextRange.kind === "preset" ||
-              validateCustomDashboardRange({
-                startBusinessDate: nextRange.startBusinessDate,
-                endBusinessDateInclusive: nextRange.endBusinessDateInclusive,
-              }) === null
-            ) {
-              setQueryRange(nextRange);
-            }
-          }}
-          validationMessage={rangeValidationMessage}
-        />
+        <div className="flex flex-col items-start gap-3 lg:items-end">
+          <DashboardDateRangeFilter
+            bucketKind="lead-gen"
+            value={range}
+            onChange={(nextRange) => {
+              setRange(nextRange);
+              if (
+                nextRange.kind === "preset" ||
+                validateCustomDashboardRange({
+                  startBusinessDate: nextRange.startBusinessDate,
+                  endBusinessDateInclusive: nextRange.endBusinessDateInclusive,
+                }) === null
+              ) {
+                setQueryRange(nextRange);
+              }
+            }}
+            validationMessage={rangeValidationMessage}
+          />
+          <AnalyticsFreshnessLine items={[summaryReport.freshness]} />
+        </div>
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

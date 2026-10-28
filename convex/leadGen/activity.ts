@@ -23,6 +23,8 @@ import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { summarizeDailyRows } from "./reportBuilders";
 import { DAILY_STATS_READ_LIMIT } from "./reportLimits";
 import { loadCurrentScheduledHoursByWorkerDay } from "./schedules";
+import type { LeadGenDailyStatInput } from "./reporting";
+import type { PublicOverviewRange } from "../dashboard/overviewTypes";
 
 const LEAD_GEN_ACTIVITY_ROLES: CrmRole[] = [
   "lead_generator",
@@ -154,15 +156,7 @@ export const getMyActivitySummary = query({
     const publicRange = toPublicOverviewRange(derivedRange);
     const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
-      return {
-        range: publicRange,
-        submissions: 0,
-        resparks: 0,
-        entries: 0,
-        notAFit: 0,
-        scheduledHours: 0,
-        leadsPerHour: null,
-      };
+      return emptyMyActivitySummary(publicRange);
     }
 
     const rows = await ctx.db
@@ -182,13 +176,6 @@ export const getMyActivitySummary = query({
       );
     }
 
-    const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, {
-        tenantId: access.tenantId,
-        rows,
-      });
-    const summary = summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
-
     const counts = await countWorkerResparkResults(
       ctx,
       access.tenantId,
@@ -196,18 +183,58 @@ export const getMyActivitySummary = query({
       derivedRange.slackWindowStart,
       derivedRange.slackWindowEnd,
     );
-    const { resparks, notAFit } = counts.get(access.workerId)!;
-    return {
+    return await buildMyActivitySummary(ctx, access.tenantId, {
       range: publicRange,
-      submissions: summary.submissions,
-      resparks,
-      notAFit,
-      entries: summary.submissions + resparks,
-      scheduledHours: summary.scheduledHours,
-      leadsPerHour: summary.leadsPerHour,
-    };
+      rows,
+      resparkCounts: counts.get(access.workerId)!,
+    });
   },
 });
+
+/**
+ * My Activity's cards from the worker's daily rows and Respark results. The
+ * ClickHouse report (convex/analytics/definitions/leadGenDaily.ts) rebuilds
+ * the rows from captures.
+ */
+export async function buildMyActivitySummary(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  args: {
+    range: PublicOverviewRange;
+    rows: LeadGenDailyStatInput[];
+    resparkCounts: { resparks: number; notAFit: number };
+  },
+) {
+  const currentScheduledHoursByWorkerDay =
+    await loadCurrentScheduledHoursByWorkerDay(ctx, {
+      tenantId,
+      rows: args.rows,
+    });
+  const summary = summarizeDailyRows(args.rows, currentScheduledHoursByWorkerDay);
+  const { resparks, notAFit } = args.resparkCounts;
+  return {
+    range: args.range,
+    submissions: summary.submissions,
+    resparks,
+    notAFit,
+    entries: summary.submissions + resparks,
+    scheduledHours: summary.scheduledHours,
+    leadsPerHour: summary.leadsPerHour,
+  };
+}
+
+/** What My Activity shows a caller with no lead gen worker. */
+export function emptyMyActivitySummary(range: PublicOverviewRange) {
+  return {
+    range,
+    submissions: 0,
+    resparks: 0,
+    entries: 0,
+    notAFit: 0,
+    scheduledHours: 0,
+    leadsPerHour: null,
+  };
+}
 
 export const getMyDaySummary = query({
   args: { dayKey: v.string() },
@@ -240,7 +267,8 @@ export const getMyDaySummary = query({
   },
 });
 
-async function resolveOwnLeadGenWorker(
+/** The caller's own lead gen worker; none for an inactive lead generator. */
+export async function resolveOwnLeadGenWorker(
   ctx: QueryCtx,
   access: TenantUserResult,
 ) {
