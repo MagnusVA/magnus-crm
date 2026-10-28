@@ -13,6 +13,7 @@ import {
   deriveOverviewRange,
   isRangeCapErrorMessage,
   toPublicOverviewRange,
+  type DerivedOverviewRange,
   type OverviewRangeInput,
 } from "./overviewRange";
 import { getTopQualifiersOverviewSection } from "./overviewSlack";
@@ -105,6 +106,42 @@ export async function getOverviewDashboardData(
   ]);
   const meetingsRebuilding = !tenant || !businessDayBucketsReady(tenant);
 
+  return await buildOverviewDashboard(
+    range,
+    {
+      leadGen: () => getLeadGenOverviewSection(ctx, args.tenantId, range),
+      topQualifiers: () =>
+        getTopQualifiersOverviewSection(ctx, args.tenantId, range),
+      topDmClosers: () =>
+        getTopDmClosersOverviewSection(ctx, args.tenantId, range),
+      phoneCloserOperations: () =>
+        getPhoneCloserOperationsOverviewSection(ctx, args.tenantId, range),
+      topOrigins: () => getTopOriginsOverviewSection(ctx, args.tenantId, range),
+    },
+    { leadGen: leadGenRebuilding, meetings: meetingsRebuilding },
+  );
+}
+
+type SectionData<Key extends Exclude<keyof OverviewDashboard, "range">> =
+  OverviewDashboard[Key] extends SectionResult<infer T> ? T : never;
+
+/**
+ * Each Overview section's build, run inside its own section so one failure
+ * doesn't take down the page. The Convex path reads the range's buckets and
+ * events; the ClickHouse report (convex/analytics/definitions/overview.ts)
+ * passes builds over its SQL rows.
+ */
+export type OverviewSectionBuilds = {
+  [Key in Exclude<keyof OverviewDashboard, "range">]: () => Promise<
+    SectionBuildResult<SectionData<Key>>
+  >;
+};
+
+export async function buildOverviewDashboard(
+  range: DerivedOverviewRange,
+  sections: OverviewSectionBuilds,
+  rebuilding: { leadGen: boolean; meetings: boolean },
+): Promise<OverviewDashboard> {
   const [
     leadGen,
     topQualifiers,
@@ -112,24 +149,11 @@ export async function getOverviewDashboardData(
     phoneCloserOperations,
     topOrigins,
   ] = await Promise.all([
-    resolveSection(() =>
-      getLeadGenOverviewSection(ctx, args.tenantId, range),
-      leadGenRebuilding,
-    ),
-    resolveSection(() =>
-      getTopQualifiersOverviewSection(ctx, args.tenantId, range),
-    ),
-    resolveSection(() =>
-      getTopDmClosersOverviewSection(ctx, args.tenantId, range),
-    ),
-    resolveSection(() =>
-      getPhoneCloserOperationsOverviewSection(ctx, args.tenantId, range),
-      meetingsRebuilding,
-    ),
-    resolveSection(() =>
-      getTopOriginsOverviewSection(ctx, args.tenantId, range),
-      leadGenRebuilding,
-    ),
+    resolveSection(sections.leadGen, rebuilding.leadGen),
+    resolveSection(sections.topQualifiers),
+    resolveSection(sections.topDmClosers),
+    resolveSection(sections.phoneCloserOperations, rebuilding.meetings),
+    resolveSection(sections.topOrigins, rebuilding.leadGen),
   ]);
 
   return {

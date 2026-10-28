@@ -32,6 +32,7 @@ import type * as analytics_definitions_leadGenPeople from "../analytics/definiti
 import type * as analytics_definitions_leadGenShared from "../analytics/definitions/leadGenShared.js";
 import type * as analytics_definitions_leads from "../analytics/definitions/leads.js";
 import type * as analytics_definitions_operations from "../analytics/definitions/operations.js";
+import type * as analytics_definitions_overview from "../analytics/definitions/overview.js";
 import type * as analytics_definitions_pipeline from "../analytics/definitions/pipeline.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_definitions_slackQualifications from "../analytics/definitions/slackQualifications.js";
@@ -456,6 +457,7 @@ declare const fullApi: ApiFromModules<{
   "analytics/definitions/leadGenShared": typeof analytics_definitions_leadGenShared;
   "analytics/definitions/leads": typeof analytics_definitions_leads;
   "analytics/definitions/operations": typeof analytics_definitions_operations;
+  "analytics/definitions/overview": typeof analytics_definitions_overview;
   "analytics/definitions/pipeline": typeof analytics_definitions_pipeline;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/definitions/slackQualifications": typeof analytics_definitions_slackQualifications;

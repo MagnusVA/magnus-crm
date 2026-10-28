@@ -1,18 +1,22 @@
 import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { requireReportingReady } from "../operations/reportingReadiness";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
-import { buildDmCloserEfficiencyRows } from "./overviewLeaderboardBuilders";
+import type { MeetingStatsCount } from "../operations/meetingStats";
+import {
+  buildDmCloserEfficiencyRows,
+  type DmCloserEfficiencyResult,
+} from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations } from "./overviewTypes";
 
 export const OPERATIONS_STATS_ROW_LIMIT = 8192;
 
-type OperationsStatsRow = Doc<"operationsMeetingStatsV2">;
+type OperationsStatsRow = MeetingStatsCount;
 type OperationsTotals = {
   scheduled: number;
   held: number;
@@ -79,12 +83,19 @@ export async function getTopDmClosersOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ) {
-  const { rows, truncated } = await buildDmCloserEfficiencyRows(ctx, {
-    tenantId,
-    range,
-    includeAllCandidates: false,
-  });
+  return buildTopDmClosersOverviewSection(
+    await buildDmCloserEfficiencyRows(ctx, {
+      tenantId,
+      range,
+      includeAllCandidates: false,
+    }),
+  );
+}
 
+export function buildTopDmClosersOverviewSection({
+  rows,
+  truncated,
+}: Pick<DmCloserEfficiencyResult, "rows" | "truncated">) {
   return {
     data: {
       rows: rows.slice(0, 5),
@@ -100,7 +111,22 @@ export async function getPhoneCloserOperationsOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ): Promise<{ data: PhoneCloserOperations; isEmpty: boolean }> {
-  const rows = await readOperationsStatsRows(ctx, tenantId, range);
+  return await buildPhoneCloserOperationsOverviewSection(
+    ctx,
+    tenantId,
+    await readOperationsStatsRows(ctx, tenantId, range),
+  );
+}
+
+/**
+ * The phone closer table from the range's operationsMeetingStatsV2 buckets.
+ * The Overview ClickHouse report rebuilds the buckets from meetings.
+ */
+export async function buildPhoneCloserOperationsOverviewSection(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  rows: MeetingStatsCount[],
+): Promise<{ data: PhoneCloserOperations; isEmpty: boolean }> {
   const byCloser = new Map<Id<"users">, OperationsTotals>();
 
   const attendance = await withAttendanceCounts(ctx, tenantId, rows);

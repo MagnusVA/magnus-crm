@@ -4,6 +4,7 @@ import { activityReports } from "./definitions/activity";
 import { leadGenReports } from "./definitions/leadGen";
 import { leadsReports } from "./definitions/leads";
 import { operationsReports } from "./definitions/operations";
+import { overviewReports } from "./definitions/overview";
 import { pipelineReports } from "./definitions/pipeline";
 import { revenueReports } from "./definitions/revenue";
 import { slackQualificationReports } from "./definitions/slackQualifications";
@@ -15,6 +16,7 @@ const definitions: readonly AnyReportDefinition[] = [
   ...leadGenReports,
   ...leadsReports,
   ...operationsReports,
+  ...overviewReports,
   ...pipelineReports,
   ...revenueReports,
   ...slackQualificationReports,
