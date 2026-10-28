@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import { fivetranWebhook } from "./analytics/sync";
 import { authKit } from "./auth";
 import { handleCalendlyWebhook } from "./webhooks/calendly";
 import { slashCommand } from "./slack/commands";
@@ -37,6 +38,13 @@ http.route({
   path: "/slack/events",
   method: "POST",
   handler: handleEvent,
+});
+
+// Fivetran `sync_end`: starts the post-sync report batch.
+http.route({
+  path: "/analytics/fivetran",
+  method: "POST",
+  handler: fivetranWebhook,
 });
 
 export default http;

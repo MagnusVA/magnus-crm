@@ -39,6 +39,15 @@ const app = defineApp({
     POSTHOG_PROJECT_TOKEN: v.string(),
     // Defaults to https://us.i.posthog.com.
     POSTHOG_HOST: v.optional(v.string()),
+
+    // Reporting database (docs/plans/clickhouse-reporting.md §7.3). Unset on
+    // dev: ClickHouse holds only production data, so answers fail there with
+    // "not configured". `CLICKHOUSE_URL` is the HTTPS endpoint, port included.
+    CLICKHOUSE_URL: v.optional(v.string()),
+    CLICKHOUSE_USER: v.optional(v.string()),
+    CLICKHOUSE_PASSWORD: v.optional(v.string()),
+    // Signs Fivetran's `sync_end` webhook to `/analytics/fivetran`.
+    FIVETRAN_WEBHOOK_SECRET: v.optional(v.string()),
   },
 });
 app.use(workpool, { name: "webhookWorkpool" });
