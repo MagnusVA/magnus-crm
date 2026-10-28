@@ -19,6 +19,7 @@
 // deploy key first if .env.local holds a dev one; the script stops otherwise.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 
 const args = process.argv.slice(2);
 const page = args.find((arg) => !arg.startsWith("--"));
@@ -49,9 +50,12 @@ function deployKey() {
     } catch {
       continue;
     }
-    const line = text.split("\n").find((entry) => entry.startsWith("CONVEX_DEPLOY_KEY="));
-    const key = line?.slice("CONVEX_DEPLOY_KEY=".length).trim().replace(/^["']|["']$/g, "");
-    if (key) return { key, source: file };
+    // Parsed as the CLI's dotenv parses it: `export`, quotes, comments, and
+    // the last line wins. The first file that sets the key wins, even empty.
+    const values = parseEnv(text);
+    if (Object.hasOwn(values, "CONVEX_DEPLOY_KEY")) {
+      return values.CONVEX_DEPLOY_KEY ? { key: values.CONVEX_DEPLOY_KEY, source: file } : null;
+    }
   }
   return null;
 }
