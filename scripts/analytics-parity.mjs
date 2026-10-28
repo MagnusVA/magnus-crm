@@ -4,8 +4,8 @@
 // §12.1). Read-only on both sides. Run it right after a Fivetran sync, while
 // ClickHouse is awake.
 //
-//   pnpm analytics:parity <page> [--range last_month] [--range 2026-09-01:2026-09-30]
-//                         [--tz America/Tegucigalpa] [--tenant <tenantId>]
+//   pnpm analytics:parity <page> --tenant <tenantId> [--range last_month]
+//                         [--range 2026-09-01:2026-09-30] [--tz America/Tegucigalpa]
 //                         [--filters '{"programId":"…"}'] [--dev]
 //
 // Pages: revenue, team, pipeline, leads, activity, reminders,
@@ -74,10 +74,16 @@ function differences(left, right, path = "", out = [], limit = 20) {
   return out;
 }
 
-const tenantId = option("tenant")[0] ?? convexRun("analytics/parity:tenants", {})[0]?.tenantId;
+// Default only when there's exactly one tenant, so a run never checks the
+// wrong one.
+let tenantId = option("tenant")[0];
 if (!tenantId) {
-  console.error("No tenant found.");
-  process.exit(2);
+  const tenants = convexRun("analytics/parity:tenants", {});
+  if (tenants.length !== 1) {
+    console.error(`Pass --tenant <tenantId>. Tenants: ${tenants.map((tenant) => `${tenant.tenantId} (${tenant.companyName})`).join(", ") || "none"}`);
+    process.exit(2);
+  }
+  tenantId = tenants[0].tenantId;
 }
 const identity = convexRun("analytics/parity:identity", { tenantId });
 let failed = false;

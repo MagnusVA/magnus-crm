@@ -354,41 +354,57 @@ FROM convex_app.enrollments FINAL
 WHERE NOT _fivetran_deleted;
 
 -- meetingFormResponses
--- Answers to the question an event type maps as the person's phone or social
--- handle (eventTypeConfigs.customFieldMappings, matched on the question's
--- label) are contact details. Their text becomes a stable label, so response
--- counts and distinct answers still hold.
+-- Contact details answered on a booking form never reach the view: an answer
+-- becomes 'Hidden contact detail' when its question's label is one any of the
+-- tenant's event types maps as the phone or social handle field
+-- (eventTypeConfigs.customFieldMappings), or when the answer itself looks
+-- like an email, a phone number, an @handle or a social profile link. The
+-- shape check keeps older answers hidden after a mapping changes. Response
+-- counts hold; a masked field shows one answer.
 CREATE OR REPLACE VIEW analytics.form_answers
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
+WITH contact_labels AS (
+    SELECT tenantid, label
+    FROM (
+        SELECT
+            tenantid,
+            [
+                JSONExtractString(ifNull(customfieldmappings, ''), 'phoneField'),
+                JSONExtractString(ifNull(customfieldmappings, ''), 'socialHandleField')
+            ] AS labels
+        FROM convex_app.eventtypeconfigs FINAL
+        WHERE NOT _fivetran_deleted
+    )
+    ARRAY JOIN labels AS label
+    WHERE label != ''
+)
 SELECT
-    a._id AS id,
-    toUnixTimestamp64Milli(a._creationtime) AS creation_time_ms,
-    a.opportunityid AS opportunity_id,
+    _id AS id,
+    toUnixTimestamp64Milli(_creationtime) AS creation_time_ms,
+    opportunityid AS opportunity_id,
     if(
-        ifNull(a.questionlabelsnapshot, '') != ''
-            AND a.questionlabelsnapshot IN (c.phone_field, c.handle_field)
-            AND trimBoth(ifNull(a.answertext, '')) != '',
-        concat('Hidden contact detail ', substring(lower(hex(SHA256(trimBoth(ifNull(a.answertext, ''))))), 1, 12)),
-        a.answertext
+        trimBoth(ifNull(answertext, '')) != ''
+            AND (
+                (tenantid, questionlabelsnapshot) IN (SELECT tenantid, label FROM contact_labels)
+                OR match(trimBoth(answertext), '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+                OR (match(trimBoth(answertext), '^[+0-9 ().-]+$')
+                    AND length(replaceRegexpAll(answertext, '[^0-9]', '')) >= 7)
+                OR match(trimBoth(answertext), '^@[A-Za-z0-9._]{2,}$')
+                OR match(lower(answertext), '(instagram\\.com|tiktok\\.com|facebook\\.com|fb\\.com|twitter\\.com|x\\.com/|wa\\.me|t\\.me/)')
+            ),
+        'Hidden contact detail',
+        answertext
     ) AS answer_text,
-    a.fieldkey AS field_key,
-    a.eventtypeconfigid AS event_type_config_id,
-    assumeNotNull(a.tenantid) AS tenant_id,
-    CAST(a.capturedat AS Nullable(Int64)) AS captured_at_ms,
-    a.meetingid AS meeting_id,
-    a.questionlabelsnapshot AS question_label_snapshot,
-    a.fieldcatalogid AS field_catalog_id,
-    a.leadid AS lead_id
-FROM convex_app.meetingformresponses AS a FINAL
-LEFT JOIN (
-    SELECT
-        _id,
-        JSONExtractString(ifNull(customfieldmappings, ''), 'phoneField') AS phone_field,
-        JSONExtractString(ifNull(customfieldmappings, ''), 'socialHandleField') AS handle_field
-    FROM convex_app.eventtypeconfigs FINAL
-    WHERE NOT _fivetran_deleted
-) AS c ON c._id = a.eventtypeconfigid
-WHERE NOT a._fivetran_deleted;
+    fieldkey AS field_key,
+    eventtypeconfigid AS event_type_config_id,
+    assumeNotNull(tenantid) AS tenant_id,
+    CAST(capturedat AS Nullable(Int64)) AS captured_at_ms,
+    meetingid AS meeting_id,
+    questionlabelsnapshot AS question_label_snapshot,
+    fieldcatalogid AS field_catalog_id,
+    leadid AS lead_id
+FROM convex_app.meetingformresponses FINAL
+WHERE NOT _fivetran_deleted;
 
 -- eventTypeFieldCatalog
 CREATE OR REPLACE VIEW analytics.form_fields

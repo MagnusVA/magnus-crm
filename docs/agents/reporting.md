@@ -52,7 +52,7 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
   - snake_case columns
   - Int64 `*_ms` timestamps
   - `*_json` objects
-  - no contact fields
+  - no contact fields; `form_answers` shows a contact answer as `Hidden contact detail`
 - Fivetran adds a column only once a row sets it, so the views list unsynced schema fields as typed NULLs. When one appears in `convex_app`, replace the NULL in a new migration.
 - Rows handed to `finalize` are capped at 4 MB, and an answer at about 900 KB.
 
@@ -67,7 +67,7 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
 
 | Task | Command |
 | --- | --- |
-| Compare a page's sources (read-only) | `pnpm analytics:parity <page> [--range last_month]` |
+| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month]` |
 | Switch a page to ClickHouse | `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'` |
 | Roll a page back | `npx convex run --prod analytics/switch:disable '{"tenantId":"…","page":"revenue"}'` |
 | Rerun the batch by hand | `npx convex run --prod analytics/run:runPostSyncBatch '{"force":true}'` |

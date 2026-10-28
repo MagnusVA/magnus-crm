@@ -177,7 +177,15 @@ The viewer's time zone is one constant per query, passed as a parameter (`{tz:St
 ### 7.4 Fivetran hygiene
 
 - **Enable only the 29 tables the views read** (`clickhouse/migrations/0002_views.sql` and `0003`): `analyticsSync`, `attributionTeams`, `dealAttributions`, `dmClosers`, `dmCloserSchedules`, `domainEvents`, `enrollments`, `eventTypeConfigs`, `eventTypeFieldCatalog`, `followUps`, `leadGenProspects`, `leadGenSubmissions`, `leadGenWorkers`, `leadGenWorkerSchedules`, `leads`, `meetingFormResponses`, `meetings`, `operationsQualificationRows`, `opportunities`, `paymentRecords`, `resparkBatches`, `resparkBatchItems`, `slackQualificationEvents`, `slackQualifierSchedules`, `slackUsers`, `teamMembers`, `teamProgramEventTypes`, `tenantPrograms`, `users`. Block every other app table and every component schema. A new view that reads another table enables it first. Blocking keeps the rows already copied, so drop the copies of the credential tables (`tenantcalendlyconnections`, `slackinstallations`, `linkportalconfigs`, `linkportalauthattempts`) by hand.
-- **Block or hash** email, phone, social handles, `searchText` and `customFields` on leads and customers, `leadNotes`, and `linkPortalLeadEdits`. **Person names stay** (decision, §2), as do team member and user names.
+- **Block these contact columns** on the enabled tables. **Person names stay** (decision, §2), as do team member and user names.
+  - `leads`: `email`, `phone`, `socialHandles`, `searchText`, `customFields`, `customFieldLabels`
+  - `leadGenProspects`: `rawHandle`, `normalizedHandle`, `profileUrl`, `dedupeKey`
+  - `slackQualificationEvents`: `handleSnapshot`
+  - `users` and `leadGenWorkers`: `email`
+  - `slackUsers`: `username`, `avatarUrl`
+  - notes: `meetings.noShowNote`, `opportunities.notes` and `hostCalendlyEmail`, `paymentRecords.note`, `followUps.reminderNote` and `completionNote`
+
+  Blocking keeps the values already copied, so clear them once with `clickhouse/admin/clear_contact_columns.sql`. Booking form answers stay in `meetingformresponses`, since the Leads reports count them; the `form_answers` view masks the ones that are contact details.
 - **New Convex tables** sync on their own unless the connector blocks them. Before A2 deploys, set new tables to blocked, then allow `analyticsSync`. `analyticsResults` and `apiKeys` never sync.
 - **Values already synced.** Blocking or hashing a column stops new values. A1 checks whether the plain values already in ClickHouse stay, and whether hashing a synced column re-syncs its table. Any that stay get dropped by hand.
 - **Confirm deletes** (A1): delete a test row in Convex and check whether the next sync marks `_fivetran_deleted`. The daily cleanup crons and deal deletions in merges depend on it.
@@ -307,7 +315,7 @@ Fivetran syncs only the production deployment, so ClickHouse holds only producti
 - **Every PR deploys dark.** Until a page is switched, the only change its users see is the Today default, which works on the old readers too. A page's new path, its Today queries included, runs only when its report id is in `tenants.analyticsReports`, or when the URL has `?analytics=preview`. The preview keeps the page's role checks and counts against the daily budget.
 - **Additive until the narrow.** New ClickHouse objects live in `analytics`, and nothing writes to `convex_app`. Convex gets three new tables and one optional field. Only the switch writes to an existing table (`tenants`), nothing needs a backfill, and nothing is deleted before Phase E.
 - **A page switches in three steps**, right after a sync while ClickHouse is awake:
-  1. `pnpm analytics:parity <page>` (a page name such as `revenue`) runs every report on the page through its Convex reader and its ClickHouse path, and prints each difference. It checks yesterday, last month and last 90 days unless `--range` names others; Today isn't checked, since it never leaves Convex.
+  1. `pnpm analytics:parity <page> --tenant <tenantId>` (a page name such as `revenue`) runs every report on the page through its Convex reader and its ClickHouse path, and prints each difference. It checks yesterday, last month and last 90 days unless `--range` names others; Today isn't checked, since it never leaves Convex.
   2. Open the page on production with `?analytics=preview` and check each range, the freshness line and the loading states.
   3. `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'`. Open pages switch without a reload.
 - **Rollback needs no deploy.** `analytics/switch:disable` puts a page back on its old reader at once. Removing `CLICKHOUSE_URL` from the production env stops every ClickHouse call, the post-sync batch included.
@@ -326,7 +334,7 @@ Fivetran syncs only the production deployment, so ClickHouse holds only producti
   - Fivetran: apply the blocks (§7.4), set new tables to blocked and allow `analyticsSync`, check deletes and snapshot consistency, and check what happens to values already synced in a column you block or hash. Find out whether webhooks are on the plan.
 - **A2. Convex sync plumbing**: `analyticsSync` and its heartbeat cron, the Fivetran webhook route, the stale alert, env vars, and `clickhouse.ts`. Set the env vars on production before it deploys. The route must ignore Fivetran's test event, and the first real sync must stamp `lastSyncEndedAt` (`npx convex data analyticsSync --prod`).
 - **A3. ClickHouse views**: the `clickhouse/` migrations, `pnpm ch:migrate`, the views, the user, role, profile and quota. Applied to production ClickHouse right after a sync, before the PR merges. `DROP DATABASE analytics` undoes all of it.
-- **A4. Engine**: `analyticsResults`, `reports.get` and `reports.request`, `runReport`, the post-sync batch, the budget, cleanup, `useReport` with the freshness line and loading states, `useTodayWindow`, the template tenant test, `tenants.analyticsReports` with `analytics/switch`, the `?analytics=preview` override, and `pnpm analytics:parity <reportId>` (§12.1). With no page switched, the batch has no keys to rerun, so the first syncs after deploy only read the watermark.
+- **A4. Engine**: `analyticsResults`, `reports.get` and `reports.request`, `runReport`, the post-sync batch, the budget, cleanup, `useReport` with the freshness line and loading states, `useTodayWindow`, the template tenant test, `tenants.analyticsReports` with `analytics/switch`, the `?analytics=preview` override, and `pnpm analytics:parity <page> --tenant <tenantId>` (§12.1). With no page switched, the batch has no keys to rerun, so the first syncs after deploy only read the watermark.
 
 **Phase B. One page per PR.** Each PR rewrites the page's Today queries (§6), adds its ClickHouse template, defaults the page to Today, and deploys dark. Parity, the preview and the switch then follow §12.1. In order:
 
@@ -357,7 +365,7 @@ In this order. Production is `usable-guineapig-697`; its HTTP actions are at `ht
 
 1. **Fivetran, before the deploy.**
    - Set the Convex connector's schema change handling to "Allow columns". New tables then arrive blocked, while new columns on synced tables still sync, which the views' NULL placeholders rely on.
-   - Block the component databases, the projection and job tables, and the raw payload tables (§7.4).
+   - Block the component databases, the projection and job tables, the raw payload tables and the contact columns (§7.4). Then run `clickhouse/admin/clear_contact_columns.sql` to clear the values already copied.
 2. **Deploy the branch.** The ClickHouse env vars are optional, so the deploy works without them. The first heartbeat creates `analyticsSync`.
 3. **Fivetran, after the deploy.**
    - Enable the new `analyticsSync` table.
@@ -373,7 +381,7 @@ In this order. Production is `usable-guineapig-697`; its HTTP actions are at `ht
 5. **Convex production env.** Set `CLICKHOUSE_URL`, `CLICKHOUSE_USER` (`magnus_app`), `CLICKHOUSE_PASSWORD` and `FIVETRAN_WEBHOOK_SECRET`.
 6. **The Fivetran webhook.** Point a `sync_end` webhook at `/analytics/fivetran` with the same secret. Fivetran's test delivery logs `analytics.fivetran.test_received`. After the next real sync, `npx convex data analyticsSync --prod` shows `lastSyncEndedAt`, `watermark` and `lastBatchAt`.
 7. **Each page:**
-   1. Run `pnpm analytics:parity <page>` after a sync.
+   1. Run `pnpm analytics:parity <page> --tenant <tenantId>` after a sync.
    2. Open the page with `?analytics=preview`.
    3. Run `analytics/switch:enable`.
    4. Watch the signals in §12.1.
