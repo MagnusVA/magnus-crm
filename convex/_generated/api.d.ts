@@ -24,6 +24,7 @@ import type * as analytics_api_metrics from "../analytics/api/metrics.js";
 import type * as analytics_api_queries from "../analytics/api/queries.js";
 import type * as analytics_clickhouse from "../analytics/clickhouse.js";
 import type * as analytics_definition from "../analytics/definition.js";
+import type * as analytics_definitions_operations from "../analytics/definitions/operations.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_keys from "../analytics/keys.js";
 import type * as analytics_parity from "../analytics/parity.js";
@@ -438,6 +439,7 @@ declare const fullApi: ApiFromModules<{
   "analytics/api/queries": typeof analytics_api_queries;
   "analytics/clickhouse": typeof analytics_clickhouse;
   "analytics/definition": typeof analytics_definition;
+  "analytics/definitions/operations": typeof analytics_definitions_operations;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/keys": typeof analytics_keys;
   "analytics/parity": typeof analytics_parity;
