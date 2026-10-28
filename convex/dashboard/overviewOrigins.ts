@@ -7,7 +7,10 @@ import {
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { TopOriginRow } from "./overviewTypes";
 
-type OriginStatsRow = Doc<"leadGenOriginStats">;
+type OriginStatsRow = Pick<
+  Doc<"leadGenOriginStats">,
+  "source" | "originKey" | "originKind" | "originValue" | "submissions" | "uniqueProspectsSubmitted"
+>;
 
 function isRankableOriginKind(
   originKind: OriginStatsRow["originKind"],
@@ -66,6 +69,15 @@ export async function getTopOriginsOverviewSection(
     startDayKey: range.startBusinessDate,
     endDayKey: range.endBusinessDateInclusive,
   });
+  return buildTopOriginsOverviewSection(rows);
+}
+
+/**
+ * The top posts and reels from origin rows. The Convex path passes the
+ * range's leadGenOriginStats rows; the Overview ClickHouse report passes one
+ * row per origin, already totalled.
+ */
+export function buildTopOriginsOverviewSection(rows: OriginStatsRow[]) {
   const origins = groupByOrigin(rows);
 
   return {

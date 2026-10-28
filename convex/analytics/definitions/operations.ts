@@ -76,7 +76,7 @@ const businessDateSql = (column: string) =>
 // still to come (withAttendanceCounts): every scheduled call before
 // yesterday has ended. Days before `recent_from` are folded into the range's
 // first day, which keeps a two-year range to a few hundred buckets.
-const meetingBucketsSql = `
+export const meetingBucketsSql = `
 WITH toString(${businessDateSql("m.scheduled_at_ms")}) AS business_date
 SELECT
   if(business_date < {recent_from:String}, {start_date:String}, business_date) AS day_key,
@@ -97,7 +97,7 @@ WHERE m.tenant_id = {tenant_id:String}
 GROUP BY day_key, assigned_closer_id, booking_program_id, sold_program_id, meeting_status
 ORDER BY day_key, assigned_closer_id, booking_program_id, sold_program_id, meeting_status`;
 
-function meetingBucketParams(range: ResolvedAnalyticsRange, now: number) {
+export function meetingBucketParams(range: ResolvedAnalyticsRange, now: number) {
   const today = businessDateForInstant(now, { timeZone: range.timeZone, dayStartHour: range.dayStartHour });
   // Two days back, so a day can't reach the attendance window between this
   // query and finalize.
@@ -114,7 +114,7 @@ WHERE tenant_id = {tenant_id:String}
   AND ifNull(status, '') != 'disputed'
 ORDER BY recorded_at_ms, creation_time_ms`;
 
-function meetingBuckets(rows: SqlRow[] | undefined): MeetingStatsCount[] {
+export function meetingBuckets(rows: SqlRow[] | undefined): MeetingStatsCount[] {
   return (rows ?? []).map((row) => ({
     dayKey: String(row.day_key),
     assignedCloserId: String(row.assigned_closer_id) as Id<"users">,
@@ -130,7 +130,7 @@ function meetingBuckets(rows: SqlRow[] | undefined): MeetingStatsCount[] {
 // dm_team and dm_closer rows name (bookingCreditOf, the latest row of each
 // role winning). Rows come from the same window as the meetings, as
 // bookingCreditsInWindow reads them.
-const bookingCreditCountsSql = `
+export const bookingCreditCountsSql = `
 WITH credits AS (
   SELECT
     meeting_id,
@@ -159,7 +159,7 @@ WHERE m.tenant_id = {tenant_id:String}
 GROUP BY team_id, dm_closer_id
 ORDER BY team_id, dm_closer_id`;
 
-function bookedMeetingCounts(rows: SqlRow[] | undefined): BookedMeetingCounts {
+export function bookedMeetingCounts(rows: SqlRow[] | undefined): BookedMeetingCounts {
   const byDmCloser = new Map<Id<"dmClosers">, number>();
   const byAttributionTeam = new Map<Id<"attributionTeams">, number>();
   let teamOnlyBooked = 0;

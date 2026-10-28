@@ -1,10 +1,15 @@
 "use client";
 
 import { BusinessDayRebuildingState } from "./day-definition";
-import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 import {
 	Avatar,
 	AvatarFallback,
@@ -60,13 +65,32 @@ function ExpandedLeaderboardQuery({
 	kind: LeaderboardKind;
 	range: DashboardRangeInput;
 }) {
-	const data = useQuery(
-		api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
-		{ kind, range },
-	);
+	const { setting } = useBusinessDay();
+	const now = useNow();
+	const report = useAnalyticsReport({
+		page: "overview",
+		reportId: "overview.leaderboard",
+		range: dashboardRangeToAnalyticsRange(
+			range,
+			businessDateForInstant(now, setting),
+		),
+		filters: { kind },
+		live: api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
+		liveArgs: { kind, range },
+	});
+	const data = report.data;
 
 	if (data === undefined) {
-		return <ExpandedLeaderboardSkeleton />;
+		// The page's line shows the dashboard's state; a leaderboard still
+		// loading from the reporting database, or failed, says so here.
+		return report.source === "warehouse" ? (
+			<div className="flex flex-col gap-3">
+				<AnalyticsFreshnessLine items={[report.freshness]} />
+				<ExpandedLeaderboardSkeleton />
+			</div>
+		) : (
+			<ExpandedLeaderboardSkeleton />
+		);
 	}
 
 	if ("status" in data) {

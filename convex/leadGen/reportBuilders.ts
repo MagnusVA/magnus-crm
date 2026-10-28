@@ -249,7 +249,16 @@ export function summarizeDailyRows(
 }
 
 export function buildWorkerPerformanceRows(args: {
-  rows: DailyStatsRow[];
+  rows: Pick<
+    DailyStatsRow,
+    | "dayKey"
+    | "workerId"
+    | "teamId"
+    | "submissions"
+    | "uniqueProspectsSubmitted"
+    | "duplicateProspectSubmissions"
+    | "scheduledHours"
+  >[];
   currentScheduledHoursByWorkerDay: Map<string, number>;
   workers: WorkerMap;
   teams: TeamMap;

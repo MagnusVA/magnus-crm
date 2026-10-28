@@ -38,7 +38,7 @@ import {
 
 const roles = ["tenant_master", "tenant_admin"] as const;
 
-const ORIGIN_CAPTURES = `
+export const ORIGIN_CAPTURES = `
 origin_captures AS (
   SELECT *, lowerUTF8(assumeNotNull(origin_value)) AS origin_key
   FROM range_captures

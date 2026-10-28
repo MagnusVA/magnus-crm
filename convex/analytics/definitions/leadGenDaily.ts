@@ -44,7 +44,7 @@ function dailySql(input: ReportInput<LeadGenReportFilters>) {
 const live = (name: string) => ({ name: `leadGen/reporting:${name}`, args: leadGenLiveArgs });
 
 /** `toPublicOverviewRange(deriveOverviewRange(...))` for a resolved custom range. */
-function publicRange(range: ResolvedAnalyticsRange): PublicOverviewRange {
+export function publicRange(range: ResolvedAnalyticsRange): PublicOverviewRange {
   const endBusinessDateExclusive = addBusinessDays(range.endDateInclusive, 1);
   return {
     startBusinessDate: range.startDate,

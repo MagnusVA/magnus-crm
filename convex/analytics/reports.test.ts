@@ -326,6 +326,8 @@ describe("report templates", () => {
   // query is checked; the rest get sentinels that must never reach the SQL.
   const sampleFilters: Record<string, Record<string, string>> = {
     "api.metrics": { metrics: API_METRICS.join(","), granularity: "day", group_by: "none" },
+    // overview.dashboard runs the other kinds' queries.
+    "overview.leaderboard": { kind: "qualifiers" },
   };
 
   for (const definition of listReportDefinitions()) {
