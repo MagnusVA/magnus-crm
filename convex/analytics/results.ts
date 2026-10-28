@@ -1,8 +1,10 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
-import { businessDateForInstant } from "../../lib/businessDay";
+import { internal } from "../_generated/api";
+import { businessDateForInstant, type BusinessDaySetting } from "../../lib/businessDay";
 import { analyticsRangeDates, type ResolvedAnalyticsRange } from "../../lib/analyticsRange";
+import { isClickHouseConfigured } from "./clickhouse";
 import { getReportDefinition } from "./registry";
 import { analyticsRangeValidator } from "./schema";
 
@@ -118,6 +120,76 @@ export async function startRun(
     ...(args.miss ? { missedAt: args.now } : {}),
   });
   return runId;
+}
+
+/**
+ * Registers a key someone opened (a page or an API caller) for the post-sync
+ * batch, and runs it now only when no answer covers the current sync and
+ * period, within the tenant's daily budget. Concurrent calls for one key
+ * insert one row and start one run.
+ */
+export async function registerRequest(
+  ctx: MutationCtx,
+  input: {
+    tenantId: Id<"tenants">;
+    reportId: string;
+    argsKey: string;
+    filtersJson: string;
+    range: Doc<"analyticsResults">["range"];
+    day: BusinessDaySetting;
+  },
+): Promise<{ started: boolean; resultId: Id<"analyticsResults"> }> {
+  const now = Date.now();
+  const sync = await readSyncRow(ctx);
+  const watermark = sync?.watermark ?? 0;
+
+  let row = await findResult(ctx, input.tenantId, input.reportId, input.argsKey);
+  if (!row) {
+    const resultId = await ctx.db.insert("analyticsResults", {
+      tenantId: input.tenantId,
+      reportId: input.reportId,
+      argsKey: input.argsKey,
+      filtersJson: input.filtersJson,
+      range: input.range,
+      timeZone: input.day.timeZone,
+      dayStartHour: input.day.dayStartHour,
+      status: "queued",
+      lastRequestedAt: now,
+    });
+    row = (await ctx.db.get("analyticsResults", resultId))!;
+  } else if (now - row.lastRequestedAt >= REQUEST_TOUCH_INTERVAL_MS) {
+    await ctx.db.patch("analyticsResults", row._id, { lastRequestedAt: now });
+  }
+  const idle = { started: false, resultId: row._id };
+
+  if (!isClickHouseConfigured()) {
+    if (row.status !== "failed") {
+      await ctx.db.patch("analyticsResults", row._id, {
+        status: "failed",
+        errorMessage: "The reporting database isn't configured on this deployment.",
+        failedAt: now,
+      });
+    }
+    return idle;
+  }
+  if (runIsInFlight(row, now)) return idle;
+  const current =
+    row.answer !== undefined && row.answer.watermark >= watermark && answerCoversPeriod(row, now);
+  if (row.status === "ready" && current) return idle;
+  if (row.status === "failed" && row.failedAt !== undefined && now - row.failedAt < FAILURE_RETRY_MS) {
+    return idle;
+  }
+  if ((await countRecentMisses(ctx, input.tenantId, now)) >= DAILY_MISS_BUDGET) {
+    // The next post-sync batch answers it.
+    if (row.status !== "queued" && !row.payloadJson) {
+      await ctx.db.patch("analyticsResults", row._id, { status: "queued" });
+    }
+    return idle;
+  }
+
+  const runId = await startRun(ctx, row, { watermark, now, miss: true });
+  await ctx.scheduler.runAfter(0, internal.analytics.run.runReport, { resultId: row._id, runId });
+  return { started: true, resultId: row._id };
 }
 
 /** The run's inputs, or null when a newer run replaced it. */

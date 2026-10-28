@@ -6,6 +6,7 @@ import schema from "../schema";
 import { convexTestModules } from "../test.setup";
 import { DAILY_MISS_BUDGET, DAY_MS } from "./results";
 import { listReportDefinitions } from "./registry";
+import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
 
 const metricsArgs = {
@@ -321,9 +322,16 @@ describe("report templates", () => {
     get: (_target, key) => (typeof key === "string" && key !== "then" ? "FILTER_SENTINEL" : undefined),
   });
 
+  // Reports whose filters choose which queries run get real values, so every
+  // query is checked; the rest get sentinels that must never reach the SQL.
+  const sampleFilters: Record<string, Record<string, string>> = {
+    "api.metrics": { metrics: API_METRICS.join(","), granularity: "day", group_by: "none" },
+  };
+
   for (const definition of listReportDefinitions()) {
     it(`${definition.id} filters every view by tenant and takes values only as parameters`, () => {
-      const queries = definition.sql({ tenantId: "TENANT_SENTINEL" as Id<"tenants">, filters: sentinelFilters, range });
+      const filters = sampleFilters[definition.id] ?? sentinelFilters;
+      const queries = definition.sql({ tenantId: "TENANT_SENTINEL" as Id<"tenants">, filters, range });
       for (const [name, query] of Object.entries(queries)) {
         const views = query.sql.match(/\banalytics\.(?!watermark\b)\w+/g) ?? [];
         const tenantFilters = query.sql.match(/\btenant_id\s*=\s*\{tenant_id:String\}/g) ?? [];

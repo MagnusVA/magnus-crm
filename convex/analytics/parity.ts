@@ -59,7 +59,8 @@ export const identity = internalQuery({
 export const plan = internalQuery({
   args: {
     tenantId: v.id("tenants"),
-    page: analyticsPageValidator,
+    // A report page, or "api" for the external API's metrics.
+    page: v.union(analyticsPageValidator, v.literal("api")),
     range: analyticsRangeValidator,
     timeZone: v.string(),
     filtersJson: v.optional(v.string()),
@@ -78,7 +79,7 @@ export const plan = internalQuery({
     const now = Date.now();
     const items = [];
     for (const definition of listReportDefinitions()) {
-      if (definition.page !== args.page) continue;
+      if (definition.page !== (args.page === "api" ? null : args.page)) continue;
       const day =
         definition.day === "browser"
           ? browserDay(args.timeZone)

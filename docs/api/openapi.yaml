@@ -1,0 +1,294 @@
+openapi: 3.1.0
+info:
+  title: Magnus CRM metrics API
+  version: "1.0"
+  description: |
+    Read-only aggregate metrics for one Magnus workspace: leads captured,
+    qualifications, calls booked and held, deals won and cash collected.
+
+    - **History** (`/metrics`, `/funnel`) comes from the reporting database,
+      which refreshes about every 6 hours. Each answer says `as_of`: numbers
+      include every change up to that time. A range that includes today shows
+      today only up to `as_of`.
+    - **Today** (`/today`) is read live from the CRM.
+    - Days are the workspace's business day (its time zone and start hour)
+      unless you pass `tz`, which makes days run midnight to midnight there.
+    - No personal data: ids and display names of team members, teams and
+      programs only.
+
+    Authenticate every request with a key from Settings › Integrations ›
+    API keys: `Authorization: Bearer mgn_live_…`. A key belongs to one
+    workspace and can make 60 requests a minute. Call it from a server; never
+    ship a key to a browser.
+servers:
+  - url: https://{deployment}.convex.site
+    variables:
+      deployment:
+        default: your-deployment
+        description: The workspace's Convex HTTP actions host.
+security:
+  - apiKey: []
+paths:
+  /api/v1/metrics:
+    get:
+      summary: Metrics for a date range, by period and group
+      parameters:
+        - $ref: "#/components/parameters/metrics"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/tz"
+        - name: granularity
+          in: query
+          schema: { type: string, enum: [day, week, month, total], default: day }
+          description: "`week` periods are named by their Monday; `month` periods are `YYYY-MM`."
+        - $ref: "#/components/parameters/groupBy"
+      responses:
+        "200":
+          description: The metrics. Cached until the next refresh.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/MetricRow" } }
+                  meta: { $ref: "#/components/schemas/WarehouseMeta" }
+        "202":
+          $ref: "#/components/responses/Pending"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/funnel:
+    get:
+      summary: Captured, qualified, booked, held and won for a date range
+      parameters:
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/tz"
+      responses:
+        "200":
+          description: Funnel totals.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      captured: { type: number, description: leads_captured }
+                      qualified: { type: number, description: qualifications }
+                      booked: { type: number, description: calls_booked }
+                      held: { type: number, description: calls_held }
+                      won: { type: number, description: deals_won }
+                  meta: { $ref: "#/components/schemas/WarehouseMeta" }
+        "202": { $ref: "#/components/responses/Pending" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/today:
+    get:
+      summary: Today's metrics, live
+      parameters:
+        - $ref: "#/components/parameters/metrics"
+        - $ref: "#/components/parameters/tz"
+        - $ref: "#/components/parameters/groupBy"
+      responses:
+        "200":
+          description: Today's metrics with `period` set to today's date.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/MetricRow" } }
+                  meta:
+                    type: object
+                    properties:
+                      source: { const: live }
+                      date: { type: string, format: date }
+                      partial:
+                        type: boolean
+                        description: True when a source had more rows today than one read covers; the numbers are then a lower bound.
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/v1/dimensions/{kind}:
+    get:
+      summary: Ids and names for group_by values
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [team-members, teams, programs] }
+          description: "`team-members` for `closer` and `lead_generator`, `teams` for `team`, `programs` for `program`."
+      responses:
+        "200":
+          description: The workspace's dimension values.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        active: { type: boolean }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/freshness:
+    get:
+      summary: When the reporting data was last refreshed
+      responses:
+        "200":
+          description: Refresh times, ISO 8601, or null before the first refresh.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      as_of: { type: [string, "null"], format: date-time }
+                      last_sync_ended_at: { type: [string, "null"], format: date-time }
+                      next_expected_refresh: { type: [string, "null"], format: date-time }
+        "401": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: mgn_live_<keyId>_<secret>
+  parameters:
+    metrics:
+      name: metrics
+      in: query
+      required: true
+      description: Comma-separated metric names (see MetricName).
+      schema: { type: string, example: "calls_booked,calls_held,deals_won,cash_collected" }
+    from:
+      name: from
+      in: query
+      required: true
+      description: First day, inclusive.
+      schema: { type: string, format: date }
+    to:
+      name: to
+      in: query
+      required: true
+      description: Last day, inclusive. Ranges are at most 731 days.
+      schema: { type: string, format: date }
+    tz:
+      name: tz
+      in: query
+      description: IANA time zone. Omit to use the workspace's business day.
+      schema: { type: string, example: America/Tegucigalpa }
+    groupBy:
+      name: group_by
+      in: query
+      description: |
+        `closer` and `lead_generator` group by team member id; `team` by team
+        id; `program` by program id. Each metric lists the groupings it
+        supports in MetricName.
+      schema: { type: string, enum: [none, closer, team, program, lead_generator], default: none }
+  responses:
+    Pending:
+      description: |
+        The range is being computed (`status: pending`), or the workspace has
+        used today's allowance of new ranges and it will be computed after
+        the next refresh (`status: queued`). Retry after `Retry-After` seconds.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, enum: [pending, queued] }
+              message: { type: string }
+    RateLimited:
+      description: More than 60 requests in a minute for this key.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Error:
+      description: An error with a stable code and a message safe to show.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [unauthorized, rate_limited, invalid_request, not_found, warehouse_unavailable] }
+            message: { type: string }
+    WarehouseMeta:
+      type: object
+      properties:
+        source: { const: warehouse }
+        as_of: { type: [string, "null"], format: date-time, description: Every change up to this time is included. }
+        next_expected_refresh: { type: [string, "null"], format: date-time }
+        stale:
+          type: boolean
+          description: True when the latest refresh of this range failed and the previous answer is returned.
+    MetricRow:
+      type: object
+      required: [metric, period, group_id, value]
+      properties:
+        metric: { $ref: "#/components/schemas/MetricName" }
+        period: { type: string, description: "`YYYY-MM-DD`, the Monday of a week, `YYYY-MM`, or `total`." }
+        group_id: { type: [string, "null"], description: Null when ungrouped, or when the row has no closer, team, program or lead generator. }
+        currency: { type: string, description: Money metrics only. Amounts are never converted between currencies. }
+        value: { type: [number, "null"], description: Counts, minor units of money (cents), or a rate from 0 to 1. Null for a rate with nothing to divide by. }
+    MetricName:
+      type: string
+      description: |
+        | Metric | Meaning | Day it counts on | Groupings |
+        | --- | --- | --- | --- |
+        | leads_captured | Lead gen captures, not voided | captured | team, lead_generator |
+        | unique_prospects | Distinct prospects among those captures | captured | team, lead_generator |
+        | resparks | Respark items marked Resparked | worked | lead_generator |
+        | qualifications | Slack qualification submissions | submitted | none |
+        | new_qualified_people | Qualifications that created a new deal | submitted | none |
+        | calls_booked | Calendly meetings booked | booked | closer, program |
+        | calls_scheduled | Meetings not canceled | scheduled | closer, program |
+        | calls_held | Meetings held | scheduled | closer, program |
+        | no_shows | Meetings marked no-show | scheduled | closer, program |
+        | cancellations | Meetings canceled | scheduled | closer, program |
+        | show_rate | calls_held ÷ (calls_held + no_shows) | scheduled | closer, program |
+        | deals_won | Deals won, on the day their first payment arrived | first payment | closer, program (sold) |
+        | close_rate | deals_won ÷ calls_held | as above | closer, program |
+        | cash_collected | Payments, not disputed, deposits included, per currency | recorded | closer, program |
+        | deposits | Deposit payments, per currency | recorded | closer, program |
+        | average_deal_size | Non-deposit payment total ÷ count, per currency | recorded | closer, program |
+
+        `closer` is the meeting's assigned closer, the deal's closer, or the
+        payment's attributed closer. `program` is the meeting's booking
+        program, the deal's sold program, or the payment's program.
+      enum:
+        - leads_captured
+        - unique_prospects
+        - resparks
+        - qualifications
+        - new_qualified_people
+        - calls_booked
+        - calls_scheduled
+        - calls_held
+        - no_shows
+        - cancellations
+        - show_rate
+        - deals_won
+        - close_rate
+        - cash_collected
+        - deposits
+        - average_deal_size

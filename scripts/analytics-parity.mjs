@@ -10,7 +10,7 @@
 //
 // Pages: revenue, team, pipeline, leads, activity, reminders,
 // slack_qualifications, sales_calls, booked_calls, qualifications, lead_gen,
-// overview, my_activity. With no --range it checks yesterday, last_month and
+// overview, my_activity, and api for the external API's metrics. With no --range it checks yesterday, last_month and
 // last_90_days. Exits 1 when any report differs.
 import { execFileSync } from "node:child_process";
 
@@ -96,7 +96,9 @@ for (const range of ranges) {
     process.exit(2);
   }
   for (const item of plan) {
-    const convex = convexRun(item.liveName, JSON.parse(item.liveArgsJson), ["--identity", JSON.stringify(identity)]);
+    const convexRaw = convexRun(item.liveName, JSON.parse(item.liveArgsJson), ["--identity", JSON.stringify(identity)]);
+    // Internal readers (the API's) return their answer as JSON text.
+    const convex = typeof convexRaw === "string" ? JSON.parse(convexRaw) : convexRaw;
     const payload = convexRun("analytics/parity:runNew", {
       tenantId,
       reportId: item.reportId,

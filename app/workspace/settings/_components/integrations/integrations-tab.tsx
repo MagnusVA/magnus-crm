@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendlyConnection } from "./calendly-connection";
+import { ApiKeysCard } from "./api-keys-card";
 import { SlackIntegrationCard } from "./slack-integration-card";
 
 function IntegrationCardSkeleton({ label }: { label: string }) {
@@ -42,6 +43,7 @@ export function IntegrationsTab({
         <CalendlyConnection connectionStatus={connectionStatus} />
       )}
       <SlackIntegrationCard preloadedStatus={preloadedSlackStatus} />
+      <ApiKeysCard />
     </div>
   );
 }

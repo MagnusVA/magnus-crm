@@ -1,21 +1,8 @@
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
 import { mutation, query } from "../_generated/server";
-import { isClickHouseConfigured } from "./clickhouse";
 import { requireTenantUser } from "../requireTenantUser";
 import { reportDefinitionFor, reportRequestArgs, resolveReportRequest } from "./keys";
-import {
-  answerCoversPeriod,
-  countRecentMisses,
-  DAILY_MISS_BUDGET,
-  FAILURE_RETRY_MS,
-  findResult,
-  readSyncRow,
-  REQUEST_TOUCH_INTERVAL_MS,
-  resultState,
-  runIsInFlight,
-  startRun,
-} from "./results";
+import { findResult, registerRequest, resultState } from "./results";
 
 const answerValidator = v.object({
   watermark: v.number(),
@@ -72,61 +59,14 @@ export const request = mutation({
     const definition = reportDefinitionFor(args.reportId);
     const viewer = await requireTenantUser(ctx, [...definition.roles]);
     const request = await resolveReportRequest(ctx, args, definition, viewer);
-    const { tenantId } = viewer;
-    const now = Date.now();
-    const sync = await readSyncRow(ctx);
-    const watermark = sync?.watermark ?? 0;
-
-    let row = await findResult(ctx, tenantId, request.definition.id, request.argsKey);
-    if (!row) {
-      const resultId = await ctx.db.insert("analyticsResults", {
-        tenantId,
-        reportId: request.definition.id,
-        argsKey: request.argsKey,
-        filtersJson: request.filtersJson,
-        range: args.range,
-        timeZone: request.day.timeZone,
-        dayStartHour: request.day.dayStartHour,
-        status: "queued",
-        lastRequestedAt: now,
-      });
-      row = (await ctx.db.get("analyticsResults", resultId))!;
-    } else if (now - row.lastRequestedAt >= REQUEST_TOUCH_INTERVAL_MS) {
-      await ctx.db.patch("analyticsResults", row._id, { lastRequestedAt: now });
-    }
-
-    if (!isClickHouseConfigured()) {
-      if (row.status !== "failed") {
-        await ctx.db.patch("analyticsResults", row._id, {
-          status: "failed",
-          errorMessage: "The reporting database isn't configured on this deployment.",
-          failedAt: now,
-        });
-      }
-      return { started: false };
-    }
-    if (runIsInFlight(row, now)) return { started: false };
-    const current =
-      row.answer !== undefined &&
-      row.answer.watermark >= watermark &&
-      answerCoversPeriod(row, now);
-    if (row.status === "ready" && current) return { started: false };
-    if (row.status === "failed" && row.failedAt !== undefined && now - row.failedAt < FAILURE_RETRY_MS) {
-      return { started: false };
-    }
-    if ((await countRecentMisses(ctx, tenantId, now)) >= DAILY_MISS_BUDGET) {
-      // The next post-sync batch answers it.
-      if (row.status !== "queued" && !row.payloadJson) {
-        await ctx.db.patch("analyticsResults", row._id, { status: "queued" });
-      }
-      return { started: false };
-    }
-
-    const runId = await startRun(ctx, row, { watermark, now, miss: true });
-    await ctx.scheduler.runAfter(0, internal.analytics.run.runReport, {
-      resultId: row._id,
-      runId,
+    const { started } = await registerRequest(ctx, {
+      tenantId: viewer.tenantId,
+      reportId: definition.id,
+      argsKey: request.argsKey,
+      filtersJson: request.filtersJson,
+      range: args.range,
+      day: request.day,
     });
-    return { started: true };
+    return { started };
   },
 });

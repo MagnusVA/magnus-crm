@@ -40,7 +40,8 @@ export type ReaderOutput<Reader> =
 export type ReportDefinition<Filters extends AnalyticsFilters, Output> = {
   /** `<page>.<panel>`, e.g. `revenue.metrics`. Part of every cache key. */
   id: string;
-  page: AnalyticsPage;
+  /** The page whose switch moves this report; null for the external API's. */
+  page: AnalyticsPage | null;
   /** The roles the replaced reader allows. */
   roles: readonly CrmRole[];
   day: AnalyticsDay;
