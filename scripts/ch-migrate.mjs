@@ -43,17 +43,17 @@ async function run(sql) {
   return text;
 }
 
-/** Splits a file on statement-ending semicolons and drops comment lines. */
+/**
+ * Drops comment lines, then splits on statement-ending semicolons, so a
+ * comment that ends in `;` can't split a statement.
+ */
 export function statements(sql) {
   return sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
     .split(/;\s*(?:\n|$)/)
-    .map((statement) =>
-      statement
-        .split("\n")
-        .filter((line) => !line.trim().startsWith("--"))
-        .join("\n")
-        .trim(),
-    )
+    .map((statement) => statement.trim())
     .filter(Boolean);
 }
 

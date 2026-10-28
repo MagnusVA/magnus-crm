@@ -132,6 +132,8 @@ describe("/api/v1", () => {
     expect((await call(fixture, "/api/v1/metrics?metrics=nope&from=2026-09-01&to=2026-09-30", key)).status).toBe(400);
     expect((await call(fixture, "/api/v1/metrics?metrics=qualifications&group_by=closer&from=2026-09-01&to=2026-09-30", key)).status).toBe(400);
     expect((await call(fixture, "/api/v1/metrics?metrics=calls_held&from=2026-09-01", key)).status).toBe(400);
+    expect((await call(fixture, "/api/v1/metrics?metrics=calls_held&from=2026-09-01&to=2026-09-30&tz=Mars/Olympus", key)).status).toBe(400);
+    expect((await call(fixture, "/api/v1/today?metrics=calls_held&tz=Mars/Olympus", key)).status).toBe(400);
   });
 
   it("returns 202 for a new range past the daily budget instead of waking ClickHouse", async () => {

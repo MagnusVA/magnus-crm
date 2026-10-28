@@ -113,10 +113,8 @@ export const getQualificationReport = query({
     ]);
 
     const selectedSlackUserId = args.slackUserId?.trim() || undefined;
-    const { periods, rangeStart, rangeEnd } = qualificationReportRange(
-      args,
-      await getTenantBusinessDay(ctx, tenantId),
-    );
+    const setting = await getTenantBusinessDay(ctx, tenantId);
+    const { periods, rangeStart, rangeEnd } = qualificationReportRange(args, setting);
 
     const eventResult = await listQualificationEventsForRange(ctx, {
       tenantId,
@@ -136,7 +134,7 @@ export const getQualificationReport = query({
         slackUserId: selectedSlackUserId,
       });
 
-    return await buildQualificationReport(ctx, tenantId, args, {
+    return await buildQualificationReport(ctx, tenantId, args, setting, {
       summary: summarizeQualificationEvents(eventResult.rows, opportunityById),
       byPeriodStart: new Map(
         periods.map((period) => [
@@ -183,10 +181,15 @@ function summarizeBySetter(
  * by the Convex reader and the ClickHouse report
  * (convex/analytics/definitions/slackQualifications.ts).
  */
+/**
+ * `setting` is the business day the counts were grouped by, so the periods'
+ * keys match them even if the tenant changed its setting since.
+ */
 export async function buildQualificationReport(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   args: QualificationReportArgs,
+  setting: BusinessDaySetting,
   counts: QualificationReportCounts,
 ) {
   const tenant = await ctx.db.get("tenants", tenantId);
@@ -194,7 +197,6 @@ export async function buildQualificationReport(
     throw new Error("Tenant not found.");
   }
 
-  const setting = await getTenantBusinessDay(ctx, tenantId);
   const selectedSlackUserId = args.slackUserId?.trim() || undefined;
   const { periods } = qualificationReportRange(args, setting);
   const businessDayCount = countBusinessDays(

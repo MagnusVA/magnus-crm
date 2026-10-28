@@ -123,7 +123,7 @@ export function LeadGenAdminPageClient() {
 		reportId: "lead_gen.prospect_conversions",
 		range: analyticsRange,
 		live: api.leadGen.conversions.listProspectConversions,
-		liveArgs: warehouse && !loaded ? "skip" : {
+		liveArgs: !loaded ? "skip" : {
 			startDayKey: filters.startDayKey,
 			endDayKey: filters.endDayKey,
 		},

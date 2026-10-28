@@ -144,6 +144,8 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   if (source !== "warehouse") {
     return { data: source === "live" ? liveData : undefined, source, freshness: { source: "live" } };
   }
+  // A skipped panel loads nothing, so it has no freshness to report.
+  if (skipped) return { data: undefined, source, freshness: { source: "live" } };
   const shownState = answerState === undefined || answerState === "missing" ? "loading" : answerState;
   return {
     data: warehouseData,

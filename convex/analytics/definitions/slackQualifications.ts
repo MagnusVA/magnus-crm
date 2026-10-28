@@ -165,7 +165,12 @@ export const slackQualificationReports = [
           { ...summaryOf(row), lastQualifiedAt: num(row.last_qualified_at_ms) },
         ]),
       );
-      return await buildQualificationReport(ctx, input.tenantId, readerArgs(input), {
+      return await buildQualificationReport(
+        ctx,
+        input.tenantId,
+        readerArgs(input),
+        { timeZone: input.range.timeZone, dayStartHour: input.range.dayStartHour },
+        {
         summary: summaryOf(input.rows.totals?.[0]),
         byPeriodStart,
         bySlackUserId,

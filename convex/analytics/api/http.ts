@@ -1,9 +1,11 @@
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { httpAction, type ActionCtx } from "../../_generated/server";
-import { log } from "../../lib/observability/log";
+import { isExpectedError } from "../../lib/observability/errors";
+import { log, reportError } from "../../lib/observability/log";
 import { sha256Hex } from "../../lib/webCrypto";
-import type { AnalyticsRange } from "../../../lib/analyticsRange";
+import { browserDay, type AnalyticsRange } from "../../../lib/analyticsRange";
+import { validateBusinessDay } from "../../../lib/businessDay";
 import { assertValidAnalyticsRange } from "../keys";
 import { parseApiKey } from "./keys";
 import { parseApiMetricsFilters, type ApiMetricsAnswer } from "./metrics";
@@ -18,6 +20,19 @@ const POLL_INTERVAL_MS = 1_500;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type Caller = { tenantId: Id<"tenants">; keyId: string };
+
+/** The caller's mistake; its message is safe to return as a 400. */
+class ApiRequestError extends Error {}
+
+/** Runs a validator whose thrown message is safe, as an `ApiRequestError`. */
+function validate(check: () => void) {
+  try {
+    check();
+  } catch (error) {
+    if (isExpectedError(error)) throw new ApiRequestError(error.data.message);
+    throw new ApiRequestError(error instanceof Error ? error.message : "Invalid request.");
+  }
+}
 
 function respond(status: number, body: unknown, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
@@ -64,7 +79,13 @@ function route(handler: (ctx: ActionCtx, request: Request, caller: Caller) => Pr
     try {
       response = await handler(ctx, request, caller);
     } catch (error) {
-      response = fail(400, "invalid_request", error instanceof Error ? error.message : "Invalid request.");
+      if (error instanceof ApiRequestError) {
+        response = fail(400, "invalid_request", error.message);
+      } else {
+        // Server failures stay retryable and never show internal text.
+        reportError("api.request_failed", error, { path, tenantId: caller.tenantId, keyId: caller.keyId });
+        response = fail(500, "internal_error", "Something went wrong. Try again shortly.");
+      }
     }
     log.info("api.request", { path, status: response.status, tenantId: caller.tenantId, keyId: caller.keyId });
     return response;
@@ -84,9 +105,11 @@ async function warehouseMetrics(
   caller: Caller,
   args: { metrics: string; granularity: string; groupBy: string; range: AnalyticsRange; timeZone?: string },
 ): Promise<{ response: Response } | { answer: ApiMetricsAnswer; meta: Record<string, unknown> }> {
-  // Both throw messages safe to return; `route` turns them into 400s.
-  parseApiMetricsFilters({ metrics: args.metrics, granularity: args.granularity, group_by: args.groupBy });
-  assertValidAnalyticsRange(args.range);
+  validate(() => {
+    parseApiMetricsFilters({ metrics: args.metrics, granularity: args.granularity, group_by: args.groupBy });
+    assertValidAnalyticsRange(args.range);
+    if (args.timeZone) validateBusinessDay(browserDay(args.timeZone));
+  });
 
   const { argsKey } = await ctx.runMutation(internal.analytics.api.queries.requestMetrics, {
     tenantId: caller.tenantId,
@@ -137,7 +160,7 @@ async function warehouseMetrics(
 function rangeFrom(params: URLSearchParams): AnalyticsRange {
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
-  if (!DATE.test(from) || !DATE.test(to)) throw new Error("Send `from` and `to` as YYYY-MM-DD.");
+  if (!DATE.test(from) || !DATE.test(to)) throw new ApiRequestError("Send `from` and `to` as YYYY-MM-DD.");
   return { kind: "custom", startDate: from, endDateInclusive: to };
 }
 
@@ -184,13 +207,17 @@ export const apiToday = route(async (ctx, request, caller) => {
   const params = new URL(request.url).searchParams;
   const metrics = params.get("metrics") ?? "";
   const groupBy = params.get("group_by") ?? "none";
-  parseApiMetricsFilters({ metrics, granularity: "day", group_by: groupBy });
+  const timeZone = params.get("tz");
+  validate(() => {
+    parseApiMetricsFilters({ metrics, granularity: "day", group_by: groupBy });
+    if (timeZone) validateBusinessDay(browserDay(timeZone));
+  });
   const today = await ctx.runQuery(internal.analytics.api.queries.todayMetrics, {
     tenantId: caller.tenantId,
     metrics,
     granularity: "day",
     groupBy,
-    ...(params.get("tz") ? { timeZone: params.get("tz")! } : {}),
+    ...(timeZone ? { timeZone } : {}),
   });
   const answer = JSON.parse(today.answerJson) as ApiMetricsAnswer;
   return respond(

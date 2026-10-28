@@ -50,7 +50,6 @@ SELECT
     soldprogramid AS sold_program_id,
     soldprogramname AS sold_program_name,
     zoomjoinurl AS zoom_join_url,
-    noshownote AS no_show_note,
     CAST(heldmarkedat AS Nullable(Int64)) AS held_marked_at_ms,
     CAST(NULL AS Nullable(String)) AS reassigned_from_closer_id
 FROM convex_app.meetings FINAL
@@ -355,23 +354,41 @@ FROM convex_app.enrollments FINAL
 WHERE NOT _fivetran_deleted;
 
 -- meetingFormResponses
+-- Answers to the question an event type maps as the person's phone or social
+-- handle (eventTypeConfigs.customFieldMappings, matched on the question's
+-- label) are contact details. Their text becomes a stable label, so response
+-- counts and distinct answers still hold.
 CREATE OR REPLACE VIEW analytics.form_answers
 DEFINER = CURRENT_USER SQL SECURITY DEFINER AS
 SELECT
-    _id AS id,
-    toUnixTimestamp64Milli(_creationtime) AS creation_time_ms,
-    opportunityid AS opportunity_id,
-    answertext AS answer_text,
-    fieldkey AS field_key,
-    eventtypeconfigid AS event_type_config_id,
-    assumeNotNull(tenantid) AS tenant_id,
-    CAST(capturedat AS Nullable(Int64)) AS captured_at_ms,
-    meetingid AS meeting_id,
-    questionlabelsnapshot AS question_label_snapshot,
-    fieldcatalogid AS field_catalog_id,
-    leadid AS lead_id
-FROM convex_app.meetingformresponses FINAL
-WHERE NOT _fivetran_deleted;
+    a._id AS id,
+    toUnixTimestamp64Milli(a._creationtime) AS creation_time_ms,
+    a.opportunityid AS opportunity_id,
+    if(
+        ifNull(a.questionlabelsnapshot, '') != ''
+            AND a.questionlabelsnapshot IN (c.phone_field, c.handle_field)
+            AND trimBoth(ifNull(a.answertext, '')) != '',
+        concat('Hidden contact detail ', substring(lower(hex(SHA256(trimBoth(ifNull(a.answertext, ''))))), 1, 12)),
+        a.answertext
+    ) AS answer_text,
+    a.fieldkey AS field_key,
+    a.eventtypeconfigid AS event_type_config_id,
+    assumeNotNull(a.tenantid) AS tenant_id,
+    CAST(a.capturedat AS Nullable(Int64)) AS captured_at_ms,
+    a.meetingid AS meeting_id,
+    a.questionlabelsnapshot AS question_label_snapshot,
+    a.fieldcatalogid AS field_catalog_id,
+    a.leadid AS lead_id
+FROM convex_app.meetingformresponses AS a FINAL
+LEFT JOIN (
+    SELECT
+        _id,
+        JSONExtractString(ifNull(customfieldmappings, ''), 'phoneField') AS phone_field,
+        JSONExtractString(ifNull(customfieldmappings, ''), 'socialHandleField') AS handle_field
+    FROM convex_app.eventtypeconfigs FINAL
+    WHERE NOT _fivetran_deleted
+) AS c ON c._id = a.eventtypeconfigid
+WHERE NOT a._fivetran_deleted;
 
 -- eventTypeFieldCatalog
 CREATE OR REPLACE VIEW analytics.form_fields
@@ -550,7 +567,6 @@ SELECT
     isdeleted AS is_deleted,
     assumeNotNull(tenantid) AS tenant_id,
     installationid AS installation_id,
-    username AS username,
     teammemberid AS team_member_id,
     CAST(NULL AS Nullable(String)) AS crm_user_id,
     CAST(NULL AS Nullable(Float64)) AS daily_qualification_quota
