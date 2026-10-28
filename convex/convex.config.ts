@@ -48,10 +48,14 @@ const app = defineApp({
     CLICKHOUSE_PASSWORD: v.optional(v.string()),
     // Signs Fivetran's `sync_end` webhook to `/analytics/fivetran`.
     FIVETRAN_WEBHOOK_SECRET: v.optional(v.string()),
+    // Runs a tenant's pages and API callers may start in 24 hours, a whole
+    // number. Unset means no limit. The post-sync batch doesn't count.
+    ANALYTICS_DAILY_RUN_BUDGET: v.optional(v.string()),
   },
 });
 app.use(workpool, { name: "webhookWorkpool" });
 app.use(workpool, { name: "reportingWorkpool" });
+app.use(workpool, { name: "analyticsWorkpool" });
 app.use(workOSAuthKit);
 app.use(migrations);
 app.use(posthog, {

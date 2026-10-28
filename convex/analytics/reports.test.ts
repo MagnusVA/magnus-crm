@@ -1,14 +1,15 @@
 import { convexTest } from "convex-test";
+import workpool from "@convex-dev/workpool/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
-import { DAILY_MISS_BUDGET, DAY_MS } from "./results";
+import { DAY_MS } from "./results";
 import { listReportDefinitions } from "./registry";
 import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
-import { formatSqlParam } from "./clickhouse";
+import { formatSqlParam, queryWatermark } from "./clickhouse";
 
 const metricsArgs = {
   reportId: "revenue.metrics",
@@ -18,6 +19,7 @@ const metricsArgs = {
 };
 // The key `request` builds for metricsArgs.
 const metricsKey = '{"f":{"paymentType":null,"programId":null},"h":0,"r":{"kind":"preset","preset":"last_month"},"tz":"America/Tegucigalpa"}';
+const BUDGET = 30;
 
 type ClickHouseCall = { url: URL; sql: string };
 
@@ -44,6 +46,7 @@ function watermarkOr(watermark: number, rows: unknown[]) {
 
 async function createFixture() {
   const t = convexTest({ schema, modules: convexTestModules });
+  workpool.register(t, "analyticsWorkpool");
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const tenant = (name: string, org: string) =>
@@ -183,14 +186,49 @@ describe("analytics reports", () => {
     const rows = await fixture.t.run(async (ctx) => ctx.db.query("analyticsResults").take(100));
     expect(rows).toHaveLength(1);
     expect(rows[0].argsKey).toBe(metricsKey);
-    expect(await scheduledCount(fixture)).toBe(1);
+    expect(rows[0].status).toBe("pending");
+  });
+
+  it("leaves a run waiting on the pool alone, and replaces one that stalled while executing", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const twentyMinutesAgo = Date.now() - 20 * 60 * 1000;
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      run: { id: "queued", watermark: 1_000, startedAt: twentyMinutesAgo },
+    });
+
+    expect((await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs)).started).toBe(false);
+
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch("analyticsResults", resultId, {
+        run: { id: "queued", watermark: 1_000, startedAt: twentyMinutesAgo, executingAt: twentyMinutesAgo },
+      });
+    });
+    expect((await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs)).started).toBe(true);
+  });
+
+  it("runs a new key however many runs the tenant started when no budget is set", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(() => ({ body: { data: [] } }));
+    const now = Date.now();
+    for (let index = 0; index < 100; index += 1) {
+      await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: `other-${index}`, missedAt: now - 1_000 });
+    }
+
+    const result = await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    expect(result.started).toBe(true);
   });
 
   it("queues a new key past the daily budget without calling ClickHouse", async () => {
     const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", String(BUDGET));
     const calls = stubClickHouse(() => ({ body: { data: [] } }));
     const now = Date.now();
-    for (let index = 0; index < DAILY_MISS_BUDGET; index += 1) {
+    for (let index = 0; index < BUDGET; index += 1) {
       await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: `other-${index}`, missedAt: now - 1_000 });
     }
 
@@ -315,8 +353,53 @@ describe("analytics reports", () => {
 });
 
 describe("analytics budget and batch", () => {
+  it("drops a stale run when the budget turns its key away", async () => {
+    const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", "1");
+    const calls = stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const now = Date.now();
+    await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: "other", missedAt: now - 1_000 });
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      run: { id: "stale", watermark: 1_000, startedAt: now - 2 * 60 * 60 * 1000 },
+    });
+
+    const result = await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    expect(result.started).toBe(false);
+    const row = await fixture.t.run(async (ctx) => ctx.db.get("analyticsResults", resultId));
+    expect(row?.status).toBe("queued");
+    expect(row?.run).toBeUndefined();
+    expect(await fixture.t.mutation(internal.analytics.results.beginRun, { resultId, runId: "stale" })).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("queues a stale pending run that has an answer, so callers get the answer", async () => {
+    const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", "1");
+    stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const now = Date.now();
+    await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: "other", missedAt: now - 1_000 });
+    await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      payload: '{"cached":true}',
+      run: { id: "stale", watermark: 1_000, startedAt: now - 2 * 60 * 60 * 1000 },
+    });
+
+    await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    const state = await fixture.adminA.query(api.analytics.reports.get, metricsArgs);
+    expect(state.state).toBe("queued");
+    expect(state.payloadJson).toBe('{"cached":true}');
+  });
+
   it("counts every run of a key that keeps failing against the budget", async () => {
     const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", String(BUDGET));
     const calls = stubClickHouse(() => ({ body: { data: [] } }));
     const now = Date.now();
     await insertResult(fixture, {
@@ -325,7 +408,7 @@ describe("analytics budget and batch", () => {
       status: "failed",
       missedAt: now - 1_000,
       missWindowStart: now - DAY_MS / 2,
-      missCount: DAILY_MISS_BUDGET,
+      missCount: BUDGET,
     });
 
     const result = await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
@@ -390,6 +473,83 @@ describe("ClickHouse parameters", () => {
     expect(formatSqlParam(["it's", "x\ty"])).toBe("['it\\'s','x\\ty']");
     expect(formatSqlParam(null)).toBe("\\N");
     expect(() => formatSqlParam(Number.NaN)).toThrow();
+  });
+
+  it("retries a query ClickHouse rejects for too many simultaneous queries", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", "https://clickhouse.example:8443");
+    vi.stubEnv("CLICKHOUSE_USER", "magnus_app");
+    vi.stubEnv("CLICKHOUSE_PASSWORD", "secret");
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("Code: 202. DB::Exception: Too many simultaneous queries for user magnus_app.", {
+          status: 500,
+          headers: { "X-ClickHouse-Exception-Code": "202" },
+        });
+      }
+      return new Response(JSON.stringify({ data: [{ watermark: 7_000, beats: 3 }] }));
+    });
+
+    const watermark = queryWatermark();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await watermark).toBe(7_000);
+    expect(calls).toBe(2);
+  });
+
+  it("gives a busy 503 the busy retries only, not the wake retries too", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", "https://clickhouse.example:8443");
+    vi.stubEnv("CLICKHOUSE_USER", "magnus_app");
+    vi.stubEnv("CLICKHOUSE_PASSWORD", "secret");
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls += 1;
+      return new Response("Code: 202. DB::Exception: Too many simultaneous queries for user magnus_app.", {
+        status: 503,
+        headers: { "X-ClickHouse-Exception-Code": "202" },
+      });
+    });
+
+    const outcome = queryWatermark().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(calls).toBe(4);
+  });
+});
+
+describe("parity plan", () => {
+  it("parses each report's filters with its defaults and returns a filter it can't parse as an error", async () => {
+    const fixture = await createFixture();
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        tenantId: fixture.tenantA,
+        workosUserId: "owner_a",
+        email: "owner_a@example.invalid",
+        role: "tenant_master",
+        isActive: true,
+      });
+    });
+    const plan = (page: "revenue" | "overview") =>
+      fixture.t.query(internal.analytics.parity.plan, {
+        tenantId: fixture.tenantA,
+        page,
+        range: { kind: "preset", preset: "last_month" },
+        timeZone: "America/Tegucigalpa",
+      });
+
+    const trend = (await plan("revenue")).find((item) => item.reportId === "revenue.trend") as
+      | { liveArgsJson: string; filtersJson: string }
+      | undefined;
+    expect(JSON.parse(trend?.liveArgsJson ?? "{}").granularity).toBe("day");
+    expect(JSON.parse(trend?.filtersJson ?? "{}").granularity).toBe("day");
+
+    const leaderboard = (await plan("overview")).find((item) => item.reportId === "overview.leaderboard");
+    expect(leaderboard).toEqual({ reportId: "overview.leaderboard", error: "Invalid filter." });
   });
 });
 

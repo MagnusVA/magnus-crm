@@ -43,6 +43,11 @@ export class ClickHouseQueryError extends Error {
 const QUERY_TIMEOUT_MS = 150_000;
 const WAKE_RETRY_DELAY_MS = 5_000;
 const WAKE_RETRIES = 2;
+// Code 202: magnus_app is already running its 4 queries. Runs go through a
+// pool sized to that limit, so this is a rare overlap, such as a parity run
+// during the batch. Each rejected query counts toward the login's hourly
+// error quota, so the retries are few.
+const BUSY_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const ERROR_TEXT_LIMIT = 400;
 const PARAM_NAME = /^[a-z_][a-z0-9_]*$/;
 
@@ -110,7 +115,9 @@ async function post(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
   try {
-    for (let attempt = 0; ; attempt += 1) {
+    let wakeRetries = 0;
+    let busyRetries = 0;
+    for (;;) {
       let response: Response;
       try {
         response = await fetch(url, {
@@ -127,7 +134,8 @@ async function post(
           throw new ClickHouseQueryError("The reporting database didn't answer in time.", null);
         }
         // A service waking from idle can drop the first connection.
-        if (attempt < WAKE_RETRIES) {
+        if (wakeRetries < WAKE_RETRIES) {
+          wakeRetries += 1;
           await sleep(WAKE_RETRY_DELAY_MS);
           continue;
         }
@@ -136,12 +144,24 @@ async function post(
           null,
         );
       }
-      if ((response.status === 502 || response.status === 503) && attempt < WAKE_RETRIES) {
-        await sleep(WAKE_RETRY_DELAY_MS);
-        continue;
-      }
       if (!response.ok) {
         const text = (await response.text()).slice(0, ERROR_TEXT_LIMIT);
+        const busy =
+          response.headers.get("X-ClickHouse-Exception-Code") === "202" ||
+          text.includes("TOO_MANY_SIMULTANEOUS_QUERIES");
+        // Busy first, so a busy 502 or 503 doesn't also use the wake retries.
+        if (busy) {
+          if (busyRetries < BUSY_RETRY_DELAYS_MS.length) {
+            // Jittered, so runs that collided don't collide again.
+            await sleep(BUSY_RETRY_DELAYS_MS[busyRetries] * (0.5 + Math.random()));
+            busyRetries += 1;
+            continue;
+          }
+        } else if ((response.status === 502 || response.status === 503) && wakeRetries < WAKE_RETRIES) {
+          wakeRetries += 1;
+          await sleep(WAKE_RETRY_DELAY_MS);
+          continue;
+        }
         throw new ClickHouseQueryError(text || `HTTP ${response.status}`, response.status);
       }
       const body = (await response.json()) as { data?: unknown };

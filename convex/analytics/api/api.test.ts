@@ -1,16 +1,17 @@
 import { convexTest } from "convex-test";
+import workpool from "@convex-dev/workpool/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { convexTestModules } from "../../test.setup";
-import { DAILY_MISS_BUDGET } from "../results";
 import { RATE_LIMIT_PER_MINUTE } from "./keys";
 
 const DAY = 24 * 60 * 60 * 1000;
 
 async function createFixture() {
   const t = convexTest({ schema, modules: convexTestModules });
+  workpool.register(t, "analyticsWorkpool");
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const tenant = (org: string) =>
@@ -141,11 +142,12 @@ describe("/api/v1", () => {
     vi.stubEnv("CLICKHOUSE_URL", "https://clickhouse.example:8443");
     vi.stubEnv("CLICKHOUSE_USER", "magnus_app");
     vi.stubEnv("CLICKHOUSE_PASSWORD", "secret");
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", "30");
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const { key } = await fixture.adminA.action(api.analytics.api.keys.create, { name: "Dashboard" });
     await fixture.t.run(async (ctx) => {
-      for (let index = 0; index < DAILY_MISS_BUDGET; index += 1) {
+      for (let index = 0; index < 30; index += 1) {
         await ctx.db.insert("analyticsResults", {
           tenantId: fixture.tenantA,
           reportId: "api.metrics",

@@ -78,7 +78,10 @@ export const analyticsTables = {
       v.object({
         id: v.string(),
         watermark: v.number(),
+        // Queued: on the pool for a page or API run, or started by the batch.
         startedAt: v.number(),
+        // The action began; unset while the run waits on the pool.
+        executingAt: v.optional(v.number()),
       }),
     ),
     errorMessage: v.optional(v.string()),
