@@ -376,6 +376,27 @@ describe("analytics budget and batch", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("queues a stale pending run that has an answer, so callers get the answer", async () => {
+    const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", "1");
+    stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const now = Date.now();
+    await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: "other", missedAt: now - 1_000 });
+    await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      payload: '{"cached":true}',
+      run: { id: "stale", watermark: 1_000, startedAt: now - 2 * 60 * 60 * 1000 },
+    });
+
+    await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    const state = await fixture.adminA.query(api.analytics.reports.get, metricsArgs);
+    expect(state.state).toBe("queued");
+    expect(state.payloadJson).toBe('{"cached":true}');
+  });
+
   it("counts every run of a key that keeps failing against the budget", async () => {
     const fixture = await createFixture();
     vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", String(BUDGET));

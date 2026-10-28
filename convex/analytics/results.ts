@@ -221,7 +221,9 @@ export async function registerRequest(
   if (budget !== null && (await countRecentMisses(ctx, input.tenantId, now, budget)) >= budget) {
     // The next post-sync batch answers it. A stale run is dropped, so its
     // action, if it still waits on the pool, finds no run and doesn't query.
-    const queue = row.status !== "queued" && !row.payloadId;
+    // A pending row becomes queued even with an answer, so callers show that
+    // answer instead of waiting for a run that won't come.
+    const queue = row.status === "pending" || (row.status !== "queued" && !row.payloadId);
     if (queue || row.run !== undefined) {
       await ctx.db.patch("analyticsResults", row._id, {
         ...(queue ? { status: "queued" as const } : {}),

@@ -75,10 +75,11 @@ if (found && !found.key.startsWith(dev ? "dev:" : "prod:")) {
 }
 const timeZone = option("tz")[0] ?? "America/Tegucigalpa";
 const filtersJson = option("filters")[0];
-if (filtersJson !== undefined) {
+// `option` skips an empty or missing value, so check for the flag itself.
+if (args.includes("--filters")) {
   let filters;
   try {
-    filters = JSON.parse(filtersJson);
+    filters = JSON.parse(filtersJson ?? "");
   } catch {
     filters = undefined;
   }
