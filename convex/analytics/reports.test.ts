@@ -189,6 +189,27 @@ describe("analytics reports", () => {
     expect(rows[0].status).toBe("pending");
   });
 
+  it("leaves a run waiting on the pool alone, and replaces one that stalled while executing", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const twentyMinutesAgo = Date.now() - 20 * 60 * 1000;
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      run: { id: "queued", watermark: 1_000, startedAt: twentyMinutesAgo },
+    });
+
+    expect((await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs)).started).toBe(false);
+
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch("analyticsResults", resultId, {
+        run: { id: "queued", watermark: 1_000, startedAt: twentyMinutesAgo, executingAt: twentyMinutesAgo },
+      });
+    });
+    expect((await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs)).started).toBe(true);
+  });
+
   it("runs a new key however many runs the tenant started when no budget is set", async () => {
     const fixture = await createFixture();
     stubClickHouse(() => ({ body: { data: [] } }));

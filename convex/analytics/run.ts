@@ -67,7 +67,7 @@ async function executeRun(
   args: { resultId: Id<"analyticsResults">; runId: string },
   known: { watermark?: number } = {},
 ) {
-  const job = await ctx.runQuery(internal.analytics.results.loadRun, args);
+  const job = await ctx.runMutation(internal.analytics.results.beginRun, args);
   if (!job) return;
   try {
     const definition = getReportDefinition(job.reportId);

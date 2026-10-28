@@ -55,11 +55,14 @@ function deployKey() {
   }
   return null;
 }
+// Only a key whose prefix names the requested deployment type passes.
 const found = deployKey();
-if (found && found.key.startsWith("prod:") === dev) {
-  const target = found.key.split("|")[0];
+if (found && !found.key.startsWith(dev ? "dev:" : "prod:")) {
+  // Name the deployment only from a `type:name|secret` key, never print the rest.
+  const target = /^[a-z]+:[a-z0-9-]+(?=\|)/.exec(found.key)?.[0];
   console.error(
-    `CONVEX_DEPLOY_KEY from ${found.source} is for ${target}, and the Convex CLI uses it instead of ${dev ? "the dev deployment" : "--prod"}. ` +
+    `CONVEX_DEPLOY_KEY from ${found.source} ${target ? `is for ${target}` : "isn't a deploy key the script recognizes"}, ` +
+      `and the Convex CLI uses it instead of ${dev ? "the dev deployment" : "--prod"}. ` +
       `Export the ${dev ? "dev" : "production"} deploy key in this shell and run it again.`,
   );
   process.exit(2);

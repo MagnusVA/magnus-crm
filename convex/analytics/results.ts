@@ -13,8 +13,10 @@ export const HOUR_MS = 60 * 60 * 1000;
 export const DAY_MS = 24 * HOUR_MS;
 /** `lastRequestedAt` moves at most this often, so reads rarely write. */
 export const REQUEST_TOUCH_INTERVAL_MS = HOUR_MS;
-/** A pending run older than this is treated as lost and may start again. */
+/** A run that began executing this long ago is treated as lost and may start again. */
 export const RUN_STALE_MS = 10 * 60 * 1000;
+/** A run still waiting on `analyticsPool` this long is treated as lost. */
+export const QUEUED_RUN_STALE_MS = HOUR_MS;
 /** A failed answer waits this long before a page's request retries it. */
 export const FAILURE_RETRY_MS = 5 * 60 * 1000;
 /** Keys the post-sync batch refreshes: opened in the last 7 days. */
@@ -95,7 +97,11 @@ export function answerCoversPeriod(row: Doc<"analyticsResults">, now: number) {
 }
 
 export function runIsInFlight(row: Doc<"analyticsResults">, now: number) {
-  return row.status === "pending" && row.run !== undefined && now - row.run.startedAt < RUN_STALE_MS;
+  if (row.status !== "pending" || row.run === undefined) return false;
+  // Time on the pool's queue isn't a sign the run was lost.
+  return row.run.executingAt !== undefined
+    ? now - row.run.executingAt < RUN_STALE_MS
+    : now - row.run.startedAt < QUEUED_RUN_STALE_MS;
 }
 
 /**
@@ -225,8 +231,11 @@ export async function registerRequest(
   return { started: true, resultId: row._id };
 }
 
-/** The run's inputs, or null when a newer run replaced it. */
-export const loadRun = internalQuery({
+/**
+ * Marks the run as executing and returns its inputs, or null when a newer run
+ * replaced it.
+ */
+export const beginRun = internalMutation({
   args: { resultId: v.id("analyticsResults"), runId: v.string() },
   returns: v.union(
     v.null(),
@@ -242,6 +251,7 @@ export const loadRun = internalQuery({
   handler: async (ctx, { resultId, runId }) => {
     const row = await ctx.db.get("analyticsResults", resultId);
     if (!row || row.run?.id !== runId) return null;
+    await ctx.db.patch("analyticsResults", resultId, { run: { ...row.run, executingAt: Date.now() } });
     return {
       tenantId: row.tenantId,
       reportId: row.reportId,
