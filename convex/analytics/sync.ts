@@ -4,8 +4,10 @@ import { internal } from "../_generated/api";
 import { env, httpAction, internalMutation, internalQuery } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { hmacSha256Hex, timingSafeEqualString } from "../lib/webCrypto";
+import { isClickHouseConfigured } from "./clickhouse";
 import {
   answerCoversPeriod,
+  deleteResult,
   HOUR_MS,
   KEY_TTL_MS,
   readSyncRow,
@@ -33,15 +35,19 @@ export const beat = internalMutation({
       await ctx.db.insert("analyticsSync", { beatAt: now });
       return null;
     }
+    // Before the first sync ends, count from the first heartbeat, so a
+    // webhook that never worked still raises the alert. Dev has no
+    // ClickHouse and no syncs, so it never alerts.
+    const since = row.lastSyncEndedAt ?? (isClickHouseConfigured() ? row._creationTime : undefined);
     const stale =
-      row.lastSyncEndedAt !== undefined &&
-      now - row.lastSyncEndedAt > STALE_SYNC_MS &&
+      since !== undefined &&
+      now - since > STALE_SYNC_MS &&
       (row.staleReportedAt === undefined || now - row.staleReportedAt > STALE_REPORT_INTERVAL_MS);
     if (stale) {
       log.error("analytics.sync_stale", {
         lastSyncEndedAt: row.lastSyncEndedAt,
         lastSyncStatus: row.lastSyncStatus,
-        hoursSinceSync: Math.round((now - row.lastSyncEndedAt!) / HOUR_MS),
+        hoursSinceSync: Math.round((now - since) / HOUR_MS),
       });
     }
     await ctx.db.patch("analyticsSync", row._id, {
@@ -63,6 +69,11 @@ export const recordSyncEnd = internalMutation({
   handler: async (ctx, args) => {
     const row = await readSyncRow(ctx);
     if (row?.lastSyncId === args.syncId) return { batchStarted: false };
+    // Fivetran retries a failed delivery for up to a day, so an older sync
+    // can arrive after a newer one; it changes nothing.
+    if (row?.lastSyncEndedAt !== undefined && args.endedAt <= row.lastSyncEndedAt) {
+      return { batchStarted: false };
+    }
     const successful = args.status === "SUCCESSFUL";
     const patch = {
       lastSyncId: args.syncId,
@@ -123,7 +134,9 @@ export const recentKeys = internalQuery({
 
 /**
  * Starts the batch's run for one key, unless its answer already covers this
- * watermark or a run is in flight. Batch runs don't count against the budget.
+ * watermark or a run for this watermark is in flight. A run for an older
+ * watermark is replaced; its result is then ignored. Batch runs don't count
+ * against the budget.
  */
 export const startBatchRun = internalMutation({
   args: { resultId: v.id("analyticsResults"), watermark: v.number() },
@@ -132,7 +145,7 @@ export const startBatchRun = internalMutation({
     const row = await ctx.db.get("analyticsResults", resultId);
     if (!row) return null;
     const now = Date.now();
-    if (runIsInFlight(row, now)) return null;
+    if (runIsInFlight(row, now) && row.run!.watermark >= watermark) return null;
     if (
       row.status === "ready" &&
       row.answer !== undefined &&
@@ -156,7 +169,7 @@ export const finishBatch = internalMutation({
       .withIndex("by_lastRequestedAt", (q) => q.lt("lastRequestedAt", now - KEY_TTL_MS))
       .take(CLEANUP_BATCH);
     for (const row of expired) {
-      await ctx.db.delete("analyticsResults", row._id);
+      await deleteResult(ctx, row);
     }
     const sync = await readSyncRow(ctx);
     if (sync) await ctx.db.patch("analyticsSync", sync._id, { lastBatchAt: now });

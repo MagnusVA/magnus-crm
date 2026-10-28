@@ -181,8 +181,9 @@ SELECT
 FROM analytics.captures AS c
 LEFT JOIN analytics.workers AS w ON w.id = c.worker_id AND w.tenant_id = {tenant_id:String}
 WHERE c.tenant_id = {tenant_id:String} AND ${inRange("c.submitted_at_ms")}
-  -- Voided captures. voided_at_ms is NULL until the first void syncs, so
-  -- voids come from their events, as the lead gen reports read them.
+  -- Voided captures: voided_at_ms once Fivetran has synced the column
+  -- (NULL until then), and the void events, which cover the meantime.
+  AND c.voided_at_ms IS NULL
   AND c.id NOT IN (
     SELECT JSONExtractString(e.metadata, 'submissionId')
     FROM analytics.events AS e

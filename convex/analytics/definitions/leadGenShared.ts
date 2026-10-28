@@ -31,8 +31,8 @@ import {
 //   active captures.
 //
 // The synced captures table has no `voidedAt` column until the first void is
-// synced, so voids come from the `lead.capture_voided` events, which carry the
-// capture's id.
+// synced, so voids also come from the `lead.capture_voided` events, which
+// carry the capture's id (VOIDED_CAPTURES).
 
 export type LeadGenSource = Doc<"leadGenSubmissions">["source"];
 export const LEAD_GEN_SOURCES = ["instagram", "meta_business"] as const;
@@ -80,13 +80,23 @@ export function leadGenLiveArgs(input: ReportInput<LeadGenReportFilters>) {
 /** A capture's tenant business day, `YYYY-MM-DD`, as `timestampToBusinessDateKey` gives it. */
 export const CAPTURE_DAY_KEY = `toString(toDate(toTimeZone(fromUnixTimestamp64Milli(assumeNotNull(submitted_at_ms)), {tz:String}) - toIntervalHour({day_start_hour:UInt8})))`;
 
-/** Captures a `lead.capture_voided` event names. */
+/**
+ * Voided captures: those a `lead.capture_voided` event names, and those with
+ * `voided_at_ms` set. The column is NULL until Fivetran syncs the first void,
+ * and a void of a capture whose prospect has no person emits no event, so
+ * each source covers the other's gap.
+ */
 export const VOIDED_CAPTURES = `
 voided AS (
   SELECT JSONExtractString(metadata, 'submissionId') AS id
   FROM analytics.events
   WHERE tenant_id = {tenant_id:String}
     AND event_type = 'lead.capture_voided'
+  UNION ALL
+  SELECT id
+  FROM analytics.captures
+  WHERE tenant_id = {tenant_id:String}
+    AND voided_at_ms IS NOT NULL
 )`;
 
 /** The range's captures, each with its business day and whether it still counts. */

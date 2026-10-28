@@ -46,8 +46,18 @@ const WAKE_RETRIES = 2;
 const ERROR_TEXT_LIMIT = 400;
 const PARAM_NAME = /^[a-z_][a-z0-9_]*$/;
 
+const ESCAPES: Record<string, string> = { "\\": "\\\\", "\t": "\\t", "\n": "\\n", "\r": "\\r", "\0": "\\0" };
+
+/**
+ * ClickHouse reads parameter values in its escaped text format, so a
+ * backslash or a control character must be escaped to keep its meaning.
+ */
+function escapeText(value: string) {
+  return value.replace(/[\\\t\n\r\0]/g, (char) => ESCAPES[char]);
+}
+
 function escapeArrayItem(value: string) {
-  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  return `'${escapeText(value).replace(/'/g, "\\'")}'`;
 }
 
 /** The text form ClickHouse expects for a `param_<name>` value. */
@@ -58,7 +68,7 @@ export function formatSqlParam(value: SqlParamValue): string {
     if (!Number.isFinite(value)) throw new Error("SQL parameters must be finite numbers.");
     return String(value);
   }
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return escapeText(value);
   return `[${value
     .map((item) => (typeof item === "string" ? escapeArrayItem(item) : String(item)))
     .join(",")}]`;

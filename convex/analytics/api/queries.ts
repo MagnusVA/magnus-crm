@@ -71,7 +71,7 @@ export const metricsAnswer = internalQuery({
     errorMessage: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, { tenantId, argsKey }) => {
-    const state = resultState(await findResult(ctx, tenantId, "api.metrics", argsKey));
+    const state = await resultState(ctx, await findResult(ctx, tenantId, "api.metrics", argsKey));
     return {
       state: state.state,
       payloadJson: state.payloadJson,

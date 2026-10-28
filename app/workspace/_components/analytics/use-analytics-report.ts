@@ -56,6 +56,8 @@ function cleanFilters(filters: AnalyticsFilterInput | undefined) {
 }
 
 const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const RENEW_INTERVAL_MS = 60 * 60 * 1000;
+const RESEND_AFTER_MS = 60 * 1000;
 
 /**
  * One panel's data from whichever source answers its range. The ClickHouse
@@ -103,13 +105,35 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
     );
   }, [request, warehouseArgs]);
 
+  const lastSentAt = useRef(0);
+
   // Registers the key for the post-sync batch and starts a run when no answer
   // covers the current sync. Once per key per mounted panel.
   useEffect(() => {
     if (argsKey === null || requestedKey.current === argsKey) return;
     requestedKey.current = argsKey;
+    lastSentAt.current = Date.now();
     send();
   }, [argsKey, send]);
+
+  // A panel left open keeps its key in the batch (which refreshes keys
+  // opened in the last 7 days) by renewing it hourly.
+  useEffect(() => {
+    if (argsKey === null) return;
+    const timer = setInterval(send, RENEW_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [argsKey, send]);
+
+  // Cleanup deletes keys nobody opened for 14 days; register it again, at
+  // most once a minute.
+  const answerState = state?.state;
+  useEffect(() => {
+    if (answerState !== "missing" || argsKey === null || requestedKey.current !== argsKey) return;
+    const now = Date.now();
+    if (now - lastSentAt.current < RESEND_AFTER_MS) return;
+    lastSentAt.current = now;
+    send();
+  }, [answerState, argsKey, send]);
 
   const payloadJson = state?.payloadJson ?? null;
   const warehouseData = useMemo(
@@ -120,15 +144,15 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   if (source !== "warehouse") {
     return { data: source === "live" ? liveData : undefined, source, freshness: { source: "live" } };
   }
-  const answerState = state === undefined || state.state === "missing" ? "loading" : state.state;
+  const shownState = answerState === undefined || answerState === "missing" ? "loading" : answerState;
   return {
     data: warehouseData,
     source,
     freshness: {
       source: "warehouse",
-      state: answerState,
+      state: shownState,
       asOf: state?.answer?.watermark ?? null,
-      refreshing: answerState === "pending" && payloadJson !== null,
+      refreshing: shownState === "pending" && payloadJson !== null,
       errorMessage: state?.errorMessage ?? null,
       retry: send,
     },

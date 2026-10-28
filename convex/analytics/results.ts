@@ -22,8 +22,8 @@ export const DAILY_MISS_BUDGET = 30;
 export const RECENT_KEY_WINDOW_MS = 7 * DAY_MS;
 /** Keys nobody opened for this long are deleted. */
 export const KEY_TTL_MS = 14 * DAY_MS;
-/** Stays under Convex's 1 MB document limit with the row's other fields. */
-export const MAX_PAYLOAD_CHARS = 900_000;
+/** UTF-8 bytes of an answer: under Convex's 1 MB document limit. */
+export const MAX_PAYLOAD_BYTES = 900_000;
 /** Rows a report may hand to `finalize`. Templates aggregate in SQL. */
 export const MAX_ROWS_JSON_CHARS = 4_000_000;
 
@@ -43,14 +43,24 @@ export type AnalyticsResultState = {
   errorMessage: string | null;
 };
 
-export function resultState(row: Doc<"analyticsResults"> | null): AnalyticsResultState {
+export async function resultState(
+  ctx: QueryCtx,
+  row: Doc<"analyticsResults"> | null,
+): Promise<AnalyticsResultState> {
   if (!row) return { state: "missing", payloadJson: null, answer: null, errorMessage: null };
+  const payload = row.payloadId ? await ctx.db.get("analyticsPayloads", row.payloadId) : null;
   return {
     state: row.status,
-    payloadJson: row.payloadJson ?? null,
+    payloadJson: payload?.json ?? null,
     answer: row.answer ?? null,
     errorMessage: row.status === "failed" ? (row.errorMessage ?? null) : null,
   };
+}
+
+/** Deletes a key and its answer. */
+export async function deleteResult(ctx: MutationCtx, row: Doc<"analyticsResults">) {
+  if (row.payloadId) await ctx.db.delete("analyticsPayloads", row.payloadId);
+  await ctx.db.delete("analyticsResults", row._id);
 }
 
 export async function findResult(
@@ -93,14 +103,19 @@ export async function readSyncRow(ctx: QueryCtx) {
   return await ctx.db.query("analyticsSync").first();
 }
 
+/**
+ * Runs pages and API callers started in the last day, every run counted, so a
+ * key that keeps failing uses the budget too. A key's count covers its
+ * current window, which can start up to a day before its latest run.
+ */
 export async function countRecentMisses(ctx: QueryCtx, tenantId: Id<"tenants">, now: number) {
-  const misses = await ctx.db
+  const rows = await ctx.db
     .query("analyticsResults")
     .withIndex("by_tenantId_and_missedAt", (q) =>
       q.eq("tenantId", tenantId).gte("missedAt", now - DAY_MS),
     )
     .take(DAILY_MISS_BUDGET + 1);
-  return misses.length;
+  return rows.reduce((total, row) => total + (row.missCount ?? 1), 0);
 }
 
 function newRunId(now: number) {
@@ -114,10 +129,17 @@ export async function startRun(
   args: { watermark: number; now: number; miss: boolean },
 ) {
   const runId = newRunId(args.now);
+  const windowOpen = row.missWindowStart !== undefined && args.now - row.missWindowStart < DAY_MS;
   await ctx.db.patch("analyticsResults", row._id, {
     status: "pending",
     run: { id: runId, watermark: args.watermark, startedAt: args.now },
-    ...(args.miss ? { missedAt: args.now } : {}),
+    ...(args.miss
+      ? {
+          missedAt: args.now,
+          missWindowStart: windowOpen ? row.missWindowStart : args.now,
+          missCount: windowOpen ? (row.missCount ?? 0) + 1 : 1,
+        }
+      : {}),
   });
   return runId;
 }
@@ -181,7 +203,7 @@ export async function registerRequest(
   }
   if ((await countRecentMisses(ctx, input.tenantId, now)) >= DAILY_MISS_BUDGET) {
     // The next post-sync batch answers it.
-    if (row.status !== "queued" && !row.payloadJson) {
+    if (row.status !== "queued" && !row.payloadId) {
       await ctx.db.patch("analyticsResults", row._id, { status: "queued" });
     }
     return idle;
@@ -261,7 +283,7 @@ export const complete = internalMutation({
       rowsJson: args.rowsJson,
     });
     const now = Date.now();
-    if (payloadJson.length > MAX_PAYLOAD_CHARS) {
+    if (new TextEncoder().encode(payloadJson).byteLength > MAX_PAYLOAD_BYTES) {
       await ctx.db.patch("analyticsResults", row._id, {
         status: "failed",
         run: undefined,
@@ -270,9 +292,11 @@ export const complete = internalMutation({
       });
       return { saved: false };
     }
+    const payloadId = await ctx.db.insert("analyticsPayloads", { tenantId: row.tenantId, json: payloadJson });
+    if (row.payloadId) await ctx.db.delete("analyticsPayloads", row.payloadId);
     await ctx.db.patch("analyticsResults", row._id, {
       status: "ready",
-      payloadJson,
+      payloadId,
       answer: {
         watermark: args.watermark,
         startDate: args.range.startDate,

@@ -1,6 +1,6 @@
 # ClickHouse reporting layer
 
-Status: built on branch `t3/clickhouse-reporting-layer-plan` (2026-10-28): the engine, the views, every page in Phase B and the API (Phase C). Nothing is deployed and no page is switched; §12.3 is the rollout. Phases D (exports) and E (narrow) are still to do. Only production feeds ClickHouse, so every ClickHouse check runs on production, and each page ships dark behind a per-page switch (§12.1). CSV export limits are still to be agreed (§10).
+Status: built on branch `t3/clickhouse-reporting-layer-plan` (2026-10-28): the engine, the views, every page in Phase B and the API (Phase C). Nothing is deployed and no page is switched; §12.3 is the rollout. One change from the budget: answers live in a fourth table, `analyticsPayloads`, so the budget, batch and cleanup scans never read large payloads. Phases D (exports) and E (narrow) are still to do. Only production feeds ClickHouse, so every ClickHouse check runs on production, and each page ships dark behind a per-page switch (§12.1). CSV export limits are still to be agreed (§10).
 
 Terms follow [`CONTEXT.md`](../../CONTEXT.md) and [ADR 0001](../adr/0001-lead-lifecycle-model.md). This file holds IDs, counts and table names only. It contains no personal data.
 
@@ -369,6 +369,7 @@ In this order. Production is `usable-guineapig-697`; its HTTP actions are at `ht
    3. `0003_watermark.sql`, which needs `convex_app.analyticssync`
    4. `clickhouse/admin/magnus_app.sql`, with a new password
    5. Set the service's idle timeout to its minimum.
+   6. Now and then, run `clickhouse/admin/unsynced_view_columns.sql`; each row is a column to replace in the views (the first capture void, for example).
 5. **Convex production env.** Set `CLICKHOUSE_URL`, `CLICKHOUSE_USER` (`magnus_app`), `CLICKHOUSE_PASSWORD` and `FIVETRAN_WEBHOOK_SECRET`.
 6. **The Fivetran webhook.** Point a `sync_end` webhook at `/analytics/fivetran` with the same secret. Fivetran's test delivery logs `analytics.fivetran.test_received`. After the next real sync, `npx convex data analyticsSync --prod` shows `lastSyncEndedAt`, `watermark` and `lastBatchAt`.
 7. **Each page:**

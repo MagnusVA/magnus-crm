@@ -16,6 +16,9 @@ export const API_KEY_PREFIX = "mgn_live_";
 const KEY_ID_BYTES = 9;
 const SECRET_BYTES = 32;
 const MAX_ACTIVE_KEYS = 10;
+/** Keys a workspace may ever create, revoked included; bounds every scan. */
+const MAX_KEYS = 500;
+const LISTED_REVOKED_KEYS = 20;
 const RATE_WINDOW_MS = 60_000;
 export const RATE_LIMIT_PER_MINUTE = 60;
 
@@ -38,9 +41,14 @@ export const list = query({
       .query("apiKeys")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .order("desc")
-      .take(50);
+      .take(MAX_KEYS);
+    // Every active key, then the newest revoked ones.
+    const shown = [
+      ...keys.filter((key) => key.revokedAt === undefined),
+      ...keys.filter((key) => key.revokedAt !== undefined).slice(0, LISTED_REVOKED_KEYS),
+    ];
     return await Promise.all(
-      keys.map(async (key) => {
+      shown.map(async (key) => {
         const creator = await ctx.db.get("users", key.createdByUserId);
         return {
           keyId: key.keyId,
@@ -69,7 +77,10 @@ export const insertKey = internalMutation({
     const keys = await ctx.db
       .query("apiKeys")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
-      .take(200);
+      .take(MAX_KEYS);
+    if (keys.length >= MAX_KEYS) {
+      throw expectedError("api_keys.limit", "This workspace has created too many API keys.");
+    }
     if (keys.filter((key) => key.revokedAt === undefined).length >= MAX_ACTIVE_KEYS) {
       throw expectedError("api_keys.limit", `Revoke a key first: a workspace can have ${MAX_ACTIVE_KEYS} active keys.`);
     }

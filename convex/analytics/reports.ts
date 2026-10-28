@@ -42,7 +42,7 @@ export const get = query({
       request.definition.id,
       request.argsKey,
     );
-    return resultState(row);
+    return await resultState(ctx, row);
   },
 });
 

@@ -8,15 +8,16 @@
 CREATE ROLE IF NOT EXISTS analytics_reader;
 GRANT SELECT ON analytics.* TO analytics_reader;
 
--- Read-only, and the client can't raise its own limits. readonly = 2 still
--- lets Convex send per-query settings such as SQL_tenant_id.
+-- Read-only, and the client can't raise or lift its own limits: each has a
+-- minimum too, because 0 means unlimited. readonly = 2 still lets Convex send
+-- per-query settings such as SQL_tenant_id.
 CREATE SETTINGS PROFILE IF NOT EXISTS magnus_app_profile SETTINGS
     readonly = 2,
-    max_execution_time = 30 MAX 30,
-    max_result_rows = 200000 MAX 200000,
-    max_result_bytes = 50000000 MAX 50000000,
-    max_memory_usage = 2000000000 MAX 2000000000,
-    max_concurrent_queries_for_user = 4 MAX 4;
+    max_execution_time = 30 MIN 1 MAX 30,
+    max_result_rows = 200000 MIN 1 MAX 200000,
+    max_result_bytes = 50000000 MIN 1 MAX 50000000,
+    max_memory_usage = 2000000000 MIN 1 MAX 2000000000,
+    max_concurrent_queries_for_user = 4 MIN 1 MAX 4;
 
 CREATE USER IF NOT EXISTS magnus_app
     IDENTIFIED WITH sha256_password BY 'REPLACE_WITH_A_LONG_RANDOM_PASSWORD'

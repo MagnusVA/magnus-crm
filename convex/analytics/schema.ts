@@ -63,8 +63,9 @@ export const analyticsTables = {
       v.literal("ready"),
       v.literal("failed"),
     ),
-    // Under 1 MB, checked when the answer is saved.
-    payloadJson: v.optional(v.string()),
+    // The newest good answer. Kept in its own table so the budget, the batch
+    // and cleanup read small rows.
+    payloadId: v.optional(v.id("analyticsPayloads")),
     answer: v.optional(
       v.object({
         watermark: v.number(),
@@ -82,9 +83,11 @@ export const analyticsTables = {
     ),
     errorMessage: v.optional(v.string()),
     failedAt: v.optional(v.number()),
-    // Set when a page's request, not the batch, ran the query. Counts
-    // against the tenant's daily budget.
+    // Runs a page or API request started, not the batch: the latest, and how
+    // many since `missWindowStart`. They count against the daily budget.
     missedAt: v.optional(v.number()),
+    missWindowStart: v.optional(v.number()),
+    missCount: v.optional(v.number()),
     lastRequestedAt: v.number(),
   })
     .index("by_tenantId_and_reportId_and_argsKey", [
@@ -94,6 +97,12 @@ export const analyticsTables = {
     ])
     .index("by_lastRequestedAt", ["lastRequestedAt"])
     .index("by_tenantId_and_missedAt", ["tenantId", "missedAt"]),
+
+  /** An answer's JSON, under 900 KB, owned by one `analyticsResults` row. */
+  analyticsPayloads: defineTable({
+    tenantId: v.id("tenants"),
+    json: v.string(),
+  }),
 
   /**
    * One row. The 5-minute heartbeat patches `beatAt`, and Fivetran copies it,

@@ -8,6 +8,7 @@ import { DAILY_MISS_BUDGET, DAY_MS } from "./results";
 import { listReportDefinitions } from "./registry";
 import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
+import { formatSqlParam } from "./clickhouse";
 
 const metricsArgs = {
   reportId: "revenue.metrics",
@@ -83,10 +84,13 @@ type Fixture = Awaited<ReturnType<typeof createFixture>>;
 
 async function insertResult(
   fixture: Fixture,
-  overrides: Partial<Doc<"analyticsResults">> & { tenantId: Id<"tenants"> },
+  { payload, ...overrides }: Partial<Doc<"analyticsResults">> & { tenantId: Id<"tenants">; payload?: string },
 ) {
-  return await fixture.t.run(async (ctx) =>
-    ctx.db.insert("analyticsResults", {
+  return await fixture.t.run(async (ctx) => {
+    const payloadId = payload
+      ? await ctx.db.insert("analyticsPayloads", { tenantId: overrides.tenantId, json: payload })
+      : undefined;
+    return await ctx.db.insert("analyticsResults", {
       reportId: "revenue.metrics",
       argsKey: metricsKey,
       filtersJson: '{"paymentType":null,"programId":null}',
@@ -95,9 +99,10 @@ async function insertResult(
       dayStartHour: 0,
       status: "ready",
       lastRequestedAt: Date.now(),
+      ...(payloadId ? { payloadId } : {}),
       ...overrides,
-    }),
-  );
+    });
+  });
 }
 
 async function setWatermark(fixture: Fixture, watermark: number) {
@@ -137,7 +142,7 @@ afterEach(() => {
 describe("analytics reports", () => {
   it("checks the report's roles and never returns another tenant's answer", async () => {
     const fixture = await createFixture();
-    await insertResult(fixture, { tenantId: fixture.tenantB, payloadJson: '{"secret":true}' });
+    await insertResult(fixture, { tenantId: fixture.tenantB, payload: '{"secret":true}' });
 
     await expect(fixture.t.query(api.analytics.reports.get, metricsArgs)).rejects.toThrow("Not authenticated");
     await expect(fixture.closerA.query(api.analytics.reports.get, metricsArgs)).rejects.toThrow(
@@ -208,7 +213,7 @@ describe("analytics reports", () => {
     });
     await insertResult(fixture, {
       tenantId: fixture.tenantA,
-      payloadJson: '{"old":true}',
+      payload: '{"old":true}',
       answer: {
         watermark: 1_000,
         startDate: lastMonth.startDate,
@@ -257,7 +262,7 @@ describe("analytics reports", () => {
     );
     await insertResult(fixture, {
       tenantId: fixture.tenantA,
-      payloadJson: '{"old":true}',
+      payload: '{"old":true}',
       answer: { watermark: 1_000, startDate: "2000-01-01", endDateInclusive: "2000-01-31", completedAt: 1 },
     });
     await setWatermark(fixture, 9_000);
@@ -306,6 +311,85 @@ describe("analytics reports", () => {
     await fixture.t.action(internal.analytics.run.runPostSyncBatch, {});
 
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("analytics budget and batch", () => {
+  it("counts every run of a key that keeps failing against the budget", async () => {
+    const fixture = await createFixture();
+    const calls = stubClickHouse(() => ({ body: { data: [] } }));
+    const now = Date.now();
+    await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      argsKey: "failing",
+      status: "failed",
+      missedAt: now - 1_000,
+      missWindowStart: now - DAY_MS / 2,
+      missCount: DAILY_MISS_BUDGET,
+    });
+
+    const result = await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    expect(result.started).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("replaces a run for an older sync instead of losing the new sync's refresh", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(watermarkOr(7_000, []));
+    await setWatermark(fixture, 1_000);
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      status: "pending",
+      run: { id: "older", watermark: 1_000, startedAt: Date.now() },
+    });
+
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, {});
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+    await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId,
+      runId: "older",
+      watermark: 1_000,
+      range: { startDate: "2000-01-01", endDateInclusive: "2000-01-31", fromMs: 0, toMs: 1, timeZone: "UTC", dayStartHour: 0 },
+      rowsJson: '{"payments":[]}',
+    });
+
+    const row = await fixture.t.run(async (ctx) => ctx.db.get("analyticsResults", resultId));
+    expect(row?.answer?.watermark).toBe(7_000);
+  });
+
+  it("deletes an idle key's answer with it", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(watermarkOr(1_000, []));
+    await setWatermark(fixture, 1_000);
+    await insertResult(fixture, { tenantId: fixture.tenantA, payload: "{}", lastRequestedAt: Date.now() - 15 * DAY_MS });
+
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, { force: true });
+
+    const left = await fixture.t.run(async (ctx) => ({
+      results: (await ctx.db.query("analyticsResults").take(10)).length,
+      payloads: (await ctx.db.query("analyticsPayloads").take(10)).length,
+    }));
+    expect(left).toEqual({ results: 0, payloads: 0 });
+  });
+
+  it("alerts when no sync has ended 8 hours after the first heartbeat", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(() => ({ body: { data: [] } }));
+    await fixture.t.mutation(internal.analytics.sync.beat, {});
+    vi.advanceTimersByTime(9 * 60 * 60 * 1000);
+    await fixture.t.mutation(internal.analytics.sync.beat, {});
+    const sync = await fixture.t.run(async (ctx) => ctx.db.query("analyticsSync").first());
+    expect(sync?.staleReportedAt).toBeDefined();
+  });
+});
+
+describe("ClickHouse parameters", () => {
+  it("escapes backslashes and control characters, in strings and arrays", () => {
+    expect(formatSqlParam("a\\b\tc\nd")).toBe("a\\\\b\\tc\\nd");
+    expect(formatSqlParam(["it's", "x\ty"])).toBe("['it\\'s','x\\ty']");
+    expect(formatSqlParam(null)).toBe("\\N");
+    expect(() => formatSqlParam(Number.NaN)).toThrow();
   });
 });
 
@@ -384,11 +468,23 @@ describe("Fivetran webhook", () => {
 
     expect((await post(fixture, syncEnd)).status).toBe(200);
     expect((await post(fixture, syncEnd)).status).toBe(200);
-    expect((await post(fixture, { ...syncEnd, sync_id: "sync-2", data: { status: "FAILURE" } })).status).toBe(200);
+    expect((await post(fixture, { ...syncEnd, sync_id: "sync-2", created: "2026-10-27T20:31:00.000Z", data: { status: "FAILURE" } })).status).toBe(200);
 
     expect(await scheduledCount(fixture)).toBe(1);
     const sync = await fixture.t.run(async (ctx) => ctx.db.query("analyticsSync").first());
     expect(sync?.lastSyncEndedAt).toBe(Date.parse(syncEnd.created));
     expect(sync?.lastSyncStatus).toBe("FAILURE");
+  });
+
+  it("ignores a retried delivery of an older sync that arrives after a newer one", async () => {
+    const fixture = await createFixture();
+    const newer = { ...syncEnd, sync_id: "sync-new", created: "2026-10-27T20:31:00.000Z" };
+    expect((await post(fixture, newer)).status).toBe(200);
+    expect((await post(fixture, syncEnd)).status).toBe(200);
+
+    expect(await scheduledCount(fixture)).toBe(1);
+    const sync = await fixture.t.run(async (ctx) => ctx.db.query("analyticsSync").first());
+    expect(sync?.lastSyncEndedAt).toBe(Date.parse(newer.created));
+    expect(sync?.lastSyncId).toBe("sync-new");
   });
 });
