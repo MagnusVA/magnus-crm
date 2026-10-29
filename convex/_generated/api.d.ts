@@ -100,7 +100,6 @@ import type * as closer_pipelineDesk from "../closer/pipelineDesk.js";
 import type * as closer_pipelineTabs from "../closer/pipelineTabs.js";
 import type * as closer_reminderDetail from "../closer/reminderDetail.js";
 import type * as closer_reminderOutcomes from "../closer/reminderOutcomes.js";
-import type * as closer_stuckSchedulingLinks from "../closer/stuckSchedulingLinks.js";
 import type * as crons from "../crons.js";
 import type * as dashboard_adminStats from "../dashboard/adminStats.js";
 import type * as dashboard_efficiencySort from "../dashboard/efficiencySort.js";
@@ -534,7 +533,6 @@ declare const fullApi: ApiFromModules<{
   "closer/pipelineTabs": typeof closer_pipelineTabs;
   "closer/reminderDetail": typeof closer_reminderDetail;
   "closer/reminderOutcomes": typeof closer_reminderOutcomes;
-  "closer/stuckSchedulingLinks": typeof closer_stuckSchedulingLinks;
   crons: typeof crons;
   "dashboard/adminStats": typeof dashboard_adminStats;
   "dashboard/efficiencySort": typeof dashboard_efficiencySort;
