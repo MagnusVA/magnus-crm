@@ -1,0 +1,654 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-29T18:19:44Z",
+  "title": "Design System: Magnus CRM",
+  "extensions": {
+    "colorMeta": {
+      "lime": {
+        "role": "primary",
+        "displayName": "Magnus Lime",
+        "tonalRamp": [
+          "#1f2e0a",
+          "#2f4510",
+          "#4a7212",
+          "#66961f",
+          "#84b135",
+          "#a6cf5e",
+          "#cfe5a6",
+          "#eef6e0"
+        ],
+        "cssVar": "--primary",
+        "purpose": "Next action and primary buttons only; navy text on it."
+      },
+      "on-lime": {
+        "role": "primary",
+        "displayName": "Navy on Lime",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--primary-foreground"
+      },
+      "lime-ink": {
+        "role": "primary",
+        "displayName": "Lime Ink",
+        "tonalRamp": [
+          "#1f2e0a",
+          "#2f4510",
+          "#4a7212",
+          "#66961f",
+          "#84b135",
+          "#a6cf5e",
+          "#cfe5a6",
+          "#eef6e0"
+        ],
+        "cssVar": "--primary-ink",
+        "dark": "#a6cf5e"
+      },
+      "navy-shell": {
+        "role": "secondary",
+        "displayName": "Magnus Navy",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--sidebar",
+        "dark": "#0d121c"
+      },
+      "board": {
+        "role": "secondary",
+        "displayName": "Departures Board Navy",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--board",
+        "dark": "#1b2336"
+      },
+      "board-raised": {
+        "role": "secondary",
+        "displayName": "Board Raised",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--board-raised",
+        "dark": "#26304a"
+      },
+      "board-foreground": {
+        "role": "secondary",
+        "displayName": "Board Text",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--board-foreground"
+      },
+      "board-muted": {
+        "role": "secondary",
+        "displayName": "Board Muted",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--board-muted",
+        "dark": "#98a2b3"
+      },
+      "board-danger": {
+        "role": "secondary",
+        "displayName": "Board Danger",
+        "tonalRamp": [
+          "#4a1214",
+          "#7a1a1d",
+          "#b42328",
+          "#d93a40",
+          "#e5484d",
+          "#ff8a8e",
+          "#fbc4c6",
+          "#fde2e3"
+        ],
+        "cssVar": "--board-danger"
+      },
+      "stage-booked": {
+        "role": "tertiary",
+        "displayName": "Booked Blue",
+        "tonalRamp": [
+          "#172552",
+          "#2b4aa8",
+          "#3a5cc0",
+          "#4c6fd0",
+          "#6f8fe6",
+          "#9db4f2",
+          "#c9d6f7",
+          "#eaf0fc"
+        ],
+        "cssVar": "--stage-booked",
+        "dark": "#6f8fe6"
+      },
+      "stage-held": {
+        "role": "tertiary",
+        "displayName": "Held Slate",
+        "tonalRamp": [
+          "#1a2131",
+          "#4f596b",
+          "#6b7588",
+          "#8e99ac",
+          "#98a2b3",
+          "#b9c2d0",
+          "#d5dbe3",
+          "#eef1f5"
+        ],
+        "cssVar": "--stage-held",
+        "dark": "#98a2b3"
+      },
+      "stage-follow-up": {
+        "role": "tertiary",
+        "displayName": "Follow-up Teal",
+        "tonalRamp": [
+          "#0f3f3c",
+          "#1d756f",
+          "#248a83",
+          "#2a9d95",
+          "#3fb8b0",
+          "#7ccbc6",
+          "#b5e2df",
+          "#e3f4f3"
+        ],
+        "cssVar": "--stage-follow-up",
+        "dark": "#3fb8b0"
+      },
+      "stage-won": {
+        "role": "tertiary",
+        "displayName": "Won Lime",
+        "tonalRamp": [
+          "#1f2e0a",
+          "#2f4510",
+          "#4a7212",
+          "#66961f",
+          "#84b135",
+          "#a6cf5e",
+          "#cfe5a6",
+          "#eef6e0"
+        ],
+        "cssVar": "--stage-won"
+      },
+      "stage-lost": {
+        "role": "tertiary",
+        "displayName": "Lost Red",
+        "tonalRamp": [
+          "#4a1214",
+          "#7a1a1d",
+          "#b42328",
+          "#d93a40",
+          "#e5484d",
+          "#ff8a8e",
+          "#fbc4c6",
+          "#fde2e3"
+        ],
+        "cssVar": "--stage-lost",
+        "dark": "#e5484d"
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Owed Amber",
+        "tonalRamp": [
+          "#3a2f0a",
+          "#7a5200",
+          "#b88400",
+          "#f5b700",
+          "#ffc933",
+          "#ffd666",
+          "#ffe699",
+          "#fff4cc"
+        ],
+        "cssVar": "--warning"
+      },
+      "warning-ink": {
+        "role": "tertiary",
+        "displayName": "Owed Amber Ink",
+        "tonalRamp": [
+          "#3a2f0a",
+          "#7a5200",
+          "#b88400",
+          "#f5b700",
+          "#ffc933",
+          "#ffd666",
+          "#ffe699",
+          "#fff4cc"
+        ],
+        "cssVar": "--warning-ink",
+        "dark": "#ffd666"
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Lost Red",
+        "tonalRamp": [
+          "#4a1214",
+          "#7a1a1d",
+          "#b42328",
+          "#d93a40",
+          "#e5484d",
+          "#ff8a8e",
+          "#fbc4c6",
+          "#fde2e3"
+        ],
+        "cssVar": "--destructive",
+        "dark": "#e5484d"
+      },
+      "danger-ink": {
+        "role": "tertiary",
+        "displayName": "Lost Red Ink",
+        "tonalRamp": [
+          "#4a1214",
+          "#7a1a1d",
+          "#b42328",
+          "#d93a40",
+          "#e5484d",
+          "#ff8a8e",
+          "#fbc4c6",
+          "#fde2e3"
+        ],
+        "cssVar": "--danger-ink",
+        "dark": "#ff8a8e"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Cool Paper",
+        "tonalRamp": [
+          "#141a28",
+          "#4f596b",
+          "#9aa4b6",
+          "#d5dbe3",
+          "#e3e7ed",
+          "#eef1f5",
+          "#f5f6f8",
+          "#ffffff"
+        ],
+        "cssVar": "--background",
+        "dark": "#090d14"
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card White",
+        "tonalRamp": [
+          "#141a28",
+          "#4f596b",
+          "#9aa4b6",
+          "#d5dbe3",
+          "#e3e7ed",
+          "#eef1f5",
+          "#f5f6f8",
+          "#ffffff"
+        ],
+        "cssVar": "--card",
+        "dark": "#121826"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Navy Ink",
+        "tonalRamp": [
+          "#090d14",
+          "#0d121c",
+          "#141a28",
+          "#1d2536",
+          "#26304a",
+          "#4f596b",
+          "#9aa4b6",
+          "#e6eaf1"
+        ],
+        "cssVar": "--foreground",
+        "dark": "#eef1f6"
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Slate Ink",
+        "tonalRamp": [
+          "#1a2131",
+          "#4f596b",
+          "#6b7588",
+          "#8e99ac",
+          "#98a2b3",
+          "#b9c2d0",
+          "#d5dbe3",
+          "#eef1f5"
+        ],
+        "cssVar": "--muted-foreground",
+        "dark": "#98a2b3"
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "tonalRamp": [
+          "#141a28",
+          "#4f596b",
+          "#9aa4b6",
+          "#d5dbe3",
+          "#e3e7ed",
+          "#eef1f5",
+          "#f5f6f8",
+          "#ffffff"
+        ],
+        "cssVar": "--border",
+        "dark": "rgb(255 255 255 / 0.09)"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Page Title",
+        "purpose": "The page title (Today); in Condensed, the clock beside it."
+      },
+      "headline": {
+        "displayName": "Outcome Question",
+        "purpose": "The outcome panel's question."
+      },
+      "title-strip": {
+        "displayName": "Strip Person",
+        "purpose": "The person's name in the board strip; the page h1 on meeting and task pages."
+      },
+      "title-choice": {
+        "displayName": "Choice Title",
+        "purpose": "An outcome choice's name; the task note at weight 500."
+      },
+      "title": {
+        "displayName": "Card Title",
+        "purpose": "Card titles in the 44px title row."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "All running text."
+      },
+      "body-meta": {
+        "displayName": "Meta",
+        "purpose": "Lines under names, card meta, captions, footers."
+      },
+      "figure-xl": {
+        "displayName": "Figure XL",
+        "purpose": "Performance figures."
+      },
+      "figure-lg": {
+        "displayName": "Figure Large",
+        "purpose": "Strip time, Boarding row time; phone number at 28px."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "A board row's time."
+      },
+      "board-title": {
+        "displayName": "Board Title",
+        "purpose": "The board's own heading."
+      },
+      "status-word": {
+        "displayName": "Status Word",
+        "purpose": "One per board row; uppercase, coloured by meaning."
+      },
+      "status-word-strip": {
+        "displayName": "Strip Status Word",
+        "purpose": "The strip's status word with its dot."
+      },
+      "due": {
+        "displayName": "Due Label",
+        "purpose": "A task row's due label; red when overdue."
+      },
+      "label": {
+        "displayName": "Column Label",
+        "purpose": "Uppercase column, day and group headings on the rule above their rows. Never a kicker above a heading."
+      },
+      "chip": {
+        "displayName": "Chip",
+        "purpose": "Stage chips, the step chip, reason chips; uppercase."
+      }
+    },
+    "themes": {
+      "dark": {
+        "strategy": "Re-tiered, not inverted: ground #090d14 < shell #0d121c < card #121826 < popover #171e2d < board #1b2336 < board-raised #26304a. The board is the strongest surface; inks lift to light values; lime is unchanged.",
+        "source": "app/globals.css .dark"
+      }
+    },
+    "shadows": [
+      {
+        "name": "segment-lift",
+        "value": "0 1px 2px rgb(20 26 40 / 0.12)",
+        "purpose": "Selected option of a segmented toggle."
+      },
+      {
+        "name": "queue-marker",
+        "value": "inset 3px 0 0 var(--color-primary)",
+        "purpose": "The open task's row in the queue, over a 10% lime tint."
+      },
+      {
+        "name": "strip-ring-dark",
+        "value": "0 0 0 1px rgb(238 241 246 / 0.1)",
+        "purpose": "Edge of the board strip in dark only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "page-out",
+        "value": "150ms ease-out opacity",
+        "purpose": "Old page fades out on navigation."
+      },
+      {
+        "name": "page-in",
+        "value": "200ms ease-out opacity + translateY(4px)",
+        "purpose": "New page fades in."
+      },
+      {
+        "name": "stream-in",
+        "value": "300ms ease-out opacity + translateY(8px)",
+        "purpose": "Streamed content entering."
+      },
+      {
+        "name": "shimmer",
+        "value": "1.5s ease-in-out infinite",
+        "purpose": "Skeleton placeholders."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "all of the above off",
+        "purpose": "prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px",
+        "purpose": "Board becomes a table."
+      },
+      {
+        "name": "lg",
+        "value": "1024px",
+        "purpose": "Task queue column appears."
+      },
+      {
+        "name": "xl",
+        "value": "1280px",
+        "purpose": "Today splits into board column and 384px rail."
+      }
+    ],
+    "focus": {
+      "value": "3px ring at 50% of --ring (lime ink light, lime dark); stretched row links use a 2px inset ring",
+      "purpose": "All interactive elements."
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The next action: lime fill, navy text.",
+      "html": "<button class=\"ds-btn-primary\">Won · log payment</button>",
+      "css": ".ds-btn-primary { font-family: var(--font-barlow), Barlow, sans-serif; height: 32px; padding: 0 10px; border-radius: 7px; border: 1px solid transparent; background: var(--primary, #84b135); color: var(--primary-foreground, #141a28); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s, transform .1s; } .ds-btn-primary:hover { background: color-mix(in oklab, var(--primary, #84b135) 80%, transparent); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring, #4a7212) 50%, transparent); } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary actions and the way an open task does not ask for.",
+      "html": "<button class=\"ds-btn-outline\">Text</button>",
+      "css": ".ds-btn-outline { font-family: var(--font-barlow), Barlow, sans-serif; height: 32px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--border, #e3e7ed); background: var(--background, #f5f6f8); color: var(--foreground, #141a28); font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s; } .ds-btn-outline:hover { background: var(--muted, #eef1f5); } .ds-btn-outline:focus-visible { outline: none; border-color: var(--ring, #4a7212); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring, #4a7212) 50%, transparent); }"
+    },
+    {
+      "name": "Stage Chip",
+      "kind": "chip",
+      "refersTo": "stage-chip",
+      "description": "A deal's stage in the stage scale.",
+      "html": "<span class=\"ds-chip ds-chip-booked\">Booked</span> <span class=\"ds-chip ds-chip-fu\">Follow-up</span> <span class=\"ds-chip ds-chip-won\">Won</span> <span class=\"ds-chip ds-chip-lost\">Lost: no-show</span>",
+      "css": ".ds-chip { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; } .ds-chip-booked { background: color-mix(in oklab, var(--stage-booked, #4c6fd0) 15%, transparent); color: var(--stage-booked-ink, #2b4aa8); } .ds-chip-fu { background: color-mix(in oklab, var(--stage-follow-up, #2a9d95) 15%, transparent); color: var(--stage-follow-up-ink, #1d756f); } .ds-chip-won { background: color-mix(in oklab, var(--stage-won, #84b135) 15%, transparent); color: var(--stage-won-ink, #4a7212); } .ds-chip-lost { background: color-mix(in oklab, var(--stage-lost, #d93a40) 12%, transparent); color: var(--stage-lost-ink, #b42328); }"
+    },
+    {
+      "name": "Departures Board",
+      "kind": "custom",
+      "refersTo": "board",
+      "description": "Today's calls: navy board, condensed times, one status word per row, the next call as a lime Boarding row.",
+      "html": "<section class=\"ds-board\"><header class=\"ds-board-head\"><h2>Today's calls</h2><span>4 calls · 1 held · 3 to go</span></header><div class=\"ds-board-cols\"><span>Time</span><span>Person</span><span>Program</span><span>Gate</span><span>Status</span></div><div class=\"ds-board-row ds-dim\"><b class=\"ds-t\">9:30<small>AM</small></b><span class=\"ds-p\">Lucía Reyes</span><span>Mentorship</span><span>Zoom</span><span class=\"ds-w ds-held\">Held <em>Won · $3,500</em></span></div><div class=\"ds-board-row ds-boarding\"><b class=\"ds-t\">11:00<small>AM</small></b><span class=\"ds-p\">Ana Torres</span><span>Mentorship</span><a class=\"ds-join\" href=\"#\">Join ↗</a><span class=\"ds-w\">Boarding <strong>12<small>min</small></strong></span></div><div class=\"ds-board-row\"><b class=\"ds-t\">2:15<small>PM</small></b><span class=\"ds-p\">Bo Lindqvist</span><span>Accelerator</span><span>Meet</span><span class=\"ds-w\">On time</span></div><div class=\"ds-board-row\"><b class=\"ds-t\">8:00<small>AM</small></b><span class=\"ds-p\">Kemi Ade</span><span>Mentorship</span><span>Zoom</span><span class=\"ds-w ds-owed\">Not recorded</span></div></section>",
+      "css": ".ds-board { font-family: var(--font-barlow), Barlow, sans-serif; background: #141a28; color: #eef1f6; border-radius: 9.8px; overflow: hidden; font-size: 14px; } .ds-board-head { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 8px 18px; } .ds-board-head h2 { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; margin: 0; font-size: 19px; font-weight: 600; letter-spacing: .02em; line-height: 1; } .ds-board-head span { font-size: 13px; color: #9aa4b6; } .ds-board-cols, .ds-board-row { display: grid; grid-template-columns: 96px 1fr 26% 96px 176px; align-items: center; padding: 0 0 0 18px; border-top: 1px solid rgb(242 244 247 / .08); } .ds-board-cols { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; height: 28px; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #9aa4b6; } .ds-board-row { height: 44px; cursor: pointer; transition: background .15s; } .ds-board-row:hover { background: rgb(31 39 56 / .5); } .ds-t { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; } .ds-t small { margin-left: 3px; font-size: 12px; font-weight: 500; color: #9aa4b6; } .ds-p { font-weight: 600; } .ds-w { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; display: flex; align-items: center; gap: 10px; } .ds-w em { font-family: var(--font-barlow), Barlow, sans-serif; font-style: normal; font-size: 13px; letter-spacing: 0; text-transform: none; font-weight: 600; color: #a6cf5e; } .ds-held { color: #b9c2d0; } .ds-owed { color: #ffd666; } .ds-dim .ds-t, .ds-dim .ds-p { color: #9aa4b6; } .ds-boarding { height: 56px; background: #84b135; color: #141a28; border-top-color: transparent; } .ds-boarding:hover { background: #84b135; } .ds-boarding .ds-t { font-size: 26px; } .ds-boarding .ds-t small { color: rgb(20 26 40 / .8); } .ds-boarding .ds-p { font-size: 15px; } .ds-boarding strong { font-size: 22px; font-variant-numeric: tabular-nums; } .ds-boarding strong small { font-size: 12px; } .ds-join { display: inline-flex; align-items: center; height: 32px; width: fit-content; padding: 0 12px; border-radius: 7px; background: #141a28; color: #eef1f6; font-weight: 600; text-decoration: none; } .ds-join:hover { background: #1d2536; } .ds-join:focus-visible { outline: none; box-shadow: 0 0 0 2px #84b135, 0 0 0 4px #141a28; }"
+    },
+    {
+      "name": "Board Strip",
+      "kind": "custom",
+      "refersTo": "board-strip",
+      "description": "A meeting or task as one board row at the top of its page; the status word changes in place.",
+      "html": "<section class=\"ds-strip\"><div class=\"ds-strip-cols\"><span>Due</span><span>Person</span><span>Deal</span><span>Reach by</span><span>Status</span></div><div class=\"ds-strip-row\"><div><p class=\"ds-big\">4:15<small>PM</small></p><p class=\"ds-sub\">Today, Oct 29</p></div><div><h1>Ana Torres</h1><p class=\"ds-sub\">Call back · set Oct 27</p></div><div><p><b>Mentorship</b></p><p class=\"ds-sub\">Follow-up · 2 calls</p></div><div><p class=\"ds-sub\"><b>Call</b> · +1 504 555 0142</p></div><div><p class=\"ds-word\"><i></i>Overdue</p><p class=\"ds-sub\">3 h past due</p></div></div></section>",
+      "css": ".ds-strip { font-family: var(--font-barlow), Barlow, sans-serif; background: var(--board, #141a28); color: var(--board-foreground, #eef1f6); border-radius: 9.8px; overflow: hidden; font-size: 14px; } .ds-strip-cols, .ds-strip-row { display: grid; grid-template-columns: 6.25rem 1.3fr 1.1fr 1fr minmax(7.5rem, auto); column-gap: 14px; padding: 0 16px; } .ds-strip-cols { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; height: 28px; align-items: center; border-bottom: 1px solid rgb(242 244 247 / .08); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #9aa4b6; } .ds-strip-row { min-height: 64px; align-items: center; padding-top: 8px; padding-bottom: 8px; } .ds-strip p, .ds-strip h1 { margin: 0; } .ds-strip h1 { font-size: 18px; font-weight: 600; line-height: 1.25; } .ds-big { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; font-size: 26px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; } .ds-big small { margin-left: 4px; font-size: 14px; font-weight: 500; color: #9aa4b6; } .ds-sub { margin-top: 4px !important; font-size: 13px; color: #9aa4b6; } .ds-sub b { color: #eef1f6; } .ds-word { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; line-height: 1; color: var(--board-danger, #ff8a8e); } .ds-word i { width: 8px; height: 8px; border-radius: 50%; background: var(--board-danger, #ff8a8e); }"
+    },
+    {
+      "name": "Outcome Panel",
+      "kind": "custom",
+      "refersTo": "outcome-panel",
+      "description": "The two-step outcome question in a lime-bordered panel; each choice states its consequence.",
+      "html": "<section class=\"ds-outcome\"><div class=\"ds-oh\"><span class=\"ds-step\">Step 2 of 2</span><h2>How did the call end?</h2></div><p class=\"ds-lede\">Ana showed up. Each choice marks the call held.</p><div class=\"ds-choices\"><button class=\"ds-choice ds-won\"><span class=\"ds-mark\">$</span><b>Won · log payment</b><small>Closes the deal as won with the payment.</small></button><button class=\"ds-choice\"><span class=\"ds-mark ds-teal\">+</span><b>Follow-up</b><small>Moves the deal to Follow-up with a link or a reminder.</small></button><button class=\"ds-choice\"><span class=\"ds-mark ds-red\">×</span><b class=\"ds-lost\">Lost</b><small>Closes the deal as lost, with a reason.</small></button></div><div class=\"ds-foot\">Back to “Did Ana show up?”</div></section>",
+      "css": ".ds-outcome { font-family: var(--font-barlow), Barlow, sans-serif; background: var(--card, #fff); color: var(--foreground, #141a28); border: 2px solid var(--primary, #84b135); border-radius: 9.8px; overflow: hidden; font-size: 14px; } .ds-oh { display: flex; align-items: center; gap: 10px; padding: 14px 20px 4px; } .ds-oh h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; } .ds-step { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: #84b135; color: #141a28; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; } .ds-lede { margin: 0; padding: 0 20px; color: var(--muted-foreground, #4f596b); } .ds-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 16px 20px; } .ds-choice { font-family: var(--font-barlow), Barlow, sans-serif; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 2px; align-items: center; min-height: 64px; padding: 12px 16px; text-align: left; border-radius: 7px; border: 1px solid var(--border, #e3e7ed); background: var(--card, #fff); color: inherit; cursor: pointer; transition: background .15s; } .ds-choice:hover { background: color-mix(in oklab, var(--muted, #eef1f5) 60%, transparent); } .ds-choice:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 5px color-mix(in oklab, var(--ring, #4a7212) 60%, transparent); } .ds-choice b { font-size: 17px; font-weight: 600; } .ds-choice small { grid-column: 2; font-size: 13px; line-height: 1.375; color: var(--muted-foreground, #4f596b); } .ds-mark { grid-row: span 2; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-weight: 700; } .ds-won { background: #84b135; border-color: #84b135; color: #141a28; } .ds-won:hover { background: color-mix(in oklab, #84b135 85%, transparent); } .ds-won small { color: rgb(20 26 40 / .8); } .ds-won .ds-mark { background: rgb(20 26 40 / .1); } .ds-teal { background: color-mix(in oklab, #2a9d95 15%, transparent); color: #1d756f; } .ds-red { background: color-mix(in oklab, #d93a40 10%, transparent); color: #b42328; } .ds-lost { color: #b42328; } .ds-foot { border-top: 1px solid var(--border, #e3e7ed); background: var(--background, #f5f6f8); padding: 8px 20px; font-size: 13px; color: var(--muted-foreground, #4f596b); }"
+    },
+    {
+      "name": "Deal Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "DetailCard with the stage chip, the stage track, the credit line and a ruled footer.",
+      "html": "<article class=\"ds-card\"><header><h2>Deal</h2><span class=\"ds-chip2\">Follow-up</span><span class=\"ds-meta\">Mentorship</span></header><ol class=\"ds-track\"><li class=\"ds-past\"><i></i>Qualified</li><li class=\"ds-past\"><i></i>Booked</li><li class=\"ds-past\"><i></i>Held</li><li class=\"ds-now\"><i></i>Follow-up</li><li><i></i>Won</li></ol><p class=\"ds-credit\">Lead gen <b>Marta</b> · Closer <b>Bo</b></p><footer><span>First touch Calendly · Oct 20</span><a href=\"#\">Open deal</a></footer></article>",
+      "css": ".ds-card { font-family: var(--font-barlow), Barlow, sans-serif; background: var(--card, #fff); color: var(--foreground, #141a28); border: 1px solid var(--border, #e3e7ed); border-radius: 9.8px; overflow: hidden; font-size: 14px; } .ds-card header { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border-bottom: 1px solid var(--border, #e3e7ed); } .ds-card h2 { margin: 0; font-size: 15px; font-weight: 600; } .ds-chip2 { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; background: color-mix(in oklab, #2a9d95 15%, transparent); color: #1d756f; } .ds-meta { margin-left: auto; font-size: 13px; color: var(--muted-foreground, #4f596b); } .ds-track { display: grid; grid-template-columns: repeat(5, 1fr); list-style: none; margin: 0; padding: 14px 8px 4px; } .ds-track li { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-foreground, #4f596b); } .ds-track li + li::before { content: ''; position: absolute; top: 7px; left: -50%; right: 50%; height: 2px; background: var(--border, #e3e7ed); } .ds-track li.ds-past + li::before, .ds-track li.ds-past::before { background: #2a9d95; } .ds-track i { position: relative; z-index: 1; width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgb(79 89 107 / .4); background: var(--card, #fff); box-sizing: border-box; } .ds-past i { background: #2a9d95; border-color: #2a9d95; } .ds-now { color: var(--foreground, #141a28) !important; } .ds-now i { border: 3px solid #2a9d95; } .ds-credit { margin: 0; padding: 8px 16px 12px; font-size: 13px; line-height: 1.6; color: var(--muted-foreground, #4f596b); } .ds-credit b { color: var(--foreground, #141a28); font-weight: 600; } .ds-card footer { display: flex; justify-content: space-between; align-items: center; min-height: 40px; padding: 0 16px; border-top: 1px solid var(--border, #e3e7ed); font-size: 13px; font-weight: 500; color: var(--muted-foreground, #4f596b); } .ds-card footer a { font-weight: 600; color: var(--foreground, #141a28); text-decoration: underline; text-decoration-color: rgb(20 26 40 / .4); text-underline-offset: 3px; } .ds-card footer a:hover { text-decoration-color: currentColor; } .ds-card footer a:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring, #4a7212); border-radius: 2px; }"
+    },
+    {
+      "name": "Task Rows",
+      "kind": "custom",
+      "refersTo": "task-row",
+      "description": "Ruled two-line task rows under condensed group headings; the open task carries the lime inset.",
+      "html": "<div class=\"ds-tasks\"><h3 class=\"ds-g ds-over\">Overdue · 1</h3><div class=\"ds-row\"><p><a href=\"#\">Kemi Ade</a><span> · Call back</span></p><span class=\"ds-due ds-over\">Yesterday</span><p class=\"ds-ctx\"><span class=\"ds-reason\">No-show</span>Mentorship · Follow-up</p><button class=\"ds-act ds-act-p\">Call</button></div><h3 class=\"ds-g\">Today · 2</h3><div class=\"ds-row ds-current\"><p><a href=\"#\">Ana Torres</a><span> · Call back</span></p><span class=\"ds-due\">4:15 PM</span><p class=\"ds-ctx\">Mentorship · Follow-up</p></div><div class=\"ds-row\"><p><a href=\"#\">Bo Lindqvist</a><span> · Text back</span></p><span class=\"ds-due\">5:30 PM</span><p class=\"ds-ctx\">Accelerator · Follow-up</p><button class=\"ds-act\">Text</button></div></div>",
+      "css": ".ds-tasks { font-family: var(--font-barlow), Barlow, sans-serif; background: var(--card, #fff); color: var(--foreground, #141a28); border: 1px solid var(--border, #e3e7ed); border-radius: 9.8px; overflow: hidden; font-size: 14px; } .ds-g { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; margin: 0; height: 26px; display: flex; align-items: center; padding: 0 16px; background: var(--background, #f5f6f8); border-top: 1px solid var(--border, #e3e7ed); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted-foreground, #4f596b); } .ds-g:first-child { border-top: 0; } .ds-row { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: center; padding: 7px 16px; border-top: 1px solid var(--border, #e3e7ed); transition: background .15s; } .ds-row:hover { background: color-mix(in oklab, var(--accent, #eef1f5) 60%, transparent); } .ds-row p { margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-row a { font-weight: 600; color: inherit; text-decoration: none; } .ds-row a:focus-visible { outline: 2px solid var(--ring, #4a7212); outline-offset: 2px; } .ds-row p span { color: var(--muted-foreground, #4f596b); } .ds-due { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; justify-self: end; font-size: 14px; font-weight: 600; letter-spacing: .02em; color: var(--muted-foreground, #4f596b); } .ds-over { color: var(--danger-ink, #b42328) !important; } .ds-ctx { margin-top: 2px !important; font-size: 12px; color: var(--muted-foreground, #4f596b); display: flex; gap: 6px; align-items: center; } .ds-reason { font-family: var(--font-barlow-condensed), 'Barlow Condensed', sans-serif; padding: 0 6px; border-radius: 4px; background: color-mix(in oklab, #d93a40 10%, transparent); color: #b42328; font-size: 11px; line-height: 18px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; } .ds-act { font-family: var(--font-barlow), Barlow, sans-serif; justify-self: end; margin-top: 2px; height: 24px; padding: 0 8px; border-radius: 5.6px; border: 1px solid var(--border, #e3e7ed); background: var(--background, #f5f6f8); color: inherit; font-size: 12px; font-weight: 600; cursor: pointer; } .ds-act:hover { background: var(--muted, #eef1f5); } .ds-act-p { background: #84b135; border-color: transparent; color: #141a28; } .ds-act-p:hover { background: color-mix(in oklab, #84b135 80%, transparent); } .ds-current { background: color-mix(in oklab, #84b135 10%, transparent); box-shadow: inset 3px 0 0 #84b135; } .ds-current:hover { background: color-mix(in oklab, #84b135 15%, transparent); }"
+    },
+    {
+      "name": "Section Empty and Error",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Each section reports its own empty and failed state in place.",
+      "html": "<div class=\"ds-sec\"><div class=\"ds-empty\"><p>No open tasks.</p><p class=\"ds-hint\">New call-backs land here when you schedule a follow-up.</p></div><div class=\"ds-err\" role=\"alert\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/></svg><p>Couldn't load your tasks. Reload the page to try again.</p></div></div>",
+      "css": ".ds-sec { font-family: var(--font-barlow), Barlow, sans-serif; background: var(--card, #fff); color: var(--foreground, #141a28); border: 1px solid var(--border, #e3e7ed); border-radius: 9.8px; overflow: hidden; font-size: 14px; } .ds-sec p { margin: 0; } .ds-empty { display: flex; flex-direction: column; gap: 2px; padding: 16px; } .ds-empty > p:first-child { font-weight: 500; } .ds-hint { color: var(--muted-foreground, #4f596b); } .ds-err { display: flex; gap: 8px; align-items: flex-start; padding: 12px 16px; border-top: 1px solid var(--border, #e3e7ed); } .ds-err svg { flex-shrink: 0; margin-top: 2px; color: var(--danger-ink, #b42328); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Departures Board",
+    "overview": "The closer's day reads like an airport departures board set inside a calm, ordinary CRM. One navy surface carries what is moving: today's calls, or the single call or task the page is about, each with one condensed status word that changes in place (On time, Boarding, Not recorded, Held; Due 4:15 PM, Due now, Overdue, Done). Around it the CRM stays quiet: cool paper ground, white cards divided by one-pixel rules, plain Barlow text. Lime marks the one thing to do next. When a page has no next action, it has no lime.\n\nDensity is that of a second screen beside a live video call. Rows are 44px, card title rows 44 to 46px, text 14px with 13px meta lines, and every number sits in Barlow Condensed with tabular figures so times and amounts line up down a column. The navy shell and lime are the brand speaking loudly, as PRODUCT.md commits. On the paper, lime is not decoration; it is the button.\n\nThe world was built and reviewed on three closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page and the task page. The rest of the app has not migrated yet (see Migration Status at the end).",
+    "keyCharacteristics": [
+      "Navy is a surface, not an accent: the sidebar shell, the Today board and the page strip.",
+      "One status word per row, condensed, uppercase and coloured by meaning. It changes in place and never moves to a badge somewhere else.",
+      "Lime is reserved for the next action and primary buttons, always with navy text on it.",
+      "White cards with 1px rules and a 44px title row; rows ruled, never zebra-striped.",
+      "Barlow for words; Barlow Condensed for times, status words, figures, labels and chips.",
+      "Flat surfaces. Depth comes from tone (navy, white, paper), not shadow."
+    ],
+    "rules": [
+      {
+        "name": "The Next Action Rule",
+        "body": "On the paper, lime marks the next action and primary buttons only. A finished task's Call button loses its lime; a recorded outcome collapses to a one-line summary with no lime. If two things on a screen are lime, at most one is a button the closer should press now.",
+        "section": "colors"
+      },
+      {
+        "name": "The Navy Text Rule",
+        "body": "Text on lime is navy, always. Lime text on light surfaces uses lime ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Scale Rule",
+        "body": "A deal stage is coloured only from the stage scale, in one form per surface: a condensed tinted chip, a track ring, a bar segment, or an ink word on navy.",
+        "section": "colors"
+      },
+      {
+        "name": "The Board Is Dark Rule",
+        "body": "The board and its strips are dark surfaces in both themes. Content on them uses the dark theme's inks (the Today board scopes the `dark` class onto itself so text, inks and focus rings come out right).",
+        "section": "colors"
+      },
+      {
+        "name": "The Condensed Figures Rule",
+        "body": "Every time, count, amount, phone number and status word is set in Barlow Condensed with tabular numerals. Tables get tabular numerals from the base layer; elsewhere, add them.",
+        "section": "typography"
+      },
+      {
+        "name": "The Labels Name Columns Rule",
+        "body": "The 11px condensed uppercase label names a column, a day or a group of rows, and it sits on the rule above the rows it heads. It never floats above a heading to restate what the heading says.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tone Not Shadow Rule",
+        "body": "A surface stands out by being navy, white or lime, never by floating. No drop shadows on cards, strips or panels.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** give each record one condensed status word and change it in place as time and outcomes move.",
+      "**Do** put the page's next action in lime and only that: one lime button group, the Boarding row, or the outcome panel.",
+      "**Do** set navy text on lime and use lime ink for lime-coloured text on light surfaces.",
+      "**Do** colour deal stages from the stage scale only, in fill or ink as the surface needs, and use the `-dark` inks on the board.",
+      "**Do** use amber for what the closer owes and red for what is lost or overdue.",
+      "**Do** set times, counts, amounts, phone numbers and status words in Barlow Condensed with tabular figures.",
+      "**Do** state a choice's consequence on the choice itself before it is confirmed.",
+      "**Do** build cards as `DetailCard`: 44px title row, 1px rules, 16px padding, edge-to-edge ruled rows.",
+      "**Do** make a list row's primary text a real link stretched over the row, with a visible inset focus ring.",
+      "**Do** write copy with the person's first name or \"the lead\"; never assume pronouns.",
+      "**Do** keep targets at 24px or more and every text pair at 4.5:1 in both themes."
+    ],
+    "donts": [
+      "**Don't** put a small uppercase label above a heading to restate it. Condensed labels name columns, days and groups only.",
+      "**Don't** use lime as decoration on the paper, or leave a lime button on a finished record.",
+      "**Don't** set lime text on white or paper.",
+      "**Don't** show a deal's stage or a call's attendance as a raw palette badge (emerald, indigo, violet). Use the stage scale and the status word.",
+      "**Don't** lift cards with drop shadows; separate surfaces by tone and rule.",
+      "**Don't** lay out a record page as a grid of equal-weight cards with a row of peer action buttons. The question leads.",
+      "**Don't** write he, she, his or her for a person in UI copy."
+    ]
+  }
+}
