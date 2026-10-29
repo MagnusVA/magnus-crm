@@ -4,38 +4,18 @@ import { useCallback, useState } from "react";
 import { useMutation } from "convex/react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import {
-  AlertTriangleIcon,
-  CheckCircle2Icon,
-  LinkIcon,
-  SaveIcon,
-} from "lucide-react";
+import { AlertTriangleIcon, CheckCircle2Icon } from "lucide-react";
 import posthog from "posthog-js";
 import { reportClientError } from "@/lib/observability/report-client-error";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/errors";
+import { DetailCard } from "./detail-card";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,76 +119,52 @@ export function FathomLinkField({
   const errorId = `fathom-link-error-${meetingId}`;
 
   return (
-    <Card size="sm">
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <CardTitle className="flex cursor-default items-center gap-2 text-sm">
-                <LinkIcon className="size-4 text-muted-foreground" aria-hidden />
-                Fathom Recording
-              </CardTitle>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              Paste the Fathom recording link for this meeting
-            </TooltipContent>
-          </Tooltip>
-          <StatusIndicator status={saveStatus} savedAt={savedAt} />
-        </div>
-      </CardHeader>
-      <CardContent>
+    <DetailCard
+      title="Fathom recording"
+      meta={<StatusIndicator status={saveStatus} savedAt={savedAt} />}
+    >
+      <div className="flex flex-col gap-1.5 px-4 py-3">
         <Label htmlFor={inputId} className="sr-only">
           Fathom recording URL
         </Label>
-        <InputGroup
-          className={cn(saveStatus === "error" && "border-destructive")}
-        >
-          <InputGroupInput
+        <div className="flex gap-2">
+          <Input
             id={inputId}
             type="url"
             inputMode="url"
-            placeholder="https://fathom.video/call/..."
+            placeholder="https://fathom.video/call/…"
             value={value}
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={saveStatus === "saving"}
             aria-invalid={saveStatus === "error"}
             aria-describedby={errorMessage ? errorId : undefined}
-            className="font-mono text-xs"
+            className="h-8 min-w-0 flex-1"
           />
-          <InputGroupAddon align="inline-end">
-            <Button
-              type="button"
-              size="sm"
-              className="h-6 px-2"
-              onClick={handleSave}
-              disabled={
-                saveStatus === "saving" || isEmpty || !hasUnsavedChanges
-              }
-            >
-              {saveStatus === "saving" ? (
-                <Spinner className="size-3.5" />
-              ) : (
-                <>
-                  <SaveIcon data-icon="inline-start" aria-hidden />
-                  Save
-                </>
-              )}
-            </Button>
-          </InputGroupAddon>
-        </InputGroup>
+          <Button
+            type="button"
+            variant={hasUnsavedChanges && !isEmpty ? "default" : "outline"}
+            onClick={handleSave}
+            disabled={saveStatus === "saving" || isEmpty || !hasUnsavedChanges}
+          >
+            {saveStatus === "saving" ? (
+              <Spinner data-icon="inline-start" aria-hidden />
+            ) : null}
+            Save
+          </Button>
+        </div>
         {errorMessage && (
           <p
             id={errorId}
             role="alert"
-            className="mt-1.5 flex items-center gap-1 text-xs text-destructive"
+            className="flex items-center gap-1 text-[0.8125rem] text-danger-ink"
           >
             <AlertTriangleIcon className="size-3 shrink-0" aria-hidden />
             {errorMessage}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </DetailCard>
   );
 }
 
@@ -226,7 +182,7 @@ function StatusIndicator({
   if (status === "saving") {
     return (
       <span
-        className="flex items-center gap-1 text-xs text-muted-foreground"
+        className="flex items-center gap-1"
         aria-live="polite"
       >
         <Spinner className="size-3" aria-hidden />
@@ -237,7 +193,7 @@ function StatusIndicator({
   if ((status === "saved" || status === "idle") && savedAt) {
     return (
       <span
-        className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400"
+        className="flex items-center gap-1 text-primary-ink"
         aria-live="polite"
       >
         <CheckCircle2Icon className="size-3 shrink-0" aria-hidden />

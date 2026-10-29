@@ -13,6 +13,7 @@ import {
 } from "../opportunities/stages";
 import { opportunityByStage } from "../reporting/aggregates";
 import { isPersonLoss } from "../reporting/lib/outcomeDerivation";
+import { canRecordMeetingOutcome } from "../opportunities/dealGuards";
 import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
 import schema from "../schema";
 
@@ -20,6 +21,16 @@ const MAX_CLOSER_PAYMENT_SCAN_ROWS = 2500;
 const MAX_CLOSER_MEETING_ROWS = 2000;
 const CLOSER_MEETING_BYTE_BUDGET = 4 * 1024 * 1024;
 const NEXT_MEETING_CANDIDATES = 25;
+// A call that has started stays the next call until it ends. Calls are read
+// from this far back so one in progress is still found; longer calls than
+// this are not expected.
+const LIVE_MEETING_LOOKBACK_MS = 4 * 60 * 60 * 1000;
+const NEEDS_OUTCOME_CANDIDATES = 40;
+const NEEDS_OUTCOME_LIMIT = 20;
+
+function meetingEndsAt(meeting: Pick<Doc<"meetings">, "scheduledAt" | "durationMinutes">) {
+  return meeting.scheduledAt + meeting.durationMinutes * 60_000;
+}
 
 function emptyPositionCounts(): Record<DealPosition, number> {
   return { qualified: 0, booked: 0, call_held: 0, follow_up: 0, won: 0, lost: 0 };
@@ -62,7 +73,11 @@ export async function readCloserMeetingDeals(
   endDate: number,
   maxRows = MAX_CLOSER_MEETING_ROWS,
   byteBudget = CLOSER_MEETING_BYTE_BUDGET,
-): Promise<{ deals: Array<Doc<"opportunities">>; isMeetingDataTruncated: boolean }> {
+): Promise<{
+  deals: Array<Doc<"opportunities">>;
+  attendance: { held: number; noShow: number };
+  isMeetingDataTruncated: boolean;
+}> {
   const read = await readLiveQueryRows(
     ctx.db
       .query("meetings")
@@ -78,6 +93,13 @@ export async function readCloserMeetingDeals(
     byteBudget,
   );
   const opportunityIds = new Set(read.rows.map((meeting) => meeting.opportunityId));
+  // The calls' attendance, for the show-up rate: every call the closer was
+  // assigned in the range, whoever owns its deal now.
+  const attendance = { held: 0, noShow: 0 };
+  for (const meeting of read.rows) {
+    if (meeting.status === "held") attendance.held += 1;
+    if (meeting.status === "no_show") attendance.noShow += 1;
+  }
 
   const deals: Array<Doc<"opportunities">> = [];
   for (const opportunityId of opportunityIds) {
@@ -91,7 +113,7 @@ export async function readCloserMeetingDeals(
     }
     deals.push(opportunity);
   }
-  return { deals, isMeetingDataTruncated: read.capped };
+  return { deals, attendance, isMeetingDataTruncated: read.capped };
 }
 
 /**
@@ -163,7 +185,8 @@ async function getCashCollectedForCloserInRange(
  * Get the closer's next upcoming meeting.
  *
  * Returns the soonest meeting (by scheduledAt) with status "scheduled"
- * that belongs to an opportunity assigned to this closer.
+ * that hasn't ended and belongs to an opportunity assigned to this closer.
+ * A call in progress stays the next meeting until its scheduled end.
  *
  * Enriched with lead info and opportunity data.
  * Returns null if no upcoming meetings, or an incomplete result if the
@@ -192,12 +215,15 @@ export const getNextMeeting = query({
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", userId)
           .eq("status", "scheduled")
-          .gte("scheduledAt", now),
+          .gte("scheduledAt", now - LIVE_MEETING_LOOKBACK_MS),
       )
       .order("asc")
       .take(NEXT_MEETING_CANDIDATES);
 
     for (const meeting of candidates) {
+      if (meetingEndsAt(meeting) <= now) {
+        continue;
+      }
       const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (
         !opportunity ||
@@ -229,6 +255,89 @@ export const getNextMeeting = query({
 });
 
 /**
+ * The closer's past calls still owed an outcome, newest first: meetings
+ * still `scheduled` after their end ("Not recorded"), whose deal is still the
+ * closer's and still takes a meeting outcome (`canRecordMeetingOutcome`), so
+ * each one opens on a working outcome bar.
+ *
+ * Reads at most NEEDS_OUTCOME_CANDIDATES meetings back from now through the
+ * attendance index and returns up to NEEDS_OUTCOME_LIMIT. `isPartial` says
+ * there may be more than the list holds.
+ */
+export const getMeetingsNeedingOutcome = query({
+  args: {},
+  returns: v.object({
+    meetings: v.array(
+      v.object({
+        meetingId: v.id("meetings"),
+        scheduledAt: v.number(),
+        durationMinutes: v.number(),
+        leadName: v.string(),
+        programName: v.union(v.string(), v.null()),
+      }),
+    ),
+    isPartial: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    const now = Date.now();
+
+    const candidates = await ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_assignedCloserId_and_status_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("assignedCloserId", userId)
+          .eq("status", "scheduled")
+          .lt("scheduledAt", now),
+      )
+      .order("desc")
+      .take(NEEDS_OUTCOME_CANDIDATES);
+
+    const meetings = [];
+    for (const meeting of candidates) {
+      if (meetings.length === NEEDS_OUTCOME_LIMIT) {
+        break;
+      }
+      if (meetingEndsAt(meeting) > now) {
+        continue;
+      }
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
+      if (
+        !opportunity ||
+        opportunity.tenantId !== tenantId ||
+        opportunity.assignedCloserId !== userId ||
+        !canRecordMeetingOutcome(opportunity)
+      ) {
+        continue;
+      }
+      const eventTypeConfig =
+        meeting.bookingProgramName || opportunity.firstBookingProgramName || !opportunity.eventTypeConfigId
+          ? null
+          : await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId);
+      meetings.push({
+        meetingId: meeting._id,
+        scheduledAt: meeting.scheduledAt,
+        durationMinutes: meeting.durationMinutes,
+        leadName: meeting.leadName ?? "Unknown",
+        programName:
+          meeting.bookingProgramName ??
+          opportunity.firstBookingProgramName ??
+          eventTypeConfig?.displayName ??
+          null,
+      });
+    }
+
+    return {
+      meetings,
+      isPartial:
+        meetings.length === NEEDS_OUTCOME_LIMIT ||
+        candidates.length === NEEDS_OUTCOME_CANDIDATES,
+    };
+  },
+});
+
+/**
  * The closer's deals by position (docs/plans/phase-5-deal-status.md §6.2).
  *
  * **All-time mode** (no dates): the pipeline page's tabs, each position's
@@ -238,7 +347,9 @@ export const getNextMeeting = query({
  * deals behind the closer's meetings scheduled in [startDate, endDate), by
  * position, with `decided` for the close rate: the won deals and the deals a
  * person lost, so the missed meetings' losses leave the rate where the
- * status left it. Plus the cash collected in the range.
+ * status left it. Plus the cash collected in the range, and the attendance
+ * of the closer's calls in the range (`heldCount`, `noShowCount`) for the
+ * show-up rate: held / (held + no-show).
  */
 export const getPipelineSummary = query({
   args: {
@@ -260,6 +371,8 @@ export const getPipelineSummary = query({
     cashPaymentCount: v.union(v.number(), v.null()),
     isPaymentDataTruncated: v.boolean(),
     isMeetingDataTruncated: v.optional(v.boolean()),
+    heldCount: v.optional(v.number()),
+    noShowCount: v.optional(v.number()),
   }),
   handler: async (ctx, { startDate, endDate }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
@@ -272,7 +385,7 @@ export const getPipelineSummary = query({
         throw new Error("startDate must be earlier than endDate");
       }
 
-      const { deals, isMeetingDataTruncated } = await readCloserMeetingDeals(
+      const { deals, attendance, isMeetingDataTruncated } = await readCloserMeetingDeals(
         ctx, tenantId, userId, startDate, endDate,
       );
       const { counts, total, won, lost } = countStripByStage(deals);
@@ -284,7 +397,15 @@ export const getPipelineSummary = query({
         endDate,
       });
 
-      return { counts, total, decided: { won, lost }, isMeetingDataTruncated, ...cash };
+      return {
+        counts,
+        total,
+        decided: { won, lost },
+        isMeetingDataTruncated,
+        heldCount: attendance.held,
+        noShowCount: attendance.noShow,
+        ...cash,
+      };
     }
 
     // ── All-time mode (pipeline page tabs) ─────────────────────────────────

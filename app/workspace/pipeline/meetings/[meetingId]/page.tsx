@@ -11,7 +11,10 @@ export default async function AdminMeetingDetailPage({
 }: {
   params: Promise<{ meetingId: string }>;
 }) {
-  const { session } = await requireRole(["tenant_master", "tenant_admin"]);
+  const { session, crmUser } = await requireRole([
+    "tenant_master",
+    "tenant_admin",
+  ]);
   const { meetingId } = await params;
 
   const typedMeetingId = meetingId as Id<"meetings">;
@@ -21,5 +24,10 @@ export default async function AdminMeetingDetailPage({
     { token: session.accessToken },
   );
 
-  return <AdminMeetingDetailClient preloadedDetail={preloadedDetail} />;
+  return (
+    <AdminMeetingDetailClient
+      preloadedDetail={preloadedDetail}
+      viewerRole={crmUser.role}
+    />
+  );
 }

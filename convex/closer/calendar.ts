@@ -27,6 +27,10 @@ const calendarMeetingValidator = v.object({
     status: literals("scheduled", "held", "canceled", "no_show"),
     meetingJoinUrl: v.optional(v.string()),
     zoomJoinUrl: v.optional(v.string()),
+    // Calendly's location type ("zoom", "google_conference", ...): the call's gate.
+    meetingLocationType: v.optional(v.string()),
+    // The program booked: the meeting's own, else the deal's first booking's.
+    bookingProgramName: v.optional(v.string()),
   }),
   leadName: v.string(),
   eventTypeName: v.union(v.string(), v.null()),
@@ -50,8 +54,8 @@ const NO_DEAL = {
  *
  * Each meeting comes with the person's name, its event type and its deal's
  * label (`meetingDealLabelOf`): the stage, outcome and position, and the
- * loss the system wrote, such as a no-show or a cancellation. Used by the
- * calendar view to render meeting blocks. The envelope reports partial reads;
+ * loss the system wrote, such as a no-show or a cancellation, plus the call's
+ * gate and booked program. Used by the closer's Today board. The envelope reports partial reads;
  * meeting entries retain their existing shape.
  *
  * Args:
@@ -166,6 +170,9 @@ export async function readCloserCalendarMeetings(
         status: meeting.status,
         meetingJoinUrl: meeting.meetingJoinUrl,
         zoomJoinUrl: meeting.zoomJoinUrl,
+        meetingLocationType: meeting.meetingLocationType,
+        bookingProgramName:
+          meeting.bookingProgramName ?? opportunity?.firstBookingProgramName,
       },
       leadName: meeting.leadName ?? "Unknown",
       eventTypeName,

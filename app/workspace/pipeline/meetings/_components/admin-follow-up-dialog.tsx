@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -54,6 +55,11 @@ type AdminFollowUpDialogProps = {
   opportunityId: Id<"opportunities">;
   meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
+  /** Controlled open state. When set, the dialog renders no trigger button. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Named in the dialog so the admin knows whose deal moves. */
+  leadName?: string | null;
 };
 
 type DialogPath = "selection" | "scheduling_link" | "manual_reminder";
@@ -66,8 +72,17 @@ export function AdminFollowUpDialog({
   opportunityId,
   meetingId,
   onSuccess,
+  open: controlledOpen,
+  onOpenChange,
+  leadName,
 }: AdminFollowUpDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => {
+    if (!isControlled) setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [path, setPath] = useState<DialogPath>("selection");
   // A scheduling link was generated and the deal hasn't moved to Follow-up yet.
   const [pendingFollowUpId, setPendingFollowUpId] =
@@ -141,12 +156,14 @@ export function AdminFollowUpDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <CalendarPlusIcon data-icon="inline-start" />
-          Schedule Follow-up
-        </Button>
-      </DialogTrigger>
+      {isControlled ? null : (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">
+            <CalendarPlusIcon data-icon="inline-start" />
+            Schedule Follow-up
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -154,6 +171,13 @@ export function AdminFollowUpDialog({
             {path === "scheduling_link" && "Send Scheduling Link"}
             {path === "manual_reminder" && "Set a Reminder"}
           </DialogTitle>
+          {path === "selection" ? (
+            <DialogDescription>
+              {meetingId
+                ? `The call is marked held and ${leadName ? `${leadName}\u2019s` : "the"} deal moves to Follow-up.`
+                : `${leadName ? `${leadName}\u2019s` : "The"} deal moves to Follow-up.`}
+            </DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {path !== "selection" && !linkPending && (

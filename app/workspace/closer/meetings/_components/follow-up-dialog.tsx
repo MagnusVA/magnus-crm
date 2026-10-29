@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -56,6 +57,8 @@ type FollowUpDialogProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onSuccess?: () => Promise<void>;
+  /** Named in the dialog so the closer knows whose deal moves. */
+  leadName?: string | null;
 };
 
 type DialogPath = "selection" | "scheduling_link" | "manual_reminder";
@@ -77,6 +80,7 @@ export function FollowUpDialog({
   onOpenChange,
   onSuccess,
   compact,
+  leadName,
 }: FollowUpDialogProps & { compact?: boolean }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [path, setPath] = useState<DialogPath>("selection");
@@ -156,12 +160,14 @@ export function FollowUpDialog({
       open={open}
       onOpenChange={handleOpenChange}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline" size={compact ? "sm" : "lg"}>
-          <CalendarPlusIcon data-icon="inline-start" />
-          Schedule Follow-up
-        </Button>
-      </DialogTrigger>
+      {controlledOpen === undefined ? (
+        <DialogTrigger asChild>
+          <Button variant="outline" size={compact ? "sm" : "lg"}>
+            <CalendarPlusIcon data-icon="inline-start" />
+            Schedule Follow-up
+          </Button>
+        </DialogTrigger>
+      ) : null}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -169,6 +175,13 @@ export function FollowUpDialog({
             {path === "scheduling_link" && "Send Scheduling Link"}
             {path === "manual_reminder" && "Set a Reminder"}
           </DialogTitle>
+          {path === "selection" ? (
+            <DialogDescription>
+              {meetingId
+                ? `The call is marked held and ${leadName ? `${leadName}\u2019s` : "the"} deal moves to Follow-up.`
+                : `${leadName ? `${leadName}\u2019s` : "The"} deal moves to Follow-up.`}
+            </DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {path !== "selection" && !linkPending && (

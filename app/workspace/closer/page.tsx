@@ -1,9 +1,9 @@
 import { requireRole } from "@/lib/auth";
-import { CloserDashboardPageClient } from "./_components/closer-dashboard-page-client";
+import { CloserTodayPageClient } from "./_components/closer-today-page-client";
 
 export const unstable_instant = false;
 
-export default async function CloserDashboardPage() {
+export default async function CloserTodayPage() {
 	await requireRole(["closer"]);
-	return <CloserDashboardPageClient />;
+	return <CloserTodayPageClient />;
 }

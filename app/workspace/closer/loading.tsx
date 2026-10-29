@@ -1,5 +1,5 @@
-import { CloserDashboardSkeleton } from "./_components/closer-dashboard-skeleton";
+import { CloserTodaySkeleton } from "./_components/closer-today-skeleton";
 
-export default function CloserDashboardLoading() {
-	return <CloserDashboardSkeleton />;
+export default function CloserTodayLoading() {
+	return <CloserTodaySkeleton />;
 }

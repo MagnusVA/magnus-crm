@@ -7,12 +7,6 @@ import { toast } from "sonner";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -30,6 +23,7 @@ import {
 
 import { CommentEntry } from "./comment-entry";
 import { CommentInput } from "./comment-input";
+import { DetailCard } from "./detail-card";
 import { getErrorMessage } from "@/lib/errors";
 
 type MeetingCommentsProps = {
@@ -73,8 +67,8 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
     }
     if (comments.length === 0) {
       return (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          No comments yet. Be the first to add one.
+        <p className="py-6 text-center text-muted-foreground">
+          No comments yet.
         </p>
       );
     }
@@ -91,9 +85,15 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
     );
     if (maxHeight) {
       return (
-        <ScrollArea className="pr-2" style={{ maxHeight }}>
+        <div
+          className="-mr-2 overflow-y-auto overscroll-contain pr-2"
+          style={{ maxHeight }}
+          tabIndex={0}
+          role="region"
+          aria-label="Comment list"
+        >
           {list}
-        </ScrollArea>
+        </div>
       );
     }
     return list;
@@ -101,40 +101,37 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
 
   return (
     <>
-      <Card size="sm">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <MessageSquareIcon
-              className="size-4 text-muted-foreground"
-              aria-hidden
-            />
-            <CardTitle className="text-sm">Comments</CardTitle>
-            {!isLoading && comments.length > 0 && (
-              <span className="text-xs text-muted-foreground">
-                ({comments.length})
-              </span>
-            )}
+      <DetailCard
+        title="Comments"
+        meta={
+          <>
+            <span className="tabular-nums">
+              {isLoading ? null : comments.length}
+            </span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="ml-auto size-7"
+                  size="icon-sm"
+                  className="-mr-2 text-muted-foreground"
                   onClick={() => setExpanded(true)}
-                  aria-label="Expand comments"
+                  aria-label="Open comments in a larger view"
                 >
-                  <MaximizeIcon className="size-3.5" />
+                  <MaximizeIcon className="size-3.5" aria-hidden />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">Open larger view</TooltipContent>
             </Tooltip>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {commentList("260px")}
+          </>
+        }
+      >
+        {isLoading || comments.length > 0 ? (
+          <div className="px-4 pt-1">{commentList("260px")}</div>
+        ) : null}
+        <div className={isLoading || comments.length > 0 ? "border-t px-4 py-3" : "px-4 py-3"}>
           <CommentInput meetingId={meetingId} />
-        </CardContent>
-      </Card>
+        </div>
+      </DetailCard>
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-3xl">

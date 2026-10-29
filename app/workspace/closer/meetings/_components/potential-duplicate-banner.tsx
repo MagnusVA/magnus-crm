@@ -58,16 +58,16 @@ export function PotentialDuplicateBanner({
 		<Alert
 			role="status"
 			variant="default"
-			className="border-amber-500 bg-amber-50 dark:bg-amber-950/20"
+			className="border-warning bg-warning-surface"
 		>
 			<UsersIcon
 				aria-hidden="true"
-				className="text-amber-600 dark:text-amber-400"
+				className="text-warning-ink"
 			/>
-			<AlertTitle className="text-amber-800 dark:text-amber-200">
-				Potential Duplicate Lead
+			<AlertTitle className="text-foreground">
+				Possible duplicate person
 			</AlertTitle>
-			<AlertDescription className="break-words text-amber-700 dark:text-amber-300">
+			<AlertDescription className="break-words text-warning-ink">
 				<div className="flex flex-col gap-3">
 					<p>
 						{currentLeadName ? (
@@ -98,7 +98,7 @@ export function PotentialDuplicateBanner({
 							size="sm"
 							onClick={handleDismiss}
 							disabled={isDismissing}
-							className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-200 dark:hover:bg-amber-900/30"
+							className="border-warning bg-card text-foreground"
 						>
 							<XIcon data-icon="inline-start" />
 							Dismiss
@@ -107,7 +107,7 @@ export function PotentialDuplicateBanner({
 							variant="outline"
 							size="sm"
 							onClick={handleReviewMerge}
-							className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-200 dark:hover:bg-amber-900/30"
+							className="border-warning bg-card text-foreground"
 						>
 							<ExternalLinkIcon data-icon="inline-start" />
 							Review &amp; Merge

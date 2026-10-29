@@ -3,12 +3,11 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { format } from "date-fns";
-import { AlertCircleIcon, CheckIcon, CopyIcon } from "lucide-react";
+import { CalendarClockIcon, CheckIcon, CopyIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { ActiveFollowUpSummary } from "@/convex/lib/activeFollowUp";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   InputGroup,
@@ -29,9 +28,9 @@ type UnfinishedFollowUpBannerProps = {
 /**
  * A pending follow-up on a deal that still waits for its call's result:
  * usually a scheduling link whose dialog closed before Done. While it is
- * pending, the meeting's outcome buttons stay hidden, so this shows it and
+ * pending it takes the outcome question's place on the meeting page, and
  * either finishes it (the deal moves to Follow-up) or cancels it (the
- * buttons come back).
+ * question comes back).
  */
 export function UnfinishedFollowUpBanner({
   meeting,
@@ -108,68 +107,87 @@ export function UnfinishedFollowUpBanner({
         }`;
 
   return (
-    <Alert>
-      <AlertCircleIcon />
-      <AlertTitle>Follow-up not finished</AlertTitle>
-      <AlertDescription className="flex flex-col gap-3">
-        <p>
-          {what}, but the deal never moved to Follow-up, so{" "}
-          {mode === "admin" ? "the closer\u2019s" : "the"} outcome buttons are
-          hidden. Mark the follow-up scheduled if it was sent, or cancel it to
-          record the call&apos;s outcome.
-        </p>
-        {followUp.schedulingLinkUrl ? (
-          <InputGroup>
-            <InputGroupInput
-              value={followUp.schedulingLinkUrl}
-              readOnly
-              className="font-mono text-xs"
-              aria-label="Scheduling link"
-            />
-            <InputGroupAddon align="inline-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCopy}
-                aria-label={
-                  copied ? "Link copied to clipboard" : "Copy scheduling link"
-                }
-              >
-                {copied ? (
-                  <CheckIcon data-icon="inline-start" />
-                ) : (
-                  <CopyIcon data-icon="inline-start" />
-                )}
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </InputGroupAddon>
-          </InputGroup>
-        ) : null}
-        {error ? <p className="text-destructive">{error}</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            onClick={() => void run("finish")}
-            disabled={pendingAction !== null}
+    <section
+      aria-labelledby="unfinished-follow-up-heading"
+      className="flex flex-col gap-3 rounded-xl border-2 border-warning bg-card px-4 py-3.5"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning text-board"
+        >
+          <CalendarClockIcon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2
+            id="unfinished-follow-up-heading"
+            className="text-lg leading-tight font-semibold"
           >
-            {pendingAction === "finish" ? (
-              <Spinner data-icon="inline-start" />
-            ) : null}
-            Mark follow-up scheduled
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void run("cancel")}
-            disabled={pendingAction !== null}
-          >
-            {pendingAction === "cancel" ? (
-              <Spinner data-icon="inline-start" />
-            ) : null}
-            Cancel follow-up
-          </Button>
+            Follow-up not finished
+          </h2>
+          <p className="mt-1 text-muted-foreground">
+            {what}, but the deal never moved to Follow-up, so the outcome
+            question is on hold{mode === "admin" ? " for the closer" : ""}.
+            Mark the follow-up scheduled if it was sent, or cancel it to
+            record the call&apos;s outcome.
+          </p>
         </div>
-      </AlertDescription>
-    </Alert>
+      </div>
+      {followUp.schedulingLinkUrl ? (
+        <InputGroup className="sm:ml-11 sm:w-auto">
+          <InputGroupInput
+            value={followUp.schedulingLinkUrl}
+            readOnly
+            className="font-mono text-xs"
+            aria-label="Scheduling link"
+          />
+          <InputGroupAddon align="inline-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              aria-label={
+                copied ? "Link copied to clipboard" : "Copy scheduling link"
+              }
+            >
+              {copied ? (
+                <CheckIcon data-icon="inline-start" />
+              ) : (
+                <CopyIcon data-icon="inline-start" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </InputGroupAddon>
+        </InputGroup>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-danger-ink sm:ml-11">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2 sm:ml-11">
+        <Button
+          size="sm"
+          onClick={() => void run("finish")}
+          disabled={pendingAction !== null}
+        >
+          {pendingAction === "finish" ? (
+            <Spinner data-icon="inline-start" />
+          ) : null}
+          Mark follow-up scheduled
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void run("cancel")}
+          disabled={pendingAction !== null}
+        >
+          {pendingAction === "cancel" ? (
+            <Spinner data-icon="inline-start" />
+          ) : null}
+          Cancel follow-up
+        </Button>
+      </div>
+    </section>
   );
 }

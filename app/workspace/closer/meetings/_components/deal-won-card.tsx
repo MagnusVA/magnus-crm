@@ -60,17 +60,17 @@ const PAYMENT_STATUS_CONFIG = {
   recorded: {
     label: "Recorded",
     badgeClass:
-      "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
+      "bg-stage-booked/15 text-stage-booked-ink border-transparent",
   },
   verified: {
     label: "Verified",
     badgeClass:
-      "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
+      "bg-stage-won/15 text-stage-won-ink border-transparent",
   },
   disputed: {
     label: "Disputed",
     badgeClass:
-      "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
+      "bg-stage-lost/12 text-stage-lost-ink border-transparent",
   },
 } as const;
 
@@ -86,10 +86,10 @@ export function DealWonCard({ payments }: DealWonCardProps) {
   if (payments.length === 0) return null;
 
   return (
-    <Card className="border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/30">
+    <Card className="border-0 shadow-none ring-0">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <TrophyIcon className="size-5 text-emerald-600 dark:text-emerald-400" />
+          <TrophyIcon className="size-5 text-primary-ink" />
           <CardTitle className="text-base">Deal Won</CardTitle>
         </div>
       </CardHeader>
@@ -228,7 +228,7 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                         </button>
                         <div className="min-w-0 flex-1">
                           <p className="flex items-center gap-1.5 text-sm font-medium">
-                            <ImageIcon className="size-3.5 text-blue-600 dark:text-blue-400" />
+                            <ImageIcon className="size-3.5 text-stage-booked-ink" />
                             Image proof
                           </p>
                           {payment.proofFileSize != null && (

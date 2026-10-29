@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
@@ -111,6 +111,13 @@ type PaymentFormDialogProps = {
   meetingId: Id<"meetings">;
   onSuccess?: () => Promise<void>;
   compact?: boolean;
+  /** Controlled open state. When set, the dialog renders no trigger button. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Named in the dialog so the closer knows whose deal closes. */
+  leadName?: string | null;
+  /** The booked program, preselected when it is an active program. */
+  defaultProgramId?: Id<"tenantPrograms"> | null;
 };
 
 /**
@@ -122,20 +129,41 @@ type PaymentFormDialogProps = {
  * - Program (required)
  * - Payment Type (required)
  * - Proof File (optional, image or PDF up to 10 MB)
+ *
+ * The program starts at the booked program when it is still active, with
+ * that program's default currency.
  */
 export function PaymentFormDialog({
   opportunityId,
   meetingId,
   onSuccess,
   compact,
+  open: controlledOpen,
+  onOpenChange,
+  leadName,
+  defaultProgramId,
 }: PaymentFormDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => {
+    if (!isControlled) setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
     includeArchived: false,
   });
+
+  // The booked program, only while it is an active program.
+  const bookedProgram = defaultProgramId
+    ? programs?.find((program) => program._id === defaultProgramId)
+    : undefined;
+  const bookedCurrency = CURRENCIES.find(
+    (currency) => currency === bookedProgram?.defaultCurrency?.toUpperCase(),
+  );
 
   const form = useForm({
     resolver: standardSchemaResolver(paymentFormSchema),
@@ -147,6 +175,23 @@ export function PaymentFormDialog({
       proofFile: undefined,
     },
   });
+
+  const resetForm = () => {
+    form.reset({
+      amount: "",
+      currency: bookedCurrency ?? "USD",
+      programId: bookedProgram?._id ?? "",
+      paymentType: undefined,
+      proofFile: undefined,
+    });
+  };
+
+  // Programs load after the form, so the booked program fills in once they do.
+  useEffect(() => {
+    if (!bookedProgram || form.getValues("programId") !== "") return;
+    form.setValue("programId", bookedProgram._id);
+    if (bookedCurrency) form.setValue("currency", bookedCurrency);
+  }, [bookedProgram, bookedCurrency, form]);
 
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.closer.payments.logPayment);
@@ -211,9 +256,9 @@ export function PaymentFormDialog({
         payment_type: values.paymentType,
         has_proof_file: Boolean(proofFileId),
       });
-      toast.success("Payment logged successfully");
+      toast.success("Payment logged. The deal is won.");
       setOpen(false);
-      form.reset();
+      resetForm();
     } catch (err: unknown) {
       reportClientError(err, { flow: "meeting_payment_log", httpStatus: uploadHttpStatus });
       const message =
@@ -236,23 +281,27 @@ export function PaymentFormDialog({
         if (!isSubmitting) {
           setOpen(value);
           if (!value) {
-            form.reset();
+            resetForm();
             setSubmitError(null);
           }
         }
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline" size={compact ? "sm" : "lg"}>
-          <BanknoteIcon data-icon="inline-start" />
-          Log Payment
-        </Button>
-      </DialogTrigger>
+      {isControlled ? null : (
+        <DialogTrigger asChild>
+          <Button variant="outline" size={compact ? "sm" : "lg"}>
+            <BanknoteIcon data-icon="inline-start" />
+            Log Payment
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Log Payment</DialogTitle>
+          <DialogTitle>
+            {leadName ? `Log ${leadName}\u2019s payment` : "Log payment"}
+          </DialogTitle>
           <DialogDescription>
-            Record a payment to close this opportunity.
+            Logging it closes the deal as won and marks the call held.
           </DialogDescription>
         </DialogHeader>
 
@@ -331,7 +380,9 @@ export function PaymentFormDialog({
                       />
                     </FormControl>
                     <FormDescription>
-                      Attribute this payment to the correct tenant program.
+                      {bookedProgram && field.value === bookedProgram._id
+                        ? "The program this call was booked for."
+                        : "The program this payment is for."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -432,7 +483,7 @@ export function PaymentFormDialog({
                 variant="ghost"
                 onClick={() => {
                   setOpen(false);
-                  form.reset();
+                  resetForm();
                   setSubmitError(null);
                 }}
                 disabled={isSubmitting}
@@ -446,7 +497,7 @@ export function PaymentFormDialog({
                     Logging...
                   </>
                 ) : (
-                  "Log Payment"
+                  "Log payment and close as won"
                 )}
               </Button>
             </DialogFooter>

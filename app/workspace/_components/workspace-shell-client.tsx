@@ -146,7 +146,7 @@ const billingNavItem: NavItem = {
 };
 
 const closerNavItems: NavItem[] = [
-  { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
+  { href: "/workspace/closer", label: "Today", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
   leadsCustomersNavItem,
 ];
