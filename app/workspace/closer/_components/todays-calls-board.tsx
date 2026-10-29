@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import type { DealPosition } from "@/convex/opportunities/stages";
 import { businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
+import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -443,10 +444,19 @@ function StatusWord({
       {status === "held" && entry.dealPosition ? (
         <span className={cn("text-[13px] font-semibold", POSITION_TEXT[entry.dealPosition])}>
           {dealPositionLabel(entry.dealPosition, entry.dealSystemLoss)}
+          {entry.dealPosition === "won" && entry.wonAmount
+            ? ` · ${wholeAmount(entry.wonAmount)}`
+            : null}
         </span>
       ) : null}
     </span>
   );
+}
+
+/** "$3,500" for a whole amount, "$3,500.50" otherwise, in the payment's currency. */
+function wholeAmount({ amountMinor, currency }: { amountMinor: number; currency: string }) {
+  const formatted = formatAmountMinor(amountMinor, currency);
+  return amountMinor % 100 === 0 ? formatted.replace(/\.00(?=\D*$)/, "") : formatted;
 }
 
 function JoinButton({ href, name }: { href: string; name: string }) {

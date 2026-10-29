@@ -25,6 +25,7 @@ import { CommentEntry } from "./comment-entry";
 import { CommentInput } from "./comment-input";
 import { DetailCard } from "./detail-card";
 import { getErrorMessage } from "@/lib/errors";
+import { useBusinessDay } from "@/hooks/use-business-day";
 
 type MeetingCommentsProps = {
   meetingId: Id<"meetings">;
@@ -32,6 +33,7 @@ type MeetingCommentsProps = {
 
 export function MeetingComments({ meetingId }: MeetingCommentsProps) {
   const [expanded, setExpanded] = useState(false);
+  const { setting } = useBusinessDay();
   const comments = useQuery(api.closer.meetingComments.getComments, {
     meetingId,
   });
@@ -79,6 +81,7 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
             key={comment._id}
             comment={comment}
             onDelete={handleDelete}
+            timeZone={setting.timeZone}
           />
         ))}
       </div>
@@ -86,8 +89,14 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
     if (maxHeight) {
       return (
         <div
-          className="-mr-2 overflow-y-auto overscroll-contain pr-2"
-          style={{ maxHeight }}
+          className="overflow-y-auto overscroll-contain"
+          // Scroll shadows: the bottom edge darkens while more comments sit
+          // below, and the cover scrolls away at the end of the list.
+          style={{
+            maxHeight,
+            background:
+              "linear-gradient(var(--card) 30%, transparent) top / 100% 24px no-repeat local, linear-gradient(transparent, var(--card) 70%) bottom / 100% 24px no-repeat local, radial-gradient(farthest-side at 50% 0, color-mix(in oklab, var(--foreground) 14%, transparent), transparent) top / 100% 10px no-repeat scroll, radial-gradient(farthest-side at 50% 100%, color-mix(in oklab, var(--foreground) 14%, transparent), transparent) bottom / 100% 10px no-repeat scroll",
+          }}
           tabIndex={0}
           role="region"
           aria-label="Comment list"
@@ -126,7 +135,7 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
         }
       >
         {isLoading || comments.length > 0 ? (
-          <div className="px-4 pt-1">{commentList("260px")}</div>
+          <div>{commentList("260px")}</div>
         ) : null}
         <div className={isLoading || comments.length > 0 ? "border-t px-4 py-3" : "px-4 py-3"}>
           <CommentInput meetingId={meetingId} />
@@ -146,7 +155,7 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
               )}
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto px-6">
+          <div className="flex-1 overflow-y-auto px-2">
             {commentList()}
           </div>
           <div className="border-t px-6 py-4">

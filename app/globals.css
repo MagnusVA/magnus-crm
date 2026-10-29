@@ -147,20 +147,20 @@
 
 .dark {
   --dot-grid: oklch(1 0 0 / 0.03);
-  --background: #0e131d;
+  --background: #090d14;
   --foreground: #eef1f6;
-  --card: #161c29;
+  --card: #121826;
   --card-foreground: #eef1f6;
-  --popover: #1a2130;
+  --popover: #171e2d;
   --popover-foreground: #eef1f6;
   --primary: #84b135;
   --primary-foreground: #141a28;
   --primary-ink: #a6cf5e;
-  --secondary: #1f2735;
+  --secondary: #1a2131;
   --secondary-foreground: #eef1f6;
-  --muted: #1f2735;
+  --muted: #1a2131;
   --muted-foreground: #98a2b3;
-  --accent: #232c3c;
+  --accent: #1f2738;
   --accent-foreground: #eef1f6;
   --destructive: #e5484d;
   --danger-ink: #ff8a8e;
@@ -175,19 +175,21 @@
   --chart-3: #84b135;
   --chart-4: #f5b700;
   --chart-5: #98a2b3;
-  --sidebar: #0a0f18;
+  --sidebar: #0d121c;
   --sidebar-foreground: #e6eaf1;
   --sidebar-primary: #84b135;
   --sidebar-primary-foreground: #141a28;
-  --sidebar-accent: #161d2b;
+  --sidebar-accent: #182032;
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: rgb(242 244 247 / 0.07);
   --sidebar-ring: #84b135;
-  --board: #0a0f18;
+  /* The board is the strongest surface in dark: lighter than the ground and
+     the cards, with a visible edge. */
+  --board: #1b2336;
   --board-foreground: #eef1f6;
   --board-muted: #98a2b3;
-  --board-raised: #161d2b;
-  --board-line: rgb(242 244 247 / 0.08);
+  --board-raised: #26304a;
+  --board-line: rgb(242 244 247 / 0.1);
   --stage-booked: #6f8fe6;
   --stage-booked-ink: #9db4f2;
   --stage-held: #98a2b3;

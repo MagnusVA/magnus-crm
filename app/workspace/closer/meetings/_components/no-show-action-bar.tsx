@@ -91,29 +91,31 @@ export function NoShowActionBar({
   const name = lead.fullName ?? lead.email ?? "The lead";
 
   return (
+    // A no-show is closed, not owed: a neutral ruled card, red only on the
+    // status, and lime only on the next action (the reschedule link).
     <section
       aria-label="No-show"
-      className="flex flex-col gap-3 rounded-xl border-2 border-warning bg-warning-surface px-4 py-3.5 text-warning-ink"
+      className="overflow-hidden rounded-xl border bg-card text-card-foreground"
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 px-4 pt-3.5 pb-3">
         <span
           aria-hidden
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning text-board"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-stage-lost/12 text-stage-lost-ink"
         >
           <UserXIcon className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg leading-tight font-semibold text-foreground">
+          <h2 className="text-lg leading-tight font-semibold">
             {name} didn&rsquo;t show up
-            <span className="font-normal text-warning-ink"> · {reasonLabel}</span>
+            <span className="font-normal text-muted-foreground"> · {reasonLabel}</span>
           </h2>
-          <p className="mt-1 text-[0.8125rem]">
+          <p className="mt-1 text-[0.8125rem] text-muted-foreground">
             The deal closed as lost.{" "}
             {actions === undefined
               ? "Send a reschedule link to reopen it at Follow-up, or schedule a follow-up."
               : null}
           </p>
-          <p className="mt-0.5 text-[0.8125rem]">
+          <p className="mt-0.5 text-[0.8125rem] text-muted-foreground tabular-nums">
             {format(new Date(meeting.scheduledAt), "MMM d, h:mm a")}
             {sourceLabel && ` \u00b7 ${sourceLabel}`}
             {meeting.noShowNote && ` \u00b7 \u201c${meeting.noShowNote}\u201d`}
@@ -121,7 +123,7 @@ export function NoShowActionBar({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:pl-11">
+      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/50 px-4 py-2.5 sm:pl-[60px]">
         {actions !== undefined ? (
           actions
         ) : (

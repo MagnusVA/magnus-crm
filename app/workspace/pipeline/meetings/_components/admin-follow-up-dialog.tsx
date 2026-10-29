@@ -160,16 +160,16 @@ export function AdminFollowUpDialog({
         <DialogTrigger asChild>
           <Button variant="outline" size="sm">
             <CalendarPlusIcon data-icon="inline-start" />
-            Schedule Follow-up
+            Schedule follow-up
           </Button>
         </DialogTrigger>
       )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {path === "selection" && "Schedule Follow-up"}
-            {path === "scheduling_link" && "Send Scheduling Link"}
-            {path === "manual_reminder" && "Set a Reminder"}
+            {path === "selection" && "Schedule follow-up"}
+            {path === "scheduling_link" && "Send scheduling link"}
+            {path === "manual_reminder" && "Set a reminder"}
           </DialogTitle>
           {path === "selection" ? (
             <DialogDescription>

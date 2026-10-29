@@ -15,9 +15,13 @@ import {
   readLiveQueryRows,
 } from "../lib/liveQueryBounds";
 import { rejectRequest } from "../lib/observability/errors";
+import { resolvePaymentType } from "../lib/paymentTypes";
 
 const MAX_CALENDAR_MEETING_ROWS = 1000;
 const MAX_CALENDAR_RANGE_MS = 45 * 24 * 60 * 60 * 1000;
+// Won deals whose collected amount the board shows, and the payments read per deal.
+const MAX_WON_DEALS_WITH_AMOUNT = 100;
+const MAX_PAYMENTS_PER_WON_DEAL = 50;
 
 const calendarMeetingValidator = v.object({
   meeting: v.object({
@@ -38,6 +42,10 @@ const calendarMeetingValidator = v.object({
   dealOutcome: v.union(dealOutcomeValidator, v.null()),
   dealPosition: v.union(literals(...DEAL_POSITIONS), v.null()),
   dealSystemLoss: v.union(literals("stale", "no_show", "canceled"), v.null()),
+  // A won deal's collected amount, counted as the closer's cash figure counts
+  // it: no disputed payments, no deposits. Absent for open and lost deals, and
+  // when the deal's payments are in more than one currency.
+  wonAmount: v.optional(v.object({ amountMinor: v.number(), currency: v.string() })),
 });
 
 // A meeting whose deal is gone shows no deal.
@@ -139,6 +147,14 @@ export async function readCloserCalendarMeetings(
     }
   }
 
+  const wonAmountByOpportunityId = await readWonAmounts(
+    ctx,
+    tenantId,
+    [...opportunityById.values()].filter(
+      (opportunity) => meetingDealLabelOf(opportunity).dealPosition === "won",
+    ),
+  );
+
   const eventTypeConfigs = await Promise.all(
     [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
       eventTypeConfigId,
@@ -177,7 +193,53 @@ export async function readCloserCalendarMeetings(
       leadName: meeting.leadName ?? "Unknown",
       eventTypeName,
       ...(opportunity ? meetingDealLabelOf(opportunity) : NO_DEAL),
+      ...(wonAmountByOpportunityId.has(meeting.opportunityId)
+        ? { wonAmount: wonAmountByOpportunityId.get(meeting.opportunityId) }
+        : {}),
     };
   });
   return { meetings, isPartial: read.capped };
+}
+
+/**
+ * Each won deal's collected amount, from its recorded payments. Disputed
+ * payments and deposits don't count, as in the closer's cash figure. A deal
+ * with no counted payment, or with payments in two currencies, gets none.
+ */
+async function readWonAmounts(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  wonDeals: Array<Doc<"opportunities">>,
+) {
+  const amounts = new Map<Id<"opportunities">, { amountMinor: number; currency: string }>();
+  const reads = await Promise.all(
+    wonDeals.slice(0, MAX_WON_DEALS_WITH_AMOUNT).map(async (opportunity) => ({
+      opportunityId: opportunity._id,
+      payments: await ctx.db
+        .query("paymentRecords")
+        .withIndex("by_opportunityId_and_recordedAt", (q) =>
+          q.eq("opportunityId", opportunity._id),
+        )
+        .take(MAX_PAYMENTS_PER_WON_DEAL),
+    })),
+  );
+  for (const { opportunityId, payments } of reads) {
+    let amountMinor = 0;
+    const currencies = new Set<string>();
+    for (const payment of payments) {
+      if (
+        payment.tenantId !== tenantId ||
+        payment.status === "disputed" ||
+        resolvePaymentType(payment.paymentType) === "deposit"
+      ) {
+        continue;
+      }
+      amountMinor += payment.amountMinor;
+      currencies.add(payment.currency);
+    }
+    if (currencies.size === 1) {
+      amounts.set(opportunityId, { amountMinor, currency: [...currencies][0] });
+    }
+  }
+  return amounts;
 }

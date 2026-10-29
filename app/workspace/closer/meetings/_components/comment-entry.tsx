@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import { useMutation } from "convex/react";
-import { formatDistanceToNow } from "date-fns";
 import { MoreHorizontalIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -10,8 +9,6 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useRole } from "@/components/auth/role-context";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -41,6 +38,8 @@ type CommentEntryProps = {
     isOwn: boolean;
   };
   onDelete: (commentId: Id<"meetingComments">) => void;
+  /** The tenant's business time zone, for the comment's date. */
+  timeZone: string;
 };
 
 const ROLE_LABEL: Record<
@@ -50,10 +49,33 @@ const ROLE_LABEL: Record<
   tenant_master: "Owner",
   tenant_admin: "Admin",
   closer: "Closer",
-  lead_generator: "Lead Generator",
+  lead_generator: "Lead generator",
 };
 
-export function CommentEntry({ comment, onDelete }: CommentEntryProps) {
+/** "Oct 27, 4:12 PM", with the year when it isn't this year's. */
+function commentDate(ms: number, timeZone: string) {
+  const year = (at: number) =>
+    new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(at);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    year: year(ms) === year(Date.now()) ? undefined : "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(ms);
+}
+
+function commentDateFull(ms: number, timeZone: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    dateStyle: "full",
+    timeStyle: "short",
+  }).format(ms);
+}
+
+/** One comment as a ruled row, like Prep's notes: "Name · role · date", then the text. */
+export function CommentEntry({ comment, onDelete, timeZone }: CommentEntryProps) {
   const { isAdmin } = useRole();
   const editComment = useMutation(api.closer.meetingComments.editComment);
 
@@ -95,23 +117,23 @@ export function CommentEntry({ comment, onDelete }: CommentEntryProps) {
   }, [editValue, comment.content, comment._id, editComment, isSaving]);
 
   return (
-    <div className="group flex gap-3 py-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <MemberIdentity identity={comment.author} size="default" />
-          {comment.authorRole && (
-            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-              {ROLE_LABEL[comment.authorRole]}
-            </Badge>
-          )}
-          <span className="text-xs text-muted-foreground">
-            {formatDistanceToNow(comment.createdAt, { addSuffix: true })}
-          </span>
-          {comment.editedAt && (
-            <span className="text-[10px] italic text-muted-foreground">
-              (edited)
+    <div className="group px-4 py-2.5">
+      <div className="min-w-0">
+        <div className="flex min-h-6 items-center gap-2">
+          <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+            <span className="font-semibold">{comment.authorName}</span>
+            <span className="text-[0.8125rem] text-muted-foreground">
+              {comment.authorRole ? `${ROLE_LABEL[comment.authorRole]} · ` : null}
+              <time
+                dateTime={new Date(comment.createdAt).toISOString()}
+                title={commentDateFull(comment.createdAt, timeZone)}
+                className="tabular-nums"
+              >
+                {commentDate(comment.createdAt, timeZone)}
+              </time>
+              {comment.editedAt ? " · edited" : null}
             </span>
-          )}
+          </p>
 
           {hasActions && !isEditing && (
             <DropdownMenu>
@@ -146,7 +168,7 @@ export function CommentEntry({ comment, onDelete }: CommentEntryProps) {
           )}
         </div>
 
-        <div className="mt-1">
+        <div className="mt-0.5">
           {isEditing ? (
             <div className="flex flex-col gap-2">
               <Textarea

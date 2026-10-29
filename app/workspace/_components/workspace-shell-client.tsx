@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import { RoleProvider, useRole } from "@/components/auth/role-context";
 import {
@@ -43,6 +45,7 @@ import {
   DollarSignIcon,
   KanbanIcon,
   LayoutDashboardIcon,
+  CalendarClockIcon,
   LogOutIcon,
   MegaphoneIcon,
   MessageSquareTextIcon,
@@ -145,8 +148,12 @@ const billingNavItem: NavItem = {
   icon: DollarSignIcon,
 };
 
+// Active items take a lime tint and a lime icon, as in the locked direction.
+const ACTIVE_NAV_CLASS =
+  "data-[active=true]:bg-primary/16 data-[active=true]:text-sidebar-accent-foreground data-[active=true]:[&>svg]:text-primary";
+
 const closerNavItems: NavItem[] = [
-  { href: "/workspace/closer", label: "Today", icon: LayoutDashboardIcon, exact: true },
+  { href: "/workspace/closer", label: "Today", icon: CalendarClockIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
   leadsCustomersNavItem,
 ];
@@ -328,6 +335,10 @@ function WorkspaceShellClientInner({
 }: Omit<WorkspaceShellClientProps, "initialRole"> & { initialRole: CrmRole }) {
   const { isAdmin, role } = useRole();
   const handleSignOut = useSignOut();
+  const needsOutcome = useQuery(
+    api.closer.dashboard.getMeetingsNeedingOutcome,
+    role === "closer" ? {} : "skip",
+  );
   const pathname = usePathname();
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
@@ -417,20 +428,27 @@ function WorkspaceShellClientInner({
                   const isActive = item.exact
                     ? pathname === item.href
                     : pathname.startsWith(item.href);
+                  // The closer's Today carries the count of calls still owed an outcome.
                   const badgeCount =
-                    0;
+                    item.href === "/workspace/closer"
+                      ? (needsOutcome?.meetings.length ?? 0)
+                      : 0;
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
                         asChild
                         isActive={isActive}
                         tooltip={item.label}
+                        className={ACTIVE_NAV_CLASS}
                       >
                         <Link href={item.href}>
                           <item.icon />
                           <span>{item.label}</span>
                           {badgeCount > 0 && (
-                            <span className="ml-auto inline-flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                            <span
+                              className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-warning px-1.5 text-xs font-semibold tabular-nums text-primary-foreground"
+                              aria-label={`${badgeCount} calls need an outcome`}
+                            >
                               {badgeCount >= 100 ? "99+" : badgeCount}
                             </span>
                           )}
@@ -457,6 +475,7 @@ function WorkspaceShellClientInner({
                           asChild
                           isActive={isActive}
                           tooltip={item.label}
+                          className={ACTIVE_NAV_CLASS}
                         >
                           <Link href={item.href}>
                             <item.icon />

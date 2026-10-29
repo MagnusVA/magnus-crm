@@ -38,11 +38,12 @@ import {
 import { FieldGroup } from "@/components/ui/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
+import { BanknoteIcon, AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
+import { ProofFileInput } from "./proof-file-input";
 import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -319,9 +320,11 @@ export function PaymentFormDialog({
                     <FormControl>
                       <Input
                         type="number"
+                        inputMode="decimal"
                         step="0.01"
                         placeholder="299.99"
                         min="0"
+                        className="[appearance:textfield] tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         disabled={isSubmitting}
                         {...field}
                       />
@@ -395,7 +398,7 @@ export function PaymentFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Payment Type <span className="text-destructive">*</span>
+                      Payment type <span className="text-destructive">*</span>
                     </FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -428,29 +431,19 @@ export function PaymentFormDialog({
               <FormField
                 control={form.control}
                 name="proofFile"
-                render={({ field: { value, onChange, ...fieldProps } }) => (
+                render={({ field: { value, onChange, onBlur, name } }) => (
                   <FormItem>
-                    <FormLabel>Proof File</FormLabel>
+                    <FormLabel>Proof file</FormLabel>
                     <FormControl>
-                      <Input
-                        type="file"
+                      <ProofFileInput
+                        value={value}
+                        onChange={onChange}
+                        onBlur={onBlur}
+                        name={name}
                         accept="image/jpeg,image/png,image/gif,application/pdf"
                         disabled={isSubmitting}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          onChange(file);
-                        }}
-                        {...fieldProps}
                       />
                     </FormControl>
-                    {value && (
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <UploadIcon className="size-3 shrink-0" />
-                        <span className="truncate">
-                          {value.name} ({(value.size / 1024).toFixed(1)} KB)
-                        </span>
-                      </div>
-                    )}
                     <FormDescription>
                       Max 10 MB. Allowed: PNG, JPEG, GIF, PDF
                     </FormDescription>

@@ -228,7 +228,7 @@ export function MyComponent() {
 
 ### FollowUpDialog
 
-- [ ] Dialog opens when clicking "Schedule Follow-up"
+- [ ] Dialog opens when clicking "Schedule follow-up"
 - [ ] Generate button triggers API call
 - [ ] Loading state shows spinner
 - [ ] On success: link displays in read-only input

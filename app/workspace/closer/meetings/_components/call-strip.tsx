@@ -115,7 +115,7 @@ type CallStripProps = {
 };
 
 const COLUMNS =
-  "@4xl:grid-cols-[9.5rem_minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(12rem,auto)_minmax(11rem,14rem)]";
+  "@4xl:grid-cols-[9.5rem_minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(8.5rem,auto)_minmax(11rem,14rem)]";
 
 /**
  * The call as one row of the departures board: time, person, program, the
@@ -253,11 +253,14 @@ function StripCell({
 
 function CopyLinkButton({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
+  const label = copied ? "Call link copied" : "Copy call link";
   return (
     <Button
       type="button"
-      size="sm"
-      className="h-8 border-board-foreground/15 bg-board-raised px-3 text-board-foreground hover:bg-board-raised/70 focus-visible:ring-primary/60"
+      size="icon"
+      aria-label={label}
+      title={label}
+      className="size-8 border-board-foreground/15 bg-board-raised text-board-foreground hover:bg-board-raised/70 focus-visible:ring-primary/60"
       onClick={async () => {
         await navigator.clipboard.writeText(url);
         setCopied(true);
@@ -265,12 +268,7 @@ function CopyLinkButton({ url }: { url: string }) {
         setTimeout(() => setCopied(false), 2000);
       }}
     >
-      {copied ? (
-        <CheckIcon data-icon="inline-start" aria-hidden />
-      ) : (
-        <CopyIcon data-icon="inline-start" aria-hidden />
-      )}
-      {copied ? "Copied" : "Copy link"}
+      {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
     </Button>
   );
 }

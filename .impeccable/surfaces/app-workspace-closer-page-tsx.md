@@ -23,5 +23,6 @@ FORM: Departure Board (rank 1 of 7) fused with the category standard at the user
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
 ## Settled
+- No capacity data exists, so the clock caption reports today's calls instead of "slots booked". Deals carry no pre-sale price: the board shows money only for won deals, from their payments.
 - Performance figures come from `getPipelineSummary` (`convex/closer/dashboard.ts`): stage counts, `total` (the "of N deals" caption), `decided` (close rate), cash and payment count. Show-up rate needs a held-meeting count added to that query (it already reads the range's meetings); "vs last week" is a second call of the same query for the previous range.
 - Nothing goes below Performance; the screen is complete as sketched.
