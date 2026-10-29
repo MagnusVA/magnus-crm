@@ -48,7 +48,7 @@ export function LeadInfoPanel({
             <ContactRow
               icon={<UserIcon />}
               bgClass="bg-primary/10"
-              iconClass="text-primary"
+              iconClass="text-primary-ink"
               label="Name"
             >
               <p className="truncate text-sm font-semibold">{lead.fullName}</p>
@@ -59,12 +59,12 @@ export function LeadInfoPanel({
             <ContactRow
               icon={<MailIcon />}
               bgClass="bg-primary/10"
-              iconClass="text-primary"
+              iconClass="text-primary-ink"
               label="Email"
             >
               <a
                 href={`mailto:${lead.email}`}
-                className="truncate text-sm text-primary hover:underline"
+                className="truncate text-sm text-primary-ink hover:underline"
               >
                 {lead.email}
               </a>
@@ -75,12 +75,12 @@ export function LeadInfoPanel({
             <ContactRow
               icon={<PhoneIcon />}
               bgClass="bg-primary/10"
-              iconClass="text-primary"
+              iconClass="text-primary-ink"
               label="Phone"
             >
               <a
                 href={`tel:${lead.phone}`}
-                className="truncate text-sm text-primary hover:underline"
+                className="truncate text-sm text-primary-ink hover:underline"
               >
                 {lead.phone}
               </a>

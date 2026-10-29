@@ -177,7 +177,7 @@ function PathSelectionCards({
         }}
       >
         <CardHeader className="pb-2">
-          <LinkIcon className="size-8 text-primary" />
+          <LinkIcon className="size-8 text-primary-ink" />
           <CardTitle className="text-base">Send Link</CardTitle>
         </CardHeader>
         <CardContent>
@@ -201,7 +201,7 @@ function PathSelectionCards({
         }}
       >
         <CardHeader className="pb-2">
-          <BellIcon className="size-8 text-primary" />
+          <BellIcon className="size-8 text-primary-ink" />
           <CardTitle className="text-base">Set Reminder</CardTitle>
         </CardHeader>
         <CardContent>

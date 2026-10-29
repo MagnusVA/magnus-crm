@@ -166,7 +166,7 @@ export function ReminderMetadataCard({
 					<InfoRow icon={<ClockIcon />} label="Related meeting">
 						<Link
 							href={`/workspace/closer/meetings/${latestMeeting._id}`}
-							className="text-primary inline-flex items-center gap-1 text-sm hover:underline"
+							className="text-primary-ink inline-flex items-center gap-1 text-sm hover:underline"
 						>
 							View meeting
 							<ExternalLinkIcon className="size-3" />

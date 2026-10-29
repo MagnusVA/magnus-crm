@@ -117,7 +117,7 @@ export function RevenueByPaymentTypeSection({
                       className={cn(
                         "size-4",
                         isLeading
-                          ? "text-primary"
+                          ? "text-primary-ink"
                           : "text-muted-foreground/70",
                       )}
                       aria-hidden

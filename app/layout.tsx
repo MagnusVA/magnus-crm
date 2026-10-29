@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Geist, JetBrains_Mono } from "next/font/google";
+import { Barlow, Barlow_Condensed, JetBrains_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import "./globals.css";
@@ -14,9 +14,17 @@ const jetbrainsMono = JetBrains_Mono({
 	variable: "--font-mono",
 });
 
-const geistSans = Geist({
-	variable: "--font-geist-sans",
+// Barlow for text, Barlow Condensed for times, status words and figures.
+const barlow = Barlow({
+	variable: "--font-barlow",
 	subsets: ["latin"],
+	weight: ["400", "500", "600", "700"],
+});
+
+const barlowCondensed = Barlow_Condensed({
+	variable: "--font-barlow-condensed",
+	subsets: ["latin"],
+	weight: ["500", "600", "700"],
 });
 
 const acehLight = localFont({
@@ -64,7 +72,8 @@ export default function RootLayout({
 			className={cn(
 				"h-full",
 				"antialiased",
-				geistSans.variable,
+				barlow.variable,
+				barlowCondensed.variable,
 				jetbrainsMono.variable,
 				acehLight.variable,
 				"font-sans",

@@ -61,7 +61,7 @@ export function MeetingHistoryTimeline({
                 <p
                   className={cn(
                     "text-sm font-medium",
-                    meeting.isCurrentMeeting && "text-primary",
+                    meeting.isCurrentMeeting && "text-primary-ink",
                   )}
                 >
                   {format(meeting.scheduledAt, "MMM d, yyyy")}
@@ -75,7 +75,7 @@ export function MeetingHistoryTimeline({
               <p className="text-xs text-muted-foreground">
                 {format(meeting.scheduledAt, "h:mm a")}
                 {meeting.isCurrentMeeting && (
-                  <span className="ml-1.5 font-medium text-primary">
+                  <span className="ml-1.5 font-medium text-primary-ink">
                     · Current
                   </span>
                 )}

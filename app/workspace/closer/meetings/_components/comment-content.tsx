@@ -48,7 +48,7 @@ export function CommentContent({ content }: CommentContentProps) {
             }
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary underline underline-offset-2 break-all hover:text-primary/80"
+            className="text-primary-ink underline underline-offset-2 break-all hover:text-primary-ink/80"
           >
             {part.value}
           </a>

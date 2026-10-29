@@ -85,7 +85,7 @@ export function FeaturedMeetingCard({
       <CardHeader className="pb-0">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <UserIcon className="size-4 text-primary" />
+            <UserIcon className="size-4 text-primary-ink" />
           </div>
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase text-muted-foreground">

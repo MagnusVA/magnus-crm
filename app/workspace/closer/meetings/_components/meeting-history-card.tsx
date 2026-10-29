@@ -107,7 +107,7 @@ export function MeetingHistoryCard({
                         <p
                           className={cn(
                             "truncate text-xs font-medium",
-                            meeting.isCurrentMeeting && "text-primary",
+                            meeting.isCurrentMeeting && "text-primary-ink",
                           )}
                         >
                           {format(meeting.scheduledAt, "MMM d, yyyy · h:mm a")}

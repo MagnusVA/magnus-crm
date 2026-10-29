@@ -91,7 +91,7 @@ function CollapsibleAnswer({ answer }: { answer: string }) {
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
           >
             {open ? "Show less" : "Show more"}
             <ChevronDownIcon

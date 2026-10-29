@@ -96,7 +96,7 @@ export function MeetingOverviewCard({
         <div className="flex items-start gap-3">
           <div
             aria-hidden
-            className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-base font-semibold text-primary"
+            className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-base font-semibold text-primary-ink"
           >
             {initial}
           </div>
@@ -258,7 +258,7 @@ function ContactRow({
       </span>
       <a
         href={href}
-        className="min-w-0 flex-1 truncate text-sm text-primary hover:underline"
+        className="min-w-0 flex-1 truncate text-sm text-primary-ink hover:underline"
         title={value}
       >
         {value}

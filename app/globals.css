@@ -7,9 +7,30 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-barlow);
   --font-mono: var(--font-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-heading: var(--font-barlow);
+  --font-condensed: var(--font-barlow-condensed);
+  --color-primary-ink: var(--primary-ink);
+  --color-board: var(--board);
+  --color-board-foreground: var(--board-foreground);
+  --color-board-muted: var(--board-muted);
+  --color-board-raised: var(--board-raised);
+  --color-board-line: var(--board-line);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger-ink: var(--danger-ink);
+  --color-stage-booked: var(--stage-booked);
+  --color-stage-booked-ink: var(--stage-booked-ink);
+  --color-stage-held: var(--stage-held);
+  --color-stage-held-ink: var(--stage-held-ink);
+  --color-stage-follow-up: var(--stage-follow-up);
+  --color-stage-follow-up-ink: var(--stage-follow-up-ink);
+  --color-stage-won: var(--stage-won);
+  --color-stage-won-ink: var(--stage-won-ink);
+  --color-stage-lost: var(--stage-lost);
+  --color-stage-lost-ink: var(--stage-lost-ink);
   --font-brand: var(--font-aceh);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -50,83 +71,133 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.148 0.004 228.8);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.148 0.004 228.8);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.148 0.004 228.8);
-  --primary: oklch(0.527 0.154 150.069);
-  --primary-foreground: oklch(0.982 0.018 155.826);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.963 0.002 197.1);
-  --muted-foreground: oklch(0.56 0.021 213.5);
-  --accent: oklch(0.963 0.002 197.1);
-  --accent-foreground: oklch(0.218 0.008 223.9);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.925 0.005 214.3);
-  --input: oklch(0.925 0.005 214.3);
-  --ring: oklch(0.723 0.014 214.4);
-  --chart-1: oklch(0.879 0.169 91.605);
-  --chart-2: oklch(0.769 0.188 70.08);
-  --chart-3: oklch(0.666 0.179 58.318);
-  --chart-4: oklch(0.555 0.163 48.998);
-  --chart-5: oklch(0.473 0.137 46.201);
-  --radius: 0.45rem;
-  --sidebar: oklch(0.987 0.002 197.1);
-  --sidebar-foreground: oklch(0.148 0.004 228.8);
-  --sidebar-primary: oklch(0.627 0.194 149.214);
-  --sidebar-primary-foreground: oklch(0.982 0.018 155.826);
-  --sidebar-accent: oklch(0.963 0.002 197.1);
-  --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
-  --sidebar-border: oklch(0.925 0.005 214.3);
-  --sidebar-ring: oklch(0.723 0.014 214.4);
-  /* Dot-grid overlay — theme-aware so the pattern is visible in both modes */
+  /* Magnus: navy shell, paper ground, white ruled cards, lime for the next
+     action. Every text pair below is checked at WCAG AA (4.5:1). */
+  --radius: 0.4375rem;
+  --background: #f5f6f8;
+  --foreground: #141a28;
+  --card: #ffffff;
+  --card-foreground: #141a28;
+  --popover: #ffffff;
+  --popover-foreground: #141a28;
+  /* Brand lime is a fill only (navy text on it: 6.9:1). Lime text on a light
+     surface uses --primary-ink (5.7:1 on white). */
+  --primary: #84b135;
+  --primary-foreground: #141a28;
+  --primary-ink: #4a7212;
+  --secondary: #edf0f4;
+  --secondary-foreground: #141a28;
+  --muted: #eef1f5;
+  --muted-foreground: #4f596b;
+  --accent: #eef1f5;
+  --accent-foreground: #141a28;
+  --destructive: #d93a40;
+  --danger-ink: #b42328;
+  --warning: #f5b700;
+  --warning-surface: #fff4cc;
+  --warning-ink: #7a5200;
+  --border: #e3e7ed;
+  --input: #d5dbe3;
+  --ring: #4a7212;
+  /* Categorical chart series: blue, teal, lime, amber, slate. */
+  --chart-1: #4c6fd0;
+  --chart-2: #2a9d95;
+  --chart-3: #84b135;
+  --chart-4: #f5b700;
+  --chart-5: #8e99ac;
+  /* The navy shell is navy in both themes. */
+  --sidebar: #141a28;
+  --sidebar-foreground: #e6eaf1;
+  --sidebar-primary: #84b135;
+  --sidebar-primary-foreground: #141a28;
+  --sidebar-accent: #1d2536;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(242 244 247 / 0.08);
+  --sidebar-ring: #84b135;
+  /* The departures board: today's calls and a call's own row. */
+  --board: #141a28;
+  --board-foreground: #eef1f6;
+  --board-muted: #9aa4b6;
+  --board-raised: #1d2536;
+  --board-line: rgb(242 244 247 / 0.08);
+  /* Deal stages. The base colour is for fills, bars and dots; -ink is for text
+     on light surfaces. */
+  --stage-booked: #4c6fd0;
+  --stage-booked-ink: #2b4aa8;
+  --stage-held: #8e99ac;
+  --stage-held-ink: #4f596b;
+  --stage-follow-up: #2a9d95;
+  --stage-follow-up-ink: #1d756f;
+  --stage-won: #84b135;
+  --stage-won-ink: #4a7212;
+  --stage-lost: #d93a40;
+  --stage-lost-ink: #b42328;
+  /* Dot-grid overlay, theme-aware */
   --dot-grid: oklch(0 0 0 / 0.06);
-  /* Status colors — used by lib/status-config.ts */
-  --status-scheduled: oklch(0.623 0.214 259.1);
-  --status-in-progress: oklch(0.769 0.188 70.08);
-  --status-follow-up: oklch(0.606 0.25 292.717);
-  --status-won: oklch(0.696 0.17 162.48);
-  --status-lost: oklch(0.637 0.237 25.331);
+  /* Legacy status names, kept for lib/status-config.ts until it moves to the
+     stage tokens. */
+  --status-scheduled: var(--stage-booked);
+  --status-in-progress: var(--warning);
+  --status-follow-up: var(--stage-follow-up);
+  --status-won: var(--stage-won);
+  --status-lost: var(--stage-lost);
   --status-canceled: var(--muted-foreground);
-  --status-no-show: oklch(0.705 0.191 47.604);
+  --status-no-show: var(--stage-lost);
 }
 
 .dark {
   --dot-grid: oklch(1 0 0 / 0.03);
-  --background: oklch(0.148 0.004 228.8);
-  --foreground: oklch(0.987 0.002 197.1);
-  --card: oklch(0.218 0.008 223.9);
-  --card-foreground: oklch(0.987 0.002 197.1);
-  --popover: oklch(0.218 0.008 223.9);
-  --popover-foreground: oklch(0.987 0.002 197.1);
-  --primary: oklch(0.448 0.119 151.328);
-  --primary-foreground: oklch(0.982 0.018 155.826);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.275 0.011 216.9);
-  --muted-foreground: oklch(0.723 0.014 214.4);
-  --accent: oklch(0.275 0.011 216.9);
-  --accent-foreground: oklch(0.987 0.002 197.1);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.56 0.021 213.5);
-  --chart-1: oklch(0.879 0.169 91.605);
-  --chart-2: oklch(0.769 0.188 70.08);
-  --chart-3: oklch(0.666 0.179 58.318);
-  --chart-4: oklch(0.555 0.163 48.998);
-  --chart-5: oklch(0.473 0.137 46.201);
-  --sidebar: oklch(0.218 0.008 223.9);
-  --sidebar-foreground: oklch(0.987 0.002 197.1);
-  --sidebar-primary: oklch(0.723 0.219 149.579);
-  --sidebar-primary-foreground: oklch(0.982 0.018 155.826);
-  --sidebar-accent: oklch(0.275 0.011 216.9);
-  --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.56 0.021 213.5);
+  --background: #0e131d;
+  --foreground: #eef1f6;
+  --card: #161c29;
+  --card-foreground: #eef1f6;
+  --popover: #1a2130;
+  --popover-foreground: #eef1f6;
+  --primary: #84b135;
+  --primary-foreground: #141a28;
+  --primary-ink: #a6cf5e;
+  --secondary: #1f2735;
+  --secondary-foreground: #eef1f6;
+  --muted: #1f2735;
+  --muted-foreground: #98a2b3;
+  --accent: #232c3c;
+  --accent-foreground: #eef1f6;
+  --destructive: #e5484d;
+  --danger-ink: #ff8a8e;
+  --warning: #f5b700;
+  --warning-surface: #3a2f0a;
+  --warning-ink: #ffd666;
+  --border: rgb(255 255 255 / 0.09);
+  --input: rgb(255 255 255 / 0.14);
+  --ring: #84b135;
+  --chart-1: #6f8fe6;
+  --chart-2: #3fb8b0;
+  --chart-3: #84b135;
+  --chart-4: #f5b700;
+  --chart-5: #98a2b3;
+  --sidebar: #0a0f18;
+  --sidebar-foreground: #e6eaf1;
+  --sidebar-primary: #84b135;
+  --sidebar-primary-foreground: #141a28;
+  --sidebar-accent: #161d2b;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(242 244 247 / 0.07);
+  --sidebar-ring: #84b135;
+  --board: #0a0f18;
+  --board-foreground: #eef1f6;
+  --board-muted: #98a2b3;
+  --board-raised: #161d2b;
+  --board-line: rgb(242 244 247 / 0.08);
+  --stage-booked: #6f8fe6;
+  --stage-booked-ink: #9db4f2;
+  --stage-held: #98a2b3;
+  --stage-held-ink: #b9c2d0;
+  --stage-follow-up: #3fb8b0;
+  --stage-follow-up-ink: #7ccbc6;
+  --stage-won: #84b135;
+  --stage-won-ink: #a6cf5e;
+  --stage-lost: #e5484d;
+  --stage-lost-ink: #ff8a8e;
 }
 
 @layer base {
@@ -135,6 +206,20 @@
   }
   body {
     @apply bg-background text-foreground;
+    caret-color: var(--primary-ink);
+  }
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+  :where(table, [data-slot="table"]) {
+    font-variant-numeric: tabular-nums;
+  }
+  :where(a) {
+    text-underline-offset: 3px;
+  }
+  * {
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
   }
   html {
     @apply font-sans;
@@ -204,9 +289,9 @@
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    hsl(var(--muted)) 25%,
-    hsl(var(--muted-foreground) / 0.08) 50%,
-    hsl(var(--muted)) 75%
+    var(--muted) 25%,
+    color-mix(in oklab, var(--muted-foreground) 8%, var(--muted)) 50%,
+    var(--muted) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;

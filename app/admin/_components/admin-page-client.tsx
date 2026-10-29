@@ -495,7 +495,7 @@ function computeStats(tenants: Doc<"tenants">[] | undefined) {
     {
       label: "Active",
       value: String(counts.active),
-      accentClass: "text-primary",
+      accentClass: "text-primary-ink",
     },
   ];
 }

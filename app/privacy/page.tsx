@@ -94,7 +94,7 @@ export default function PrivacyPage() {
         </header>
 
         <section className="border-b border-border pb-8">
-          <p className="mb-3 text-sm font-medium text-primary">
+          <p className="mb-3 text-sm font-medium text-primary-ink">
             Effective {effectiveDate}
           </p>
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
