@@ -21,16 +21,10 @@ const MAX_CLOSER_PAYMENT_SCAN_ROWS = 2500;
 const MAX_CLOSER_MEETING_ROWS = 2000;
 const CLOSER_MEETING_BYTE_BUDGET = 4 * 1024 * 1024;
 const NEXT_MEETING_CANDIDATES = 25;
-// A call that has started stays the next call until it ends. Calls are read
-// from this far back so one in progress is still found; longer calls than
-// this are not expected.
-const LIVE_MEETING_LOOKBACK_MS = 4 * 60 * 60 * 1000;
-const NEEDS_OUTCOME_CANDIDATES = 40;
-const NEEDS_OUTCOME_LIMIT = 20;
-
-function meetingEndsAt(meeting: Pick<Doc<"meetings">, "scheduledAt" | "durationMinutes">) {
-  return meeting.scheduledAt + meeting.durationMinutes * 60_000;
-}
+// Today's calls that haven't ended yet come back too (the client drops them),
+// so the limits leave room for a full day of calls.
+const NEEDS_OUTCOME_CANDIDATES = 50;
+const NEEDS_OUTCOME_LIMIT = 30;
 
 function emptyPositionCounts(): Record<DealPosition, number> {
   return { qualified: 0, booked: 0, call_held: 0, follow_up: 0, won: 0, lost: 0 };
@@ -182,18 +176,20 @@ async function getCashCollectedForCloserInRange(
 }
 
 /**
- * Get the closer's next upcoming meeting.
+ * The closer's first scheduled call starting at or after `from`, on a deal
+ * still assigned to them.
  *
- * Returns the soonest meeting (by scheduledAt) with status "scheduled"
- * that hasn't ended and belongs to an opportunity assigned to this closer.
- * A call in progress stays the next meeting until its scheduled end.
+ * Today passes the end of the business day, so this is the next call after
+ * today's; today's next call comes from the board's own calls. Queries don't
+ * read the clock (Convex re-runs them on data changes, not as time passes),
+ * so the argument moves once a day.
  *
  * Enriched with lead info and opportunity data.
- * Returns null if no upcoming meetings, or an incomplete result if the
+ * Returns null if there's no such call, or an incomplete result if the
  * candidate limit prevents ruling out a later eligible meeting.
  */
 export const getNextMeeting = query({
-  args: {},
+  args: { from: v.number() },
   returns: v.union(
     v.null(),
     v.object({ meeting: v.null(), incomplete: v.literal(true) }),
@@ -204,9 +200,8 @@ export const getNextMeeting = query({
       eventTypeName: v.union(v.string(), v.null()),
     }),
   ),
-  handler: async (ctx) => {
+  handler: async (ctx, { from }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
-    const now = Date.now();
 
     const candidates = await ctx.db
       .query("meetings")
@@ -215,15 +210,12 @@ export const getNextMeeting = query({
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", userId)
           .eq("status", "scheduled")
-          .gte("scheduledAt", now - LIVE_MEETING_LOOKBACK_MS),
+          .gte("scheduledAt", from),
       )
       .order("asc")
       .take(NEXT_MEETING_CANDIDATES);
 
     for (const meeting of candidates) {
-      if (meetingEndsAt(meeting) <= now) {
-        continue;
-      }
       const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (
         !opportunity ||
@@ -255,17 +247,22 @@ export const getNextMeeting = query({
 });
 
 /**
- * The closer's past calls still owed an outcome, newest first: meetings
- * still `scheduled` after their end ("Not recorded"), whose deal is still the
- * closer's and still takes a meeting outcome (`canRecordMeetingOutcome`), so
- * each one opens on a working outcome bar.
+ * The closer's calls still owed an outcome, newest first: meetings still
+ * `scheduled` that start before `before`, whose deal is still the closer's
+ * and still takes a meeting outcome (`canRecordMeetingOutcome`), so each one
+ * opens on a working outcome bar.
  *
- * Reads at most NEEDS_OUTCOME_CANDIDATES meetings back from now through the
- * attendance index and returns up to NEEDS_OUTCOME_LIMIT. `isPartial` says
- * there may be more than the list holds.
+ * Today passes the end of the business day, so the argument moves once a
+ * day; queries don't read the clock. Today's calls that haven't ended yet
+ * are in the list, and the client keeps the ended ones ("Not recorded",
+ * `meetingAttendanceDisplay`) as its clock passes their end.
+ *
+ * Reads at most NEEDS_OUTCOME_CANDIDATES meetings back from `before` through
+ * the attendance index and returns up to NEEDS_OUTCOME_LIMIT. `isPartial`
+ * says there may be more than the list holds.
  */
 export const getMeetingsNeedingOutcome = query({
-  args: {},
+  args: { before: v.number() },
   returns: v.object({
     meetings: v.array(
       v.object({
@@ -278,9 +275,8 @@ export const getMeetingsNeedingOutcome = query({
     ),
     isPartial: v.boolean(),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, { before }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
-    const now = Date.now();
 
     const candidates = await ctx.db
       .query("meetings")
@@ -289,7 +285,7 @@ export const getMeetingsNeedingOutcome = query({
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", userId)
           .eq("status", "scheduled")
-          .lt("scheduledAt", now),
+          .lt("scheduledAt", before),
       )
       .order("desc")
       .take(NEEDS_OUTCOME_CANDIDATES);
@@ -298,9 +294,6 @@ export const getMeetingsNeedingOutcome = query({
     for (const meeting of candidates) {
       if (meetings.length === NEEDS_OUTCOME_LIMIT) {
         break;
-      }
-      if (meetingEndsAt(meeting) > now) {
-        continue;
       }
       const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (

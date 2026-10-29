@@ -4,11 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
+import { meetingAttendanceDisplay } from "@/lib/status-config";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SectionEmpty, SectionError } from "./section-state";
+import { SectionEmpty } from "./section-state";
 import { formatDateTime, formatShortDate } from "./today-time";
-import type { PolledResult } from "./use-polled-query";
 
 type NeedsOutcome = FunctionReturnType<typeof api.closer.dashboard.getMeetingsNeedingOutcome>;
 
@@ -16,17 +16,20 @@ const SHOWN = 4;
 
 /**
  * The closer's past calls with no result yet ("Not recorded"), newest first,
- * each with Record outcome on its meeting page.
+ * each with Record outcome on its meeting page. The query also returns
+ * today's calls still to come; each joins the list once `now` passes its end.
  */
 export function NeedsOutcomeCard({
   result,
+  now,
   timeZone,
 }: {
-  result: PolledResult<NeedsOutcome>;
+  result: NeedsOutcome | undefined;
+  now: number;
   timeZone: string;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const meetings = result.status === "ready" ? result.data.meetings : [];
+  const meetings = endedCalls(result, now);
   const visible = expanded ? meetings : meetings.slice(0, SHOWN);
   const oldest = meetings.at(-1);
 
@@ -39,7 +42,7 @@ export function NeedsOutcomeCard({
         {meetings.length > 0 ? (
           <span className="rounded-full bg-warning px-[7px] text-xs leading-[18px] font-semibold text-primary-foreground tabular-nums">
             {meetings.length}
-            {result.status === "ready" && result.data.isPartial ? "+" : ""}
+            {result?.isPartial ? "+" : ""}
           </span>
         ) : null}
         {oldest ? (
@@ -49,7 +52,7 @@ export function NeedsOutcomeCard({
         ) : null}
       </header>
 
-      {result.status === "loading" ? (
+      {result === undefined ? (
         <div role="status" aria-label="Loading calls that need an outcome">
           {Array.from({ length: 2 }).map((_, index) => (
             <div key={index} className="flex items-center gap-3 border-t px-4 py-2.5 first:border-t-0">
@@ -61,8 +64,6 @@ export function NeedsOutcomeCard({
             </div>
           ))}
         </div>
-      ) : result.status === "error" ? (
-        <SectionError what="calls that need an outcome" />
       ) : meetings.length === 0 ? (
         <SectionEmpty title="Every past call has an outcome." />
       ) : (
@@ -113,5 +114,12 @@ export function NeedsOutcomeCard({
         </>
       )}
     </section>
+  );
+}
+
+/** The calls `getMeetingsNeedingOutcome` returned that have ended by `now`. */
+export function endedCalls(result: NeedsOutcome | undefined, now: number) {
+  return (result?.meetings ?? []).filter(
+    (meeting) => meetingAttendanceDisplay({ ...meeting, status: "scheduled" }, now) === "not_recorded",
   );
 }

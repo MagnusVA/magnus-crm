@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -62,7 +62,11 @@ import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
 import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MagnusBrand } from "@/components/magnus-brand";
+import { useBusinessDay } from "@/hooks/use-business-day";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
+import { useNow } from "@/hooks/use-now";
+import { businessDateForInstant, businessDayRange } from "@/lib/businessDay";
+import { endedCalls } from "@/app/workspace/closer/_components/needs-outcome-card";
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { MemberIdentity } from "./member-identity";
@@ -322,6 +326,23 @@ export function WorkspaceShellClient({
 // (vercel-composition-patterns: state-lift-state)
 // ---------------------------------------------------------------------------
 
+/**
+ * How many of the closer's calls have ended with no outcome, for the badge on
+ * Today. Bounded by the business day like the Today page's Needs outcome, so
+ * the query stays live and only the ended filter follows the clock.
+ */
+function useNeedsOutcomeCount(enabled: boolean) {
+  const now = useNow();
+  const { setting, loaded } = useBusinessDay();
+  const businessDate = businessDateForInstant(now, setting);
+  const dayEnd = useMemo(() => businessDayRange(businessDate, setting).end, [businessDate, setting]);
+  const result = useQuery(
+    api.closer.dashboard.getMeetingsNeedingOutcome,
+    enabled && loaded ? { before: dayEnd } : "skip",
+  );
+  return endedCalls(result, now).length;
+}
+
 function WorkspaceShellClientInner({
   initialDisplayName,
   initialEmail,
@@ -335,10 +356,7 @@ function WorkspaceShellClientInner({
 }: Omit<WorkspaceShellClientProps, "initialRole"> & { initialRole: CrmRole }) {
   const { isAdmin, role } = useRole();
   const handleSignOut = useSignOut();
-  const needsOutcome = useQuery(
-    api.closer.dashboard.getMeetingsNeedingOutcome,
-    role === "closer" ? {} : "skip",
-  );
+  const needsOutcomeCount = useNeedsOutcomeCount(role === "closer");
   const pathname = usePathname();
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
@@ -431,7 +449,7 @@ function WorkspaceShellClientInner({
                   // The closer's Today carries the count of calls still owed an outcome.
                   const badgeCount =
                     item.href === "/workspace/closer"
-                      ? (needsOutcome?.meetings.length ?? 0)
+                      ? needsOutcomeCount
                       : 0;
                   return (
                     <SidebarMenuItem key={item.href}>

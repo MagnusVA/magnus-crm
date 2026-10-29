@@ -16,9 +16,9 @@ import { meetingAttendanceDisplay, type MeetingStatus } from "@/lib/status-confi
  * | no_show                         | No-show        |
  * | canceled                        | Canceled       |
  *
- * The next call is `getNextMeeting`'s: the soonest scheduled call on one of
- * the closer's deals that hasn't ended, so a call in progress keeps boarding
- * until its scheduled end, then reads "Not recorded" until an outcome lands.
+ * The next call is `nextCall`'s: the soonest scheduled call today that
+ * hasn't ended, so a call in progress keeps boarding until its scheduled end,
+ * then reads "Not recorded" until an outcome lands.
  */
 export type BoardStatus =
   | "boarding"
@@ -100,4 +100,47 @@ export function gateLabel(locationType: string | undefined): string | null {
     default:
       return "Link";
   }
+}
+
+/** The call the board marks as boarding, and the empty board's "Next call". */
+export type NextCall = { meetingId: string; leadName: string; scheduledAt: number };
+
+/**
+ * The closer's next call at `now`: the first of today's calls (in start
+ * order) still scheduled and not yet ended, else the first call after today
+ * (`getNextMeeting` from the day's end). Worked out on the client so the
+ * queries don't read the clock; it moves as `now` ticks.
+ */
+export function nextCall(
+  todayCalls:
+    | Array<{
+        meeting: { _id: string; status: MeetingStatus; scheduledAt: number; durationMinutes: number };
+        leadName: string;
+      }>
+    | undefined,
+  afterToday:
+    | {
+        meeting: { _id: string; scheduledAt: number; leadName?: string } | null;
+        lead?: { fullName?: string } | null;
+      }
+    | null
+    | undefined,
+  now: number,
+): NextCall | null {
+  const today = todayCalls?.find(
+    ({ meeting }) => meetingAttendanceDisplay(meeting, now) === "scheduled",
+  );
+  if (today) {
+    return {
+      meetingId: today.meeting._id,
+      leadName: today.leadName,
+      scheduledAt: today.meeting.scheduledAt,
+    };
+  }
+  if (!afterToday?.meeting) return null;
+  return {
+    meetingId: afterToday.meeting._id,
+    leadName: afterToday.lead?.fullName ?? afterToday.meeting.leadName ?? "Unknown",
+    scheduledAt: afterToday.meeting.scheduledAt,
+  };
 }

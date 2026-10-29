@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { businessDateForInstant, businessDayRange } from "@/lib/businessDay";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useNow } from "@/hooks/use-now";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useRole } from "@/components/auth/role-context";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { nextCall } from "./board-status";
 import { CloserTodaySkeleton } from "./closer-today-skeleton";
 import { NeedsOutcomeCard } from "./needs-outcome-card";
 import { PerformanceCard } from "./performance-card";
@@ -17,7 +19,6 @@ import { TasksCard } from "./tasks-card";
 import { TodayHeader } from "./today-header";
 import { TodaysCallsBoard } from "./todays-calls-board";
 import { UnmatchedBanner } from "./unmatched-banner";
-import { usePolledQuery } from "./use-polled-query";
 
 /**
  * The closer's Today page: the calls board and performance on the left,
@@ -33,12 +34,22 @@ export function CloserTodayPageClient() {
   const { setting, loaded } = useBusinessDay();
 
   const profile = useQuery(api.closer.dashboard.getCloserProfile, isAdmin ? "skip" : {});
-  // Both read the clock on the server, so they're fetched each minute.
-  const nextMeeting = usePolledQuery(api.closer.dashboard.getNextMeeting, isAdmin ? "skip" : {});
-  const needsOutcome = usePolledQuery(
-    api.closer.dashboard.getMeetingsNeedingOutcome,
-    isAdmin ? "skip" : {},
+  // Queries are bounded by the business day, so their arguments move once a
+  // day and Convex keeps them live; which call is next, and which have
+  // ended, is worked out here as `now` ticks.
+  const businessDate = businessDateForInstant(now, setting);
+  const today = useMemo(() => businessDayRange(businessDate, setting), [businessDate, setting]);
+  const skip = isAdmin || !loaded;
+  const todayCalls = useQuery(
+    api.closer.calendar.getMeetingsForRange,
+    skip ? "skip" : { startDate: today.start, endDate: today.end },
   );
+  const afterToday = useQuery(api.closer.dashboard.getNextMeeting, skip ? "skip" : { from: today.end });
+  const needsOutcome = useQuery(
+    api.closer.dashboard.getMeetingsNeedingOutcome,
+    skip ? "skip" : { before: today.end },
+  );
+  const next = nextCall(todayCalls?.meetings, afterToday, now);
 
   useEffect(() => {
     if (isAdmin) {
@@ -66,12 +77,21 @@ export function CloserTodayPageClient() {
               </div>
             }
           >
-            <TodaysCallsBoard setting={setting} now={now} nextMeeting={nextMeeting} />
+            <TodaysCallsBoard setting={setting} now={now} next={next} />
           </SectionErrorBoundary>
         </div>
 
         <div className="flex min-w-0 flex-col gap-3.5 xl:col-start-2 xl:row-span-2 xl:row-start-1">
-          <NeedsOutcomeCard result={needsOutcome} timeZone={setting.timeZone} />
+          <SectionErrorBoundary
+            sectionName="calls that need an outcome"
+            fallback={
+              <div className="rounded-xl border bg-card">
+                <SectionError what="calls that need an outcome" />
+              </div>
+            }
+          >
+            <NeedsOutcomeCard result={needsOutcome} now={now} timeZone={setting.timeZone} />
+          </SectionErrorBoundary>
           <SectionErrorBoundary
             sectionName="tasks"
             fallback={

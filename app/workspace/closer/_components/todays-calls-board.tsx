@@ -27,6 +27,7 @@ import {
   boardingCountdown,
   gateLabel,
   type BoardStatus,
+  type NextCall,
 } from "./board-status";
 import {
   boardRange,
@@ -35,12 +36,10 @@ import {
   formatDateTime,
   type BoardTab,
 } from "./today-time";
-import type { PolledResult } from "./use-polled-query";
 
 type BoardEntry = FunctionReturnType<
   typeof api.closer.calendar.getMeetingsForRange
 >["meetings"][number];
-type NextMeeting = FunctionReturnType<typeof api.closer.dashboard.getNextMeeting>;
 export type { BoardEntry };
 
 const TABS: Array<{ value: BoardTab; label: string; title: string; empty: string }> = [
@@ -79,11 +78,11 @@ const POSITION_TEXT: Record<DealPosition, string> = {
 export function TodaysCallsBoard({
   setting,
   now,
-  nextMeeting,
+  next,
 }: {
   setting: BusinessDaySetting;
   now: number;
-  nextMeeting: PolledResult<NextMeeting>;
+  next: NextCall | null;
 }) {
   const [tab, setTab] = useState<BoardTab>("today");
   // Ranges move only when the business day does, not with every clock tick.
@@ -97,11 +96,6 @@ export function TodaysCallsBoard({
     endDate: range.end,
   });
 
-  const next =
-    nextMeeting.status === "ready" && nextMeeting.data?.meeting
-      ? nextMeeting.data
-      : null;
-
   return (
     <CallsBoardView
       tab={tab}
@@ -114,8 +108,6 @@ export function TodaysCallsBoard({
     />
   );
 }
-
-type NextCall = Extract<NextMeeting, { opportunity: unknown }>;
 
 /** The board itself, from the calls it's given: loading, empty, or rows. */
 export function CallsBoardView({
@@ -183,14 +175,14 @@ export function CallsBoardView({
               <>
                 <BoardTable
                   meetings={meetings}
-                  nextMeetingId={next?.meeting._id ?? null}
+                  nextMeetingId={next?.meetingId ?? null}
                   now={now}
                   setting={setting}
                   groupByDay={entry.value === "week"}
                 />
                 <BoardList
                   meetings={meetings}
-                  nextMeetingId={next?.meeting._id ?? null}
+                  nextMeetingId={next?.meetingId ?? null}
                   now={now}
                   setting={setting}
                   groupByDay={entry.value === "week"}
@@ -578,11 +570,10 @@ function BoardEmpty({
         <p className="mt-1 text-board-muted">
           Next call:{" "}
           <Link
-            href={meetingHref(next.meeting._id)}
+            href={meetingHref(next.meetingId)}
             className="font-medium text-board-foreground underline decoration-board-muted underline-offset-[3px] outline-none hover:decoration-board-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {next.lead?.fullName ?? next.meeting.leadName ?? "Unknown"},{" "}
-            {formatDateTime(next.meeting.scheduledAt, timeZone)}
+            {next.leadName}, {formatDateTime(next.scheduledAt, timeZone)}
           </Link>
         </p>
       ) : (

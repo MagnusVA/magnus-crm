@@ -148,7 +148,7 @@ describe("getNextMeeting", () => {
       await ctx.db.patch("meetings", seed.meetings[2], { scheduledAt: now + DAY + 1000 });
       await ctx.db.patch("meetings", seed.meetings[1], { scheduledAt: now + DAY + 2000 });
     });
-    const result = await harness.closer.query(api.closer.dashboard.getNextMeeting, {});
+    const result = await harness.closer.query(api.closer.dashboard.getNextMeeting, { from: now });
     expect(result).toMatchObject({
       meeting: { _id: seed.meetings[1] }, opportunity: { _id: seed.ownDeal },
       lead: { email: "deal-person@example.com" }, eventTypeName: "Bounded call",
@@ -157,8 +157,8 @@ describe("getNextMeeting", () => {
 
   it("returns incomplete after 25 ineligible candidates even when a later one qualifies", async () => {
     const harness = await closerPipelineHarness();
+    const now = Date.now();
     await harness.t.run(async (ctx) => {
-      const now = Date.now();
       const reassigned = await insertCloserDeal(ctx, {
         tenantId: harness.tenantId, closerId: harness.otherCloserId, status: "scheduled", createdAt: now,
       });
@@ -173,36 +173,42 @@ describe("getNextMeeting", () => {
         });
       }
     });
-    await expect(harness.closer.query(api.closer.dashboard.getNextMeeting, {})).resolves.toEqual({ meeting: null, incomplete: true });
+    await expect(
+      harness.closer.query(api.closer.dashboard.getNextMeeting, { from: now }),
+    ).resolves.toEqual({ meeting: null, incomplete: true });
   });
 
   it("returns null when the scheduled candidates are exhausted below 25", async () => {
     const { harness, seed } = await closerBoundedReadFixture();
+    const now = Date.now();
     await harness.t.run(async (ctx) => {
-      // The closer's call ended a minute ago; the later one is a reassigned deal's.
-      await ctx.db.patch("meetings", seed.meetings[1], { scheduledAt: Date.now() - 31 * 60_000 });
-      await ctx.db.patch("meetings", seed.meetings[2], { scheduledAt: Date.now() + 60_000 });
+      // The closer's call is before `from`; the later one is a reassigned deal's.
+      await ctx.db.patch("meetings", seed.meetings[1], { scheduledAt: now - HOUR });
+      await ctx.db.patch("meetings", seed.meetings[2], { scheduledAt: now + 60_000 });
     });
-    await expect(harness.closer.query(api.closer.dashboard.getNextMeeting, {})).resolves.toBeNull();
+    await expect(
+      harness.closer.query(api.closer.dashboard.getNextMeeting, { from: now }),
+    ).resolves.toBeNull();
   });
 
-  it("keeps a call in progress as the next meeting until it ends", async () => {
+  it("reads from `from`, not from the clock", async () => {
     const { harness, seed } = await closerBoundedReadFixture();
+    const dayEnd = Date.now() + 6 * HOUR;
     await harness.t.run(async (ctx) => {
-      // Started ten minutes ago, thirty minutes long; another call later today.
-      await ctx.db.patch("meetings", seed.meetings[1], { scheduledAt: Date.now() - 10 * 60_000 });
+      // Later today, then tomorrow: Today asks from the end of the day.
+      await ctx.db.patch("meetings", seed.meetings[1], { scheduledAt: dayEnd - HOUR });
       await insertCloserMeeting(ctx, {
         tenantId: harness.tenantId, closerId: harness.closerId, opportunityId: seed.ownDeal,
-        scheduledAt: Date.now() + 2 * HOUR, status: "scheduled",
+        scheduledAt: dayEnd + 2 * HOUR, status: "scheduled",
       });
     });
-    const result = await harness.closer.query(api.closer.dashboard.getNextMeeting, {});
-    expect(result).toMatchObject({ meeting: { _id: seed.meetings[1] } });
+    const result = await harness.closer.query(api.closer.dashboard.getNextMeeting, { from: dayEnd });
+    expect(result).toMatchObject({ meeting: { scheduledAt: dayEnd + 2 * HOUR } });
   });
 });
 
 describe("getMeetingsNeedingOutcome", () => {
-  it("lists the closer's ended calls with no result, newest first, on deals still awaiting one", async () => {
+  it("lists the closer's calls with no result before `before`, newest first, on deals still awaiting one", async () => {
     const harness = await closerPipelineHarness();
     const now = Date.now();
     const ids = await harness.t.run(async (ctx) => {
@@ -217,8 +223,8 @@ describe("getMeetingsNeedingOutcome", () => {
 
       const yesterday = await meeting(await deal(), now - DAY);
       const lastWeek = await meeting(await deal(), now - 7 * DAY);
-      // Still running (30 minutes long, started 10 minutes ago).
-      await meeting(await deal(), now - 10 * 60_000);
+      // Later today: in the list, for the client to show once it has ended.
+      const laterToday = await meeting(await deal(), now + HOUR);
       // Recorded.
       await meeting(await deal(), now - 2 * DAY, "held");
       // Its deal moved on to Follow-up, so the outcome bar is closed.
@@ -227,16 +233,22 @@ describe("getMeetingsNeedingOutcome", () => {
       await meeting(await deal(harness.otherCloserId), now - 4 * DAY);
       // Another closer's call.
       await meeting(await deal(harness.otherCloserId), now - 5 * DAY, "scheduled", harness.otherCloserId);
-      // Upcoming.
-      await meeting(await deal(), now + HOUR);
-      return { yesterday, lastWeek };
+      // After `before`: tomorrow's call.
+      await meeting(await deal(), now + DAY);
+      return { yesterday, lastWeek, laterToday };
     });
 
-    const result = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, {});
+    const result = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, {
+      before: now + 6 * HOUR,
+    });
 
     expect(result.isPartial).toBe(false);
-    expect(result.meetings.map((meeting) => meeting.meetingId)).toEqual([ids.yesterday, ids.lastWeek]);
-    expect(result.meetings[0]).toMatchObject({ leadName: "Deal Person", durationMinutes: 30, programName: null });
+    expect(result.meetings.map((meeting) => meeting.meetingId)).toEqual([
+      ids.laterToday,
+      ids.yesterday,
+      ids.lastWeek,
+    ]);
+    expect(result.meetings[1]).toMatchObject({ leadName: "Deal Person", durationMinutes: 30, programName: null });
   });
 
   it("names the program from the booking, else the deal's event type", async () => {
@@ -244,20 +256,20 @@ describe("getMeetingsNeedingOutcome", () => {
     await harness.t.run(async (ctx) => {
       await ctx.db.patch("meetings", seed.meetings[1], { scheduledAt: Date.now() - DAY });
     });
-    const byEventType = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, {});
+    const byEventType = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before: Date.now() });
     expect(byEventType.meetings).toMatchObject([{ meetingId: seed.meetings[1], programName: "Bounded call" }]);
 
     await harness.t.run(async (ctx) => {
       await ctx.db.patch("meetings", seed.meetings[1], { bookingProgramName: "Elite Mentorship" });
     });
-    const byBooking = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, {});
+    const byBooking = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before: Date.now() });
     expect(byBooking.meetings).toMatchObject([{ programName: "Elite Mentorship" }]);
   });
 
   it("refuses anyone but a closer", async () => {
     const harness = await closerPipelineHarness();
     await expect(
-      harness.admin.query(api.closer.dashboard.getMeetingsNeedingOutcome, {}),
+      harness.admin.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before: Date.now() }),
     ).rejects.toThrow();
   });
 });
