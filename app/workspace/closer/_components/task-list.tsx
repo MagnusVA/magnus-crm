@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useConvex } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
-import type { api } from "@/convex/_generated/api";
+import { api } from "@/convex/_generated/api";
 import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import {
   addBusinessDays,
@@ -102,6 +103,16 @@ export function TaskRow({
   /** The task open on the page, marked with the lime inset. */
   current?: boolean;
 }) {
+  const convex = useConvex();
+  // Pointing at a task row starts loading the task, so it's ready on click.
+  const opensTask = taskHref(task).startsWith("/workspace/closer/reminders/");
+  const prewarm = () => {
+    if (!opensTask || current) return;
+    convex.prewarmQuery({
+      query: api.closer.reminderDetail.getReminderDetail,
+      args: { followUpId: task._id },
+    });
+  };
   const isLink = task.type === "scheduling_link";
   const isStaleNudge = task.reason === "stale_opportunity_nudge";
   const note =
@@ -137,6 +148,8 @@ export function TaskRow({
         <Link
           href={taskHref(task)}
           aria-current={current ? "page" : undefined}
+          onPointerEnter={prewarm}
+          onFocus={prewarm}
           className="font-semibold outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
         >
           {task.leadName}

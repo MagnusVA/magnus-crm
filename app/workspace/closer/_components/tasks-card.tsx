@@ -120,7 +120,7 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
           {more > 0 && later.length > 0 && later.length === more ? " later" : ""}
         </span>
         <Link
-          href="/workspace/closer/pipeline?stage=follow_up"
+          href="/workspace/closer/reminders"
           className="inline-flex min-h-6 items-center rounded-sm text-foreground underline underline-offset-[3px] outline-none hover:text-primary-ink focus-visible:ring-2 focus-visible:ring-ring"
         >
           All tasks

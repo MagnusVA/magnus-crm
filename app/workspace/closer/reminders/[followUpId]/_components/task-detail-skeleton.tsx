@@ -19,32 +19,39 @@ export function TaskDetailSkeleton({ withQueue }: { withQueue: boolean }) {
         ) : undefined
       }
     >
-      <div
-        className="@container flex flex-col gap-3.5"
-        role="status"
-        aria-label="Loading task"
-      >
-        <div className="h-[9.5rem] rounded-xl bg-board @3xl:h-[5.75rem]">
-          <div className="flex h-full items-center gap-6 px-4">
-            <Skeleton className="h-9 w-20 bg-board-raised" />
-            <Skeleton className="h-9 flex-1 bg-board-raised" />
-            <Skeleton className="hidden h-8 w-40 bg-board-raised @3xl:block" />
-            <Skeleton className="hidden h-9 w-28 bg-board-raised @3xl:block" />
-          </div>
-        </div>
+      <TaskPaneSkeleton />
+    </TaskPageLayout>
+  );
+}
 
-        <div className="grid grid-cols-1 gap-3.5 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:gap-x-[1.125rem] @5xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="flex flex-col gap-3.5">
-            <Skeleton className="h-24 rounded-xl" />
-            <Skeleton className="h-28 rounded-xl" />
-            <Skeleton className="h-60 rounded-xl" />
-          </div>
-          <div className="flex flex-col gap-3.5">
-            <Skeleton className="h-44 rounded-xl" />
-            <Skeleton className="h-40 rounded-xl" />
-          </div>
+/** The task pane alone while its task loads, beside a queue that's already there. */
+export function TaskPaneSkeleton() {
+  return (
+    <div
+      className="@container flex flex-col gap-3.5"
+      role="status"
+      aria-label="Loading task"
+    >
+      <div className="h-[9.5rem] rounded-xl bg-board @3xl:h-[5.75rem]">
+        <div className="flex h-full items-center gap-6 px-4">
+          <Skeleton className="h-9 w-20 bg-board-raised" />
+          <Skeleton className="h-9 flex-1 bg-board-raised" />
+          <Skeleton className="hidden h-8 w-40 bg-board-raised @3xl:block" />
+          <Skeleton className="hidden h-9 w-28 bg-board-raised @3xl:block" />
         </div>
       </div>
-    </TaskPageLayout>
+
+      <div className="grid grid-cols-1 gap-3.5 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:gap-x-[1.125rem] @5xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="flex flex-col gap-3.5">
+          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-60 rounded-xl" />
+        </div>
+        <div className="flex flex-col gap-3.5">
+          <Skeleton className="h-44 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+        </div>
+      </div>
+    </div>
   );
 }
