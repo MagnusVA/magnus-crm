@@ -26,7 +26,11 @@ import {
   UserIcon,
 } from "lucide-react";
 import { DealStageBadge } from "@/components/status-badge";
-import { isDealWon, isWaitingOnRescheduleLink } from "@/lib/deal-controls";
+import {
+  isAwaitingOutcome,
+  isDealWon,
+  isWaitingOnRescheduleLink,
+} from "@/lib/deal-controls";
 
 // Cross-import reusable display components from closer meeting detail
 import { LeadInfoPanel } from "@/app/workspace/closer/meetings/_components/lead-info-panel";
@@ -42,6 +46,7 @@ import {
   RescheduleLinkSentBanner,
 } from "@/app/workspace/closer/meetings/_components/reschedule-link-display";
 import { RescheduleChainBanner } from "@/app/workspace/closer/meetings/_components/reschedule-chain-banner";
+import { UnfinishedFollowUpBanner } from "@/app/workspace/closer/meetings/_components/unfinished-follow-up-banner";
 import { FathomLinkField } from "@/app/workspace/closer/meetings/_components/fathom-link-field";
 import { AdminActionBar } from "@/app/workspace/pipeline/meetings/_components/admin-action-bar";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
@@ -85,6 +90,7 @@ export function AdminMeetingDetailClient({
     potentialDuplicate,
     reassignmentInfo,
     rescheduledFromMeeting,
+    activeFollowUp,
     attributionTeam,
     dmCloser,
     assignedCloserIdentity,
@@ -163,6 +169,16 @@ export function AdminMeetingDetailClient({
       {rescheduledFromMeeting && (
         <RescheduleChainBanner
           rescheduledFromMeeting={rescheduledFromMeeting}
+        />
+      )}
+
+      {/* A follow-up that never moved the deal hides the closer's outcome buttons */}
+      {activeFollowUp && isAwaitingOutcome(opportunity) && (
+        <UnfinishedFollowUpBanner
+          meeting={meeting}
+          opportunityId={opportunity._id}
+          followUp={activeFollowUp}
+          mode="admin"
         />
       )}
 
