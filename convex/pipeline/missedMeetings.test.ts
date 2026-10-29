@@ -164,12 +164,46 @@ it.each(["no_show", "canceled"] as const)(
   },
 );
 
+it("a booking through the closer's scheduling link moves the deal from Follow-up to Booked and marks the link booked", async () => {
+  const h = await missedMeetingHarness();
+  const { opportunityId, meetingId } = await h.book(ORIGINAL, BOOKED_AT);
+  // After the call, the closer sends a scheduling link: the deal moves to
+  // Follow-up at once and the call is held.
+  h.clockAt("2026-10-06T15:40:00Z");
+  const linkId = await h.closerActions.schedulingLink(opportunityId, meetingId);
+  expect(await h.deal(opportunityId)).toMatchObject({ stage: "follow_up", outcome: "open" });
+  expect(await h.meeting("original")).toMatchObject({ status: "held" });
+
+  const next = await h.book(
+    {
+      key: "rebook",
+      start: "2026-10-09T15:00:00Z",
+      tracking: crmLinkTracking("follow_up", opportunityId, linkId),
+    },
+    minutesFromNow(60),
+  );
+
+  expect(next.opportunityId).toBe(opportunityId);
+  expect(await h.deal(opportunityId)).toMatchObject({
+    stage: "booked",
+    outcome: "open",
+    calendlyEventUri: "https://api.calendly.com/scheduled_events/rebook",
+  });
+  expect((await h.followUps(opportunityId)).find((f) => f._id === linkId)).toMatchObject({
+    status: "booked",
+    calendlyEventUri: "https://api.calendly.com/scheduled_events/rebook",
+  });
+  expect(await h.meeting("rebook")).toMatchObject({ status: "scheduled", opportunityId });
+  expect(await h.dealCount()).toBe(1);
+});
+
 it("a booking through a CRM link on a deal waiting on a reschedule link expires that reschedule link", async () => {
   const h = await missedMeetingHarness();
   const { opportunityId, meetingId } = await h.book(ORIGINAL, BOOKED_AT);
-  // Before the call, the closer copies a scheduling link and never confirms it.
+  // Before the call, a scheduling link was left pending on the Booked deal (as
+  // the old dialog could, before links moved the deal at once).
   h.clockAt("2026-10-03T10:00:00Z");
-  const schedulingLinkId = await h.closerActions.unconfirmedSchedulingLink(opportunityId);
+  const schedulingLinkId = await h.closerActions.legacyUnconfirmedSchedulingLink(opportunityId);
   await missMeeting(h, "no_show");
   h.clockAt("2026-10-06T17:00:00Z");
   const rescheduleLinkId = await h.closerActions.rescheduleLink(opportunityId, meetingId);

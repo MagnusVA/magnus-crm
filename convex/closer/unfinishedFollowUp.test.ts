@@ -1,3 +1,4 @@
+import { makeFunctionReference } from "convex/server";
 import { describe, expect, it } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -10,10 +11,11 @@ import {
   type GuardState,
 } from "../../tests/dealGuardFixtures";
 
-// A scheduling link generated from the meeting page leaves the deal Booked
-// until the closer confirms it. While it is pending the outcome buttons are
-// hidden, so the meeting page offers to finish it (the confirm mutations) or
-// cancel it (`cancelPendingFollowUp`, `adminCancelPendingFollowUp`).
+// Generating a scheduling link moves the deal to Follow-up at once, and from
+// the meeting's outcome marks the call held; there is no confirm step. A link
+// left pending on a Booked deal before that change hides the outcome buttons,
+// so the meeting page offers to cancel it (`cancelPendingFollowUp`,
+// `adminCancelPendingFollowUp`).
 
 const booked: GuardState = { label: "scheduled", status: "scheduled", source: "calendly" };
 const bookedWithLink: GuardState = { ...booked, task: "scheduling_link" };
@@ -81,48 +83,156 @@ async function otherTenantAdmin(harness: GuardHarness) {
   return harness.t.withIdentity({ subject: "user_other_admin", org_id: "org_other" });
 }
 
-describe("closing the dialog after Generate", () => {
-  it("the generated link hides the outcome buttons until the confirm moves the deal and holds the meeting", async () => {
+async function dealEvents(harness: GuardHarness, opportunityId: Id<"opportunities">) {
+  return await harness.t.run((ctx) =>
+    ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+        q.eq("tenantId", harness.tenantId).eq("entityType", "opportunity").eq("entityId", opportunityId),
+      )
+      .take(10),
+  );
+}
+
+describe("generating a scheduling link", () => {
+  it("moves the closer's deal to Follow-up at once and marks the call held", async () => {
     const harness = await guardHarness();
     const { opportunityId, meetingId } = await guardDealIn(harness, booked, { meeting: "scheduled" });
 
-    const { followUpId } = await harness.closer.mutation(
+    const { followUpId, schedulingLinkUrl } = await harness.closer.mutation(
       api.closer.followUpMutations.createSchedulingLinkFollowUp,
-      { opportunityId },
+      { opportunityId, meetingId: meetingId! },
     );
-    // Generate alone leaves the deal Booked with a pending link: the state the
-    // meeting page now shows as an unfinished follow-up.
-    expect((await readGuardDeal(harness, opportunityId)).stage).toBe("booked");
-    expect(await pendingFollowUpOf(harness, opportunityId)).toBe(followUpId);
 
-    // The dialog's close runs the same confirm as Done.
-    await harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, {
-      opportunityId,
-      meetingId: meetingId!,
-    });
     const deal = await readGuardDeal(harness, opportunityId);
-    expect(deal.stage).toBe("follow_up");
-    expect(deal.outcome).toBe("open");
+    expect({ stage: deal.stage, outcome: deal.outcome }).toEqual({ stage: "follow_up", outcome: "open" });
     const meeting = await harness.t.run((ctx) => ctx.db.get("meetings", meetingId!));
     expect(meeting!.status).toBe("held");
+    expect(meeting!.heldMarkedAt).toEqual(expect.any(Number));
     // The link stays pending for the booking to find.
     const followUp = await harness.t.run((ctx) => ctx.db.get("followUps", followUpId));
-    expect(followUp!.status).toBe("pending");
+    expect(followUp).toMatchObject({ status: "pending", type: "scheduling_link", schedulingLinkUrl });
+    expect(schedulingLinkUrl).toContain(`utm_content=${followUpId}`);
+    // One stage change, by the closer, through the stage machine.
+    const events = await dealEvents(harness, opportunityId);
+    expect(
+      events
+        .filter((event) => event.eventType === "opportunity.stage_changed")
+        .map((event) => [event.fromStatus, event.toStatus, event.source, event.actorUserId]),
+    ).toEqual([["booked", "follow_up", "closer", harness.closerId]]);
+    expect((await followUpEvents(harness, followUpId)).map((event) => event.eventType)).toEqual([
+      "followUp.created",
+    ]);
   });
 
-  it("the admin's confirm finishes a link left pending on a Booked deal", async () => {
+  it("from a missed meeting, reopens the closed deal at Follow-up without a meeting", async () => {
     const harness = await guardHarness();
-    const { opportunityId, meetingId } = await guardDealIn(harness, bookedWithLink, {
-      meeting: "scheduled",
+    const noShow: GuardState = { label: "no_show", status: "no_show", source: "calendly" };
+    const { opportunityId } = await guardDealIn(harness, noShow, { meeting: "no_show" });
+
+    await harness.closer.mutation(api.closer.followUpMutations.createSchedulingLinkFollowUp, {
+      opportunityId,
     });
 
-    await harness.admin.mutation(api.admin.meetingActions.adminConfirmFollowUp, {
+    const deal = await readGuardDeal(harness, opportunityId);
+    expect({ stage: deal.stage, outcome: deal.outcome, lostReason: deal.lostReason }).toEqual({
+      stage: "follow_up",
+      outcome: "open",
+      lostReason: undefined,
+    });
+  });
+
+  it("moves the admin's deal to Follow-up at once and marks the call held", async () => {
+    const harness = await guardHarness();
+    const { opportunityId, meetingId } = await guardDealIn(harness, booked, { meeting: "scheduled" });
+
+    const { followUpId } = await harness.admin.mutation(api.admin.meetingActions.adminCreateFollowUp, {
       opportunityId,
       meetingId: meetingId!,
     });
+
     expect((await readGuardDeal(harness, opportunityId)).stage).toBe("follow_up");
     const meeting = await harness.t.run((ctx) => ctx.db.get("meetings", meetingId!));
     expect(meeting!.status).toBe("held");
+    const followUp = await harness.t.run((ctx) => ctx.db.get("followUps", followUpId));
+    expect(followUp).toMatchObject({
+      status: "pending",
+      reason: "admin_initiated",
+      closerId: harness.closerId,
+      createdByUserId: harness.adminId,
+    });
+    const events = await dealEvents(harness, opportunityId);
+    expect(
+      events
+        .filter((event) => event.eventType === "opportunity.stage_changed")
+        .map((event) => [event.fromStatus, event.toStatus, event.source, event.actorUserId]),
+    ).toEqual([["booked", "follow_up", "admin", harness.adminId]]);
+  });
+
+  it("refuses a second Generate, so one dialog never leaves two pending links", async () => {
+    const harness = await guardHarness();
+    const { opportunityId, meetingId } = await guardDealIn(harness, booked, { meeting: "scheduled" });
+    const args = { opportunityId, meetingId: meetingId! };
+
+    await harness.closer.mutation(api.closer.followUpMutations.createSchedulingLinkFollowUp, args);
+    await expect(
+      harness.closer.mutation(api.closer.followUpMutations.createSchedulingLinkFollowUp, args),
+    ).rejects.toThrow('the deal is "Follow-up"');
+    await expect(
+      harness.admin.mutation(api.admin.meetingActions.adminCreateFollowUp, args),
+    ).rejects.toThrow('the deal is "Follow-up"');
+    const pending = await harness.t.run((ctx) =>
+      ctx.db
+        .query("followUps")
+        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
+          q.eq("opportunityId", opportunityId).eq("status", "pending"),
+        )
+        .take(5),
+    );
+    expect(pending).toHaveLength(1);
+  });
+
+  it("refuses a meeting from another deal, and writes nothing", async () => {
+    const harness = await guardHarness();
+    const first = await guardDealIn(harness, booked, { meeting: "scheduled" });
+    const second = await guardDealIn(harness, booked, { meeting: "scheduled" });
+
+    await expect(
+      harness.closer.mutation(api.closer.followUpMutations.createSchedulingLinkFollowUp, {
+        opportunityId: first.opportunityId,
+        meetingId: second.meetingId!,
+      }),
+    ).rejects.toThrow("Meeting does not belong to this opportunity");
+    expect((await readGuardDeal(harness, first.opportunityId)).stage).toBe("booked");
+    expect(await harness.t.run((ctx) => loadActiveFollowUpSummary(ctx, first.opportunityId))).toBeNull();
+  });
+
+  it("leaves nothing for the meeting page's unfinished-follow-up fallback to cancel", async () => {
+    const harness = await guardHarness();
+    const { opportunityId, meetingId } = await guardDealIn(harness, booked, { meeting: "scheduled" });
+    const { followUpId } = await harness.closer.mutation(
+      api.closer.followUpMutations.createSchedulingLinkFollowUp,
+      { opportunityId, meetingId: meetingId! },
+    );
+
+    await expect(
+      harness.closer.mutation(api.closer.followUpMutations.cancelPendingFollowUp, { followUpId }),
+    ).rejects.toThrow("still waiting for its call's result");
+  });
+
+  it("has no confirm step any more: the confirm mutations are gone", async () => {
+    const harness = await guardHarness();
+    const { opportunityId } = await guardDealIn(harness, bookedWithLink, { meeting: "scheduled" });
+
+    for (const [caller, name] of [
+      [harness.closer, "closer/followUpMutations:confirmFollowUpScheduled"],
+      [harness.admin, "admin/meetingActions:adminConfirmFollowUp"],
+    ] as const) {
+      await expect(
+        caller.mutation(makeFunctionReference<"mutation">(name), { opportunityId }),
+      ).rejects.toThrow(/confirmFollowUpScheduled|adminConfirmFollowUp/);
+    }
+    expect((await readGuardDeal(harness, opportunityId)).stage).toBe("booked");
   });
 });
 
@@ -276,78 +386,5 @@ describe("adminCancelPendingFollowUp", () => {
     await expect(
       harness.admin.mutation(api.admin.meetingActions.adminCancelPendingFollowUp, { followUpId }),
     ).rejects.toThrow("still waiting for its call's result");
-  });
-});
-
-describe("a confirm opened for a follow-up", () => {
-  it("refuses a closer's stale confirm after the follow-up was canceled in another tab", async () => {
-    const harness = await guardHarness();
-    const { opportunityId, meetingId } = await guardDealIn(harness, bookedWithLink, {
-      meeting: "scheduled",
-    });
-    const followUpId = await pendingFollowUpOf(harness, opportunityId);
-    await harness.closer.mutation(api.closer.followUpMutations.cancelPendingFollowUp, { followUpId });
-
-    await expect(
-      harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, {
-        opportunityId,
-        meetingId: meetingId!,
-        followUpId,
-      }),
-    ).rejects.toThrow("canceled or has already finished");
-    expect((await readGuardDeal(harness, opportunityId)).stage).toBe("booked");
-    const meeting = await harness.t.run((ctx) => ctx.db.get("meetings", meetingId!));
-    expect(meeting!.status).toBe("scheduled");
-  });
-
-  it("refuses an admin's stale confirm after the follow-up was canceled", async () => {
-    const harness = await guardHarness();
-    const { opportunityId, meetingId } = await guardDealIn(harness, bookedWithLink, {
-      meeting: "scheduled",
-    });
-    const followUpId = await pendingFollowUpOf(harness, opportunityId);
-    await harness.admin.mutation(api.admin.meetingActions.adminCancelPendingFollowUp, { followUpId });
-
-    await expect(
-      harness.admin.mutation(api.admin.meetingActions.adminConfirmFollowUp, {
-        opportunityId,
-        meetingId: meetingId!,
-        followUpId,
-      }),
-    ).rejects.toThrow("canceled or has already finished");
-    expect((await readGuardDeal(harness, opportunityId)).stage).toBe("booked");
-  });
-
-  it("stays idempotent once it has moved the deal, and a later cancel is refused", async () => {
-    const harness = await guardHarness();
-    const { opportunityId, meetingId } = await guardDealIn(harness, bookedWithLink, {
-      meeting: "scheduled",
-    });
-    const followUpId = await pendingFollowUpOf(harness, opportunityId);
-    const args = { opportunityId, meetingId: meetingId!, followUpId };
-
-    await harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, args);
-    await harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, args);
-    expect((await readGuardDeal(harness, opportunityId)).stage).toBe("follow_up");
-
-    await expect(
-      harness.closer.mutation(api.closer.followUpMutations.cancelPendingFollowUp, { followUpId }),
-    ).rejects.toThrow("still waiting for its call's result");
-  });
-
-  it("refuses a follow-up that belongs to another deal", async () => {
-    const harness = await guardHarness();
-    const first = await guardDealIn(harness, bookedWithLink, { meeting: "scheduled" });
-    const second = await guardDealIn(harness, bookedWithLink, { meeting: "scheduled" });
-    const otherFollowUpId = await pendingFollowUpOf(harness, second.opportunityId);
-
-    await expect(
-      harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, {
-        opportunityId: first.opportunityId,
-        meetingId: first.meetingId!,
-        followUpId: otherFollowUpId,
-      }),
-    ).rejects.toThrow("Follow-up not found");
-    expect((await readGuardDeal(harness, first.opportunityId)).stage).toBe("booked");
   });
 });

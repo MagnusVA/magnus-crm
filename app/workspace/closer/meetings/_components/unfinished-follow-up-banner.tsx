@@ -6,7 +6,6 @@ import { format } from "date-fns";
 import { CalendarClockIcon, CheckIcon, CopyIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { ActiveFollowUpSummary } from "@/convex/lib/activeFollowUp";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,37 +17,27 @@ import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
 
 type UnfinishedFollowUpBannerProps = {
-  meeting: Pick<Doc<"meetings">, "_id" | "status">;
-  opportunityId: Id<"opportunities">;
   followUp: ActiveFollowUpSummary;
   mode: "closer" | "admin";
   onResolved?: () => Promise<void>;
 };
 
 /**
- * A pending follow-up on a deal that still waits for its call's result:
- * usually a scheduling link whose dialog closed before Done. While it is
- * pending it takes the outcome question's place on the meeting page, and
- * either finishes it (the deal moves to Follow-up) or cancels it (the
- * question comes back).
+ * A pending follow-up on a deal that still waits for its call's result.
+ * Generating a link or setting a task moves the deal to Follow-up at once,
+ * so this is a fallback for one left behind before that change, or another
+ * odd state. While it is pending it takes the outcome question's place on
+ * the meeting page; cancelling it brings the question back.
  */
 export function UnfinishedFollowUpBanner({
-  meeting,
-  opportunityId,
   followUp,
   mode,
   onResolved,
 }: UnfinishedFollowUpBannerProps) {
-  const [pendingAction, setPendingAction] = useState<"finish" | "cancel" | null>(
-    null,
-  );
+  const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const closerConfirm = useMutation(
-    api.closer.followUpMutations.confirmFollowUpScheduled,
-  );
-  const adminConfirm = useMutation(api.admin.meetingActions.adminConfirmFollowUp);
   const closerCancel = useMutation(
     api.closer.followUpMutations.cancelPendingFollowUp,
   );
@@ -56,35 +45,26 @@ export function UnfinishedFollowUpBanner({
     api.admin.meetingActions.adminCancelPendingFollowUp,
   );
 
-  const run = async (action: "finish" | "cancel") => {
-    setPendingAction(action);
+  const isLink = followUp.type === "scheduling_link";
+  const cancelLabel = isLink ? "Cancel the link" : "Cancel the task";
+
+  const cancel = async () => {
+    setCanceling(true);
     setError(null);
     try {
-      if (action === "finish") {
-        const confirm = mode === "admin" ? adminConfirm : closerConfirm;
-        await confirm({
-          opportunityId,
-          meetingId: meeting.status === "scheduled" ? meeting._id : undefined,
-          followUpId: followUp._id,
-        });
-        toast.success("Deal moved to Follow-up");
-      } else {
-        const cancel = mode === "admin" ? adminCancel : closerCancel;
-        await cancel({ followUpId: followUp._id });
-        toast.success("Follow-up canceled");
-      }
+      const run = mode === "admin" ? adminCancel : closerCancel;
+      await run({ followUpId: followUp._id });
+      toast.success(isLink ? "Link canceled" : "Task canceled");
       await onResolved?.();
     } catch (err: unknown) {
       setError(
         getErrorMessage(
           err,
-          action === "finish"
-            ? "Couldn't move the deal to Follow-up."
-            : "Couldn't cancel the follow-up.",
+          isLink ? "Couldn't cancel the link." : "Couldn't cancel the task.",
         ),
       );
     } finally {
-      setPendingAction(null);
+      setCanceling(false);
     }
   };
 
@@ -97,14 +77,13 @@ export function UnfinishedFollowUpBanner({
   };
 
   const createdAt = format(new Date(followUp.createdAt), "MMM d, h:mm a");
-  const what =
-    followUp.type === "scheduling_link"
-      ? `A scheduling link was generated on ${createdAt}`
-      : `A reminder was set on ${createdAt}${
-          followUp.reminderScheduledAt
-            ? ` for ${format(new Date(followUp.reminderScheduledAt), "MMM d, h:mm a")}`
-            : ""
-        }`;
+  const what = isLink
+    ? `A scheduling link from ${createdAt} is still open`
+    : `A task set on ${createdAt}${
+        followUp.reminderScheduledAt
+          ? ` for ${format(new Date(followUp.reminderScheduledAt), "MMM d, h:mm a")}`
+          : ""
+      } is still open`;
 
   return (
     <section
@@ -126,10 +105,10 @@ export function UnfinishedFollowUpBanner({
             Follow-up not finished
           </h2>
           <p className="mt-1 text-muted-foreground">
-            {what}, but the deal never moved to Follow-up, so the outcome
-            question is on hold{mode === "admin" ? " for the closer" : ""}.
-            Mark the follow-up scheduled if it was sent, or cancel it to
-            record the call&apos;s outcome.
+            {what}, but the deal is still waiting for this call&apos;s
+            outcome, so the outcome question is on hold
+            {mode === "admin" ? " for the closer" : ""}. {cancelLabel} to
+            record the outcome here.
           </p>
         </div>
       </div>
@@ -167,25 +146,13 @@ export function UnfinishedFollowUpBanner({
       ) : null}
       <div className="flex flex-wrap gap-2 sm:ml-11">
         <Button
-          size="sm"
-          onClick={() => void run("finish")}
-          disabled={pendingAction !== null}
-        >
-          {pendingAction === "finish" ? (
-            <Spinner data-icon="inline-start" />
-          ) : null}
-          Mark follow-up scheduled
-        </Button>
-        <Button
           variant="outline"
           size="sm"
-          onClick={() => void run("cancel")}
-          disabled={pendingAction !== null}
+          onClick={() => void cancel()}
+          disabled={canceling}
         >
-          {pendingAction === "cancel" ? (
-            <Spinner data-icon="inline-start" />
-          ) : null}
-          Cancel follow-up
+          {canceling ? <Spinner data-icon="inline-start" /> : null}
+          {cancelLabel}
         </Button>
       </div>
     </section>

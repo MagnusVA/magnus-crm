@@ -104,7 +104,7 @@ describe("getReminderDetail", () => {
     ).toBe(false);
   });
 
-  it("returns nothing for another closer's reminder or a scheduling link", async () => {
+  it("returns nothing for another closer's reminder, and the closer's own scheduling link", async () => {
     const { harness, seed } = await seededReminder();
     const { othersReminder, link } = await harness.t.run(async (ctx) => {
       const othersReminder = await insertTask(ctx, {
@@ -123,11 +123,16 @@ describe("getReminderDetail", () => {
       return { othersReminder, link };
     });
 
-    for (const followUpId of [othersReminder, link]) {
-      await expect(
-        harness.closer.query(api.closer.reminderDetail.getReminderDetail, { followUpId }),
-      ).resolves.toBeNull();
-    }
+    await expect(
+      harness.closer.query(api.closer.reminderDetail.getReminderDetail, {
+        followUpId: othersReminder,
+      }),
+    ).resolves.toBeNull();
+    // A scheduling link opens on the task page too.
+    const linkDetail = await harness.closer.query(api.closer.reminderDetail.getReminderDetail, {
+      followUpId: link,
+    });
+    expect(linkDetail?.followUp).toMatchObject({ _id: link, type: "scheduling_link" });
   });
 });
 

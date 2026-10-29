@@ -23,7 +23,7 @@ type TaskDetailViewProps = {
 };
 
 /** "Paid $1,500 · 2 payments", or how many when they're in different currencies. */
-function paymentsFact(payments: TaskDetail["payments"]): string {
+export function paymentsFact(payments: TaskDetail["payments"]): string {
   if (payments.length === 0) return "No payments yet";
   const count = payments.length === 1 ? "1 payment" : `${payments.length} payments`;
   const currency = payments[0].currency;
@@ -88,6 +88,7 @@ export function TaskDetailView({ detail, mode, closerName, onCompleted }: TaskDe
             personName={personName}
             phone={lead.phone ?? null}
             email={lead.email ?? null}
+            personHref={`/workspace/leads-customers/${lead._id}`}
             method={followUp.contactMethod === "text" ? "text" : "call"}
             open={followUp.status === "pending"}
           />

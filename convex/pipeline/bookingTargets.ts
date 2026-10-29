@@ -164,3 +164,85 @@ export async function followUpJoinTargets(
   }
   return targets;
 }
+
+/** A CRM link that no longer waits on the person, with where it came from. */
+export type ClosedBookingLink = {
+  opportunityId: Id<"opportunities">;
+  /** The scheduling link's follow-up; a reschedule link's URL names the meeting instead. */
+  followUpId: Id<"followUps"> | null;
+  kind: "scheduling_link" | "reschedule_link";
+};
+
+const CLOSED_LINK_STATUSES = ["expired", "completed", "booked"] as const;
+
+/**
+ * Whether a booking through a link the CRM sent (`utm_source=ptdom`) came
+ * through a link that is no longer pending: canceled, closed with the deal
+ * marked lost, or already used. Calendly keeps accepting such a URL, so the
+ * person's booking is real; the pipeline then routes it as an ordinary
+ * booking for the person (it joins an eligible Follow-up deal or starts a new
+ * one, never reopening a lost deal) instead of blocking it.
+ *
+ * Only a link with provenance qualifies: the deal is the tenant's, and
+ * - a scheduling link's `utm_content` is a follow-up of this tenant and deal,
+ *   of type `scheduling_link`, that is no longer pending;
+ * - a reschedule link's `utm_content` is a meeting of this deal, the deal is
+ *   not a link target any more (not at Follow-up), it has no pending
+ *   reschedule link, and the CRM did send it one that has since closed.
+ * Anything else returns null, and the link path decides as before: a live
+ * link takes its deal, and a link that names nothing real is blocked.
+ */
+export async function closedBookingLink(
+  ctx: QueryCtx | MutationCtx,
+  {
+    tenantId,
+    utmMedium,
+    utmCampaign,
+    utmContent,
+  }: {
+    tenantId: Id<"tenants">;
+    utmMedium: string | undefined;
+    utmCampaign: string;
+    utmContent: string | undefined;
+  },
+): Promise<ClosedBookingLink | null> {
+  const opportunityId = ctx.db.normalizeId("opportunities", utmCampaign);
+  if (!opportunityId || !utmContent) return null;
+  const deal = await ctx.db.get("opportunities", opportunityId);
+  if (!deal || deal.tenantId !== tenantId) return null;
+
+  if (utmMedium === "noshow_resched") {
+    const meetingId = ctx.db.normalizeId("meetings", utmContent);
+    const meeting = meetingId ? await ctx.db.get("meetings", meetingId) : null;
+    if (!meeting || meeting.tenantId !== tenantId || meeting.opportunityId !== opportunityId) {
+      return null;
+    }
+    if (isBookingLinkTarget(deal)) return null;
+    if ((await loadDealTasks(ctx, opportunityId)).hasPendingRescheduleLink) return null;
+    for (const status of CLOSED_LINK_STATUSES) {
+      const sent = await ctx.db
+        .query("followUps")
+        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
+          q.eq("opportunityId", opportunityId).eq("status", status).eq("reason", "no_show_follow_up"),
+        )
+        .first();
+      if (sent && sent.tenantId === tenantId && sent.type === "scheduling_link") {
+        return { opportunityId, followUpId: null, kind: "reschedule_link" };
+      }
+    }
+    return null;
+  }
+
+  const followUpId = ctx.db.normalizeId("followUps", utmContent);
+  const followUp = followUpId ? await ctx.db.get("followUps", followUpId) : null;
+  if (
+    !followUp ||
+    followUp.tenantId !== tenantId ||
+    followUp.opportunityId !== opportunityId ||
+    followUp.type !== "scheduling_link" ||
+    followUp.status === "pending"
+  ) {
+    return null;
+  }
+  return { opportunityId, followUpId: followUp._id, kind: "scheduling_link" };
+}

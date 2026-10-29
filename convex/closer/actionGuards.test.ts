@@ -5,6 +5,7 @@ import {
   guardDealIn,
   guardHarness,
   guardStates,
+  readGuardDeal,
   reminderOn,
   todaysGuards as today,
   type GuardState,
@@ -107,60 +108,60 @@ describe("follow-ups", () => {
   it.each(calendlyStates)("createSchedulingLinkFollowUp: $label", async (state) => {
     const harness = await guardHarness();
     const { opportunityId } = await guardDealIn(harness, state);
+    const allowed = today.startFollowUp(state.status);
     await expectGuard(
       harness,
       opportunityId,
       () => harness.closer.mutation(api.closer.followUpMutations.createSchedulingLinkFollowUp, { opportunityId }),
-      today.startFollowUp(state.status),
+      allowed,
     );
-  });
-
-  it.each(calendlyStates)("transitionToFollowUp: $label", async (state) => {
-    const harness = await guardHarness();
-    const { opportunityId } = await guardDealIn(harness, state);
-    await expectGuard(
-      harness,
-      opportunityId,
-      () => harness.t.mutation(internal.closer.followUpMutations.transitionToFollowUp, { opportunityId }),
-      today.startFollowUp(state.status),
-    );
-  });
-
-  it.each(calendlyStates)("confirmFollowUpScheduled without a meeting: $label", async (state) => {
-    const harness = await guardHarness();
-    const { opportunityId } = await guardDealIn(harness, state);
-    await expectGuard(
-      harness,
-      opportunityId,
-      () => harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, { opportunityId }),
-      today.followUpScheduled(state.status) || today.startFollowUp(state.status),
-    );
-    const after = await harness.t.run((ctx) => namedStatus(ctx, opportunityId));
-    if (today.followUpScheduled(state.status) || today.startFollowUp(state.status)) {
-      // The deal it leaves names an old status by its stage and tasks: a
-      // stale reschedule link left on a no-show deal (production has none)
-      // makes the Follow-up deal `reschedule_link_sent`, as the guards read
-      // it; PR 7 stored `follow_up_scheduled` there, which assertDealStages
-      // would have reported.
-      expect(after).toBe(
+    if (allowed) {
+      // The link moves the deal to Follow-up at once. A stale reschedule link
+      // left on a no-show deal (production has none) makes it
+      // `reschedule_link_sent`, as the guards read it.
+      expect(await harness.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe(
         state.task === "reschedule_link" ? "reschedule_link_sent" : "follow_up_scheduled",
       );
     }
   });
 
-  it.each(meetingStates)("confirmFollowUpScheduled with a scheduled meeting: $label", async (state) => {
+  it.each(meetingStates)("createSchedulingLinkFollowUp with a scheduled meeting: $label", async (state) => {
     const harness = await guardHarness();
     const { opportunityId, meetingId } = await guardDealIn(harness, state, { meeting: "scheduled" });
     await expectGuard(
       harness,
       opportunityId,
       () =>
-        harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, {
+        harness.closer.mutation(api.closer.followUpMutations.createSchedulingLinkFollowUp, {
           opportunityId,
           meetingId: meetingId!,
         }),
-      today.followUpScheduled(state.status) || today.scheduled(state.status),
+      today.scheduled(state.status),
     );
+  });
+
+  it.each(calendlyStates)("createFollowUpRecord (the Calendly link action): $label", async (state) => {
+    const harness = await guardHarness();
+    const { opportunityId } = await guardDealIn(harness, state);
+    const deal = await readGuardDeal(harness, opportunityId);
+    const allowed = today.startFollowUp(state.status);
+    await expectGuard(
+      harness,
+      opportunityId,
+      () =>
+        harness.t.mutation(internal.closer.followUpMutations.createFollowUpRecord, {
+          tenantId: harness.tenantId,
+          opportunityId,
+          leadId: deal.leadId,
+          closerId: harness.closerId,
+          schedulingLinkUrl: "https://calendly.com/d/single-use",
+          reason: "closer_initiated",
+        }),
+      allowed,
+    );
+    if (allowed) {
+      expect((await readGuardDeal(harness, opportunityId)).stage).toBe("follow_up");
+    }
   });
 
   it.each(calendlyStates)("createManualReminderFollowUpPublic: $label", async (state) => {

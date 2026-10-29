@@ -1,28 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { RefreshCwIcon, UserXIcon } from "lucide-react";
+import { CalendarPlusIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getErrorMessage } from "@/lib/errors";
 
-const FollowUpDialog = dynamic(() =>
-  import("./follow-up-dialog").then((m) => ({ default: m.FollowUpDialog })),
-);
-
 type NoShowActionBarProps = {
   meeting: Doc<"meetings">;
   opportunity: Doc<"opportunities">;
   lead: Doc<"leads">;
-  onStatusChanged?: () => Promise<void>;
   onRescheduleLinkCreated?: (url: string) => void;
+  /**
+   * Opens the follow-up dialog, which the outcome section mounts: a link
+   * moves the deal to Follow-up at once, which unmounts this bar, so a
+   * dialog inside it would close before the link could be copied.
+   */
+  onScheduleFollowUp?: () => void;
   /** Replaces the closer's actions, as the admin view does with its own. */
   actions?: React.ReactNode;
 };
@@ -39,8 +39,8 @@ export function NoShowActionBar({
   meeting,
   opportunity,
   lead,
-  onStatusChanged,
   onRescheduleLinkCreated,
+  onScheduleFollowUp,
   actions,
 }: NoShowActionBarProps) {
   const createRescheduleLink = useMutation(
@@ -146,12 +146,12 @@ export function NoShowActionBar({
               )}
             </Button>
 
-            <FollowUpDialog
-              opportunityId={opportunity._id}
-              onSuccess={onStatusChanged}
-              leadName={lead.fullName ?? lead.email ?? null}
-              compact
-            />
+            {onScheduleFollowUp ? (
+              <Button variant="outline" size="sm" onClick={onScheduleFollowUp}>
+                <CalendarPlusIcon data-icon="inline-start" />
+                Schedule follow-up
+              </Button>
+            ) : null}
           </>
         )}
       </div>

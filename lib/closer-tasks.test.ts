@@ -3,6 +3,8 @@ import {
   formatPastDue,
   groupCloserTasks,
   nextReminderId,
+  nextTaskId,
+  opensTaskPage,
   taskTiming,
   type QueueTask,
 } from "./closer-tasks";
@@ -86,6 +88,51 @@ describe("nextReminderId", () => {
   it("returns null when no other reminder is open", () => {
     expect(
       nextReminderId([reminder("current", NOW)], { currentId: "current", openedAt: NOW }),
+    ).toBeNull();
+  });
+});
+
+describe("opensTaskPage", () => {
+  it("opens reminders and scheduling links on the task page, and a stale-deal nudge on the deal", () => {
+    expect(opensTaskPage(reminder("call", NOW))).toBe(true);
+    expect(opensTaskPage(link("link", NOW))).toBe(true);
+    expect(opensTaskPage(reminder("nudge", NOW, { reason: "stale_opportunity_nudge" }))).toBe(false);
+  });
+});
+
+describe("nextReminderId never opens a link", () => {
+  it("skips scheduling links even when they are handed in with the reminders", () => {
+    expect(
+      nextReminderId([reminder("current", NOW), link("link", NOW - HOUR)], {
+        currentId: "current",
+        openedAt: NOW,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("nextTaskId", () => {
+  const tasks = {
+    reminders: [reminder("later", END_OF_TODAY + HOUR), reminder("overdue", NOW - HOUR)],
+    schedulingLinks: [link("old", NOW - 3 * HOUR), link("current", NOW - 2 * HOUR), link("new", NOW - HOUR)],
+  };
+
+  it("opens the next reminder first, in queue order", () => {
+    expect(nextTaskId(tasks, { currentId: "current", openedAt: NOW })).toBe("overdue");
+  });
+
+  it("then the newest other link, as the queue lists them", () => {
+    expect(
+      nextTaskId({ ...tasks, reminders: [] }, { currentId: "current", openedAt: NOW }),
+    ).toBe("new");
+  });
+
+  it("skips a link sent after the page opened, and returns null when nothing is left", () => {
+    expect(
+      nextTaskId(
+        { reminders: [], schedulingLinks: [link("current", NOW - HOUR), link("fresh", NOW + MINUTE)] },
+        { currentId: "current", openedAt: NOW },
+      ),
     ).toBeNull();
   });
 });

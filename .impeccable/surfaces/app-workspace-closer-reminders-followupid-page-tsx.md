@@ -38,4 +38,11 @@ Each choice states its consequence before it is confirmed.
 
 ## Settled
 - The route stays `/reminders/`; only the UI says Task. Breadcrumbs name it.
-- The queue reuses `getCloserTasks` (Today's Tasks card), so it adds no new query. Scheduling-link rows open the person's deal, as on Today.
+- The queue reuses `getCloserTasks` (Today's Tasks card), so it adds no new query. Scheduling-link rows open in the queue too (see Waiting-link tasks); stale-deal nudges open the deal.
+
+## Waiting-link tasks (user decisions, 2026-10-29)
+Approved sketch: `.impeccable/mocks/task-link.html` (render: `.impeccable/review/task-link.png`).
+- A scheduling-link task (`type: "scheduling_link"`, "Waiting on the person") opens in the same queue and pane as a call-back task, never on the person page.
+- Strip: SENT (when the link went out) / PERSON (and why: "Reschedule link · after the Oct 26 no-show") / DEAL / REACH BY ("Link · not booked yet") / STATUS ("Waiting", with how long and "no booking").
+- Left column: the link card (the full URL, lime Copy link, one line on what happens when the person books through it), the reach card (number with Call, Text, Copy; none lime, the link is the next action), then "Not booking?" with two choices that state their consequence: Cancel the link (closes the task, the deal stays in Follow-up) and Mark the deal lost (closes the task and the deal as lost). Right column: Deal card and Calls on this deal, as for call-back tasks.
+- Generating a scheduling link moves the deal to Follow-up at once; there is no confirm step and no "Mark follow-up scheduled". Only the Calendly booking moves it on (to Booked). Links stuck before this change are moved to Follow-up by a one-off backfill (dev now; production only with the user's go-ahead, as a migration with a dry run).

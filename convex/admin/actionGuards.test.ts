@@ -55,48 +55,35 @@ describe("admin follow-ups", () => {
   it.each(calendlyStates)("adminCreateFollowUp: $label", async (state) => {
     const harness = await guardHarness();
     const { opportunityId } = await guardDealIn(harness, state);
+    const allowed = today.startFollowUp(state.status);
     await expectGuard(
       harness,
       opportunityId,
       () => harness.admin.mutation(api.admin.meetingActions.adminCreateFollowUp, { opportunityId }),
-      today.startFollowUp(state.status),
-    );
-  });
-
-  it.each(calendlyStates)("adminConfirmFollowUp without a meeting: $label", async (state) => {
-    const harness = await guardHarness();
-    const { opportunityId } = await guardDealIn(harness, state);
-    const allowed = today.followUpScheduled(state.status) || today.startFollowUp(state.status);
-    await expectGuard(
-      harness,
-      opportunityId,
-      () => harness.admin.mutation(api.admin.meetingActions.adminConfirmFollowUp, { opportunityId }),
       allowed,
     );
     if (allowed) {
-      // The deal it leaves names an old status by its stage and tasks: a
-      // stale reschedule link left on a no-show deal (production has none)
-      // makes the Follow-up deal `reschedule_link_sent`, as the guards read
-      // it; PR 7 stored `follow_up_scheduled` there, which assertDealStages
-      // would have reported.
+      // The link moves the deal to Follow-up at once. A stale reschedule link
+      // left on a no-show deal (production has none) makes it
+      // `reschedule_link_sent`, as the guards read it.
       expect(await harness.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe(
         state.task === "reschedule_link" ? "reschedule_link_sent" : "follow_up_scheduled",
       );
     }
   });
 
-  it.each(meetingStates)("adminConfirmFollowUp with a scheduled meeting: $label", async (state) => {
+  it.each(meetingStates)("adminCreateFollowUp with a scheduled meeting: $label", async (state) => {
     const harness = await guardHarness();
     const { opportunityId, meetingId } = await guardDealIn(harness, state, { meeting: "scheduled" });
     await expectGuard(
       harness,
       opportunityId,
       () =>
-        harness.admin.mutation(api.admin.meetingActions.adminConfirmFollowUp, {
+        harness.admin.mutation(api.admin.meetingActions.adminCreateFollowUp, {
           opportunityId,
           meetingId: meetingId!,
         }),
-      today.followUpScheduled(state.status) || today.scheduled(state.status),
+      today.scheduled(state.status),
     );
   });
 

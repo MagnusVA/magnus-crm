@@ -4,19 +4,10 @@ import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { transitionOpportunity } from "../lib/opportunityActivity";
-import {
-  canStartFollowUp,
-  describeDealState,
-  isFollowUpWithoutRescheduleLink,
-  loadDealTasks,
-} from "../opportunities/dealGuards";
+import { canStartFollowUp, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
-import {
-  assertFollowUpStillPending,
-  expireUnfinishedFollowUp,
-} from "../lib/activeFollowUp";
-import { log } from "../lib/observability/log";
+import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -27,8 +18,10 @@ import { log } from "../lib/observability/log";
  */
 
 /**
- * Create a follow-up record.
- * Called by the createFollowUp action after generating the scheduling link.
+ * Create a scheduling-link follow-up and move the deal to Follow-up, in one
+ * transaction. Called by the createFollowUp action after Calendly returned
+ * the single-use link; the action checked the caller, and this checks the
+ * deal again, since it may have moved while Calendly answered.
  */
 export const createFollowUpRecord = internalMutation({
   args: {
@@ -44,6 +37,17 @@ export const createFollowUpRecord = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
+    if (!opportunity || opportunity.tenantId !== args.tenantId) {
+      throw new Error("Opportunity not found");
+    }
+    if (!canStartFollowUp(opportunity)) {
+      throw new Error(
+        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}". ` +
+          `Only a deal awaiting its call's result, or one a missed meeting closed, supports follow-ups.`
+      );
+    }
+
     const now = Date.now();
     const id = await ctx.db.insert("followUps", {
       tenantId: args.tenantId,
@@ -72,37 +76,17 @@ export const createFollowUpRecord = internalMutation({
       },
       occurredAt: now,
     });
-    return id;
-  },
-});
-
-/**
- * Move the deal to Follow-up.
- * Validates the deal can start a follow-up from where it is.
- */
-export const transitionToFollowUp = internalMutation({
-  args: { opportunityId: v.id("opportunities") },
-  handler: async (ctx, { opportunityId }) => {
-    const opportunity = await ctx.db.get("opportunities", opportunityId);
-    if (!opportunity) throw new Error("Opportunity not found");
-
-    if (!canStartFollowUp(opportunity)) {
-      throw new Error(
-        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}". ` +
-          `Only a deal awaiting its call's result, or one a missed meeting closed, supports follow-ups.`
-      );
-    }
-
-    const now = Date.now();
     // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
     // Follow-up, which only the exception allows.
-    await transitionOpportunity(ctx, opportunityId, {
+    await transitionOpportunity(ctx, args.opportunityId, {
       to: { stage: "follow_up" },
       fields: { updatedAt: now },
       exception: "missed_meeting_next_step",
       source: "system",
+      actorUserId: args.closerId,
       occurredAt: now,
     });
+    return id;
   },
 });
 
@@ -132,12 +116,21 @@ export const markFollowUpBooked = internalMutation({
   },
 });
 
+/**
+ * Generate a scheduling link for the person to book their next call, and
+ * move the deal to Follow-up at once. From the meeting page's outcome
+ * (`meetingId` given) the call is marked held too, as every other outcome
+ * does. The link stays pending until a booking through it moves the deal on
+ * to Booked (pipeline/inviteeCreated.ts), or the closer cancels it or marks
+ * the deal lost from the task page (closer/linkTaskOutcomes.ts).
+ */
 export const createSchedulingLinkFollowUp = mutation({
   args: {
     opportunityId: v.id("opportunities"),
+    meetingId: v.optional(v.id("meetings")),
   },
-  handler: async (ctx, { opportunityId }) => {
-    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+  handler: async (ctx, { opportunityId, meetingId }) => {
+    const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
     const now = Date.now();
     const user = await ctx.db.get("users", userId);
@@ -157,10 +150,31 @@ export const createSchedulingLinkFollowUp = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
+    const meeting = meetingId ? await ctx.db.get("meetings", meetingId) : null;
+    if (
+      meetingId &&
+      (!meeting ||
+        meeting.tenantId !== tenantId ||
+        meeting.opportunityId !== opportunityId)
+    ) {
+      throw new Error("Meeting does not belong to this opportunity");
+    }
+    // A second Generate (a double click, another tab) finds the deal at
+    // Follow-up already and is refused here, so a deal never holds two
+    // pending links from one dialog.
     if (!canStartFollowUp(opportunity)) {
       throw new Error(
         `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
       );
+    }
+    if (meeting) {
+      assertCanRecordMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+        now,
+      });
     }
 
     const followUpId = await ctx.db.insert("followUps", {
@@ -171,6 +185,7 @@ export const createSchedulingLinkFollowUp = mutation({
       type: "scheduling_link",
       reason: "closer_initiated",
       status: "pending",
+      ...(meeting ? { sourceMeetingId: meeting._id } : {}),
       createdAt: now,
       createdByUserId: userId,
       createdSource: "closer",
@@ -206,78 +221,11 @@ export const createSchedulingLinkFollowUp = mutation({
       },
       occurredAt: now,
     });
-    // NOTE: The move to Follow-up is deferred to confirmFollowUpScheduled.
-    // If we transition here, Convex reactivity pushes the new status to the
-    // client immediately, which re-renders OutcomeActionBar → returns null →
-    // unmounts the FollowUpDialog before the user can see/copy the link.
-
-    return { schedulingLinkUrl, followUpId };
-  },
-});
-
-/**
- * Confirm a scheduling-link follow-up by moving the deal to Follow-up.
- * Called from the dialog's "Done" button after the user has seen/copied the link.
- */
-export const confirmFollowUpScheduled = mutation({
-  args: {
-    opportunityId: v.id("opportunities"),
-    meetingId: v.optional(v.id("meetings")),
-    // The follow-up this confirm was opened for. When given, the confirm is
-    // refused once that follow-up is no longer pending.
-    followUpId: v.optional(v.id("followUps")),
-  },
-  handler: async (ctx, { opportunityId, meetingId, followUpId }) => {
-    const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
-
-    const opportunity = await ctx.db.get("opportunities", opportunityId);
-    if (!opportunity || opportunity.tenantId !== tenantId) {
-      throw new Error("Opportunity not found");
-    }
-    if (opportunity.assignedCloserId !== userId) {
-      throw new Error("Not your opportunity");
-    }
-    const meeting = meetingId ? await ctx.db.get("meetings", meetingId) : null;
-    if (
-      meetingId &&
-      (!meeting ||
-        meeting.tenantId !== tenantId ||
-        meeting.opportunityId !== opportunityId)
-    ) {
-      throw new Error("Meeting does not belong to this opportunity");
-    }
-    // Already transitioned (e.g. user double-clicked Done) — silently succeed.
-    // A deal waiting on its reschedule link isn't, and the follow-up is refused.
-    if (isFollowUpWithoutRescheduleLink(opportunity, await loadDealTasks(ctx, opportunityId))) {
-      log.info("follow_up.confirm_skipped", {
-        tenantId,
-        actor: "closer",
-        opportunityId,
-        reason: "already_follow_up_scheduled",
-      });
-      return;
-    }
-    if (followUpId) {
-      await assertFollowUpStillPending(ctx, { followUpId, tenantId, opportunityId });
-    }
-    const now = Date.now();
-    if (meeting) {
-      assertCanRecordMeetingOutcome({
-        meeting,
-        opportunity,
-        userId,
-        role,
-        now,
-      });
-    }
-    if (!canStartFollowUp(opportunity)) {
-      throw new Error(
-        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
-      );
-    }
 
     // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
-    // Follow-up, which only the exception allows.
+    // Follow-up, which only the exception allows. The meeting page keeps the
+    // dialog mounted while the deal moves underneath it (outcome-section.tsx),
+    // so the closer still sees and copies the link.
     await transitionOpportunity(ctx, opportunityId, {
       to: { stage: "follow_up" },
       fields: { updatedAt: now },
@@ -294,14 +242,17 @@ export const confirmFollowUpScheduled = mutation({
         recordedAt: now,
       });
     }
+
+    return { schedulingLinkUrl, followUpId };
   },
 });
 
 /**
  * Cancel a follow-up the closer started but never finished: a pending
  * scheduling link or manual reminder on one of their deals that never moved to
- * Follow-up. The meeting page offers it next to "Mark follow-up scheduled", so
- * the outcome buttons come back.
+ * Follow-up. Generating a link moves the deal at once now, so this is the
+ * meeting page's fallback for links left behind before that change, or any
+ * other odd state; cancelling brings the outcome buttons back.
  */
 export const cancelPendingFollowUp = mutation({
   args: {
@@ -391,6 +342,7 @@ export const createManualReminderFollowUpPublic = mutation({
       reminderNote: args.reminderNote,
       reason: "closer_initiated",
       status: "pending",
+      ...(meeting ? { sourceMeetingId: meeting._id } : {}),
       createdAt: now,
       createdByUserId: userId,
       createdSource: "closer",

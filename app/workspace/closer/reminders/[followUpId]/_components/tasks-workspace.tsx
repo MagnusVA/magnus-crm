@@ -14,12 +14,18 @@ import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { businessDateForInstant, businessDayRange } from "@/lib/businessDay";
-import { groupCloserTasks, nextReminderId, opensTaskPage } from "@/lib/closer-tasks";
+import {
+  groupCloserTasks,
+  nextReminderId,
+  nextTaskId,
+  opensTaskPage,
+} from "@/lib/closer-tasks";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { SectionError } from "@/app/workspace/closer/_components/section-state";
 import type { CloserTasks } from "@/app/workspace/closer/_components/task-list";
+import { LinkTaskView } from "./link-task-view";
 import { TaskDetailView } from "./task-detail-view";
 import { TaskPaneSkeleton } from "./task-detail-skeleton";
 import { TaskPageLayout } from "./task-page-layout";
@@ -33,13 +39,15 @@ type Detail = NonNullable<FunctionReturnType<typeof api.closer.reminderDetail.ge
  * task the URL names (`/workspace/closer/reminders/[followUpId]`). It lives
  * in the reminders layout, so moving between tasks keeps the queue mounted
  * and swaps only the pane: the task on screen stays, dimmed, until the next
- * one arrives, and a row's hover or focus starts loading its task.
+ * one arrives, and a row's hover or focus starts loading its task. A
+ * call-back or text-back reminder opens the reminder pane; a scheduling link
+ * waiting on the person opens the link pane.
  *
  * `/workspace/closer/reminders` itself (Today's "All tasks") opens the first
- * task in queue order, Overdue, Today, then Later.
+ * task in queue order, Overdue, Today, Later, then Waiting on the person.
  *
- * `getReminderDetail` returns null for a task that isn't the closer's own
- * reminder, which reads as "Task not found".
+ * `getReminderDetail` returns null for a task that isn't the closer's own,
+ * which reads as "Task not found".
  */
 export function TasksWorkspace() {
   const router = useRouter();
@@ -54,7 +62,10 @@ export function TasksWorkspace() {
     if (!tasks) return undefined;
     const today = businessDateForInstant(now, setting);
     const groups = groupCloserTasks(tasks, now, businessDayRange(today, setting).end);
-    return [...groups.overdue, ...groups.today, ...groups.later].find(opensTaskPage)?._id ?? null;
+    return (
+      [...groups.overdue, ...groups.today, ...groups.later, ...groups.waiting].find(opensTaskPage)
+        ?._id ?? null
+    );
   }, [tasks, now, setting]);
   useEffect(() => {
     if (!followUpId && firstId) router.replace(`/workspace/closer/reminders/${firstId}`);
@@ -132,10 +143,22 @@ function OpenTask({ detail, tasks }: { detail: Detail; tasks: CloserTasks | unde
   // A task created after this moment is one this page just set (Try again).
   const [openedAt] = useState(() => Date.now());
   const currentId = detail.followUp._id;
+  const isLink = detail.followUp.type === "scheduling_link";
 
   // A landing event per task opened: the funnel's anchor (task opened →
   // outcome chosen → completed). No PII.
   useEffect(() => {
+    if (isLink) {
+      posthog.capture("link_task_opened", {
+        follow_up_id: detail.followUp._id,
+        opportunity_id: detail.opportunity._id,
+        follow_up_status: detail.followUp.status,
+        deal_stage: detail.opportunity.stage,
+        deal_outcome: detail.opportunity.outcome,
+        reschedule_link: detail.followUp.reason === "no_show_follow_up",
+      });
+      return;
+    }
     posthog.capture("reminder_page_opened", {
       follow_up_id: detail.followUp._id,
       opportunity_id: detail.opportunity._id,
@@ -148,12 +171,30 @@ function OpenTask({ detail, tasks }: { detail: Detail; tasks: CloserTasks | unde
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onCompleted = () => {
-    const next = tasks ? nextReminderId(tasks.reminders, { currentId, openedAt }) : null;
+  const openNext = (next: string | null) => {
     router.push(next ? `/workspace/closer/reminders/${next}` : "/workspace/closer");
   };
 
-  return <TaskDetailView detail={detail} mode="closer" closerName={null} onCompleted={onCompleted} />;
+  if (isLink) {
+    // After a link closes: the next task in queue order, reminders first.
+    return (
+      <LinkTaskView
+        detail={detail}
+        onCompleted={() => openNext(tasks ? nextTaskId(tasks, { currentId, openedAt }) : null)}
+      />
+    );
+  }
+  // After a call-back's outcome: the next call-back, never a link.
+  return (
+    <TaskDetailView
+      detail={detail}
+      mode="closer"
+      closerName={null}
+      onCompleted={() =>
+        openNext(tasks ? nextReminderId(tasks.reminders, { currentId, openedAt }) : null)
+      }
+    />
+  );
 }
 
 /** The title and breadcrumbs name the task once it has loaded. */
@@ -180,13 +221,12 @@ function NoOpenTasks() {
     >
       <header className="flex min-h-[46px] items-center border-b px-4 py-2">
         <h1 id="no-tasks-title" className="text-[15px] font-semibold">
-          No call-back or text-back tasks
+          No open tasks
         </h1>
       </header>
       <div className="flex flex-col items-start gap-3 px-4 py-4">
         <p className="max-w-prose text-muted-foreground">
-          Tasks you set from a call land here. Scheduling links waiting on a booking are in the
-          list and open on the person&apos;s page.
+          Call-backs, text-backs and scheduling links you set from a call land here.
         </p>
         <Button asChild variant="outline" size="sm">
           <Link href="/workspace/closer">
@@ -212,9 +252,8 @@ function TaskNotFound() {
       </header>
       <div className="flex flex-col items-start gap-3 px-4 py-4">
         <p className="max-w-prose text-muted-foreground">
-          This link isn&apos;t one of your call-back or text-back tasks. It may belong to another
-          closer, or point to a scheduling link, which opens on the person&apos;s page. Pick a task
-          from the list, or go back to Today.
+          This isn&apos;t one of your tasks. It may belong to another closer, or no longer exist.
+          Pick a task from the list, or go back to Today.
         </p>
         <Button asChild variant="outline" size="sm">
           <Link href="/workspace/closer">

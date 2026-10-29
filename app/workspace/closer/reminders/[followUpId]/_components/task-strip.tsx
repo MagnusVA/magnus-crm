@@ -133,6 +133,78 @@ export function TaskStrip({
   const method = followUp.contactMethod === "text" ? "Text" : "Call";
 
   return (
+    <StripFrame labels={["Due", "Person", "Deal", "Reach by", "Status"]} columns={COLUMNS}>
+      <StripCell label="Due">
+        <p className="font-condensed text-[1.625rem] leading-none font-semibold tabular-nums">
+          {dueClock ? (
+            <>
+              {dueClock.time}
+              <span className="ml-1 text-sm font-medium text-board-muted">
+                {dueClock.dayPeriod}
+              </span>
+            </>
+          ) : (
+            "—"
+          )}
+        </p>
+        <p className="mt-1 truncate text-[0.8125rem] text-board-muted tabular-nums">
+          {dueDayLine}
+        </p>
+      </StripCell>
+
+      <StripStatus
+        word={status.word}
+        detail={status.detail}
+        wordClass={TONE_WORD_CLASS[status.tone]}
+        dotClass={TONE_DOT_CLASS[status.tone]}
+      />
+
+      <StripCell label="Person" className="col-span-2 @3xl:col-span-1">
+        <h1 className="truncate text-lg leading-tight font-semibold" title={personName}>
+          {personName}
+        </h1>
+        <p className="mt-0.5 truncate text-[0.8125rem] text-board-muted" title={personLine}>
+          {personLine}
+        </p>
+      </StripCell>
+
+      <StripCell label="Deal" className="col-span-2 @3xl:col-span-1">
+        <p className="truncate font-semibold" title={programName ?? undefined}>
+          {programName ?? "No program mapped"}
+        </p>
+        <p className="mt-0.5 truncate text-[0.8125rem] text-board-muted tabular-nums">
+          {dealPositionLabel(position, systemLoss)} · {dealLine}
+        </p>
+      </StripCell>
+
+      <StripCell label="Reach by" className="col-span-2 @3xl:col-span-1">
+        <p className="truncate text-board-muted tabular-nums">
+          <span className="font-semibold text-board-foreground">{method}</span>
+          {" · "}
+          {phone ?? "No phone on file"}
+        </p>
+      </StripCell>
+    </StripFrame>
+  );
+}
+
+/**
+ * The board strip's frame: a navy section with the column labels over one
+ * row. From @3xl the cells sit in `columns`; below it they stack two to a row
+ * and each carries its own label (`StripCell`). The status cell goes last
+ * from @3xl with `@3xl:order-last`.
+ */
+export function StripFrame({
+  labels,
+  columns,
+  children,
+}: {
+  labels: readonly string[];
+  /** The @3xl grid template, one track per label. */
+  columns: string;
+  children: React.ReactNode;
+}) {
+  return (
     <section
       aria-label="This task"
       className="@container overflow-hidden rounded-xl bg-board text-board-foreground dark:ring-1 dark:ring-board-foreground/10"
@@ -141,91 +213,56 @@ export function TaskStrip({
         aria-hidden
         className={cn(
           "hidden h-7 items-center gap-x-3.5 border-b border-board-line px-4 font-condensed text-[0.6875rem] font-semibold tracking-[0.14em] text-board-muted uppercase @3xl:grid",
-          COLUMNS,
+          columns,
         )}
       >
-        <span>Due</span>
-        <span>Person</span>
-        <span>Deal</span>
-        <span>Reach by</span>
-        <span>Status</span>
+        {labels.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
       </div>
       <div
         className={cn(
           "grid grid-cols-2 gap-x-3.5 gap-y-3 px-4 py-3 @3xl:min-h-16 @3xl:items-center @3xl:gap-y-0 @3xl:py-2",
-          COLUMNS,
+          columns,
         )}
       >
-        <StripCell label="Due">
-          <p className="font-condensed text-[1.625rem] leading-none font-semibold tabular-nums">
-            {dueClock ? (
-              <>
-                {dueClock.time}
-                <span className="ml-1 text-sm font-medium text-board-muted">
-                  {dueClock.dayPeriod}
-                </span>
-              </>
-            ) : (
-              "—"
-            )}
-          </p>
-          <p className="mt-1 truncate text-[0.8125rem] text-board-muted tabular-nums">
-            {dueDayLine}
-          </p>
-        </StripCell>
-
-        <StripCell label="Status" className="@3xl:order-last">
-          <p
-            className={cn(
-              "flex items-center gap-2 font-condensed text-[1.0625rem] leading-none font-bold tracking-[0.08em] whitespace-nowrap uppercase",
-              TONE_WORD_CLASS[status.tone],
-            )}
-          >
-            <span
-              aria-hidden
-              className={cn("size-2 shrink-0 rounded-full", TONE_DOT_CLASS[status.tone])}
-            />
-            {status.word}
-          </p>
-          <p
-            className="mt-1 text-[0.8125rem] text-board-muted tabular-nums"
-            suppressHydrationWarning
-          >
-            {status.detail}
-          </p>
-        </StripCell>
-
-        <StripCell label="Person" className="col-span-2 @3xl:col-span-1">
-          <h1 className="truncate text-lg leading-tight font-semibold" title={personName}>
-            {personName}
-          </h1>
-          <p className="mt-0.5 truncate text-[0.8125rem] text-board-muted" title={personLine}>
-            {personLine}
-          </p>
-        </StripCell>
-
-        <StripCell label="Deal" className="col-span-2 @3xl:col-span-1">
-          <p className="truncate font-semibold" title={programName ?? undefined}>
-            {programName ?? "No program mapped"}
-          </p>
-          <p className="mt-0.5 truncate text-[0.8125rem] text-board-muted tabular-nums">
-            {dealPositionLabel(position, systemLoss)} · {dealLine}
-          </p>
-        </StripCell>
-
-        <StripCell label="Reach by" className="col-span-2 @3xl:col-span-1">
-          <p className="truncate text-board-muted tabular-nums">
-            <span className="font-semibold text-board-foreground">{method}</span>
-            {" · "}
-            {phone ?? "No phone on file"}
-          </p>
-        </StripCell>
+        {children}
       </div>
     </section>
   );
 }
 
-function StripCell({
+/** The strip's status cell: one condensed word with its dot, and a line under it. */
+export function StripStatus({
+  word,
+  detail,
+  wordClass,
+  dotClass,
+}: {
+  word: string;
+  detail: React.ReactNode;
+  wordClass: string;
+  dotClass: string;
+}) {
+  return (
+    <StripCell label="Status" className="@3xl:order-last">
+      <p
+        className={cn(
+          "flex items-center gap-2 font-condensed text-[1.0625rem] leading-none font-bold tracking-[0.08em] whitespace-nowrap uppercase",
+          wordClass,
+        )}
+      >
+        <span aria-hidden className={cn("size-2 shrink-0 rounded-full", dotClass)} />
+        {word}
+      </p>
+      <p className="mt-1 text-[0.8125rem] text-board-muted tabular-nums" suppressHydrationWarning>
+        {detail}
+      </p>
+    </StripCell>
+  );
+}
+
+export function StripCell({
   label,
   className,
   children,

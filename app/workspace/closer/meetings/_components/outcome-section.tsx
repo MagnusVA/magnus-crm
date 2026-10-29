@@ -79,7 +79,8 @@ type OutcomeSectionProps = {
  * The page's one next action. Depending on the deal and the call it is:
  *
  * - the outcome question ("Did Ana show up?", then won, follow-up or lost),
- * - the unfinished follow-up from PR #214, which holds the question,
+ * - an unfinished follow-up (a link left pending before links moved the
+ *   deal at once), which holds the question until it is canceled,
  * - the no-show bar with its reschedule link, on a deal a no-show closed,
  * - a note that the question opens 5 minutes before the call, or
  * - a one-line summary once the outcome is recorded.
@@ -146,8 +147,6 @@ export function OutcomeSection({
   } else if (activeFollowUp && awaiting) {
     body = (
       <UnfinishedFollowUpBanner
-        meeting={meeting}
-        opportunityId={opportunity._id}
         followUp={activeFollowUp}
         mode={mode === "admin" || !viewerIsCloser ? "admin" : "closer"}
         onResolved={onStatusChanged}
@@ -159,8 +158,8 @@ export function OutcomeSection({
         meeting={meeting}
         opportunity={opportunity}
         lead={lead}
-        onStatusChanged={onStatusChanged}
         onRescheduleLinkCreated={setRescheduleLinkUrl}
+        onScheduleFollowUp={() => openDialog("missed_follow_up")}
         actions={
           mode === "admin" ? (
             <>
@@ -258,13 +257,25 @@ export function OutcomeSection({
             />
           )
         ) : null}
-        {shown("missed_follow_up") && mode === "admin" ? (
-          <AdminFollowUpDialog
-            opportunityId={opportunity._id}
-            onSuccess={onStatusChanged}
-            leadName={leadName}
-            {...dialogState("missed_follow_up")}
-          />
+        {/* A follow-up from a missed meeting: the no-show bar, or the
+            admin's summary. Mounted here, not in the bar, since a link moves
+            the deal at once and the bar unmounts. */}
+        {shown("missed_follow_up") ? (
+          mode === "admin" ? (
+            <AdminFollowUpDialog
+              opportunityId={opportunity._id}
+              onSuccess={onStatusChanged}
+              leadName={leadName}
+              {...dialogState("missed_follow_up")}
+            />
+          ) : (
+            <FollowUpDialog
+              opportunityId={opportunity._id}
+              onSuccess={onStatusChanged}
+              leadName={leadName}
+              {...dialogState("missed_follow_up")}
+            />
+          )
         ) : null}
         {shown("lost") ? (
           mode === "admin" ? (
@@ -470,6 +481,12 @@ const CHOICE_TONE = {
     box: "border-border bg-card hover:bg-muted/60",
     mark: "bg-destructive/10 text-danger-ink",
     title: "text-danger-ink",
+  },
+  // A choice that changes no stage, such as cancelling a link: no stage colour.
+  quiet: {
+    box: "border-border bg-card hover:bg-muted/60",
+    mark: "bg-muted text-foreground",
+    title: "",
   },
 } as const;
 

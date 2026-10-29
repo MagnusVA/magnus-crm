@@ -11,7 +11,7 @@ import {
   businessDateForInstant,
   type BusinessDaySetting,
 } from "@/lib/businessDay";
-import type { TaskGroupKey } from "@/lib/closer-tasks";
+import { opensTaskPage, type TaskGroupKey } from "@/lib/closer-tasks";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,11 +23,14 @@ import { formatClock, formatShortDate } from "./today-time";
 export type CloserTasks = FunctionReturnType<typeof api.closer.followUpQueries.getCloserTasks>;
 export type CloserTask = CloserTasks["reminders"][number];
 
-/** Where a row goes: a reminder's task page, or the deal for a link or a stale-deal nudge. */
+/**
+ * Where a row goes: the task page for a reminder or a scheduling link, or the
+ * deal for a stale-deal nudge, which is resolved there.
+ */
 export function taskHref(task: CloserTask): string {
-  return task.type === "scheduling_link" || task.reason === "stale_opportunity_nudge"
-    ? `/workspace/leads-customers/${task.leadId}?opportunityId=${task.opportunityId}`
-    : `/workspace/closer/reminders/${task._id}`;
+  return opensTaskPage(task)
+    ? `/workspace/closer/reminders/${task._id}`
+    : `/workspace/leads-customers/${task.leadId}?opportunityId=${task.opportunityId}`;
 }
 
 export function TasksHeader({
@@ -104,8 +107,9 @@ export function TaskRow({
   current?: boolean;
 }) {
   const convex = useConvex();
-  // Pointing at a task row starts loading the task, so it's ready on click.
-  const opensTask = taskHref(task).startsWith("/workspace/closer/reminders/");
+  // Pointing at a task row starts loading the task, so it's ready on click:
+  // a reminder or a scheduling link, both of which open on the task page.
+  const opensTask = opensTaskPage(task);
   const prewarm = () => {
     if (!opensTask || current) return;
     convex.prewarmQuery({

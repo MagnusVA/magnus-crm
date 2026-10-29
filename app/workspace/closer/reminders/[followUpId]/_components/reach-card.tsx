@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { CheckIcon, CopyIcon, MailIcon, MessageSquareIcon, PhoneIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,12 +17,15 @@ export function ReachCard({
   personName,
   phone,
   email,
+  personHref,
   method,
   open,
 }: {
   personName: string;
   phone: string | null;
   email: string | null;
+  /** The person's page, where a missing number is added. */
+  personHref: string;
   method: "call" | "text";
   /** The task is still pending, so reaching out is the next action. */
   open: boolean;
@@ -92,8 +96,14 @@ export function ReachCard({
           </>
         ) : (
           <p className="mr-auto text-muted-foreground">
-            No phone number on file. Reach out by email, or add a number on the person&rsquo;s
-            page.
+            No phone number on file. Reach out by email, or add a number on{" "}
+            <Link
+              href={personHref}
+              className="text-foreground underline underline-offset-[3px] outline-none hover:text-primary-ink focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {personName}&rsquo;s page
+            </Link>
+            .
           </p>
         )}
       </div>

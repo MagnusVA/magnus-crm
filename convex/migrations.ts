@@ -66,6 +66,12 @@ import {
   type TouchSnapshot,
 } from "./lib/touches";
 import { isAllowedStageOutcome } from "./opportunities/stages";
+import { log } from "./lib/observability/log";
+import {
+  applyStuckLink,
+  planStuckLink,
+  stuckLinkDeal,
+} from "./closer/stuckSchedulingLinks";
 import {
   isMissedMeetingLoss,
   loadPendingRescheduleLink,
@@ -1300,5 +1306,134 @@ export const assertMeetingAttendance = migrations.define({
       (meeting.status === "held" && meeting.heldMarkedAt === undefined) ||
       (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
     ) throw new Error(meeting._id);
+  },
+});
+
+// Scheduling links stuck before links moved the deal (2026-10-29): a pending
+// scheduling link whose deal is still at Booked or Call held moves to
+// Follow-up, as generating a link does now, and the call the link followed is
+// marked held when it is still unrecorded, as the old confirm did. A link the
+// deal has moved past (another link booked after it, a meeting created after
+// it, or a call still to come) is superseded: it is expired and the deal
+// stays (closer/stuckSchedulingLinks.ts). Safe to rerun: a handled link is no
+// longer a candidate.
+//   Dry run, read only, one page of follow-ups:
+//     npx convex run migrations:previewStuckSchedulingLinks '{}'
+//   Run, then check:
+//     npx convex run migrations:run '{"fn":"migrations:moveStuckSchedulingLinksToFollowUp"}'
+//     npx convex run migrations:run '{"fn":"migrations:assertNoStuckSchedulingLinks"}'
+export const moveStuckSchedulingLinksToFollowUp = migrations.define({
+  table: "followUps",
+  batchSize: 25,
+  migrateOne: async (ctx, followUp) => {
+    const plan = await applyStuckLink(ctx, followUp);
+    if (!plan) return;
+    log.info("migration.stuck_scheduling_link", {
+      tenantId: followUp.tenantId,
+      followUpId: followUp._id,
+      opportunityId: followUp.opportunityId,
+      action: plan.kind === "move" ? "moved_to_follow_up" : "expired_superseded",
+      supersededBy: plan.kind === "superseded" ? plan.reason : null,
+      followedMeetingId: plan.kind === "move" ? (plan.followedMeeting?._id ?? null) : null,
+      heldMeetingId: plan.kind === "move" ? plan.heldMeetingId : null,
+    });
+  },
+});
+
+// Every candidate is handled: no pending scheduling link is left on a deal
+// at Booked or Call held, moved or superseded.
+export const assertNoStuckSchedulingLinks = migrations.define({
+  table: "followUps",
+  batchSize: 100,
+  migrateOne: async (ctx, followUp) => {
+    const deal = await stuckLinkDeal(ctx, followUp);
+    if (deal) {
+      throw new Error(`Scheduling link ${followUp._id} is pending on deal ${deal._id} at ${deal.stage}`);
+    }
+  },
+});
+
+// The backfill's dry run over one page of follow-ups, writing nothing: the
+// links whose deal it would move (with the call each followed and the one it
+// would mark held, null when there is none or it is already recorded), and
+// the superseded links it would expire, with why. Pass `continueCursor` back
+// as `cursor` until `isDone`.
+export const previewStuckSchedulingLinks = internalQuery({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    numItems: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    count: v.number(),
+    stuck: v.array(
+      v.object({
+        followUpId: v.id("followUps"),
+        opportunityId: v.id("opportunities"),
+        tenantId: v.id("tenants"),
+        stage: v.string(),
+        linkCreatedAt: v.number(),
+        followedMeetingId: v.union(v.id("meetings"), v.null()),
+        followedMeetingStatus: v.union(v.string(), v.null()),
+        heldMeetingId: v.union(v.id("meetings"), v.null()),
+      }),
+    ),
+    meetingsToHold: v.number(),
+    supersededCount: v.number(),
+    superseded: v.array(
+      v.object({
+        followUpId: v.id("followUps"),
+        opportunityId: v.id("opportunities"),
+        tenantId: v.id("tenants"),
+        stage: v.string(),
+        linkCreatedAt: v.number(),
+        supersededBy: v.union(
+          v.literal("booked_follow_up"),
+          v.literal("later_meeting"),
+          v.literal("upcoming_meeting"),
+        ),
+      }),
+    ),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, { cursor, numItems }) => {
+    const now = Date.now();
+    const page = await ctx.db
+      .query("followUps")
+      .paginate({ cursor: cursor ?? null, numItems: numItems ?? 500 });
+    const stuck = [];
+    const superseded = [];
+    for (const followUp of page.page) {
+      const plan = await planStuckLink(ctx, followUp, now);
+      if (!plan) continue;
+      const base = {
+        followUpId: followUp._id,
+        opportunityId: plan.deal._id,
+        tenantId: plan.deal.tenantId,
+        stage: plan.deal.stage,
+        linkCreatedAt: followUp.createdAt,
+      };
+      if (plan.kind === "superseded") {
+        superseded.push({ ...base, supersededBy: plan.reason });
+      } else {
+        stuck.push({
+          ...base,
+          followedMeetingId: plan.followedMeeting?._id ?? null,
+          followedMeetingStatus: plan.followedMeeting?.status ?? null,
+          heldMeetingId: plan.heldMeetingId,
+        });
+      }
+    }
+    return {
+      scanned: page.page.length,
+      count: stuck.length,
+      stuck,
+      meetingsToHold: stuck.filter((row) => row.heldMeetingId !== null).length,
+      supersededCount: superseded.length,
+      superseded,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
   },
 });

@@ -7,17 +7,12 @@ import {
   canSendRescheduleLink,
   canStartFollowUp,
   describeDealState,
-  isFollowUpWithoutRescheduleLink,
   loadDealTasks,
 } from "../opportunities/dealGuards";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
-import {
-  assertFollowUpStillPending,
-  expireUnfinishedFollowUp,
-} from "../lib/activeFollowUp";
-import { log } from "../lib/observability/log";
+import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
 import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
 
 const noShowReasonValidator = v.union(
@@ -110,91 +105,15 @@ export const adminMarkAsLost = mutation({
 // adminCreateFollowUp — Create scheduling link follow-up using closer's Calendly
 // ---------------------------------------------------------------------------
 
+/**
+ * The admin twin of `createSchedulingLinkFollowUp`: a link on the assigned
+ * closer's calendar, and the deal moves to Follow-up at once, with the
+ * meeting marked held when the admin records it from the meeting's outcome.
+ */
 export const adminCreateFollowUp = mutation({
   args: {
     opportunityId: v.id("opportunities"),
-  },
-  handler: async (ctx, args) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [
-      "tenant_master",
-      "tenant_admin",
-    ]);
-
-    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
-    if (!opportunity || opportunity.tenantId !== tenantId) {
-      throw new Error("Opportunity not found");
-    }
-
-    if (!canStartFollowUp(opportunity)) {
-      throw new Error(
-        `Cannot create follow-up: the deal is "${describeDealState(opportunity)}"`,
-      );
-    }
-
-    // Resolve the assigned closer's Calendly URI
-    const closerId = opportunity.assignedCloserId;
-    if (!closerId) {
-      throw new Error("No closer assigned to this opportunity");
-    }
-    const closer = await ctx.db.get("users", closerId);
-    if (!closer || !closer.personalEventTypeUri) {
-      throw new Error(
-        "Assigned closer has no personal event type URI configured",
-      );
-    }
-
-    const now = Date.now();
-    const followUpId = await ctx.db.insert("followUps", {
-      tenantId,
-      opportunityId: args.opportunityId,
-      leadId: opportunity.leadId,
-      closerId,
-      type: "scheduling_link",
-      reason: "admin_initiated",
-      status: "pending",
-      createdAt: now,
-      createdByUserId: userId,
-      createdSource: "admin",
-    });
-
-    // Build scheduling link URL with UTM params
-    const baseUrl = closer.personalEventTypeUri;
-    const url = new URL(baseUrl);
-    url.searchParams.set("utm_source", "ptdom");
-    url.searchParams.set("utm_medium", "follow_up");
-    url.searchParams.set("utm_campaign", args.opportunityId);
-    url.searchParams.set("utm_content", followUpId);
-    url.searchParams.set("utm_term", closerId);
-    const schedulingLinkUrl = url.toString();
-
-    await ctx.db.patch("followUps", followUpId, { schedulingLinkUrl });
-
-    // Note: status transition is deferred — confirmed via adminConfirmFollowUp
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "followUp",
-      entityId: followUpId,
-      eventType: "followUp.created",
-      source: "admin",
-      actorUserId: userId,
-      metadata: { type: "scheduling_link", reason: "admin_initiated" },
-    });
-
-    return { schedulingLinkUrl, followUpId };
-  },
-});
-
-// ---------------------------------------------------------------------------
-// adminConfirmFollowUp — Confirm follow-up status transition
-// ---------------------------------------------------------------------------
-
-export const adminConfirmFollowUp = mutation({
-  args: {
-    opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
-    // The follow-up this confirm was opened for. When given, the confirm is
-    // refused once that follow-up is no longer pending.
-    followUpId: v.optional(v.id("followUps")),
   },
   handler: async (ctx, args) => {
     const { tenantId, userId, role } = await requireTenantUser(ctx, [
@@ -217,24 +136,23 @@ export const adminConfirmFollowUp = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
 
-    // Idempotent: already transitioned. A deal waiting on its reschedule link
-    // isn't, and the follow-up is refused.
-    if (isFollowUpWithoutRescheduleLink(opportunity, await loadDealTasks(ctx, opportunity._id))) {
-      log.info("follow_up.confirm_skipped", {
-        tenantId,
-        actor: "admin",
-        opportunityId: args.opportunityId,
-        reason: "already_follow_up_scheduled",
-      });
-      return;
+    // A second Generate finds the deal at Follow-up already and is refused.
+    if (!canStartFollowUp(opportunity)) {
+      throw new Error(
+        `Cannot create follow-up: the deal is "${describeDealState(opportunity)}"`,
+      );
     }
 
-    if (args.followUpId) {
-      await assertFollowUpStillPending(ctx, {
-        followUpId: args.followUpId,
-        tenantId,
-        opportunityId: args.opportunityId,
-      });
+    // Resolve the assigned closer's Calendly URI
+    const closerId = opportunity.assignedCloserId;
+    if (!closerId) {
+      throw new Error("No closer assigned to this opportunity");
+    }
+    const closer = await ctx.db.get("users", closerId);
+    if (!closer || !closer.personalEventTypeUri) {
+      throw new Error(
+        "Assigned closer has no personal event type URI configured",
+      );
     }
 
     const now = Date.now();
@@ -248,11 +166,42 @@ export const adminConfirmFollowUp = mutation({
       });
     }
 
-    if (!canStartFollowUp(opportunity)) {
-      throw new Error(
-        `Cannot move the deal to Follow-up from "${describeDealState(opportunity)}"`,
-      );
-    }
+    const followUpId = await ctx.db.insert("followUps", {
+      tenantId,
+      opportunityId: args.opportunityId,
+      leadId: opportunity.leadId,
+      closerId,
+      type: "scheduling_link",
+      reason: "admin_initiated",
+      status: "pending",
+      ...(meeting ? { sourceMeetingId: meeting._id } : {}),
+      createdAt: now,
+      createdByUserId: userId,
+      createdSource: "admin",
+    });
+
+    // Build scheduling link URL with UTM params
+    const baseUrl = closer.personalEventTypeUri;
+    const url = new URL(baseUrl);
+    url.searchParams.set("utm_source", "ptdom");
+    url.searchParams.set("utm_medium", "follow_up");
+    url.searchParams.set("utm_campaign", args.opportunityId);
+    url.searchParams.set("utm_content", followUpId);
+    url.searchParams.set("utm_term", closerId);
+    const schedulingLinkUrl = url.toString();
+
+    await ctx.db.patch("followUps", followUpId, { schedulingLinkUrl });
+
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "followUp",
+      entityId: followUpId,
+      eventType: "followUp.created",
+      source: "admin",
+      actorUserId: userId,
+      metadata: { type: "scheduling_link", reason: "admin_initiated" },
+      occurredAt: now,
+    });
 
     // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
     // Follow-up, which only the exception allows.
@@ -262,6 +211,7 @@ export const adminConfirmFollowUp = mutation({
       exception: "missed_meeting_next_step",
       source: "admin",
       actorUserId: userId,
+      occurredAt: now,
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
@@ -271,6 +221,8 @@ export const adminConfirmFollowUp = mutation({
         recordedAt: now,
       });
     }
+
+    return { schedulingLinkUrl, followUpId };
   },
 });
 
@@ -280,8 +232,10 @@ export const adminConfirmFollowUp = mutation({
 
 /**
  * Cancel a pending scheduling link or manual reminder on any deal in the
- * tenant that still waits for its call's result. The meeting page hides the
- * outcome buttons while a follow-up is pending; expiring it brings them back.
+ * tenant that still waits for its call's result: the meeting page's fallback
+ * for a link left behind before links moved the deal at once. The page hides
+ * the outcome buttons while a follow-up is pending; expiring it brings them
+ * back.
  */
 export const adminCancelPendingFollowUp = mutation({
   args: {
@@ -381,6 +335,7 @@ export const adminCreateManualReminder = mutation({
       contactMethod: args.contactMethod,
       reminderScheduledAt: args.reminderScheduledAt,
       reminderNote: args.reminderNote,
+      ...(meeting ? { sourceMeetingId: meeting._id } : {}),
       createdAt: now,
       createdByUserId: userId,
       createdSource: "admin",
@@ -565,6 +520,7 @@ export const adminCreateRescheduleLink = mutation({
       reason: "no_show_follow_up",
       status: "pending",
       schedulingLinkUrl,
+      sourceMeetingId: args.meetingId,
       createdAt: now,
       createdByUserId: userId,
       createdSource: "admin",
