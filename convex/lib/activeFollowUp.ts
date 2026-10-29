@@ -63,11 +63,40 @@ export async function loadActiveFollowUpSummary(
 }
 
 /**
- * Expire a follow-up that was started but never finished: a scheduling link
- * generated while the deal still waits for its call's result. The pending
- * follow-up hides the meeting's outcome buttons, so expiring it brings them
- * back. The deal and the meeting stay as they are, and the event is the same
- * `followUp.expired` a booking writes when it retires a reschedule link.
+ * Refuse to confirm a follow-up that is no longer pending. A confirm names the
+ * follow-up it was opened for, so a stale dialog in another tab can't move the
+ * deal to Follow-up after that follow-up was canceled or finished.
+ */
+export async function assertFollowUpStillPending(
+  ctx: MutationCtx,
+  args: {
+    followUpId: Id<"followUps">;
+    tenantId: Id<"tenants">;
+    opportunityId: Id<"opportunities">;
+  },
+): Promise<void> {
+  const followUp = await ctx.db.get("followUps", args.followUpId);
+  if (
+    !followUp ||
+    followUp.tenantId !== args.tenantId ||
+    followUp.opportunityId !== args.opportunityId
+  ) {
+    throw new Error("Follow-up not found");
+  }
+  if (followUp.status !== "pending") {
+    throw new Error(
+      "This follow-up was canceled or has already finished. Generate a new link if the lead still needs one.",
+    );
+  }
+}
+
+/**
+ * Expire a follow-up that was started but never finished: a pending
+ * scheduling link or manual reminder on a deal that still waits for its
+ * call's result. Any pending follow-up hides the meeting's outcome buttons,
+ * so expiring it brings them back. The deal and the meeting stay as they are,
+ * and the event is the same `followUp.expired` a booking writes when it
+ * retires a reschedule link.
  */
 export async function expireUnfinishedFollowUp(
   ctx: MutationCtx,

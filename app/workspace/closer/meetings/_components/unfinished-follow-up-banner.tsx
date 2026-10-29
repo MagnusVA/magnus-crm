@@ -66,6 +66,7 @@ export function UnfinishedFollowUpBanner({
         await confirm({
           opportunityId,
           meetingId: meeting.status === "scheduled" ? meeting._id : undefined,
+          followUpId: followUp._id,
         });
         toast.success("Deal moved to Follow-up");
       } else {

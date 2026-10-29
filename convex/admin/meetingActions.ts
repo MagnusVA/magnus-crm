@@ -13,7 +13,10 @@ import {
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
+import {
+  assertFollowUpStillPending,
+  expireUnfinishedFollowUp,
+} from "../lib/activeFollowUp";
 import { log } from "../lib/observability/log";
 import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
 
@@ -189,6 +192,9 @@ export const adminConfirmFollowUp = mutation({
   args: {
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
+    // The follow-up this confirm was opened for. When given, the confirm is
+    // refused once that follow-up is no longer pending.
+    followUpId: v.optional(v.id("followUps")),
   },
   handler: async (ctx, args) => {
     const { tenantId, userId, role } = await requireTenantUser(ctx, [
@@ -221,6 +227,14 @@ export const adminConfirmFollowUp = mutation({
         reason: "already_follow_up_scheduled",
       });
       return;
+    }
+
+    if (args.followUpId) {
+      await assertFollowUpStillPending(ctx, {
+        followUpId: args.followUpId,
+        tenantId,
+        opportunityId: args.opportunityId,
+      });
     }
 
     const now = Date.now();
@@ -265,9 +279,9 @@ export const adminConfirmFollowUp = mutation({
 // ---------------------------------------------------------------------------
 
 /**
- * Cancel a scheduling-link follow-up whose deal never moved to Follow-up, for
- * the assigned closer. The closer's meeting page hides the outcome buttons
- * while it is pending; expiring it brings them back.
+ * Cancel a pending scheduling link or manual reminder on any deal in the
+ * tenant that still waits for its call's result. The meeting page hides the
+ * outcome buttons while a follow-up is pending; expiring it brings them back.
  */
 export const adminCancelPendingFollowUp = mutation({
   args: {

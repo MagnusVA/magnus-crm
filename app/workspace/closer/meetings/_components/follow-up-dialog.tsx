@@ -81,7 +81,9 @@ export function FollowUpDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const [path, setPath] = useState<DialogPath>("selection");
   // A scheduling link was generated and the deal hasn't moved to Follow-up yet.
-  const [linkPending, setLinkPending] = useState(false);
+  const [pendingFollowUpId, setPendingFollowUpId] =
+    useState<Id<"followUps"> | null>(null);
+  const linkPending = pendingFollowUpId !== null;
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const open = controlledOpen ?? internalOpen;
@@ -96,7 +98,7 @@ export function FollowUpDialog({
     }
     onOpenChange?.(value);
     if (!value) {
-      setLinkPending(false);
+      setPendingFollowUpId(null);
       setConfirmError(null);
       setTimeout(() => setPath("selection"), 200);
     }
@@ -108,17 +110,27 @@ export function FollowUpDialog({
     setConfirming(true);
     setConfirmError(null);
     try {
-      await confirmFollowUp({ opportunityId, meetingId });
-      await onSuccess?.();
-      setOpen(false);
+      await confirmFollowUp({
+        opportunityId,
+        meetingId,
+        followUpId: pendingFollowUpId ?? undefined,
+      });
     } catch (err: unknown) {
       console.error("[FollowUpDialog] confirmFollowUpScheduled failed", err);
       setConfirmError(
         getErrorMessage(err, "The link was generated, but the deal didn't move to Follow-up.")
       );
-    } finally {
       setConfirming(false);
+      return;
     }
+    // The deal moved. A failing refresh afterwards isn't a failed confirm.
+    try {
+      await onSuccess?.();
+    } catch (err: unknown) {
+      console.error("[FollowUpDialog] refresh after confirm failed", err);
+    }
+    setConfirming(false);
+    setOpen(false);
   };
 
   const handleOpenChange = (value: boolean) => {
@@ -178,7 +190,7 @@ export function FollowUpDialog({
         {path === "scheduling_link" && (
           <SchedulingLinkForm
             opportunityId={opportunityId}
-            onGenerated={() => setLinkPending(true)}
+            onGenerated={setPendingFollowUpId}
             onDone={confirmAndClose}
             confirming={confirming}
             confirmError={confirmError}
@@ -281,7 +293,7 @@ function SchedulingLinkForm({
   onClose,
 }: {
   opportunityId: Id<"opportunities">;
-  onGenerated: () => void;
+  onGenerated: (followUpId: Id<"followUps">) => void;
   onDone: () => Promise<void>;
   confirming: boolean;
   confirmError: string | null;
@@ -306,7 +318,7 @@ function SchedulingLinkForm({
     try {
       const result = await createFollowUp({ opportunityId });
       setSchedulingLinkUrl(result.schedulingLinkUrl);
-      onGenerated();
+      onGenerated(result.followUpId);
       posthog.capture("follow_up_scheduling_link_created", {
         opportunity_id: opportunityId,
       });

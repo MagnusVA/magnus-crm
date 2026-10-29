@@ -12,7 +12,10 @@ import {
 } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
+import {
+  assertFollowUpStillPending,
+  expireUnfinishedFollowUp,
+} from "../lib/activeFollowUp";
 import { log } from "../lib/observability/log";
 
 /**
@@ -220,8 +223,11 @@ export const confirmFollowUpScheduled = mutation({
   args: {
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
+    // The follow-up this confirm was opened for. When given, the confirm is
+    // refused once that follow-up is no longer pending.
+    followUpId: v.optional(v.id("followUps")),
   },
-  handler: async (ctx, { opportunityId, meetingId }) => {
+  handler: async (ctx, { opportunityId, meetingId, followUpId }) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
     const opportunity = await ctx.db.get("opportunities", opportunityId);
@@ -250,6 +256,9 @@ export const confirmFollowUpScheduled = mutation({
         reason: "already_follow_up_scheduled",
       });
       return;
+    }
+    if (followUpId) {
+      await assertFollowUpStillPending(ctx, { followUpId, tenantId, opportunityId });
     }
     const now = Date.now();
     if (meeting) {
@@ -289,9 +298,10 @@ export const confirmFollowUpScheduled = mutation({
 });
 
 /**
- * Cancel a follow-up the closer started but never finished: a scheduling link
- * generated without the deal moving to Follow-up. The meeting page offers it
- * next to "Mark follow-up scheduled", so the outcome buttons come back.
+ * Cancel a follow-up the closer started but never finished: a pending
+ * scheduling link or manual reminder on one of their deals that never moved to
+ * Follow-up. The meeting page offers it next to "Mark follow-up scheduled", so
+ * the outcome buttons come back.
  */
 export const cancelPendingFollowUp = mutation({
   args: {
