@@ -1,0 +1,1549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnus metrics API · live guide</title>
+<style>
+:root {
+  color-scheme: light;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --raised: #ffffff;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --code-bg: #f3f2ee;
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --deemph: #b4b3ab;
+  --wash: rgba(42, 120, 214, 0.08);
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --good-text: #006300;
+  --bad-text: #b42f2f;
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #20201e; --ink: #f0efec; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10);
+    --code-bg: #121211; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --deemph: #5c5b57;
+    --wash: rgba(57, 135, 229, 0.12); --good-text: #0ca30c; --bad-text: #e66767;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #20201e; --ink: #f0efec; --ink-2: #c3c2b7;
+  --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10);
+  --code-bg: #121211; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --deemph: #5c5b57;
+  --wash: rgba(57, 135, 229, 0.12); --good-text: #0ca30c; --bad-text: #e66767;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: var(--s1); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, kbd { font-family: var(--mono); font-size: 0.9em; }
+:not(pre) > code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 0.05em 0.35em; }
+h1, h2, h3, h4 { line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+p { margin: 0 0 0.8em; }
+.num, td.n, th.n { font-variant-numeric: tabular-nums; }
+
+/* Layout */
+.shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+nav.side { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 28px 18px; border-right: 1px solid var(--border); background: var(--surface); }
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; background: var(--s1); display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 15px; }
+.brand-text { font-weight: 650; font-size: 14px; line-height: 1.2; }
+.brand-text span { display: block; color: var(--muted); font-weight: 500; font-size: 12px; }
+nav.side .group { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 18px 10px 6px; font-weight: 600; }
+nav.side a { display: block; padding: 5px 10px; border-radius: 7px; color: var(--ink-2); font-size: 13.5px; }
+nav.side a:hover { background: var(--wash); text-decoration: none; color: var(--ink); }
+nav.side a.active { background: var(--wash); color: var(--ink); font-weight: 600; }
+.theme-toggle { margin-top: 22px; width: 100%; border: 1px solid var(--border); background: var(--raised); color: var(--ink-2); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.theme-toggle:hover { color: var(--ink); }
+main { padding: 0 48px 120px; max-width: 1120px; width: 100%; }
+
+/* Hero */
+.hero { padding: 56px 0 36px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--s1); font-weight: 650; margin-bottom: 12px; }
+.hero h1 { font-size: 44px; font-weight: 720; letter-spacing: -0.025em; margin-bottom: 14px; }
+.hero .lede { font-size: 18px; color: var(--ink-2); max-width: 760px; }
+.meta-strip { display: grid; grid-template-columns: 1.7fr 1.5fr 1fr 1fr; gap: 12px; margin-top: 28px; }
+.meta-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.meta-cell .k { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.meta-cell .v { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.meta-cell .v code { background: none; border: 0; padding: 0; font-size: 12.5px; }
+.tally { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; color: var(--ink-2); font-size: 13.5px; }
+
+/* Sections */
+section.doc { padding: 52px 0 8px; }
+section.doc > h2 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+section.doc > .sub { color: var(--ink-2); font-size: 16px; margin-bottom: 24px; max-width: 780px; }
+h3 { font-size: 18px; font-weight: 650; margin: 28px 0 10px; }
+.prose { max-width: 780px; color: var(--ink-2); }
+.prose strong { color: var(--ink); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; box-shadow: var(--shadow); }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.stack { display: grid; gap: 16px; }
+.callout { border-left: 3px solid var(--s1); background: var(--wash); border-radius: 0 10px 10px 0; padding: 12px 16px; color: var(--ink-2); font-size: 14px; margin: 16px 0; }
+.callout strong { color: var(--ink); }
+
+/* Status pills (status colors always with icon + label) */
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 2px 10px 2px 8px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--border); background: var(--raised); color: var(--ink); white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.pill .ico { font-size: 11px; line-height: 1; }
+.method { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--s1); background: var(--wash); border-radius: 6px; padding: 2px 7px; }
+
+/* Request card */
+.req { border: 1px solid var(--border); border-radius: 12px; background: var(--raised); overflow: hidden; margin: 14px 0 18px; }
+.req-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px; flex-wrap: wrap; }
+.req-path { font-family: var(--mono); font-size: 13px; color: var(--ink); word-break: break-all; flex: 1 1 320px; }
+.req-path .q { color: var(--muted); }
+.req-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.req details { border-top: 1px solid var(--border); }
+.req summary { cursor: pointer; padding: 8px 14px; font-size: 13px; color: var(--ink-2); list-style: none; display: flex; gap: 8px; align-items: center; }
+.req summary::-webkit-details-marker { display: none; }
+.req summary::before { content: "▸"; color: var(--muted); transition: transform 0.15s; display: inline-block; }
+.req details[open] summary::before { transform: rotate(90deg); }
+.req .hdrs { padding: 0 14px 6px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.req .hdrs span { color: var(--muted); }
+
+/* Code */
+.code { position: relative; }
+pre { margin: 0; background: var(--code-bg); border-top: 1px solid var(--border); padding: 14px 16px; overflow: auto; font-size: 12.5px; line-height: 1.55; max-height: 420px; color: var(--ink); }
+.card pre, .code-block pre { border: 1px solid var(--border); border-radius: 10px; }
+.copy { position: absolute; top: 8px; right: 8px; border: 1px solid var(--border); background: var(--raised); color: var(--ink-2); border-radius: 6px; font: 12px var(--font); padding: 3px 9px; cursor: pointer; opacity: 0; transition: opacity 0.15s; }
+.code:hover .copy, .copy:focus-visible { opacity: 1; }
+.j-key { color: var(--ink); font-weight: 600; }
+.j-str { color: #1b7a52; }
+.j-num { color: #b0531c; }
+.j-lit { color: var(--s1); }
+.j-cmt { color: var(--muted); font-style: italic; }
+:root[data-theme="dark"] .j-str { color: #6fd3a5; }
+:root[data-theme="dark"] .j-num { color: #f0a070; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .j-str { color: #6fd3a5; } :root:where(:not([data-theme="light"])) .j-num { color: #f0a070; } }
+.c-cmt { color: var(--muted); }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.tabs button { border: 1px solid var(--border); background: var(--raised); color: var(--ink-2); border-radius: 7px; font: 13px var(--font); padding: 4px 12px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+
+/* Tables */
+table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.t th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px; border-bottom: 1px solid var(--grid); }
+table.t td { padding: 9px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; color: var(--ink-2); }
+table.t td:first-child { color: var(--ink); }
+table.t tr:last-child td { border-bottom: 0; }
+table.t td.n, table.t th.n { text-align: right; }
+.matrix-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--s1); }
+.matrix-none { display: inline-block; width: 10px; height: 2px; background: var(--grid); vertical-align: middle; }
+
+/* Charts */
+figure.chart { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px 14px; box-shadow: var(--shadow); min-width: 0; }
+figure.chart figcaption { margin-bottom: 10px; }
+.chart-title { font-weight: 650; font-size: 15px; }
+.chart-sub { color: var(--muted); font-size: 13px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 4px 0 8px; font-size: 12.5px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key-line { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+.key-rect { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.plot { width: 100%; min-height: 40px; }
+.plot svg { display: block; overflow: visible; }
+.plot svg:focus { outline: none; }
+.plot svg:focus-visible { outline: 2px solid var(--s1); outline-offset: 4px; border-radius: 4px; }
+.axis-text { fill: var(--muted); font-size: 11px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.label-text { fill: var(--ink-2); font-size: 11.5px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.chart-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 8px; }
+.chart-note { font-size: 12px; color: var(--muted); }
+.table-toggle { border: 0; background: none; color: var(--s1); font: 12.5px var(--font); cursor: pointer; padding: 4px 0; }
+.table-view { margin-top: 8px; max-height: 320px; overflow: auto; border-top: 1px solid var(--grid); }
+.tooltip { position: fixed; z-index: 50; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16); padding: 9px 11px; font-size: 12.5px; min-width: 140px; opacity: 0; transition: opacity 0.08s; }
+.tooltip.on { opacity: 1; }
+.tooltip .tt-title { color: var(--muted); font-size: 11.5px; margin-bottom: 4px; }
+.tooltip .tt-row { display: flex; align-items: center; gap: 8px; line-height: 1.7; }
+.tooltip .tt-row b { font-variant-numeric: tabular-nums; min-width: 48px; }
+.tooltip .tt-row span.n { color: var(--ink-2); }
+
+/* Horizontal bars (HTML) */
+.hbars { display: grid; gap: 7px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 180px) minmax(0, 1fr); align-items: center; gap: 12px; font-size: 13px; border-radius: 6px; padding: 2px 4px; }
+.hbar:hover, .hbar:focus-visible { background: var(--wash); outline: none; }
+.hbar .lbl { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hbar .track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hbar .bar { height: 14px; border-radius: 0 4px 4px 0; min-width: 2px; flex: none; }
+.hbar .val { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+.hbar .val b { color: var(--ink); font-weight: 600; }
+
+/* Stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tile .label { font-size: 12.5px; color: var(--ink-2); margin-bottom: 4px; }
+.tile .value { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+.tile .note { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.tile.missing .value { color: var(--muted); }
+
+/* Flow diagram */
+.flow { display: grid; grid-template-columns: 150px 28px 160px 28px minmax(0, 1fr); align-items: center; gap: 0; }
+.node { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.4; }
+.node b { display: block; font-size: 13.5px; }
+.node small { color: var(--muted); display: block; }
+.arrow { height: 2px; background: var(--axis); position: relative; margin: 0 4px; }
+.arrow::after { content: ""; position: absolute; right: -1px; top: -4px; border: 5px solid transparent; border-left: 7px solid var(--axis); border-right: 0; }
+.lanes { display: grid; gap: 10px; }
+.lane { display: grid; grid-template-columns: 170px 28px minmax(0, 1fr); align-items: center; }
+.lane .outcomes { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Key anatomy */
+.anatomy { font-family: var(--mono); font-size: 17px; display: flex; flex-wrap: wrap; gap: 2px; margin: 14px 0 6px; }
+.anatomy .seg { padding: 6px 2px 10px; border-bottom: 3px solid; }
+.anatomy-legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
+.anatomy-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Funnel */
+.funnel { display: grid; gap: 0; }
+.f-row { display: grid; grid-template-columns: 140px 130px 110px 92px minmax(0, 1fr); align-items: center; gap: 14px; padding: 12px 6px; border-bottom: 1px solid var(--grid); }
+.f-row:last-child { border-bottom: 0; }
+.f-row.head { padding-top: 0; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.f-step { font-weight: 600; }
+.f-step small { display: block; color: var(--muted); font-weight: 400; font-family: var(--mono); font-size: 11.5px; }
+.f-oct { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
+.f-sep { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.delta { font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.delta.up { color: var(--good-text); }
+.delta.down { color: var(--bad-text); }
+.ratio-track { position: relative; height: 22px; }
+.ratio-bar { position: absolute; left: 0; top: 4px; height: 14px; border-radius: 0 4px 4px 0; background: var(--s1); }
+.ratio-tick { position: absolute; top: 0; width: 2px; height: 22px; background: var(--ink-2); border-radius: 1px; }
+.ratio-lbl { position: absolute; top: 2px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Timeline */
+.timeline { position: relative; height: 150px; margin: 10px 8px 0; }
+.tl-track { position: absolute; left: 0; right: 0; top: 74px; height: 2px; background: var(--axis); }
+.tl-span { position: absolute; top: 71px; height: 8px; border-radius: 4px; background: var(--wash); border: 1px solid var(--s1); }
+.tl-mark { position: absolute; top: 69px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--surface); transform: translateX(-6px); }
+.tl-lbl { position: absolute; transform: translateX(-50%); text-align: center; font-size: 12px; line-height: 1.35; white-space: nowrap; }
+.tl-lbl b { display: block; font-size: 13px; color: var(--ink); }
+.tl-lbl span { color: var(--muted); }
+.tl-lbl.above { bottom: 92px; }
+.tl-lbl.below { top: 92px; }
+
+/* Latency */
+.lat { display: grid; gap: 4px; }
+.lat-row { display: grid; grid-template-columns: 190px minmax(0, 1fr) 64px; gap: 12px; align-items: center; font-size: 12.5px; padding: 1px 4px; border-radius: 6px; }
+.lat-row:hover, .lat-row:focus-visible { background: var(--wash); outline: none; }
+.lat-row .nm { font-family: var(--mono); font-size: 12px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lat-track { position: relative; height: 18px; }
+.lat-track .gl { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid); }
+.lat-dot { position: absolute; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--s1); border: 2px solid var(--surface); transform: translateX(-5px); box-sizing: content-box; margin-top: -2px; }
+.lat-stem { position: absolute; top: 8px; height: 2px; background: var(--s1); opacity: 0.35; left: 0; }
+.lat-ms { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.lat-axis { display: grid; grid-template-columns: 190px minmax(0, 1fr) 64px; gap: 12px; padding: 0 4px; }
+.lat-axis .ticks { position: relative; height: 18px; }
+.lat-axis .ticks span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--muted); }
+
+/* Errors */
+.err-card { border: 1px solid var(--border); border-radius: 12px; background: var(--raised); padding: 14px 16px; }
+.err-card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.err-card .why { font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.err-card pre { max-height: none; font-size: 12px; }
+
+.steps { counter-reset: step; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.step { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; position: relative; }
+.step::before { counter-increment: step; content: counter(step); position: absolute; top: 16px; right: 18px; width: 26px; height: 26px; border-radius: 50%; background: var(--wash); color: var(--s1); font-weight: 700; display: grid; place-items: center; font-size: 13px; }
+.step h4 { font-size: 15px; margin-bottom: 6px; }
+.step p { color: var(--ink-2); font-size: 13.5px; }
+
+.gotchas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.gotcha { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.gotcha h4 { font-size: 14.5px; margin-bottom: 6px; }
+.gotcha p { color: var(--ink-2); font-size: 13.5px; margin: 0; }
+
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+
+@media (max-width: 1100px) {
+  .shell { grid-template-columns: 1fr; }
+  nav.side { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  nav.side .links { display: flex; flex-wrap: wrap; gap: 4px; }
+  nav.side .group { display: none; }
+  main { padding: 0 20px 80px; }
+  .meta-strip, .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-2, .grid-3, .steps, .gotchas { grid-template-columns: 1fr; }
+  .f-row { grid-template-columns: 110px 100px 90px 80px minmax(0, 1fr); gap: 8px; }
+  .flow, .lane { grid-template-columns: 1fr; }
+  .arrow { display: none; }
+}
+@media print { nav.side { display: none; } .shell { grid-template-columns: 1fr; } .copy, .table-toggle { display: none; } }
+</style>
+</head>
+<body>
+<div class="tooltip" id="tooltip" role="status" aria-live="polite"></div>
+<div class="shell">
+  <nav class="side" aria-label="Sections">
+    <div class="brand"><div class="brand-mark">M</div><div class="brand-text">Magnus metrics API<span>v1 · live guide</span></div></div>
+    <div class="links">
+      <div class="group">Start</div>
+      <a href="#overview">How it works</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#auth">Keys and limits</a>
+      <a href="#endpoints">Endpoints</a>
+      <a href="#catalog">Metric catalog</a>
+      <div class="group">Live responses</div>
+      <a href="#freshness">Freshness</a>
+      <a href="#today">Today, live</a>
+      <a href="#funnel">Funnel</a>
+      <a href="#trends">Daily trends</a>
+      <a href="#weekly">Weekly attendance</a>
+      <a href="#monthly">Cash by month</a>
+      <a href="#breakdowns">Breakdowns</a>
+      <a href="#dimensions">Dimensions</a>
+      <div class="group">Reference</div>
+      <a href="#anatomy">Response anatomy</a>
+      <a href="#errors">Errors and status codes</a>
+      <a href="#performance">Latency</a>
+      <a href="#recipes">Client recipes</a>
+      <a href="#gotchas">Things to know</a>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" type="button">Switch to dark</button>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div class="eyebrow">Magnus CRM · API v1 · sample data</div>
+      <h1>The metrics API, tested live</h1>
+      <p class="lede">Every request, status code, header and response time on this page comes from real calls to the production API, made with a temporary key that was revoked right after. The numbers, names and ids in the responses are sample data in the same shape, so the guide can be shared. Use it to call each endpoint, read what comes back, and build dashboards on top.</p>
+      <div class="meta-strip">
+        <div class="meta-cell"><div class="k">Base URL</div><div class="v"><code id="base-url"></code></div></div>
+        <div class="meta-cell"><div class="k">Authentication</div><div class="v"><code>Authorization: Bearer mgn_live_…</code></div></div>
+        <div class="meta-cell"><div class="k">Rate limit</div><div class="v">60 requests a minute per key</div></div>
+        <div class="meta-cell"><div class="k">Captured</div><div class="v" id="captured-at"></div></div>
+      </div>
+      <div class="tally" id="tally"></div>
+    </header>
+
+    <section class="doc" id="overview">
+      <h2>How it works</h2>
+      <p class="sub">The API answers from two places. History comes from the reporting database, and today comes straight from the CRM.</p>
+      <div class="grid-2">
+        <div class="card">
+          <h4 style="margin-bottom:8px">History: <code>/metrics</code> and <code>/funnel</code></h4>
+          <p class="prose">Fivetran copies the CRM into the reporting database about every 6 hours. Each answer is cached, so asking the same question again costs a few hundred milliseconds. Every answer carries <code>as_of</code>: it includes every change up to that moment.</p>
+        </div>
+        <div class="card">
+          <h4 style="margin-bottom:8px">Today: <code>/today</code></h4>
+          <p class="prose">Today is read live from the CRM on every call, with the same metric definitions as history. Use it for the current day and <code>/metrics</code> for anything that ended before today.</p>
+        </div>
+      </div>
+      <h3>What happens to a request</h3>
+      <div class="card">
+        <div class="lanes" id="flow"></div>
+      </div>
+    </section>
+
+    <section class="doc" id="quickstart">
+      <h2>Quick start</h2>
+      <p class="sub">Three steps from no key to a working dashboard feed.</p>
+      <div class="steps">
+        <div class="step"><h4>Create a key</h4><p>An owner or admin opens Settings › Integrations › API keys and creates one. The full key shows once, so store it in your server's secrets. Each workspace can have 10 active keys.</p></div>
+        <div class="step"><h4>Call an endpoint</h4><p>Send the key as a bearer token from your server. Never put it in a browser or a mobile app; anyone holding it can read the workspace's metrics.</p></div>
+        <div class="step"><h4>Read <code>data</code> and <code>meta</code></h4><p><code>data</code> holds the numbers. <code>meta.as_of</code> says how fresh they are. A <code>202</code> means the range is being computed; retry after <code>Retry-After</code> seconds.</p></div>
+      </div>
+      <h3>Your first call</h3>
+      <div class="code-block" id="first-call"></div>
+    </section>
+
+    <section class="doc" id="auth">
+      <h2>Keys and limits</h2>
+      <p class="sub">A key belongs to one workspace. The workspace always comes from the key, never from a parameter.</p>
+      <div class="card">
+        <div class="anatomy" aria-label="API key format">
+          <span class="seg" style="border-color:var(--s1)">mgn_live_</span><span class="seg" style="border-color:var(--s2)">01AbCdEfGhJkM</span><span class="seg" style="border-color:var(--axis)">_</span><span class="seg" style="border-color:var(--s3)">••••••••••••••••••••••••••••••••••••••••••••</span>
+        </div>
+        <div class="anatomy-legend">
+          <span><i class="key-line" style="background:var(--s1)"></i>Prefix, always <code>mgn_live_</code></span>
+          <span><i class="key-line" style="background:var(--s2)"></i>Key id, shown in Settings (made up here)</span>
+          <span><i class="key-line" style="background:var(--s3)"></i>Secret. Magnus stores only its SHA-256 hash</span>
+        </div>
+      </div>
+      <div class="grid-3" style="margin-top:16px">
+        <div class="card"><div class="chart-sub">Requests per key</div><div style="font-size:28px;font-weight:650">60 a minute</div><p class="prose" style="margin:6px 0 0;font-size:13.5px">Past that, <code>429</code> with <code>Retry-After</code>. Every request counts, errors included.</p></div>
+        <div class="card"><div class="chart-sub">Range per request</div><div style="font-size:28px;font-weight:650">731 days</div><p class="prose" style="margin:6px 0 0;font-size:13.5px"><code>from</code> and <code>to</code> are inclusive dates. A longer range returns <code>400</code>.</p></div>
+        <div class="card"><div class="chart-sub">Revoking</div><div style="font-size:28px;font-weight:650">Instant</div><p class="prose" style="margin:6px 0 0;font-size:13.5px">A revoked key gets <code>401</code> on its next call. The demo key behind this page was revoked and checked that way.</p></div>
+      </div>
+    </section>
+
+    <section class="doc" id="endpoints">
+      <h2>Endpoints</h2>
+      <p class="sub">All five are <code>GET</code>, return JSON, and need the bearer key.</p>
+      <div class="stack" id="endpoint-list"></div>
+    </section>
+
+    <section class="doc" id="catalog">
+      <h2>Metric catalog</h2>
+      <p class="sub">Sixteen metrics. Each counts on a specific day, and each supports the groupings marked below. Asking for a grouping a metric doesn't support returns <code>400</code>.</p>
+      <div class="card" style="padding:8px 12px"><table class="t" id="catalog-table"></table></div>
+      <div class="callout"><strong>Units.</strong> Counts are whole numbers. Money is in minor units (cents) with a <code>currency</code> on every row. Rates run from 0 to 1, and are <code>null</code> when there is nothing to divide by.</div>
+    </section>
+
+    <section class="doc" id="freshness">
+      <h2>Freshness</h2>
+      <p class="sub">When the reporting data was last refreshed, and when the next refresh is expected. Cheap to call; it never touches the reporting database.</p>
+      <div id="req-freshness"></div>
+      <figure class="chart" id="fig-freshness"></figure>
+    </section>
+
+    <section class="doc" id="today">
+      <h2>Today, live</h2>
+      <p class="sub">Read from the CRM on every call. <code>meta.date</code> is today in the workspace's business day, and <code>meta.partial</code> turns true only on a day busy enough that a reading stops early.</p>
+      <div id="req-today"></div>
+      <div class="tiles" id="today-tiles"></div>
+      <div class="callout" id="today-missing"></div>
+      <div id="req-today-closer"></div>
+      <figure class="chart" id="fig-today-closer"></figure>
+    </section>
+
+    <section class="doc" id="funnel">
+      <h2>Funnel</h2>
+      <p class="sub">Five totals in one call: captured, qualified, booked, held and won. Here October 1 to 27 (27 days) against September (30 days).</p>
+      <div class="grid-2" id="req-funnel"></div>
+      <figure class="chart" id="fig-funnel"></figure>
+      <div class="callout"><strong>Not a cohort.</strong> Each step counts on its own day: a capture on its capture day, a call on its scheduled day, a win on the day its first payment arrived. The ratio between steps compares volumes in the same window; it doesn't follow the same people through.</div>
+    </section>
+
+    <section class="doc" id="trends">
+      <h2>Daily trends</h2>
+      <p class="sub"><code>granularity=day</code> returns one row per metric per day. Two calls, 28 days each, ending yesterday.</p>
+      <div id="req-daily-leads"></div>
+      <figure class="chart" id="fig-daily-leads"></figure>
+      <div id="req-daily-sales"></div>
+      <figure class="chart" id="fig-daily-sales"></figure>
+    </section>
+
+    <section class="doc" id="weekly">
+      <h2>Weekly attendance</h2>
+      <p class="sub"><code>granularity=week</code> names each week by its Monday. Counts and rates come back in the same call; they're plotted apart because they don't share a scale.</p>
+      <div id="req-weekly"></div>
+      <div class="grid-2">
+        <figure class="chart" id="fig-weekly-stack"></figure>
+        <figure class="chart" id="fig-weekly-rates"></figure>
+      </div>
+    </section>
+
+    <section class="doc" id="monthly">
+      <h2>Cash by month</h2>
+      <p class="sub"><code>granularity=month</code> names each period <code>YYYY-MM</code>. Money rows come one per currency, and the API never converts between them.</p>
+      <div id="req-monthly"></div>
+      <div class="grid-2">
+        <figure class="chart" id="fig-monthly-cash"></figure>
+        <figure class="chart" id="fig-monthly-deals"></figure>
+      </div>
+      <figure class="chart" id="fig-monthly-currencies" style="margin-top:16px"></figure>
+    </section>
+
+    <section class="doc" id="breakdowns">
+      <h2>Breakdowns</h2>
+      <p class="sub"><code>granularity=total</code> with <code>group_by</code> turns a range into a leaderboard. <code>group_id</code> is an id; join it with <a href="#dimensions">dimensions</a> for names. All four use October 1 to 27.</p>
+      <h3>Closers</h3>
+      <div id="req-closers"></div>
+      <figure class="chart" id="fig-closers"></figure>
+      <h3>Lead generators</h3>
+      <div id="req-leadgens"></div>
+      <figure class="chart" id="fig-leadgens"></figure>
+      <div class="grid-2" style="margin-top:16px">
+        <div><h3 style="margin-top:0">Teams</h3><div id="req-teams"></div><figure class="chart" id="fig-teams"></figure></div>
+        <div><h3 style="margin-top:0">Programs</h3><div id="req-programs"></div><figure class="chart" id="fig-programs"></figure></div>
+      </div>
+    </section>
+
+    <section class="doc" id="dimensions">
+      <h2>Dimensions</h2>
+      <p class="sub">Ids and names for <code>group_by</code> values. <code>team-members</code> covers <code>closer</code> and <code>lead_generator</code>, <code>teams</code> covers <code>team</code>, and <code>programs</code> covers <code>program</code>.</p>
+      <div class="grid-3" id="dim-cards"></div>
+      <div class="callout" id="dim-note"></div>
+    </section>
+
+    <section class="doc" id="anatomy">
+      <h2>Response anatomy</h2>
+      <p class="sub">Every metric row has the same five fields. Read them like this.</p>
+      <div class="grid-2">
+        <div class="code-block" id="anatomy-json"></div>
+        <div class="card"><table class="t" id="anatomy-table"></table></div>
+      </div>
+      <h3>The <code>meta</code> block</h3>
+      <div class="card" style="padding:8px 12px"><table class="t" id="meta-table"></table></div>
+    </section>
+
+    <section class="doc" id="errors">
+      <h2>Errors and status codes</h2>
+      <p class="sub">Errors share one shape, <code>{"error": {"code", "message"}}</code>. The message is safe to show a person; the code is stable for programs. These were all triggered on purpose against production.</p>
+      <div class="grid-2" id="error-cards"></div>
+      <h3>Codes you may see</h3>
+      <div class="card" style="padding:8px 12px"><table class="t" id="status-table"></table></div>
+    </section>
+
+    <section class="doc" id="performance">
+      <h2>Latency</h2>
+      <p class="sub">Every call this page made, timed from a laptop in the same session. The first history range woke the reporting database from idle; after that, new ranges took about two seconds and cached ones a few hundred milliseconds.</p>
+      <figure class="chart" id="fig-latency"></figure>
+    </section>
+
+    <section class="doc" id="recipes">
+      <h2>Client recipes</h2>
+      <p class="sub">A small client that handles <code>202</code> and <code>429</code>, and the reshaping most dashboards need.</p>
+      <div class="tabs" role="tablist" id="recipe-tabs"></div>
+      <div class="code-block" id="recipe-code"></div>
+      <h3>Turn rows into chart series</h3>
+      <div class="code-block" id="recipe-pivot"></div>
+    </section>
+
+    <section class="doc" id="gotchas">
+      <h2>Things to know</h2>
+      <p class="sub">The rules that trip people up, all visible in the responses above.</p>
+      <div class="gotchas" id="gotcha-list"></div>
+    </section>
+
+    <footer id="footer"></footer>
+  </main>
+</div>
+
+<script type="application/json" id="api-data">{"freshness":{"path":"/api/v1/freshness","auth":"key","attempts":[{"status":200,"ms":763,"headers":{"content-type":"application/json","cache-control":"private, max-age=60"},"body":{"data":{"as_of":"2026-10-28T20:45:56.229Z","last_sync_ended_at":"2026-10-28T20:50:31.829Z","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"dim_members":{"path":"/api/v1/dimensions/team-members","auth":"key","attempts":[{"status":200,"ms":403,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"active":true,"id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","name":"Avery Brooks"},{"active":true,"id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","name":"Jordan Ellis"},{"active":true,"id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","name":"Riley Chen"},{"active":true,"id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","name":"Morgan Patel"},{"active":true,"id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","name":"Casey Romero"},{"active":true,"id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","name":"Taylor Nguyen"},{"active":true,"id":"k9drtmkjwemcwth76xd2abrw4sa9tz6h","name":"Jamie Foster"},{"active":true,"id":"k9gnf3avpxd0ca88wvbws9c6ymq475eh","name":"Drew Alvarez"},{"active":true,"id":"k9mg1fanty6m6ray8hp5rt01x9dm3vy0","name":"Sofia Mendez"},{"active":true,"id":"k9tvpxj2syy875er55rpy3axqgg9wvxw","name":"Lucas Herrera"},{"active":true,"id":"k9zk8ebnmd2vshgrpsmh2e179fxd31dg","name":"Valeria Cruz"},{"active":true,"id":"k9kffavwz096sm0ngyme86w9tdebb0h2","name":"Mateo Rojas"},{"active":true,"id":"k99ccwp5p82j33k942ce5bpfy4tw4edw","name":"Camila Torres"},{"active":true,"id":"k9dw3j27nn92nhgrjzx02ecphtr48n3p","name":"Diego Navarro"},{"active":true,"id":"k9jzsf254wdyeaxzn5k1f816trec4tqk","name":"Isabella Reyes"},{"active":true,"id":"k9f1xre1gr0b9w0p1eryst25z8xv93qx","name":"Andres Castillo"},{"active":true,"id":"k90081wa8wk7hnm6k5b44j7hv9yfthc4","name":"Lucia Ramos"},{"active":true,"id":"k9dft1gksaxcj5bf7dvr4gd0ffcpjgq9","name":"Gabriel Ortega"},{"active":true,"id":"k9hwb36q4e85fr6mgzqgjkp21zwxc4xf","name":"Elena Vargas"},{"active":true,"id":"k9d75eez5vdf1n1rmp06h283c8hfrxnp","name":"Tomas Medina"},{"active":true,"id":"k9djvj8w03h6e0zgjc0twv7wfcgkbn2h","name":"Nina Salas"},{"active":true,"id":"k9s9ggc8fbcm8xedg62haq5mqx237vkn","name":"Pat Morgan"},{"active":true,"id":"k9et9jsymk9n6nc2fyyw6704n08h8kwq","name":"Chris Dalton"},{"active":true,"id":"k95gacsffhzg3n58zp3hs2nywscza8zn","name":"Sam Whitaker"},{"active":true,"id":"k94ke2r1m1s2z3bvk82fk8tr5khby6qb","name":"Kai Bennett"},{"active":true,"id":"k9zk8z3hfz27w6k184dn7td2dpjastd8","name":"Noa Lindqvist"}]}}]},"dim_teams":{"path":"/api/v1/dimensions/teams","auth":"key","attempts":[{"status":200,"ms":201,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"active":true,"id":"nsw664d6x5dfn9bbxyn9rk6g4xs1dnrp","name":"DM Team North"},{"active":true,"id":"nsd69rk6585ey83ryj6epqzxw25cmrc5","name":"DM Team South"},{"active":true,"id":"nsn0kcfh11phx93pzej8dzrb4kg2dxtt","name":"Setters"},{"active":true,"id":"ns26cv01qvhxrd0wc4c6entrbkgphfqd","name":"Night Shift"},{"active":false,"id":"ns5bdqrqghm9rvtyyx95eryhfdtbm970","name":"Outbound Legacy"}]}}]},"dim_programs":{"path":"/api/v1/dimensions/programs","auth":"key","attempts":[{"status":200,"ms":283,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"active":true,"id":"mx2aesv8trjmfgd85tgpj7zc3yejfxa5","name":"Growth Accelerator"},{"active":true,"id":"mxzcz5w9aesytpa20t1jtdp1fef3m6kt","name":"Starter Program"},{"active":true,"id":"mxj75ynfd36mq6y40q7a0e8b8n2r5b5t","name":"VIP Mentorship"},{"active":true,"id":"mx4ggr96mwxtg5rfjnkm14dmjjnpntdg","name":"Content Engine"},{"active":true,"id":"mxp0jj6d6j009st3x89wjkaf40pqbmg7","name":"Workshop Series"},{"active":true,"id":"mxvjrqkw7xaj776ee4b06kw49bx2rwz5","name":"Strategy Session"},{"active":false,"id":"mxnb530fb8qcebpgsj4t1146s3skdskm","name":"Legacy Coaching"}]}}]},"today":{"path":"/api/v1/today?metrics=leads_captured,unique_prospects,qualifications,calls_booked,calls_held,no_shows,deals_won,cash_collected","auth":"key","attempts":[{"status":200,"ms":2572,"headers":{"content-type":"application/json","cache-control":"private, max-age=60"},"body":{"data":[{"metric":"leads_captured","period":"2026-10-28","group_id":null,"value":734},{"metric":"unique_prospects","period":"2026-10-28","group_id":null,"value":721},{"metric":"qualifications","period":"2026-10-28","group_id":null,"value":36},{"metric":"calls_booked","period":"2026-10-28","group_id":null,"value":24},{"metric":"calls_held","period":"2026-10-28","group_id":null,"value":0},{"metric":"no_shows","period":"2026-10-28","group_id":null,"value":0}],"meta":{"source":"live","date":"2026-10-28","partial":false}}}]},"today_closer":{"path":"/api/v1/today?metrics=calls_booked,calls_held&group_by=closer","auth":"key","attempts":[{"status":200,"ms":225,"headers":{"content-type":"application/json","cache-control":"private, max-age=60"},"body":{"data":[{"metric":"calls_booked","period":"2026-10-28","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":7},{"metric":"calls_booked","period":"2026-10-28","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":5},{"metric":"calls_booked","period":"2026-10-28","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":4},{"metric":"calls_booked","period":"2026-10-28","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":4},{"metric":"calls_booked","period":"2026-10-28","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":2},{"metric":"calls_booked","period":"2026-10-28","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":2},{"metric":"calls_held","period":"2026-10-28","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":0},{"metric":"calls_held","period":"2026-10-28","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":0},{"metric":"calls_held","period":"2026-10-28","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":0},{"metric":"calls_held","period":"2026-10-28","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":0},{"metric":"calls_held","period":"2026-10-28","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":0},{"metric":"calls_held","period":"2026-10-28","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":0}],"meta":{"source":"live","date":"2026-10-28","partial":false}}}]},"funnel_oct":{"path":"/api/v1/funnel?from=2026-10-01&to=2026-10-27","auth":"key","attempts":[{"status":202,"ms":26247,"headers":{"content-type":"application/json","cache-control":"no-store","retry-after":"30"},"body":{"status":"pending","message":"This range is being computed. Try again shortly."}},{"status":200,"ms":276,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":{"captured":32915,"qualified":1137,"booked":736,"held":281,"won":70},"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"funnel_sep":{"path":"/api/v1/funnel?from=2026-09-01&to=2026-09-30","auth":"key","attempts":[{"status":200,"ms":1821,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":{"captured":34443,"qualified":1293,"booked":829,"held":332,"won":90},"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"daily_leads":{"path":"/api/v1/metrics?metrics=leads_captured,unique_prospects&from=2026-09-30&to=2026-10-27&granularity=day","auth":"key","attempts":[{"status":200,"ms":2101,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"leads_captured","period":"2026-09-30","group_id":null,"value":1260},{"metric":"unique_prospects","period":"2026-09-30","group_id":null,"value":1200},{"metric":"leads_captured","period":"2026-10-01","group_id":null,"value":1368},{"metric":"unique_prospects","period":"2026-10-01","group_id":null,"value":1324},{"metric":"leads_captured","period":"2026-10-02","group_id":null,"value":1252},{"metric":"unique_prospects","period":"2026-10-02","group_id":null,"value":1229},{"metric":"leads_captured","period":"2026-10-03","group_id":null,"value":1085},{"metric":"unique_prospects","period":"2026-10-03","group_id":null,"value":1041},{"metric":"leads_captured","period":"2026-10-04","group_id":null,"value":836},{"metric":"unique_prospects","period":"2026-10-04","group_id":null,"value":814},{"metric":"leads_captured","period":"2026-10-05","group_id":null,"value":1173},{"metric":"unique_prospects","period":"2026-10-05","group_id":null,"value":1124},{"metric":"leads_captured","period":"2026-10-06","group_id":null,"value":1354},{"metric":"unique_prospects","period":"2026-10-06","group_id":null,"value":1290},{"metric":"leads_captured","period":"2026-10-07","group_id":null,"value":1472},{"metric":"unique_prospects","period":"2026-10-07","group_id":null,"value":1453},{"metric":"leads_captured","period":"2026-10-08","group_id":null,"value":1226},{"metric":"unique_prospects","period":"2026-10-08","group_id":null,"value":1213},{"metric":"leads_captured","period":"2026-10-09","group_id":null,"value":1428},{"metric":"unique_prospects","period":"2026-10-09","group_id":null,"value":1378},{"metric":"leads_captured","period":"2026-10-10","group_id":null,"value":1046},{"metric":"unique_prospects","period":"2026-10-10","group_id":null,"value":1004},{"metric":"leads_captured","period":"2026-10-11","group_id":null,"value":792},{"metric":"unique_prospects","period":"2026-10-11","group_id":null,"value":753},{"metric":"leads_captured","period":"2026-10-12","group_id":null,"value":1279},{"metric":"unique_prospects","period":"2026-10-12","group_id":null,"value":1246},{"metric":"leads_captured","period":"2026-10-13","group_id":null,"value":1215},{"metric":"unique_prospects","period":"2026-10-13","group_id":null,"value":1173},{"metric":"leads_captured","period":"2026-10-14","group_id":null,"value":1461},{"metric":"unique_prospects","period":"2026-10-14","group_id":null,"value":1400},{"metric":"leads_captured","period":"2026-10-15","group_id":null,"value":1310},{"metric":"unique_prospects","period":"2026-10-15","group_id":null,"value":1259},{"metric":"leads_captured","period":"2026-10-16","group_id":null,"value":1369},{"metric":"unique_prospects","period":"2026-10-16","group_id":null,"value":1323},{"metric":"leads_captured","period":"2026-10-17","group_id":null,"value":1197},{"metric":"unique_prospects","period":"2026-10-17","group_id":null,"value":1175},{"metric":"leads_captured","period":"2026-10-18","group_id":null,"value":879},{"metric":"unique_prospects","period":"2026-10-18","group_id":null,"value":853},{"metric":"leads_captured","period":"2026-10-19","group_id":null,"value":1409},{"metric":"unique_prospects","period":"2026-10-19","group_id":null,"value":1345},{"metric":"leads_captured","period":"2026-10-20","group_id":null,"value":1298},{"metric":"unique_prospects","period":"2026-10-20","group_id":null,"value":1272},{"metric":"leads_captured","period":"2026-10-21","group_id":null,"value":1348},{"metric":"unique_prospects","period":"2026-10-21","group_id":null,"value":1332},{"metric":"leads_captured","period":"2026-10-22","group_id":null,"value":1257},{"metric":"unique_prospects","period":"2026-10-22","group_id":null,"value":1201},{"metric":"leads_captured","period":"2026-10-23","group_id":null,"value":1180},{"metric":"unique_prospects","period":"2026-10-23","group_id":null,"value":1142},{"metric":"leads_captured","period":"2026-10-24","group_id":null,"value":1152},{"metric":"unique_prospects","period":"2026-10-24","group_id":null,"value":1136},{"metric":"leads_captured","period":"2026-10-25","group_id":null,"value":773},{"metric":"unique_prospects","period":"2026-10-25","group_id":null,"value":758},{"metric":"leads_captured","period":"2026-10-26","group_id":null,"value":1362},{"metric":"unique_prospects","period":"2026-10-26","group_id":null,"value":1323},{"metric":"leads_captured","period":"2026-10-27","group_id":null,"value":1394},{"metric":"unique_prospects","period":"2026-10-27","group_id":null,"value":1326}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"daily_sales":{"path":"/api/v1/metrics?metrics=calls_booked,calls_held,qualifications&from=2026-09-30&to=2026-10-27&granularity=day","auth":"key","attempts":[{"status":200,"ms":1906,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"qualifications","period":"2026-09-30","group_id":null,"value":47},{"metric":"calls_booked","period":"2026-09-30","group_id":null,"value":33},{"metric":"calls_held","period":"2026-09-30","group_id":null,"value":12},{"metric":"qualifications","period":"2026-10-01","group_id":null,"value":41},{"metric":"calls_booked","period":"2026-10-01","group_id":null,"value":25},{"metric":"calls_held","period":"2026-10-01","group_id":null,"value":15},{"metric":"qualifications","period":"2026-10-02","group_id":null,"value":38},{"metric":"calls_booked","period":"2026-10-02","group_id":null,"value":26},{"metric":"calls_held","period":"2026-10-02","group_id":null,"value":11},{"metric":"qualifications","period":"2026-10-03","group_id":null,"value":26},{"metric":"calls_booked","period":"2026-10-03","group_id":null,"value":17},{"metric":"calls_held","period":"2026-10-03","group_id":null,"value":3},{"metric":"qualifications","period":"2026-10-04","group_id":null,"value":26},{"metric":"calls_booked","period":"2026-10-04","group_id":null,"value":14},{"metric":"calls_held","period":"2026-10-04","group_id":null,"value":3},{"metric":"qualifications","period":"2026-10-05","group_id":null,"value":50},{"metric":"calls_booked","period":"2026-10-05","group_id":null,"value":31},{"metric":"calls_held","period":"2026-10-05","group_id":null,"value":11},{"metric":"qualifications","period":"2026-10-06","group_id":null,"value":40},{"metric":"calls_booked","period":"2026-10-06","group_id":null,"value":27},{"metric":"calls_held","period":"2026-10-06","group_id":null,"value":14},{"metric":"qualifications","period":"2026-10-07","group_id":null,"value":45},{"metric":"calls_booked","period":"2026-10-07","group_id":null,"value":31},{"metric":"calls_held","period":"2026-10-07","group_id":null,"value":11},{"metric":"qualifications","period":"2026-10-08","group_id":null,"value":56},{"metric":"calls_booked","period":"2026-10-08","group_id":null,"value":38},{"metric":"calls_held","period":"2026-10-08","group_id":null,"value":10},{"metric":"qualifications","period":"2026-10-09","group_id":null,"value":45},{"metric":"calls_booked","period":"2026-10-09","group_id":null,"value":32},{"metric":"calls_held","period":"2026-10-09","group_id":null,"value":16},{"metric":"qualifications","period":"2026-10-10","group_id":null,"value":31},{"metric":"calls_booked","period":"2026-10-10","group_id":null,"value":18},{"metric":"calls_held","period":"2026-10-10","group_id":null,"value":4},{"metric":"qualifications","period":"2026-10-11","group_id":null,"value":33},{"metric":"calls_booked","period":"2026-10-11","group_id":null,"value":19},{"metric":"calls_held","period":"2026-10-11","group_id":null,"value":4},{"metric":"qualifications","period":"2026-10-12","group_id":null,"value":56},{"metric":"calls_booked","period":"2026-10-12","group_id":null,"value":32},{"metric":"calls_held","period":"2026-10-12","group_id":null,"value":12},{"metric":"qualifications","period":"2026-10-13","group_id":null,"value":49},{"metric":"calls_booked","period":"2026-10-13","group_id":null,"value":33},{"metric":"calls_held","period":"2026-10-13","group_id":null,"value":16},{"metric":"qualifications","period":"2026-10-14","group_id":null,"value":49},{"metric":"calls_booked","period":"2026-10-14","group_id":null,"value":27},{"metric":"calls_held","period":"2026-10-14","group_id":null,"value":17},{"metric":"qualifications","period":"2026-10-15","group_id":null,"value":45},{"metric":"calls_booked","period":"2026-10-15","group_id":null,"value":31},{"metric":"calls_held","period":"2026-10-15","group_id":null,"value":12},{"metric":"qualifications","period":"2026-10-16","group_id":null,"value":49},{"metric":"calls_booked","period":"2026-10-16","group_id":null,"value":32},{"metric":"calls_held","period":"2026-10-16","group_id":null,"value":15},{"metric":"qualifications","period":"2026-10-17","group_id":null,"value":27},{"metric":"calls_booked","period":"2026-10-17","group_id":null,"value":19},{"metric":"calls_held","period":"2026-10-17","group_id":null,"value":6},{"metric":"qualifications","period":"2026-10-18","group_id":null,"value":28},{"metric":"calls_booked","period":"2026-10-18","group_id":null,"value":16},{"metric":"calls_held","period":"2026-10-18","group_id":null,"value":5},{"metric":"qualifications","period":"2026-10-19","group_id":null,"value":45},{"metric":"calls_booked","period":"2026-10-19","group_id":null,"value":31},{"metric":"calls_held","period":"2026-10-19","group_id":null,"value":15},{"metric":"qualifications","period":"2026-10-20","group_id":null,"value":49},{"metric":"calls_booked","period":"2026-10-20","group_id":null,"value":35},{"metric":"calls_held","period":"2026-10-20","group_id":null,"value":15},{"metric":"qualifications","period":"2026-10-21","group_id":null,"value":44},{"metric":"calls_booked","period":"2026-10-21","group_id":null,"value":26},{"metric":"calls_held","period":"2026-10-21","group_id":null,"value":9},{"metric":"qualifications","period":"2026-10-22","group_id":null,"value":57},{"metric":"calls_booked","period":"2026-10-22","group_id":null,"value":39},{"metric":"calls_held","period":"2026-10-22","group_id":null,"value":12},{"metric":"qualifications","period":"2026-10-23","group_id":null,"value":58},{"metric":"calls_booked","period":"2026-10-23","group_id":null,"value":36},{"metric":"calls_held","period":"2026-10-23","group_id":null,"value":11},{"metric":"qualifications","period":"2026-10-24","group_id":null,"value":30},{"metric":"calls_booked","period":"2026-10-24","group_id":null,"value":22},{"metric":"calls_held","period":"2026-10-24","group_id":null,"value":4},{"metric":"qualifications","period":"2026-10-25","group_id":null,"value":32},{"metric":"calls_booked","period":"2026-10-25","group_id":null,"value":21},{"metric":"calls_held","period":"2026-10-25","group_id":null,"value":7},{"metric":"qualifications","period":"2026-10-26","group_id":null,"value":49},{"metric":"calls_booked","period":"2026-10-26","group_id":null,"value":34},{"metric":"calls_held","period":"2026-10-26","group_id":null,"value":11},{"metric":"qualifications","period":"2026-10-27","group_id":null,"value":39},{"metric":"calls_booked","period":"2026-10-27","group_id":null,"value":24},{"metric":"calls_held","period":"2026-10-27","group_id":null,"value":12}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"weekly_attendance":{"path":"/api/v1/metrics?metrics=calls_held,no_shows,cancellations,show_rate,close_rate&from=2026-08-03&to=2026-10-25&granularity=week","auth":"key","attempts":[{"status":200,"ms":1859,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"show_rate","period":"2026-08-03","group_id":null,"value":0.7555555555555555},{"metric":"close_rate","period":"2026-08-03","group_id":null,"value":0.29411764705882354},{"metric":"calls_held","period":"2026-08-03","group_id":null,"value":68},{"metric":"no_shows","period":"2026-08-03","group_id":null,"value":22},{"metric":"cancellations","period":"2026-08-03","group_id":null,"value":28},{"metric":"show_rate","period":"2026-08-10","group_id":null,"value":0.7659574468085106},{"metric":"close_rate","period":"2026-08-10","group_id":null,"value":0.2361111111111111},{"metric":"calls_held","period":"2026-08-10","group_id":null,"value":72},{"metric":"no_shows","period":"2026-08-10","group_id":null,"value":22},{"metric":"cancellations","period":"2026-08-10","group_id":null,"value":30},{"metric":"show_rate","period":"2026-08-17","group_id":null,"value":0.7476635514018691},{"metric":"close_rate","period":"2026-08-17","group_id":null,"value":0.275},{"metric":"calls_held","period":"2026-08-17","group_id":null,"value":80},{"metric":"no_shows","period":"2026-08-17","group_id":null,"value":27},{"metric":"cancellations","period":"2026-08-17","group_id":null,"value":38},{"metric":"show_rate","period":"2026-08-24","group_id":null,"value":0.7804878048780488},{"metric":"close_rate","period":"2026-08-24","group_id":null,"value":0.265625},{"metric":"calls_held","period":"2026-08-24","group_id":null,"value":64},{"metric":"no_shows","period":"2026-08-24","group_id":null,"value":18},{"metric":"cancellations","period":"2026-08-24","group_id":null,"value":26},{"metric":"show_rate","period":"2026-08-31","group_id":null,"value":0.7708333333333334},{"metric":"close_rate","period":"2026-08-31","group_id":null,"value":0.2972972972972973},{"metric":"calls_held","period":"2026-08-31","group_id":null,"value":74},{"metric":"no_shows","period":"2026-08-31","group_id":null,"value":22},{"metric":"cancellations","period":"2026-08-31","group_id":null,"value":28},{"metric":"show_rate","period":"2026-09-07","group_id":null,"value":0.7777777777777778},{"metric":"close_rate","period":"2026-09-07","group_id":null,"value":0.2976190476190476},{"metric":"calls_held","period":"2026-09-07","group_id":null,"value":84},{"metric":"no_shows","period":"2026-09-07","group_id":null,"value":24},{"metric":"cancellations","period":"2026-09-07","group_id":null,"value":35},{"metric":"show_rate","period":"2026-09-14","group_id":null,"value":0.7735849056603774},{"metric":"close_rate","period":"2026-09-14","group_id":null,"value":0.25609756097560976},{"metric":"calls_held","period":"2026-09-14","group_id":null,"value":82},{"metric":"no_shows","period":"2026-09-14","group_id":null,"value":24},{"metric":"cancellations","period":"2026-09-14","group_id":null,"value":33},{"metric":"show_rate","period":"2026-09-21","group_id":null,"value":0.7727272727272727},{"metric":"close_rate","period":"2026-09-21","group_id":null,"value":0.2647058823529412},{"metric":"calls_held","period":"2026-09-21","group_id":null,"value":68},{"metric":"no_shows","period":"2026-09-21","group_id":null,"value":20},{"metric":"cancellations","period":"2026-09-21","group_id":null,"value":29},{"metric":"show_rate","period":"2026-09-28","group_id":null,"value":0.7790697674418605},{"metric":"close_rate","period":"2026-09-28","group_id":null,"value":0.26865671641791045},{"metric":"calls_held","period":"2026-09-28","group_id":null,"value":67},{"metric":"no_shows","period":"2026-09-28","group_id":null,"value":19},{"metric":"cancellations","period":"2026-09-28","group_id":null,"value":22},{"metric":"show_rate","period":"2026-10-05","group_id":null,"value":0.7865168539325843},{"metric":"close_rate","period":"2026-10-05","group_id":null,"value":0.24285714285714285},{"metric":"calls_held","period":"2026-10-05","group_id":null,"value":70},{"metric":"no_shows","period":"2026-10-05","group_id":null,"value":19},{"metric":"cancellations","period":"2026-10-05","group_id":null,"value":29},{"metric":"show_rate","period":"2026-10-12","group_id":null,"value":0.7614678899082569},{"metric":"close_rate","period":"2026-10-12","group_id":null,"value":0.25301204819277107},{"metric":"calls_held","period":"2026-10-12","group_id":null,"value":83},{"metric":"no_shows","period":"2026-10-12","group_id":null,"value":26},{"metric":"cancellations","period":"2026-10-12","group_id":null,"value":34},{"metric":"show_rate","period":"2026-10-19","group_id":null,"value":0.776595744680851},{"metric":"close_rate","period":"2026-10-19","group_id":null,"value":0.2328767123287671},{"metric":"calls_held","period":"2026-10-19","group_id":null,"value":73},{"metric":"no_shows","period":"2026-10-19","group_id":null,"value":21},{"metric":"cancellations","period":"2026-10-19","group_id":null,"value":23}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"monthly_cash":{"path":"/api/v1/metrics?metrics=cash_collected,deals_won,average_deal_size,deposits&from=2026-05-01&to=2026-10-27&granularity=month","auth":"key","attempts":[{"status":200,"ms":1784,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"deals_won","period":"2026-05","group_id":null,"value":83},{"metric":"deals_won","period":"2026-06","group_id":null,"value":85},{"metric":"deals_won","period":"2026-07","group_id":null,"value":91},{"metric":"deals_won","period":"2026-08","group_id":null,"value":83},{"metric":"deals_won","period":"2026-09","group_id":null,"value":90},{"metric":"deals_won","period":"2026-10","group_id":null,"value":70},{"metric":"cash_collected","period":"2026-05","group_id":null,"currency":"USD","value":56800000},{"metric":"cash_collected","period":"2026-05","group_id":null,"currency":"CAD","value":2850000},{"metric":"cash_collected","period":"2026-06","group_id":null,"currency":"USD","value":53000000},{"metric":"cash_collected","period":"2026-06","group_id":null,"currency":"CAD","value":3750000},{"metric":"cash_collected","period":"2026-07","group_id":null,"currency":"USD","value":56150000},{"metric":"cash_collected","period":"2026-07","group_id":null,"currency":"CAD","value":3150000},{"metric":"cash_collected","period":"2026-08","group_id":null,"currency":"USD","value":49400000},{"metric":"cash_collected","period":"2026-08","group_id":null,"currency":"CAD","value":6600000},{"metric":"cash_collected","period":"2026-09","group_id":null,"currency":"USD","value":63950000},{"metric":"cash_collected","period":"2026-09","group_id":null,"currency":"CAD","value":50000},{"metric":"cash_collected","period":"2026-09","group_id":null,"currency":"GBP","value":650000},{"metric":"cash_collected","period":"2026-10","group_id":null,"currency":"USD","value":40050000},{"metric":"cash_collected","period":"2026-10","group_id":null,"currency":"CAD","value":4050000},{"metric":"deposits","period":"2026-05","group_id":null,"currency":"USD","value":250000},{"metric":"deposits","period":"2026-05","group_id":null,"currency":"CAD","value":0},{"metric":"deposits","period":"2026-06","group_id":null,"currency":"USD","value":350000},{"metric":"deposits","period":"2026-06","group_id":null,"currency":"CAD","value":0},{"metric":"deposits","period":"2026-07","group_id":null,"currency":"USD","value":350000},{"metric":"deposits","period":"2026-07","group_id":null,"currency":"CAD","value":0},{"metric":"deposits","period":"2026-08","group_id":null,"currency":"USD","value":200000},{"metric":"deposits","period":"2026-08","group_id":null,"currency":"CAD","value":0},{"metric":"deposits","period":"2026-09","group_id":null,"currency":"USD","value":350000},{"metric":"deposits","period":"2026-09","group_id":null,"currency":"CAD","value":50000},{"metric":"deposits","period":"2026-09","group_id":null,"currency":"GBP","value":0},{"metric":"deposits","period":"2026-10","group_id":null,"currency":"USD","value":150000},{"metric":"deposits","period":"2026-10","group_id":null,"currency":"CAD","value":0},{"metric":"average_deal_size","period":"2026-05","group_id":null,"currency":"USD","value":725000},{"metric":"average_deal_size","period":"2026-05","group_id":null,"currency":"CAD","value":570000},{"metric":"average_deal_size","period":"2026-06","group_id":null,"currency":"USD","value":658125},{"metric":"average_deal_size","period":"2026-06","group_id":null,"currency":"CAD","value":750000},{"metric":"average_deal_size","period":"2026-07","group_id":null,"currency":"USD","value":656470.5882352941},{"metric":"average_deal_size","period":"2026-07","group_id":null,"currency":"CAD","value":525000},{"metric":"average_deal_size","period":"2026-08","group_id":null,"currency":"USD","value":673972.6027397261},{"metric":"average_deal_size","period":"2026-08","group_id":null,"currency":"CAD","value":660000},{"metric":"average_deal_size","period":"2026-09","group_id":null,"currency":"USD","value":739534.8837209302},{"metric":"average_deal_size","period":"2026-09","group_id":null,"currency":"CAD","value":null},{"metric":"average_deal_size","period":"2026-09","group_id":null,"currency":"GBP","value":650000},{"metric":"average_deal_size","period":"2026-10","group_id":null,"currency":"USD","value":613846.1538461539},{"metric":"average_deal_size","period":"2026-10","group_id":null,"currency":"CAD","value":810000}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"closers_oct":{"path":"/api/v1/metrics?metrics=calls_held,no_shows,deals_won,close_rate,show_rate,cash_collected&from=2026-10-01&to=2026-10-27&granularity=total&group_by=closer","auth":"key","attempts":[{"status":200,"ms":1789,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"calls_held","period":"total","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":82},{"metric":"no_shows","period":"total","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":27},{"metric":"show_rate","period":"total","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":0.7522935779816514},{"metric":"deals_won","period":"total","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":15},{"metric":"close_rate","period":"total","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","value":0.18292682926829268},{"metric":"cash_collected","period":"total","group_id":"k9dtszbyhft4cfnnps2ywwhpb6xp8091","currency":"USD","value":8503800},{"metric":"calls_held","period":"total","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":64},{"metric":"no_shows","period":"total","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":16},{"metric":"show_rate","period":"total","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":0.8},{"metric":"deals_won","period":"total","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":17},{"metric":"close_rate","period":"total","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","value":0.265625},{"metric":"cash_collected","period":"total","group_id":"k91n7pyxr1dpdxgrpfmrbk13jqsdr03k","currency":"USD","value":9601000},{"metric":"calls_held","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":54},{"metric":"no_shows","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":16},{"metric":"show_rate","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":0.7714285714285715},{"metric":"deals_won","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":15},{"metric":"close_rate","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","value":0.2777777777777778},{"metric":"cash_collected","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","currency":"USD","value":8503800},{"metric":"cash_collected","period":"total","group_id":"k9a2y2czgjn3aehrm0f6m6rc9tgaqt2n","currency":"CAD","value":4050000},{"metric":"calls_held","period":"total","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":36},{"metric":"no_shows","period":"total","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":10},{"metric":"show_rate","period":"total","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":0.782608695652174},{"metric":"deals_won","period":"total","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":12},{"metric":"close_rate","period":"total","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","value":0.3333333333333333},{"metric":"cash_collected","period":"total","group_id":"k90px50fdmbphz7v3q6wfwznhy0f8hrs","currency":"USD","value":6857900},{"metric":"calls_held","period":"total","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":27},{"metric":"no_shows","period":"total","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":8},{"metric":"show_rate","period":"total","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":0.7714285714285715},{"metric":"deals_won","period":"total","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":8},{"metric":"close_rate","period":"total","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","value":0.2962962962962963},{"metric":"cash_collected","period":"total","group_id":"k9aez166fsrgpjb5ynt4hejss7k4wrxk","currency":"USD","value":4663300},{"metric":"calls_held","period":"total","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":18},{"metric":"no_shows","period":"total","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":4},{"metric":"show_rate","period":"total","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":0.8181818181818182},{"metric":"deals_won","period":"total","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":3},{"metric":"close_rate","period":"total","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","value":0.16666666666666666},{"metric":"cash_collected","period":"total","group_id":"k902v5dgfqj0xj6nnc5a71j07gxydjhr","currency":"USD","value":1920200},{"metric":"calls_held","period":"total","group_id":"k9drtmkjwemcwth76xd2abrw4sa9tz6h","value":0},{"metric":"no_shows","period":"total","group_id":"k9drtmkjwemcwth76xd2abrw4sa9tz6h","value":0},{"metric":"show_rate","period":"total","group_id":"k9drtmkjwemcwth76xd2abrw4sa9tz6h","value":null},{"metric":"deals_won","period":"total","group_id":"k9drtmkjwemcwth76xd2abrw4sa9tz6h","value":0},{"metric":"close_rate","period":"total","group_id":"k9drtmkjwemcwth76xd2abrw4sa9tz6h","value":null},{"metric":"calls_held","period":"total","group_id":"k9gnf3avpxd0ca88wvbws9c6ymq475eh","value":0},{"metric":"no_shows","period":"total","group_id":"k9gnf3avpxd0ca88wvbws9c6ymq475eh","value":0},{"metric":"show_rate","period":"total","group_id":"k9gnf3avpxd0ca88wvbws9c6ymq475eh","value":null},{"metric":"deals_won","period":"total","group_id":"k9gnf3avpxd0ca88wvbws9c6ymq475eh","value":0},{"metric":"close_rate","period":"total","group_id":"k9gnf3avpxd0ca88wvbws9c6ymq475eh","value":null}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"lead_gens_oct":{"path":"/api/v1/metrics?metrics=leads_captured,unique_prospects,resparks&from=2026-10-01&to=2026-10-27&granularity=total&group_by=lead_generator","auth":"key","attempts":[{"status":200,"ms":1841,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"leads_captured","period":"total","group_id":"k9mg1fanty6m6ray8hp5rt01x9dm3vy0","value":3915},{"metric":"leads_captured","period":"total","group_id":"k9tvpxj2syy875er55rpy3axqgg9wvxw","value":3019},{"metric":"leads_captured","period":"total","group_id":"k9zk8ebnmd2vshgrpsmh2e179fxd31dg","value":3077},{"metric":"leads_captured","period":"total","group_id":"k9kffavwz096sm0ngyme86w9tdebb0h2","value":2790},{"metric":"leads_captured","period":"total","group_id":"k99ccwp5p82j33k942ce5bpfy4tw4edw","value":4082},{"metric":"leads_captured","period":"total","group_id":"k9dw3j27nn92nhgrjzx02ecphtr48n3p","value":2725},{"metric":"leads_captured","period":"total","group_id":"k9jzsf254wdyeaxzn5k1f816trec4tqk","value":1741},{"metric":"leads_captured","period":"total","group_id":"k9f1xre1gr0b9w0p1eryst25z8xv93qx","value":2662},{"metric":"leads_captured","period":"total","group_id":"k90081wa8wk7hnm6k5b44j7hv9yfthc4","value":1680},{"metric":"leads_captured","period":"total","group_id":"k9dft1gksaxcj5bf7dvr4gd0ffcpjgq9","value":3651},{"metric":"leads_captured","period":"total","group_id":"k9hwb36q4e85fr6mgzqgjkp21zwxc4xf","value":1485},{"metric":"leads_captured","period":"total","group_id":"k9d75eez5vdf1n1rmp06h283c8hfrxnp","value":2087},{"metric":"leads_captured","period":"total","group_id":"k9djvj8w03h6e0zgjc0twv7wfcgkbn2h","value":1},{"metric":"unique_prospects","period":"total","group_id":"k9mg1fanty6m6ray8hp5rt01x9dm3vy0","value":3611},{"metric":"unique_prospects","period":"total","group_id":"k9tvpxj2syy875er55rpy3axqgg9wvxw","value":2679},{"metric":"unique_prospects","period":"total","group_id":"k9zk8ebnmd2vshgrpsmh2e179fxd31dg","value":2819},{"metric":"unique_prospects","period":"total","group_id":"k9kffavwz096sm0ngyme86w9tdebb0h2","value":2659},{"metric":"unique_prospects","period":"total","group_id":"k99ccwp5p82j33k942ce5bpfy4tw4edw","value":3525},{"metric":"unique_prospects","period":"total","group_id":"k9dw3j27nn92nhgrjzx02ecphtr48n3p","value":2365},{"metric":"unique_prospects","period":"total","group_id":"k9jzsf254wdyeaxzn5k1f816trec4tqk","value":1560},{"metric":"unique_prospects","period":"total","group_id":"k9f1xre1gr0b9w0p1eryst25z8xv93qx","value":2296},{"metric":"unique_prospects","period":"total","group_id":"k90081wa8wk7hnm6k5b44j7hv9yfthc4","value":1449},{"metric":"unique_prospects","period":"total","group_id":"k9dft1gksaxcj5bf7dvr4gd0ffcpjgq9","value":3524},{"metric":"unique_prospects","period":"total","group_id":"k9hwb36q4e85fr6mgzqgjkp21zwxc4xf","value":1291},{"metric":"unique_prospects","period":"total","group_id":"k9d75eez5vdf1n1rmp06h283c8hfrxnp","value":1832},{"metric":"unique_prospects","period":"total","group_id":"k9djvj8w03h6e0zgjc0twv7wfcgkbn2h","value":1},{"metric":"resparks","period":"total","group_id":"k9mg1fanty6m6ray8hp5rt01x9dm3vy0","value":0},{"metric":"resparks","period":"total","group_id":"k9tvpxj2syy875er55rpy3axqgg9wvxw","value":0},{"metric":"resparks","period":"total","group_id":"k9zk8ebnmd2vshgrpsmh2e179fxd31dg","value":0},{"metric":"resparks","period":"total","group_id":"k9kffavwz096sm0ngyme86w9tdebb0h2","value":96},{"metric":"resparks","period":"total","group_id":"k99ccwp5p82j33k942ce5bpfy4tw4edw","value":0},{"metric":"resparks","period":"total","group_id":"k9dw3j27nn92nhgrjzx02ecphtr48n3p","value":0},{"metric":"resparks","period":"total","group_id":"k9jzsf254wdyeaxzn5k1f816trec4tqk","value":0},{"metric":"resparks","period":"total","group_id":"k9f1xre1gr0b9w0p1eryst25z8xv93qx","value":0},{"metric":"resparks","period":"total","group_id":"k90081wa8wk7hnm6k5b44j7hv9yfthc4","value":0},{"metric":"resparks","period":"total","group_id":"k9dft1gksaxcj5bf7dvr4gd0ffcpjgq9","value":0},{"metric":"resparks","period":"total","group_id":"k9hwb36q4e85fr6mgzqgjkp21zwxc4xf","value":0},{"metric":"resparks","period":"total","group_id":"k9d75eez5vdf1n1rmp06h283c8hfrxnp","value":0},{"metric":"resparks","period":"total","group_id":"k9djvj8w03h6e0zgjc0twv7wfcgkbn2h","value":0}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"teams_oct":{"path":"/api/v1/metrics?metrics=leads_captured,unique_prospects&from=2026-10-01&to=2026-10-27&granularity=total&group_by=team","auth":"key","attempts":[{"status":200,"ms":1793,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"leads_captured","period":"total","group_id":null,"value":1},{"metric":"leads_captured","period":"total","group_id":"nsw664d6x5dfn9bbxyn9rk6g4xs1dnrp","value":23698},{"metric":"leads_captured","period":"total","group_id":"nsd69rk6585ey83ryj6epqzxw25cmrc5","value":9216},{"metric":"unique_prospects","period":"total","group_id":null,"value":1},{"metric":"unique_prospects","period":"total","group_id":"nsw664d6x5dfn9bbxyn9rk6g4xs1dnrp","value":19906},{"metric":"unique_prospects","period":"total","group_id":"nsd69rk6585ey83ryj6epqzxw25cmrc5","value":7926}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"programs_oct":{"path":"/api/v1/metrics?metrics=calls_booked,deals_won,cash_collected&from=2026-10-01&to=2026-10-27&granularity=total&group_by=program","auth":"key","attempts":[{"status":200,"ms":1836,"headers":{"content-type":"application/json","cache-control":"private, max-age=300"},"body":{"data":[{"metric":"deals_won","period":"total","group_id":"mx2aesv8trjmfgd85tgpj7zc3yejfxa5","value":28},{"metric":"deals_won","period":"total","group_id":"mxzcz5w9aesytpa20t1jtdp1fef3m6kt","value":21},{"metric":"deals_won","period":"total","group_id":"mxj75ynfd36mq6y40q7a0e8b8n2r5b5t","value":6},{"metric":"deals_won","period":"total","group_id":"mx4ggr96mwxtg5rfjnkm14dmjjnpntdg","value":15},{"metric":"cash_collected","period":"total","group_id":"mx2aesv8trjmfgd85tgpj7zc3yejfxa5","currency":"USD","value":16020000},{"metric":"cash_collected","period":"total","group_id":"mxzcz5w9aesytpa20t1jtdp1fef3m6kt","currency":"USD","value":12015000},{"metric":"cash_collected","period":"total","group_id":"mxj75ynfd36mq6y40q7a0e8b8n2r5b5t","currency":"USD","value":5607000},{"metric":"cash_collected","period":"total","group_id":"mx4ggr96mwxtg5rfjnkm14dmjjnpntdg","currency":"USD","value":6408000},{"metric":"cash_collected","period":"total","group_id":"mx2aesv8trjmfgd85tgpj7zc3yejfxa5","currency":"CAD","value":4050000},{"metric":"calls_booked","period":"total","group_id":null,"value":40},{"metric":"calls_booked","period":"total","group_id":"mx2aesv8trjmfgd85tgpj7zc3yejfxa5","value":240},{"metric":"calls_booked","period":"total","group_id":"mxzcz5w9aesytpa20t1jtdp1fef3m6kt","value":192},{"metric":"calls_booked","period":"total","group_id":"mxj75ynfd36mq6y40q7a0e8b8n2r5b5t","value":32},{"metric":"calls_booked","period":"total","group_id":"mx4ggr96mwxtg5rfjnkm14dmjjnpntdg","value":72},{"metric":"calls_booked","period":"total","group_id":"mxp0jj6d6j009st3x89wjkaf40pqbmg7","value":96},{"metric":"calls_booked","period":"total","group_id":"mxvjrqkw7xaj776ee4b06kw49bx2rwz5","value":64}],"meta":{"as_of":"2026-10-28T20:45:56.229Z","source":"warehouse","next_expected_refresh":"2026-10-29T02:50:31.829Z"}}}]},"err_no_key":{"path":"/api/v1/freshness","auth":"none","attempts":[{"status":401,"ms":230,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"unauthorized","message":"Send an API key as `Authorization: Bearer mgn_live_…`."}}}]},"err_bad_key":{"path":"/api/v1/freshness","auth":"bad","attempts":[{"status":401,"ms":170,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"unauthorized","message":"The API key is missing, wrong or revoked."}}}]},"err_metric":{"path":"/api/v1/metrics?metrics=revenue&from=2026-10-01&to=2026-10-27","auth":"key","attempts":[{"status":400,"ms":142,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"invalid_request","message":"Unknown metric revenue."}}}]},"err_group":{"path":"/api/v1/metrics?metrics=qualifications&from=2026-10-01&to=2026-10-27&group_by=closer","auth":"key","attempts":[{"status":400,"ms":135,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"invalid_request","message":"qualifications can't be grouped by closer."}}}]},"err_date":{"path":"/api/v1/metrics?metrics=calls_held&from=10/01/2026&to=2026-10-27","auth":"key","attempts":[{"status":400,"ms":133,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"invalid_request","message":"Send `from` and `to` as YYYY-MM-DD."}}}]},"err_span":{"path":"/api/v1/metrics?metrics=calls_held&from=2020-01-01&to=2026-10-27","auth":"key","attempts":[{"status":400,"ms":126,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"invalid_request","message":"Choose 731 days or fewer."}}}]},"err_tz":{"path":"/api/v1/today?metrics=calls_held&tz=Mars/Olympus","auth":"key","attempts":[{"status":400,"ms":139,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"invalid_request","message":"Choose a valid IANA time zone."}}}]},"err_dimension":{"path":"/api/v1/dimensions/closers","auth":"key","attempts":[{"status":404,"ms":129,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":{"error":{"code":"not_found","message":"Dimensions are team-members, teams and programs."}}}]},"_capturedAt":"2026-10-29T00:13:55.761Z","_sample":true}</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("api-data").textContent);
+const BASE = "https://usable-guineapig-697.convex.site";
+const TZ = "America/Tegucigalpa";
+
+// ---------- helpers ----------
+const $ = (sel) => document.querySelector(sel);
+const NS = "http://www.w3.org/2000/svg";
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null) continue;
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k === "style") el.setAttribute("style", v);
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null) el.append(kid);
+  return el;
+}
+function s(tag, attrs = {}, parent) {
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+const rec = (id) => DATA[id];
+const final = (id) => DATA[id].attempts[DATA[id].attempts.length - 1];
+const body = (id) => final(id).body;
+
+const NF = new Intl.NumberFormat("en-US");
+const fmtInt = (v) => (v == null ? "–" : NF.format(Math.round(v)));
+const compact = (v) => (Math.abs(v) >= 1000 ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v) : NF.format(Math.round(v * 10) / 10));
+const pct = (v, d = 1) => (v == null ? "null" : (v * 100).toFixed(d) + "%");
+const money = (minor, cur = "USD", c = false) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: cur, notation: c ? "compact" : "standard", maximumFractionDigits: c ? 1 : 0 }).format(minor / 100);
+const dtUTC = (iso) => new Date(iso).toLocaleString("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + " UTC";
+const dtLocal = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "2-digit" }) + " Honduras";
+const dayLabel = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const dayLong = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+const monthLabel = (m) => new Date(m + "-15T12:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+
+const NAMES = new Map();
+for (const id of ["dim_members", "dim_teams", "dim_programs"]) for (const d of body(id).data) NAMES.set(d.id, d.name);
+const nameOf = (id, fallback = "No group") => (id == null ? fallback : NAMES.get(id) ?? id);
+
+function rowsOf(id, metric, currency) {
+  return body(id).data.filter((r) => r.metric === metric && (currency === undefined || r.currency === currency));
+}
+function byPeriod(id, metric, currency) {
+  return new Map(rowsOf(id, metric, currency).map((r) => [r.period, r.value]));
+}
+function byGroup(id, metric, currency) {
+  return new Map(rowsOf(id, metric, currency).map((r) => [r.group_id, r.value]));
+}
+function periods(id) {
+  return [...new Set(body(id).data.map((r) => r.period))].sort();
+}
+
+// ---------- tooltip ----------
+const TT = $("#tooltip");
+function tooltip(x, y, title, rows) {
+  TT.textContent = "";
+  if (title) TT.append(h("div", { class: "tt-title", text: title }));
+  for (const r of rows) {
+    const row = h("div", { class: "tt-row" });
+    if (r.color) row.append(h("i", { class: r.kind === "rect" ? "key-rect" : "key-line", style: `background:${r.color}` }));
+    row.append(h("b", { text: r.value }), h("span", { class: "n", text: r.name }));
+    TT.append(row);
+  }
+  TT.classList.add("on");
+  const w = TT.offsetWidth, hh = TT.offsetHeight;
+  let left = x + 14, top = y + 14;
+  if (left + w > innerWidth - 8) left = x - w - 14;
+  if (top + hh > innerHeight - 8) top = y - hh - 14;
+  TT.style.left = left + "px";
+  TT.style.top = top + "px";
+}
+function hideTip() { TT.classList.remove("on"); }
+
+// ---------- figure shell (title, legend, plot, table view) ----------
+function figure(el, { title, sub, legend, note, table, render, height }) {
+  el.textContent = "";
+  el.append(h("figcaption", {}, h("div", { class: "chart-title", text: title }), sub ? h("div", { class: "chart-sub", text: sub }) : null));
+  if (legend && legend.length >= 2) {
+    const lg = h("div", { class: "legend" });
+    for (const l of legend) lg.append(h("span", {}, h("i", { class: l.kind === "rect" ? "key-rect" : "key-line", style: `background:${l.color}` }), document.createTextNode(l.name)));
+    el.append(lg);
+  }
+  const plot = h("div", { class: "plot" });
+  el.append(plot);
+  const foot = h("div", { class: "chart-foot" }, h("span", { class: "chart-note", text: note || "" }));
+  let tv = null;
+  if (table) {
+    const btn = h("button", { class: "table-toggle", type: "button", text: "Show table" });
+    tv = h("div", { class: "table-view", hidden: "" });
+    const t = h("table", { class: "t" });
+    const thead = h("tr");
+    table.columns.forEach((c, i) => thead.append(h("th", { class: i > 0 ? "n" : null, text: c })));
+    t.append(h("thead", {}, thead));
+    const tb = h("tbody");
+    for (const r of table.rows) {
+      const tr = h("tr");
+      r.forEach((c, i) => tr.append(h("td", { class: i > 0 ? "n" : null, text: String(c) })));
+      tb.append(tr);
+    }
+    t.append(tb);
+    tv.append(t);
+    btn.addEventListener("click", () => {
+      const open = tv.hasAttribute("hidden");
+      if (open) tv.removeAttribute("hidden"); else tv.setAttribute("hidden", "");
+      btn.textContent = open ? "Hide table" : "Show table";
+    });
+    foot.append(btn);
+  }
+  el.append(foot);
+  if (tv) el.append(tv);
+  if (render) {
+    let last = 0;
+    const draw = () => {
+      const w = Math.floor(plot.clientWidth);
+      if (w && w !== last) { last = w; render(plot, w); }
+    };
+    new ResizeObserver(draw).observe(plot);
+    draw();
+  }
+  return plot;
+}
+
+// ---------- scales ----------
+function niceStep(v) {
+  const e = Math.pow(10, Math.floor(Math.log10(v)));
+  const f = v / e;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e;
+}
+function ticks(max, n = 4) {
+  if (!(max > 0)) return [0, 1];
+  const step = niceStep(max / n);
+  const out = [];
+  for (let t = 0; t <= max + step * 0.999; t += step) out.push(Math.round(t * 1e9) / 1e9);
+  return out;
+}
+const arcTop = (x, y, w, hgt, r) => {
+  r = Math.max(0, Math.min(r, hgt, w / 2));
+  return `M${x},${y + hgt}V${y + r}A${r},${r} 0 0 1 ${x + r},${y}H${x + w - r}A${r},${r} 0 0 1 ${x + w},${y + r}V${y + hgt}Z`;
+};
+
+// ---------- line chart ----------
+function lineChart(el, cfg) {
+  const legend = cfg.series.map((sr) => ({ name: sr.name, color: sr.color, kind: "line" }));
+  const table = {
+    columns: [cfg.xTitle || "Period", ...cfg.series.map((sr) => sr.name)],
+    rows: cfg.x.map((x, i) => [cfg.xLong ? cfg.xLong(x) : x, ...cfg.series.map((sr) => cfg.fmt(sr.values[i]))]),
+  };
+  figure(el, {
+    title: cfg.title, sub: cfg.sub, legend, note: cfg.note, table,
+    render(plot, W) {
+      plot.textContent = "";
+      const H = cfg.height || 250;
+      const m = { l: 46, r: cfg.endLabels ? 96 : 14, t: 12, b: 28 };
+      const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", tabindex: 0, "aria-label": cfg.title + ". Use the left and right arrow keys to read values." });
+      plot.append(svg);
+      const n = cfg.x.length, iw = W - m.l - m.r, ih = H - m.t - m.b;
+      const all = cfg.series.flatMap((sr) => sr.values).filter((v) => v != null);
+      const tk = ticks(cfg.yMax ?? Math.max(...all, 0));
+      const top = tk[tk.length - 1];
+      const X = (i) => m.l + (n === 1 ? iw / 2 : (i * iw) / (n - 1));
+      const Y = (v) => m.t + ih - (v / top) * ih;
+      for (const t of tk) {
+        s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), style: `stroke:${t === 0 ? "var(--axis)" : "var(--grid)"};stroke-width:1` }, svg);
+        const lab = s("text", { x: m.l - 8, y: Y(t) + 4, "text-anchor": "end", class: "axis-text" }, svg);
+        lab.textContent = cfg.axisFmt ? cfg.axisFmt(t) : compact(t);
+      }
+      const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(iw / 70))));
+      for (let i = 0; i < n; i += every) {
+        const lab = s("text", { x: X(i), y: H - 8, "text-anchor": "middle", class: "axis-text" }, svg);
+        lab.textContent = cfg.xFmt ? cfg.xFmt(cfg.x[i]) : cfg.x[i];
+      }
+      const ends = [];
+      for (const sr of cfg.series) {
+        let d = "", area = "", first = null, lastI = null;
+        sr.values.forEach((v, i) => {
+          if (v == null) return;
+          d += (d ? "L" : "M") + X(i).toFixed(1) + "," + Y(v).toFixed(1);
+          if (first === null) first = i;
+          lastI = i;
+        });
+        if (cfg.area && first !== null) {
+          area = d + `L${X(lastI)},${Y(0)}L${X(first)},${Y(0)}Z`;
+          s("path", { d: area, style: `fill:${sr.color};opacity:0.10;stroke:none` }, svg);
+        }
+        s("path", { d, style: `fill:none;stroke:${sr.color};stroke-width:2;stroke-linejoin:round;stroke-linecap:round` }, svg);
+        if (lastI !== null) {
+          s("circle", { cx: X(lastI), cy: Y(sr.values[lastI]), r: 4, style: `fill:${sr.color};stroke:var(--surface);stroke-width:2` }, svg);
+          ends.push({ y: Y(sr.values[lastI]), x: X(lastI), text: `${cfg.fmt(sr.values[lastI])} ${sr.short || sr.name}` });
+        }
+      }
+      if (cfg.endLabels) {
+        ends.sort((a, b) => a.y - b.y);
+        const collide = ends.some((e, i) => i > 0 && e.y - ends[i - 1].y < 14);
+        if (!collide) for (const e of ends) {
+          const t = s("text", { x: e.x + 9, y: e.y + 4, class: "label-text" }, svg);
+          t.textContent = e.text;
+        }
+      }
+      const cross = s("line", { y1: m.t, y2: m.t + ih, style: "stroke:var(--axis);stroke-width:1;opacity:0" }, svg);
+      const dots = cfg.series.map((sr) => s("circle", { r: 4, style: `fill:${sr.color};stroke:var(--surface);stroke-width:2;opacity:0` }, svg));
+      const hit = s("rect", { x: m.l - 10, y: 0, width: iw + 20, height: H, style: "fill:transparent;cursor:crosshair" }, svg);
+      let idx = n - 1;
+      const show = (i, cx, cy) => {
+        idx = Math.max(0, Math.min(n - 1, i));
+        cross.setAttribute("x1", X(idx)); cross.setAttribute("x2", X(idx)); cross.style.opacity = 1;
+        cfg.series.forEach((sr, k) => {
+          const v = sr.values[idx];
+          if (v == null) { dots[k].style.opacity = 0; return; }
+          dots[k].setAttribute("cx", X(idx)); dots[k].setAttribute("cy", Y(v)); dots[k].style.opacity = 1;
+        });
+        const rect = svg.getBoundingClientRect();
+        tooltip(cx ?? rect.left + X(idx), cy ?? rect.top + m.t, cfg.xLong ? cfg.xLong(cfg.x[idx]) : cfg.x[idx],
+          cfg.series.map((sr) => ({ color: sr.color, value: cfg.fmt(sr.values[idx]), name: sr.name })));
+      };
+      const hide = () => { cross.style.opacity = 0; dots.forEach((d) => (d.style.opacity = 0)); hideTip(); };
+      hit.addEventListener("pointermove", (ev) => {
+        const rect = svg.getBoundingClientRect();
+        const px = ev.clientX - rect.left;
+        show(Math.round(((px - m.l) / iw) * (n - 1)), ev.clientX, ev.clientY);
+      });
+      hit.addEventListener("pointerleave", hide);
+      svg.addEventListener("focus", () => show(idx));
+      svg.addEventListener("blur", hide);
+      svg.addEventListener("keydown", (ev) => {
+        if (ev.key === "ArrowLeft") { show(idx - 1); ev.preventDefault(); }
+        if (ev.key === "ArrowRight") { show(idx + 1); ev.preventDefault(); }
+      });
+    },
+  });
+}
+
+// ---------- column chart (single or stacked) ----------
+function columnChart(el, cfg) {
+  const legend = cfg.series.map((sr) => ({ name: sr.name, color: sr.color, kind: "rect" }));
+  const table = {
+    columns: [cfg.xTitle || "Period", ...cfg.series.map((sr) => sr.name), ...(cfg.series.length > 1 ? ["Total"] : [])],
+    rows: cfg.x.map((x, i) => {
+      const vals = cfg.series.map((sr) => sr.values[i] ?? 0);
+      return [cfg.xLong ? cfg.xLong(x) : x, ...vals.map(cfg.fmt), ...(cfg.series.length > 1 ? [cfg.fmt(vals.reduce((a, b) => a + b, 0))] : [])];
+    }),
+  };
+  figure(el, {
+    title: cfg.title, sub: cfg.sub, legend, note: cfg.note, table,
+    render(plot, W) {
+      plot.textContent = "";
+      const H = cfg.height || 250;
+      const m = { l: 50, r: 10, t: 18, b: 28 };
+      const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.title });
+      plot.append(svg);
+      const n = cfg.x.length, iw = W - m.l - m.r, ih = H - m.t - m.b;
+      const totals = cfg.x.map((_, i) => cfg.series.reduce((a, sr) => a + (sr.values[i] ?? 0), 0));
+      const tk = ticks(Math.max(...totals, 0));
+      const top = tk[tk.length - 1];
+      const Y = (v) => m.t + ih - (v / top) * ih;
+      for (const t of tk) {
+        s("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), style: `stroke:${t === 0 ? "var(--axis)" : "var(--grid)"};stroke-width:1` }, svg);
+        const lab = s("text", { x: m.l - 8, y: Y(t) + 4, "text-anchor": "end", class: "axis-text" }, svg);
+        lab.textContent = cfg.axisFmt ? cfg.axisFmt(t) : compact(t);
+      }
+      const band = iw / n;
+      const bw = Math.min(24, band * 0.62);
+      const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(iw / 64))));
+      cfg.x.forEach((x, i) => {
+        const cx = m.l + band * (i + 0.5);
+        if (i % every === 0) {
+          const lab = s("text", { x: cx, y: H - 8, "text-anchor": "middle", class: "axis-text" }, svg);
+          lab.textContent = cfg.xFmt ? cfg.xFmt(x) : x;
+        }
+        let acc = 0;
+        const segs = cfg.series.map((sr) => ({ sr, v: sr.values[i] ?? 0 })).filter((sg) => sg.v > 0);
+        const g = s("g", {}, svg);
+        segs.forEach((sg, k) => {
+          const y1 = Y(acc + sg.v), y0 = Y(acc);
+          let hgt = y0 - y1 - (k > 0 ? 2 : 0);
+          if (hgt < 1) hgt = 1;
+          const isTop = k === segs.length - 1;
+          const xx = cx - bw / 2;
+          if (isTop) s("path", { d: arcTop(xx, y1, bw, hgt, 4), style: `fill:${sg.sr.color}` }, g);
+          else s("rect", { x: xx, y: y1, width: bw, height: hgt, style: `fill:${sg.sr.color}` }, g);
+          acc += sg.v;
+        });
+        if (cfg.capLabels && cfg.series.length === 1 && totals[i] > 0) {
+          const t = s("text", { x: cx, y: Y(totals[i]) - 6, "text-anchor": "middle", class: "label-text" }, svg);
+          t.textContent = cfg.capFmt ? cfg.capFmt(totals[i]) : compact(totals[i]);
+        }
+        const hit = s("rect", { x: cx - band / 2, y: m.t, width: band, height: ih, tabindex: 0, style: "fill:transparent;cursor:default", "aria-label": `${x}: ${cfg.series.map((sr) => sr.name + " " + cfg.fmt(sr.values[i] ?? 0)).join(", ")}` }, svg);
+        const on = (ev) => {
+          g.style.opacity = 0.82;
+          const r = hit.getBoundingClientRect();
+          tooltip(ev?.clientX ?? r.left + r.width / 2, ev?.clientY ?? r.top, cfg.xLong ? cfg.xLong(x) : x,
+            [...cfg.series].reverse().map((sr) => ({ color: sr.color, kind: "rect", value: cfg.fmt(sr.values[i] ?? 0), name: sr.name })));
+        };
+        const off = () => { g.style.opacity = 1; hideTip(); };
+        hit.addEventListener("pointermove", on);
+        hit.addEventListener("pointerleave", off);
+        hit.addEventListener("focus", () => on());
+        hit.addEventListener("blur", off);
+      });
+    },
+  });
+}
+
+// ---------- horizontal bars (HTML) ----------
+function hbarChart(el, cfg) {
+  figure(el, {
+    title: cfg.title, sub: cfg.sub, note: cfg.note,
+    table: { columns: [cfg.labelTitle || "Name", cfg.valueTitle || "Value", ...(cfg.extraTitles || [])], rows: cfg.rows.map((r) => [r.label, cfg.fmt(r.value), ...(r.extra || [])]) },
+  });
+  const plot = el.querySelector(".plot");
+  const wrap = h("div", { class: "hbars" });
+  const max = Math.max(...cfg.rows.map((r) => r.value), 1);
+  for (const r of cfg.rows) {
+    const row = h("div", { class: "hbar", tabindex: 0 });
+    row.append(h("div", { class: "lbl", text: r.label, title: r.label }));
+    const track = h("div", { class: "track" });
+    const ratio = r.value / max;
+    const bar = r.value > 0 ? h("div", { class: "bar", style: `width:calc(${ratio.toFixed(4)} * (100% - var(--reserve, 160px)));background:${cfg.color || "var(--s1)"}` }) : null;
+    const val = h("div", { class: "val" }, h("b", { text: cfg.fmt(r.value) }), r.note ? document.createTextNode("  " + r.note) : null);
+    if (bar) track.append(bar);
+    track.append(val);
+    row.append(track);
+    const on = (ev) => {
+      const b = row.getBoundingClientRect();
+      tooltip(ev?.clientX ?? b.left + 200, ev?.clientY ?? b.top, r.label, [{ color: cfg.color || "var(--s1)", kind: "rect", value: cfg.fmt(r.value), name: cfg.valueTitle || "" }, ...(r.tip || [])]);
+    };
+    row.addEventListener("pointermove", on);
+    row.addEventListener("pointerleave", hideTip);
+    row.addEventListener("focus", () => on());
+    row.addEventListener("blur", hideTip);
+    wrap.append(row);
+  }
+  plot.append(wrap);
+  // Room for the widest value label, so every label sits at its bar's tip.
+  const reserve = Math.max(...[...wrap.querySelectorAll(".val")].map((v) => v.offsetWidth), 40) + 12;
+  wrap.style.setProperty("--reserve", reserve + "px");
+}
+
+// ---------- request card ----------
+function highlightJSON(text) {
+  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc
+    .replace(/("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, (m, str, colon, lit, num) => {
+      if (str) return colon ? `<span class="j-key">${str}</span>${colon}` : `<span class="j-str">${str}</span>`;
+      if (lit) return `<span class="j-lit">${lit}</span>`;
+      return `<span class="j-num">${num}</span>`;
+    })
+    .replace(/<span class="j-str">"__MORE__(\d+)__"<\/span>/g, (_, n) => `<span class="j-cmt">… ${n} more rows</span>`);
+}
+function trimmed(b, keep = 4) {
+  if (b && Array.isArray(b.data) && b.data.length > keep + 1) {
+    return { ...b, data: [...b.data.slice(0, keep), `__MORE__${b.data.length - keep}__`] };
+  }
+  return b;
+}
+function codeBlock(text, { json = false } = {}) {
+  const wrap = h("div", { class: "code" });
+  const pre = h("pre");
+  const code = h("code");
+  if (json) code.innerHTML = highlightJSON(text);
+  else code.textContent = text;
+  pre.append(code);
+  const btn = h("button", { class: "copy", type: "button", text: "Copy" });
+  btn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; } catch { btn.textContent = "Select and copy"; }
+    setTimeout(() => (btn.textContent = "Copy"), 1400);
+  });
+  wrap.append(pre, btn);
+  return wrap;
+}
+const STATUS = {
+  200: { label: "200 OK", color: "var(--good)", icon: "✓" },
+  202: { label: "202 Accepted", color: "var(--warning)", icon: "◷" },
+  400: { label: "400 Bad request", color: "var(--serious)", icon: "!" },
+  401: { label: "401 Unauthorized", color: "var(--critical)", icon: "✕" },
+  404: { label: "404 Not found", color: "var(--serious)", icon: "?" },
+  429: { label: "429 Too many requests", color: "var(--warning)", icon: "◷" },
+  500: { label: "500 Internal error", color: "var(--critical)", icon: "✕" },
+  503: { label: "503 Unavailable", color: "var(--critical)", icon: "✕" },
+};
+function pill(status) {
+  const st = STATUS[status] || { label: String(status), color: "var(--muted)", icon: "•" };
+  return h("span", { class: "pill" }, h("span", { class: "dot", style: `background:${st.color}` }), h("span", { class: "ico", text: st.icon }), document.createTextNode(st.label));
+}
+function pathNode(path) {
+  const [p, q] = path.split("?");
+  const node = h("span", { class: "req-path" }, document.createTextNode(p));
+  if (q) node.append(h("span", { class: "q", text: "?" + q }));
+  return node;
+}
+function requestCard(id, { open = false } = {}) {
+  const r = rec(id);
+  const card = h("div", { class: "req" });
+  for (let a = 0; a < r.attempts.length; a++) {
+    const at = r.attempts[a];
+    const head = h("div", { class: "req-head" }, h("span", { class: "method", text: "GET" }), pathNode(r.path),
+      h("span", { class: "req-meta" }, pill(at.status), h("span", { text: at.ms >= 1000 ? (at.ms / 1000).toFixed(1) + " s" : at.ms + " ms" })));
+    if (a > 0) head.style.borderTop = "1px solid var(--border)";
+    card.append(head);
+  }
+  const at = r.attempts[r.attempts.length - 1];
+  const det = h("details", open ? { open: "" } : {});
+  det.append(h("summary", { text: "Response body and headers" }));
+  const hdrs = h("div", { class: "hdrs" });
+  for (const [k, v] of Object.entries(at.headers)) hdrs.append(h("div", {}, h("span", { text: k + ": " }), document.createTextNode(v)));
+  det.append(hdrs);
+  const pre = h("pre");
+  const code = h("code");
+  code.innerHTML = highlightJSON(JSON.stringify(trimmed(at.body), null, 2));
+  pre.append(code);
+  det.append(pre);
+  card.append(det);
+  return card;
+}
+
+// ---------- header ----------
+$("#base-url").textContent = BASE + "/api/v1";
+$("#captured-at").append(document.createTextNode(dtUTC(DATA._capturedAt)), h("div", { style: "font-weight:400;color:var(--muted);font-size:12.5px", text: dtLocal(DATA._capturedAt) }));
+{
+  const calls = Object.keys(DATA).filter((k) => !k.startsWith("_"));
+  const finals = calls.map((k) => final(k).status);
+  const waited = calls.filter((k) => rec(k).attempts.length > 1).length;
+  const ok = finals.filter((x) => x === 200).length;
+  const t = $("#tally");
+  t.append(document.createTextNode(`${calls.length} calls against production. Answered:`), pill(200), document.createTextNode(`× ${ok}, one of them after a`), pill(202),
+    document.createTextNode("· Errors, triggered on purpose:"));
+  const counts = new Map();
+  for (const x of finals.filter((x) => x >= 400)) counts.set(x, (counts.get(x) || 0) + 1);
+  for (const [code, n] of [...counts.entries()].sort((a, b) => a[0] - b[0])) t.append(pill(code), document.createTextNode(`× ${n}`));
+}
+
+// ---------- flow ----------
+{
+  const flow = $("#flow");
+  const lanes = [
+    { node: ["/metrics, /funnel", "History"], outs: [[200, "Cached answer for this refresh: a few hundred ms"], [200, "New range: computed in about 2 s"], [202, "Still computing after 25 s: retry"]] },
+    { node: ["/today", "Live from the CRM"], outs: [[200, "Always computed on the spot"]] },
+    { node: ["/dimensions, /freshness", "Lookups"], outs: [[200, "Read from the CRM"]] },
+    { node: ["Any request", "Key check first"], outs: [[401, "Missing, wrong or revoked key"], [429, "Over 60 a minute"], [400, "Bad parameters"]] },
+  ];
+  for (const l of lanes) {
+    const outs = h("div", { class: "outcomes" });
+    for (const [code, text] of l.outs) outs.append(h("span", { class: "pill" }, h("span", { class: "dot", style: `background:${STATUS[code].color}` }), h("span", { class: "ico", text: STATUS[code].icon }), document.createTextNode(`${code} · ${text}`)));
+    flow.append(h("div", { class: "lane" }, h("div", { class: "node" }, h("b", {}, h("code", { text: l.node[0] })), h("small", { text: l.node[1] })), h("div", { class: "arrow" }), outs));
+  }
+}
+
+// ---------- first call ----------
+$("#first-call").append(codeBlock(`curl "${BASE}/api/v1/funnel?from=2026-10-01&to=2026-10-27" \\
+  -H "Authorization: Bearer $MAGNUS_API_KEY"`),
+  h("div", { style: "height:10px" }),
+  codeBlock(JSON.stringify(body("funnel_oct"), null, 2), { json: true }));
+
+// ---------- endpoints ----------
+{
+  const P = (name, req, desc) => ({ name, req, desc });
+  const eps = [
+    { path: "/api/v1/metrics", what: "Any metrics over a date range, by period and by group. From the reporting database, cached until the next refresh.", params: [
+      P("metrics", true, "Comma-separated metric names from the catalog, such as calls_held,deals_won."),
+      P("from", true, "First day, inclusive, YYYY-MM-DD."),
+      P("to", true, "Last day, inclusive. At most 731 days after from."),
+      P("granularity", false, "day (default), week (named by its Monday), month (YYYY-MM) or total."),
+      P("group_by", false, "none (default), closer, team, program or lead_generator. Each metric lists what it supports."),
+      P("tz", false, "An IANA time zone. Days then run midnight to midnight there. Omit to use the workspace's business day."),
+    ] },
+    { path: "/api/v1/funnel", what: "Captured, qualified, booked, held and won totals for a range, as one small object.", params: [P("from", true, "First day, inclusive."), P("to", true, "Last day, inclusive."), P("tz", false, "As in /metrics.")] },
+    { path: "/api/v1/today", what: "Today's metrics, read live. Same metric names and groupings as /metrics.", params: [P("metrics", true, "Comma-separated metric names."), P("group_by", false, "As in /metrics."), P("tz", false, "As in /metrics; also decides which day is today.")] },
+    { path: "/api/v1/dimensions/{kind}", what: "Ids and names to label group_id values.", params: [P("kind", true, "team-members, teams or programs, in the path.")] },
+    { path: "/api/v1/freshness", what: "When the reporting data was last refreshed and when the next refresh is expected.", params: [] },
+  ];
+  const list = $("#endpoint-list");
+  for (const ep of eps) {
+    const card = h("div", { class: "card" });
+    card.append(h("div", { style: "display:flex;gap:10px;align-items:center;margin-bottom:6px" }, h("span", { class: "method", text: "GET" }), h("code", { style: "font-size:15px;background:none;border:0;padding:0;font-weight:600", text: ep.path })));
+    card.append(h("p", { class: "prose", style: "margin-bottom:10px", text: ep.what }));
+    if (ep.params.length) {
+      const t = h("table", { class: "t" });
+      t.append(h("thead", {}, h("tr", {}, h("th", { text: "Parameter" }), h("th", { text: "Required" }), h("th", { text: "Meaning" }))));
+      const tb = h("tbody");
+      for (const p of ep.params) tb.append(h("tr", {}, h("td", {}, h("code", { text: p.name })), h("td", { text: p.req ? "Yes" : "No" }), h("td", { text: p.desc })));
+      t.append(tb);
+      card.append(t);
+    }
+    list.append(card);
+  }
+}
+
+// ---------- catalog ----------
+{
+  const M = [
+    ["leads_captured", "Lead gen captures, voids excluded", "Captured", "team, lead_generator"],
+    ["unique_prospects", "Distinct prospects among those captures", "Captured", "team, lead_generator"],
+    ["resparks", "Respark items marked Resparked", "Worked", "lead_generator"],
+    ["qualifications", "Slack qualification submissions", "Submitted", ""],
+    ["new_qualified_people", "Qualifications that created a new deal", "Submitted", ""],
+    ["calls_booked", "Calendly meetings booked", "Booked", "closer, program"],
+    ["calls_scheduled", "Meetings not canceled", "Scheduled", "closer, program"],
+    ["calls_held", "Meetings held", "Scheduled", "closer, program"],
+    ["no_shows", "Meetings marked no-show", "Scheduled", "closer, program"],
+    ["cancellations", "Meetings canceled", "Scheduled", "closer, program"],
+    ["show_rate", "Held ÷ (held + no-shows)", "Scheduled", "closer, program"],
+    ["deals_won", "Deals won, on their first payment's day", "First payment", "closer, program"],
+    ["close_rate", "Deals won ÷ calls held", "As above", "closer, program"],
+    ["cash_collected", "Payments, not disputed, deposits included", "Recorded", "closer, program"],
+    ["deposits", "Deposit payments", "Recorded", "closer, program"],
+    ["average_deal_size", "Non-deposit total ÷ count", "Recorded", "closer, program"],
+  ];
+  const G = ["closer", "team", "program", "lead_generator"];
+  const t = $("#catalog-table");
+  const hr = h("tr", {}, h("th", { text: "Metric" }), h("th", { text: "Counts" }), h("th", { text: "On the day it was" }), h("th", { text: "Unit" }));
+  for (const g of G) hr.append(h("th", { style: "text-align:center", text: g.replace("_", " ") }));
+  t.append(h("thead", {}, hr));
+  const tb = h("tbody");
+  for (const [m, d, day, groups] of M) {
+    const unit = m.endsWith("_rate") ? "rate, 0 to 1" : ["cash_collected", "deposits", "average_deal_size"].includes(m) ? "cents, per currency" : "count";
+    const tr = h("tr", {}, h("td", {}, h("code", { text: m })), h("td", { text: d }), h("td", { text: day }), h("td", { text: unit }));
+    for (const g of G) tr.append(h("td", { style: "text-align:center" }, groups.split(", ").includes(g) ? h("span", { class: "matrix-dot", title: `${m} supports group_by=${g}` }) : h("span", { class: "matrix-none", title: "Not supported" })));
+    tb.append(tr);
+  }
+  t.append(tb);
+}
+
+// ---------- freshness ----------
+$("#req-freshness").append(requestCard("freshness", { open: true }));
+{
+  const f = body("freshness").data;
+  const pts = [
+    { key: "as_of", iso: f.as_of, color: "var(--s1)", place: "above", what: "as_of: the newest change included" },
+    { key: "sync", iso: f.last_sync_ended_at, color: "var(--s3)", place: "below", what: "last_sync_ended_at" },
+    { key: "now", iso: DATA._capturedAt, color: "var(--ink-2)", place: "above", what: "This page was captured" },
+    { key: "next", iso: f.next_expected_refresh, color: "var(--s2)", place: "below", what: "next_expected_refresh" },
+  ];
+  const t0 = Date.parse(f.as_of) - 45 * 60e3, t1 = Date.parse(f.next_expected_refresh) + 45 * 60e3;
+  const pos = (iso) => ((Date.parse(iso) - t0) / (t1 - t0)) * 100;
+  figure($("#fig-freshness"), {
+    title: "One refresh cycle", sub: "Times from the freshness response, in UTC and Honduras time",
+    note: "Ranges that include today stop at as_of; /today covers the rest.",
+    table: { columns: ["Field", "UTC", "Honduras"], rows: pts.map((p) => [p.what, dtUTC(p.iso), dtLocal(p.iso)]) },
+  });
+  const plot = $("#fig-freshness .plot");
+  const tl = h("div", { class: "timeline" });
+  tl.append(h("div", { class: "tl-track" }));
+  tl.append(h("div", { class: "tl-span", style: `left:${pos(f.last_sync_ended_at)}%;width:${pos(f.next_expected_refresh) - pos(f.last_sync_ended_at)}%`, title: "Until the next refresh, history answers come from the cache" }));
+  for (const p of pts) {
+    tl.append(h("div", { class: "tl-mark", style: `left:${pos(p.iso)}%;background:${p.color}` }));
+    const lbl = h("div", { class: `tl-lbl ${p.place}`, style: `left:${Math.min(92, Math.max(8, pos(p.iso)))}%` }, h("b", { text: p.what }), h("span", { text: dtUTC(p.iso) }), h("br"), h("span", { text: dtLocal(p.iso) }));
+    tl.append(lbl);
+  }
+  plot.append(tl);
+}
+
+// ---------- today ----------
+$("#req-today").append(requestCard("today"));
+{
+  const asked = ["leads_captured", "unique_prospects", "qualifications", "calls_booked", "calls_held", "no_shows", "deals_won", "cash_collected"];
+  const got = new Map(body("today").data.map((r) => [r.metric, r]));
+  const tiles = $("#today-tiles");
+  const missing = [];
+  for (const m of asked) {
+    const r = got.get(m);
+    if (!r) missing.push(m);
+    const tile = h("div", { class: "tile" + (r ? "" : " missing") });
+    tile.append(h("div", { class: "label", text: m.replace(/_/g, " ") }));
+    tile.append(h("div", { class: "value", text: r ? (m === "cash_collected" ? money(r.value, r.currency) : fmtInt(r.value)) : "0" }));
+    tile.append(h("div", { class: "note", text: r ? `value: ${r.value}` : "no row returned, so 0" }));
+    tiles.append(tile);
+  }
+  const cm = $("#today-missing");
+  cm.append(h("strong", { text: "Missing rows mean zero. " }), document.createTextNode(`The call asked for ${asked.length} metrics and got ${got.size} rows. `),
+    ...missing.flatMap((m, i) => [h("code", { text: m }), document.createTextNode(i < missing.length - 1 ? " and " : "")]),
+    document.createTextNode(" had nothing to count yet today, so they have no row. Treat an absent metric as 0, never as an error."));
+}
+$("#req-today-closer").append(requestCard("today_closer"));
+{
+  const booked = byGroup("today_closer", "calls_booked");
+  const held = byGroup("today_closer", "calls_held");
+  const rows = [...booked.entries()].map(([g, v]) => ({ label: nameOf(g), value: v, note: `· ${held.get(g) ?? 0} held so far`, extra: [fmtInt(held.get(g) ?? 0)], tip: [{ value: String(held.get(g) ?? 0), name: "calls held" }] })).sort((a, b) => b.value - a.value);
+  hbarChart($("#fig-today-closer"), { title: "Calls booked today, by closer", sub: `group_by=closer, ${body("today_closer").meta.date}`, rows, fmt: fmtInt, labelTitle: "Closer", valueTitle: "calls booked", extraTitles: ["Calls held"], note: "Held stays at 0 until today's calls take place." });
+}
+
+// ---------- funnel ----------
+{
+  const reqs = $("#req-funnel");
+  reqs.append(h("div", {}, requestCard("funnel_oct")), h("div", {}, requestCard("funnel_sep")));
+  const oct = body("funnel_oct").data, sep = body("funnel_sep").data;
+  const steps = [["captured", "leads_captured"], ["qualified", "qualifications"], ["booked", "calls_booked"], ["held", "calls_held"], ["won", "deals_won"]];
+  const fig = $("#fig-funnel");
+  figure(fig, {
+    title: "October 1 to 27 against September", sub: "Counts, the daily rate against September, and each step as a share of the step before",
+    note: "Bar: October's ratio to the step before. Tick: September's.",
+    table: { columns: ["Step", "Oct 1 to 27", "September", "Per day vs Sep", "Oct ratio to previous", "Sep ratio to previous"], rows: steps.map(([k], i) => {
+      const prev = i ? steps[i - 1][0] : null;
+      return [k, fmtInt(oct[k]), fmtInt(sep[k]), pct(oct[k] / 27 / (sep[k] / 30) - 1), prev ? pct(oct[k] / oct[prev]) : "", prev ? pct(sep[k] / sep[prev]) : ""];
+    }) },
+  });
+  const plot = fig.querySelector(".plot");
+  const f = h("div", { class: "funnel" });
+  f.append(h("div", { class: "f-row head" }, h("div", { text: "Step" }), h("div", { text: "Oct 1 to 27" }), h("div", { text: "September" }), h("div", { text: "Per day" }), h("div", { text: "Share of the step before" })));
+  const maxRatio = 1;
+  steps.forEach(([k, metric], i) => {
+    const prev = i ? steps[i - 1][0] : null;
+    const change = oct[k] / 27 / (sep[k] / 30) - 1;
+    const row = h("div", { class: "f-row" });
+    row.append(h("div", { class: "f-step" }, document.createTextNode(k), h("small", { text: metric })));
+    row.append(h("div", { class: "f-oct", text: fmtInt(oct[k]) }));
+    row.append(h("div", { class: "f-sep", text: fmtInt(sep[k]) }));
+    row.append(h("div", {}, h("span", { class: "delta " + (change >= 0 ? "up" : "down") }, document.createTextNode((change >= 0 ? "▲ " : "▼ ") + pct(Math.abs(change))))));
+    const track = h("div", { class: "ratio-track" });
+    if (prev) {
+      const ro = oct[k] / oct[prev], rs = sep[k] / sep[prev];
+      track.append(h("div", { class: "ratio-bar", style: `width:${(ro / maxRatio) * 70}%` }));
+      track.append(h("div", { class: "ratio-tick", style: `left:${(rs / maxRatio) * 70}%`, title: `September ${pct(rs)}` }));
+      track.append(h("div", { class: "ratio-lbl", style: `left:calc(${(Math.max(ro, rs) / maxRatio) * 70}% + 10px)`, text: `${pct(ro)} (Sep ${pct(rs)})` }));
+    } else {
+      track.append(h("div", { class: "ratio-lbl", style: "left:0", text: "The top of the funnel" }));
+    }
+    row.append(track);
+    f.append(row);
+  });
+  plot.append(f);
+}
+
+// ---------- daily trends ----------
+$("#req-daily-leads").append(requestCard("daily_leads"));
+{
+  const ps = periods("daily_leads");
+  const cap = byPeriod("daily_leads", "leads_captured"), uni = byPeriod("daily_leads", "unique_prospects");
+  lineChart($("#fig-daily-leads"), {
+    title: "Leads captured and unique prospects per day", sub: "September 30 to October 27, business days",
+    x: ps, xFmt: dayLabel, xLong: dayLong, xTitle: "Day", fmt: fmtInt, area: false,
+    series: [{ name: "Leads captured", short: "captured", color: "var(--s1)", values: ps.map((p) => cap.get(p) ?? 0) }, { name: "Unique prospects", short: "unique", color: "var(--s2)", values: ps.map((p) => uni.get(p) ?? 0) }],
+    endLabels: true, note: "The gap between the lines is duplicate captures of the same prospect.",
+  });
+}
+$("#req-daily-sales").append(requestCard("daily_sales"));
+{
+  const ps = periods("daily_sales");
+  const q = byPeriod("daily_sales", "qualifications"), b = byPeriod("daily_sales", "calls_booked"), hd = byPeriod("daily_sales", "calls_held");
+  lineChart($("#fig-daily-sales"), {
+    title: "Qualifications, calls booked and calls held per day", sub: "Same 28 days. Booked counts on the booking day, held on the scheduled day",
+    x: ps, xFmt: dayLabel, xLong: dayLong, xTitle: "Day", fmt: fmtInt,
+    series: [
+      { name: "Qualifications", short: "qualified", color: "var(--s1)", values: ps.map((p) => q.get(p) ?? 0) },
+      { name: "Calls booked", short: "booked", color: "var(--s2)", values: ps.map((p) => b.get(p) ?? 0) },
+      { name: "Calls held", short: "held", color: "var(--s3)", values: ps.map((p) => hd.get(p) ?? 0) },
+    ],
+    endLabels: true,
+  });
+}
+
+// ---------- weekly ----------
+$("#req-weekly").append(requestCard("weekly_attendance"));
+{
+  const ps = periods("weekly_attendance");
+  const held = byPeriod("weekly_attendance", "calls_held"), ns = byPeriod("weekly_attendance", "no_shows"), cn = byPeriod("weekly_attendance", "cancellations");
+  const wk = (p) => "Wk of " + dayLabel(p);
+  columnChart($("#fig-weekly-stack"), {
+    title: "What happened to scheduled calls", sub: "Per week, by scheduled day", x: ps, xFmt: dayLabel, xLong: wk, xTitle: "Week of", fmt: fmtInt,
+    series: [{ name: "Held", color: "var(--s1)", values: ps.map((p) => held.get(p) ?? 0) }, { name: "No-shows", color: "var(--s2)", values: ps.map((p) => ns.get(p) ?? 0) }, { name: "Canceled", color: "var(--s3)", values: ps.map((p) => cn.get(p) ?? 0) }],
+  });
+  const sr = byPeriod("weekly_attendance", "show_rate"), cr = byPeriod("weekly_attendance", "close_rate");
+  lineChart($("#fig-weekly-rates"), {
+    title: "Show rate and close rate", sub: "Rates from 0 to 1, shown as percentages", x: ps, xFmt: dayLabel, xLong: wk, xTitle: "Week of",
+    fmt: (v) => pct(v), axisFmt: (v) => Math.round(v * 100) + "%", yMax: 1, endLabels: true,
+    series: [{ name: "Show rate", short: "show", color: "var(--s1)", values: ps.map((p) => sr.get(p) ?? null) }, { name: "Close rate", short: "close", color: "var(--s2)", values: ps.map((p) => cr.get(p) ?? null) }],
+  });
+}
+
+// ---------- monthly ----------
+$("#req-monthly").append(requestCard("monthly_cash"));
+{
+  const ps = periods("monthly_cash");
+  const usd = byPeriod("monthly_cash", "cash_collected", "USD");
+  columnChart($("#fig-monthly-cash"), {
+    title: "Cash collected, USD", sub: "cash_collected rows with currency USD, deposits included", x: ps, xFmt: monthLabel, xTitle: "Month",
+    fmt: (v) => money(v, "USD"), axisFmt: (v) => money(v, "USD", true), capLabels: true, capFmt: (v) => money(v, "USD", true),
+    series: [{ name: "Cash collected (USD)", color: "var(--s1)", values: ps.map((p) => usd.get(p) ?? 0) }],
+    note: "October covers the 1st to the 27th.",
+  });
+  const won = byPeriod("monthly_cash", "deals_won");
+  columnChart($("#fig-monthly-deals"), {
+    title: "Deals won", sub: "Counted on the day each deal's first payment arrived", x: ps, xFmt: monthLabel, xTitle: "Month", fmt: fmtInt, capLabels: true,
+    series: [{ name: "Deals won", color: "var(--s1)", values: ps.map((p) => won.get(p) ?? 0) }],
+  });
+  // Every currency, as a table-first figure.
+  const fig = $("#fig-monthly-currencies");
+  const curr = [...new Set(body("monthly_cash").data.filter((r) => r.currency).map((r) => r.currency))].sort((a, b) => (a === "USD" ? -1 : b === "USD" ? 1 : a.localeCompare(b)));
+  figure(fig, { title: "Every currency, every money metric", sub: "Values converted from cents for display. A blank cell has no row; null means nothing to divide by" });
+  const t = h("table", { class: "t" });
+  const hr = h("tr", {}, h("th", { text: "Month" }));
+  for (const c of curr) for (const m of ["cash_collected", "deposits", "average_deal_size"]) hr.append(h("th", { class: "n", text: `${c} ${m.replace(/_/g, " ")}` }));
+  t.append(h("thead", {}, hr));
+  const tb = h("tbody");
+  for (const p of ps) {
+    const tr = h("tr", {}, h("td", { style: "white-space:nowrap", text: monthLabel(p) }));
+    for (const c of curr) for (const m of ["cash_collected", "deposits", "average_deal_size"]) {
+      const r = body("monthly_cash").data.find((x) => x.metric === m && x.period === p && x.currency === c);
+      tr.append(h("td", { class: "n", text: !r ? "" : r.value == null ? "null" : money(r.value, c) }));
+    }
+    tb.append(tr);
+  }
+  t.append(tb);
+  fig.querySelector(".plot").append(h("div", { style: "overflow:auto" }, t));
+}
+
+// ---------- breakdowns ----------
+$("#req-closers").append(requestCard("closers_oct"));
+{
+  const id = "closers_oct";
+  const groups = [...new Set(body(id).data.map((r) => r.group_id))];
+  const get = (m, g, c) => body(id).data.find((r) => r.metric === m && r.group_id === g && (c === undefined || r.currency === c));
+  const rows = groups.map((g) => ({
+    g, name: nameOf(g), held: get("calls_held", g)?.value ?? 0, ns: get("no_shows", g)?.value ?? 0, show: get("show_rate", g)?.value ?? null,
+    won: get("deals_won", g)?.value ?? 0, close: get("close_rate", g)?.value ?? null, usd: get("cash_collected", g, "USD")?.value ?? 0,
+    other: body(id).data.filter((r) => r.metric === "cash_collected" && r.group_id === g && r.currency !== "USD").map((r) => money(r.value, r.currency)).join(", "),
+  })).sort((a, b) => b.usd - a.usd || b.won - a.won);
+  const fig = $("#fig-closers");
+  figure(fig, { title: "Closer leaderboard, October 1 to 27", sub: "Six metrics from one call, sorted by USD cash collected", note: "A null rate means the closer had no held calls or no-shows to divide by." });
+  const maxHeld = Math.max(...rows.map((r) => r.held), 1), maxWon = Math.max(...rows.map((r) => r.won), 1), maxUsd = Math.max(...rows.map((r) => r.usd), 1);
+  const bar = (v, max) => (v > 0 ? h("div", { style: `height:10px;width:${Math.max(2, (v / max) * 90)}px;border-radius:0 3px 3px 0;background:var(--s1)`, title: String(v) }) : null);
+  const t = h("table", { class: "t" });
+  t.append(h("thead", {}, h("tr", {}, ...["Closer", "Calls held", "", "No-shows", "Show rate", "Deals won", "", "Close rate", "Cash, USD", ""].map((c, i) => h("th", { class: i ? "n" : null, text: c })))));
+  const tb = h("tbody");
+  for (const r of rows) {
+    tb.append(h("tr", {}, h("td", { style: "white-space:nowrap", text: r.name }), h("td", { class: "n", text: fmtInt(r.held) }), h("td", {}, bar(r.held, maxHeld)), h("td", { class: "n", text: fmtInt(r.ns) }),
+      h("td", { class: "n", text: pct(r.show) }), h("td", { class: "n", text: fmtInt(r.won) }), h("td", {}, bar(r.won, maxWon)), h("td", { class: "n", text: pct(r.close) }),
+      h("td", { class: "n", text: money(r.usd, "USD") + (r.other ? ` + ${r.other}` : "") }), h("td", {}, bar(r.usd, maxUsd))));
+  }
+  t.append(tb);
+  fig.querySelector(".plot").append(h("div", { style: "overflow:auto" }, t));
+}
+$("#req-leadgens").append(requestCard("lead_gens_oct"));
+{
+  const cap = byGroup("lead_gens_oct", "leads_captured"), uni = byGroup("lead_gens_oct", "unique_prospects"), rs = byGroup("lead_gens_oct", "resparks");
+  const rows = [...cap.entries()].map(([g, v]) => ({ label: nameOf(g), value: v, note: `· ${fmtInt(uni.get(g) ?? 0)} unique · ${fmtInt(rs.get(g) ?? 0)} resparks`, extra: [fmtInt(uni.get(g) ?? 0), fmtInt(rs.get(g) ?? 0)], tip: [{ value: fmtInt(uni.get(g) ?? 0), name: "unique prospects" }, { value: fmtInt(rs.get(g) ?? 0), name: "resparks" }] })).sort((a, b) => b.value - a.value);
+  hbarChart($("#fig-leadgens"), { title: "Leads captured by lead generator", sub: "group_by=lead_generator, October 1 to 27", rows, fmt: fmtInt, labelTitle: "Lead generator", valueTitle: "leads captured", extraTitles: ["Unique prospects", "Resparks"] });
+}
+$("#req-teams").append(requestCard("teams_oct"));
+{
+  const cap = byGroup("teams_oct", "leads_captured"), uni = byGroup("teams_oct", "unique_prospects");
+  const rows = [...cap.entries()].map(([g, v]) => ({ label: nameOf(g, "No team (group_id null)"), value: v, note: `· ${fmtInt(uni.get(g) ?? 0)} unique`, extra: [fmtInt(uni.get(g) ?? 0)] })).sort((a, b) => b.value - a.value);
+  hbarChart($("#fig-teams"), { title: "Leads captured by team", sub: "group_by=team", rows, fmt: fmtInt, labelTitle: "Team", valueTitle: "leads captured", extraTitles: ["Unique prospects"], note: "A capture with no team comes back with group_id null." });
+}
+$("#req-programs").append(requestCard("programs_oct"));
+{
+  const bk = byGroup("programs_oct", "calls_booked"), won = byGroup("programs_oct", "deals_won");
+  const usd = byGroup("programs_oct", "cash_collected", "USD");
+  const rows = [...bk.entries()].map(([g, v]) => ({ label: nameOf(g, "No program (group_id null)"), value: v, note: `· ${fmtInt(won.get(g) ?? 0)} won · ${money(usd.get(g) ?? 0, "USD", true)}`, extra: [fmtInt(won.get(g) ?? 0), money(usd.get(g) ?? 0, "USD")] })).sort((a, b) => b.value - a.value);
+  hbarChart($("#fig-programs"), { title: "Calls booked by program", sub: "group_by=program, with wins and USD cash", rows, fmt: fmtInt, labelTitle: "Program", valueTitle: "calls booked", extraTitles: ["Deals won", "Cash, USD"], note: "Calls group by booking program; wins and cash by sold program." });
+}
+
+// ---------- dimensions ----------
+{
+  const cards = $("#dim-cards");
+  for (const [id, label] of [["dim_members", "team-members"], ["dim_teams", "teams"], ["dim_programs", "programs"]]) {
+    const d = body(id).data;
+    const card = h("div", {});
+    card.append(requestCard(id));
+    const c = h("div", { class: "card", style: "padding:14px 16px" });
+    c.append(h("div", { class: "chart-sub", text: label }), h("div", { style: "font-size:28px;font-weight:650", text: String(d.length) }), h("div", { class: "chart-sub", text: `${d.filter((x) => x.active).length} active` }));
+    const ul = h("div", { style: "margin-top:8px;font-size:13px;color:var(--ink-2);max-height:120px;overflow:auto" });
+    d.slice(0, 8).forEach((x) => ul.append(h("div", { text: x.name + (x.active ? "" : " (inactive)") })));
+    if (d.length > 8) ul.append(h("div", { class: "chart-sub", text: `and ${d.length - 8} more` }));
+    c.append(ul);
+    card.append(c);
+    cards.append(card);
+  }
+  const masked = DATA._masked || 0;
+  $("#dim-note").append(h("strong", { text: "Names come from the CRM as they are. " }), document.createTextNode(masked
+    ? `${masked} team member's display name is an email address, so the API returns it as one. This guide masks it. Rename the team member in the CRM to keep emails out of the API.`
+    : "Rename a team member in the CRM and the next call returns the new name."));
+}
+
+// ---------- anatomy ----------
+{
+  const sample = body("monthly_cash").data.find((r) => r.metric === "cash_collected" && r.currency === "USD" && r.period === "2026-09");
+  $("#anatomy-json").append(codeBlock(JSON.stringify(sample, null, 2), { json: true }), h("div", { style: "height:12px" }),
+    codeBlock(JSON.stringify(body("closers_oct").data.find((r) => r.value === null), null, 2), { json: true }));
+  const t = $("#anatomy-table");
+  const rows = [
+    ["metric", "The metric's name, exactly as you asked for it."],
+    ["period", "YYYY-MM-DD for day, the Monday for week, YYYY-MM for month, or total."],
+    ["group_id", "The closer, team, program or lead generator id. null when ungrouped, or when the row has no owner."],
+    ["currency", "Money metrics only. One row per currency; amounts are never converted."],
+    ["value", "A count, cents, or a rate from 0 to 1. A rate is null when there is nothing to divide by."],
+  ];
+  t.append(h("thead", {}, h("tr", {}, h("th", { text: "Field" }), h("th", { text: "Meaning" }))));
+  const tb = h("tbody");
+  for (const [k, v] of rows) tb.append(h("tr", {}, h("td", {}, h("code", { text: k })), h("td", { text: v })));
+  t.append(tb);
+  const mt = $("#meta-table");
+  const meta = [
+    ["source", "warehouse for /metrics and /funnel, live for /today."],
+    ["as_of", "Every change up to this time is included. Ranges that end today stop here."],
+    ["next_expected_refresh", "About 6 hours after the last refresh. A good time to poll again."],
+    ["stale", "Present and true only when the latest refresh of this range failed and you are getting the previous answer."],
+    ["date, partial", "On /today: today's date, and true if a busy day cut a reading short (numbers are then a lower bound)."],
+  ];
+  mt.append(h("thead", {}, h("tr", {}, h("th", { text: "Field" }), h("th", { text: "Meaning" }))));
+  const mb = h("tbody");
+  for (const [k, v] of meta) mb.append(h("tr", {}, h("td", {}, h("code", { text: k })), h("td", { text: v })));
+  mt.append(mb);
+}
+
+// ---------- errors ----------
+{
+  const cards = $("#error-cards");
+  const items = [
+    ["funnel_oct", "The range wasn't cached and the reporting database was asleep. The API waited 25 seconds, then answered 202. The retry got 200 from the cache.", 0],
+    ["err_no_key", "No Authorization header."],
+    ["err_bad_key", "A key that doesn't exist. A revoked key gets the same answer."],
+    ["err_metric", "A metric name that isn't in the catalog."],
+    ["err_group", "A grouping the metric doesn't support."],
+    ["err_date", "Dates must be YYYY-MM-DD."],
+    ["err_span", "More than 731 days between from and to."],
+    ["err_tz", "tz must be an IANA zone such as America/New_York."],
+    ["err_dimension", "An unknown dimension kind."],
+  ];
+  for (const [id, why, attempt] of items) {
+    const r = rec(id);
+    const at = attempt === undefined ? final(id) : r.attempts[attempt];
+    const card = h("div", { class: "err-card" });
+    card.append(h("div", { class: "top" }, pill(at.status), h("span", { class: "req-path", style: "flex:1 1 200px;font-size:12px", text: r.path })));
+    card.append(h("div", { class: "why", text: why }));
+    const extra = at.headers["retry-after"] ? `\n// Retry-After: ${at.headers["retry-after"]}` : "";
+    card.append(codeBlock(JSON.stringify(at.body, null, 2) + extra, { json: true }));
+    cards.append(card);
+  }
+  const st = $("#status-table");
+  st.append(h("thead", {}, h("tr", {}, h("th", { text: "Status" }), h("th", { text: "code" }), h("th", { text: "When" }), h("th", { text: "What to do" }))));
+  const sb = h("tbody");
+  for (const [code, c, when, todo] of [
+    [200, "", "Answered.", "Read data and meta."],
+    [202, "status: pending", "A new range is still computing after 25 seconds.", "Retry after Retry-After seconds (30)."],
+    [202, "status: queued", "Only if the workspace sets a daily limit on new ranges and it ran out.", "Retry after Retry-After; it is answered after the next refresh."],
+    [400, "invalid_request", "A parameter is wrong. The message says which.", "Fix the request; retrying won't help."],
+    [401, "unauthorized", "Missing, wrong or revoked key.", "Check the key in Settings › Integrations."],
+    [404, "not_found", "Unknown dimension kind.", "Use team-members, teams or programs."],
+    [429, "rate_limited", "More than 60 requests in a minute on this key.", "Wait Retry-After seconds."],
+    [500, "internal_error", "Something failed on Magnus's side.", "Retry shortly."],
+    [503, "warehouse_unavailable", "The reporting database couldn't answer and no earlier answer exists.", "Retry after Retry-After (300)."],
+  ]) sb.append(h("tr", {}, h("td", {}, pill(code)), h("td", {}, c ? h("code", { text: c }) : document.createTextNode("")), h("td", { text: when }), h("td", { text: todo })));
+  st.append(sb);
+}
+
+// ---------- latency ----------
+{
+  const items = [];
+  for (const id of Object.keys(DATA).filter((k) => !k.startsWith("_"))) {
+    rec(id).attempts.forEach((at, i) => items.push({ id: id + (rec(id).attempts.length > 1 ? (i ? " (retry)" : " (first)") : ""), path: rec(id).path, ms: at.ms, status: at.status }));
+  }
+  const fig = $("#fig-latency");
+  figure(fig, {
+    title: "Response time per call", sub: "Log scale, in the order the calls were made",
+    note: "Times include the network from the caller to Convex.",
+    table: { columns: ["Call", "Status", "Time (ms)"], rows: items.map((x) => [x.id, x.status, x.ms]) },
+  });
+  const plot = fig.querySelector(".plot");
+  const lo = Math.log10(80), hi = Math.log10(40000);
+  const pos = (ms) => ((Math.log10(Math.max(ms, 80)) - lo) / (hi - lo)) * 100;
+  const tickVals = [100, 300, 1000, 3000, 10000, 30000];
+  const lat = h("div", { class: "lat" });
+  const axis = h("div", { class: "lat-axis" }, h("div"), h("div", { class: "ticks" }, ...tickVals.map((v) => h("span", { style: `left:${pos(v)}%`, text: v >= 1000 ? v / 1000 + " s" : v + " ms" }))), h("div"));
+  lat.append(axis);
+  for (const x of items) {
+    const track = h("div", { class: "lat-track" });
+    for (const v of tickVals) track.append(h("div", { class: "gl", style: `left:${pos(v)}%` }));
+    const color = x.status === 202 ? "var(--warning)" : x.status >= 400 ? "var(--deemph)" : "var(--s1)";
+    track.append(h("div", { class: "lat-stem", style: `width:${pos(x.ms)}%;background:${color}` }), h("div", { class: "lat-dot", style: `left:${pos(x.ms)}%;background:${color}` }));
+    const row = h("div", { class: "lat-row", tabindex: 0 }, h("div", { class: "nm", text: x.id, title: x.path }), track, h("div", { class: "lat-ms", text: x.ms >= 1000 ? (x.ms / 1000).toFixed(1) + " s" : x.ms + " ms" }));
+    const on = (ev) => { const b = row.getBoundingClientRect(); tooltip(ev?.clientX ?? b.left + 300, ev?.clientY ?? b.top, x.path, [{ value: x.ms + " ms", name: (STATUS[x.status] || {}).label || String(x.status), color }]); };
+    row.addEventListener("pointermove", on);
+    row.addEventListener("pointerleave", hideTip);
+    row.addEventListener("focus", () => on());
+    row.addEventListener("blur", hideTip);
+    lat.append(row);
+  }
+  const lg = h("div", { class: "legend", style: "margin-top:12px" },
+    h("span", {}, h("i", { class: "key-rect", style: "background:var(--s1)" }), document.createTextNode("Answered (200)")),
+    h("span", {}, h("i", { class: "key-rect", style: "background:var(--warning)" }), document.createTextNode("Still computing (202)")),
+    h("span", {}, h("i", { class: "key-rect", style: "background:var(--deemph)" }), document.createTextNode("Error, on purpose (4xx)")));
+  plot.append(lg, lat);
+}
+
+// ---------- recipes ----------
+{
+  const recipes = {
+    JavaScript: `// Node 18+ or any server runtime with fetch. Keep the key on the server.
+const BASE = "${BASE}/api/v1";
+
+export async function magnus(path, params = {}) {
+  const url = new URL(BASE + path);
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const res = await fetch(url, {
+      headers: { Authorization: \`Bearer \${process.env.MAGNUS_API_KEY}\` },
+    });
+    // 202: still computing. 429: over 60 a minute. Both say how long to wait.
+    if (res.status === 202 || res.status === 429) {
+      const seconds = Number(res.headers.get("Retry-After") ?? 30);
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      continue;
+    }
+    const body = await res.json();
+    if (!res.ok) throw new Error(\`\${res.status} \${body.error.code}: \${body.error.message}\`);
+    return body;
+  }
+  throw new Error("Still computing after several retries. Try again later.");
+}
+
+const { data, meta } = await magnus("/metrics", {
+  metrics: "calls_held,deals_won,close_rate",
+  from: "2026-10-01",
+  to: "2026-10-27",
+  granularity: "week",
+});
+console.log(meta.as_of, data.length);`,
+    Python: `# Python 3 with requests. Keep the key on the server.
+import os, time, requests
+
+BASE = "${BASE}/api/v1"
+KEY = os.environ["MAGNUS_API_KEY"]
+
+def magnus(path, **params):
+    for _ in range(8):
+        res = requests.get(BASE + path, params=params,
+                           headers={"Authorization": f"Bearer {KEY}"}, timeout=60)
+        # 202: still computing. 429: over 60 a minute. Both say how long to wait.
+        if res.status_code in (202, 429):
+            time.sleep(int(res.headers.get("Retry-After", "30")))
+            continue
+        body = res.json()
+        if not res.ok:
+            raise RuntimeError(f"{res.status_code} {body['error']['code']}: {body['error']['message']}")
+        return body
+    raise RuntimeError("Still computing after several retries. Try again later.")
+
+funnel = magnus("/funnel", **{"from": "2026-10-01", "to": "2026-10-27"})
+print(funnel["data"], funnel["meta"]["as_of"])`,
+    curl: `# Freshness: cheap, never touches the reporting database
+curl -s "${BASE}/api/v1/freshness" -H "Authorization: Bearer $MAGNUS_API_KEY"
+
+# Today, live, by closer
+curl -s "${BASE}/api/v1/today?metrics=calls_booked,calls_held&group_by=closer" \\
+  -H "Authorization: Bearer $MAGNUS_API_KEY"
+
+# History by month, every money metric
+curl -s "${BASE}/api/v1/metrics?metrics=cash_collected,deposits,average_deal_size&from=2026-05-01&to=2026-10-27&granularity=month" \\
+  -H "Authorization: Bearer $MAGNUS_API_KEY"
+
+# Names for group_id values
+curl -s "${BASE}/api/v1/dimensions/team-members" -H "Authorization: Bearer $MAGNUS_API_KEY"`,
+  };
+  const tabs = $("#recipe-tabs"), out = $("#recipe-code");
+  const select = (name) => {
+    tabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.name === name)));
+    out.textContent = "";
+    out.append(codeBlock(recipes[name]));
+  };
+  for (const name of Object.keys(recipes)) {
+    const b = h("button", { type: "button", role: "tab", "data-name": name, text: name });
+    b.addEventListener("click", () => select(name));
+    tabs.append(b);
+  }
+  select("JavaScript");
+  $("#recipe-pivot").append(codeBlock(`// Rows -> one series per metric, with every period present and missing rows as 0.
+function toSeries(rows, metric, periods, currency) {
+  const values = new Map(
+    rows
+      .filter((r) => r.metric === metric && (currency === undefined || r.currency === currency))
+      .map((r) => [r.period, r.value]),
+  );
+  return periods.map((period) => ({ period, value: values.get(period) ?? 0 }));
+}
+
+// group_id -> a name, using /dimensions.
+const members = await magnus("/dimensions/team-members");
+const nameOf = new Map(members.data.map((m) => [m.id, m.name]));
+const label = (groupId) => (groupId === null ? "Unassigned" : nameOf.get(groupId) ?? groupId);
+
+// Cents -> money, per currency. Never add USD and CAD together.
+const money = (row) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: row.currency }).format(row.value / 100);`));
+}
+
+// ---------- gotchas ----------
+{
+  const items = [
+    ["A missing row is a zero", "Rows exist only where something was counted. /today asked for 8 metrics and returned 6. Fill the gaps with 0 when you chart."],
+    ["Money is in cents, per currency", "cash_collected, deposits and average_deal_size come back in minor units with a currency. September had USD, CAD and GBP rows. Never sum across currencies."],
+    ["Rates can be null", "show_rate and close_rate are null when there is nothing to divide by, such as a closer with no held calls. Show a dash, not 0%."],
+    ["The funnel isn't a cohort", "Each step counts on its own day. A call held in October may come from a lead captured in September."],
+    ["History stops at as_of", "A range that ends today includes today only up to as_of. Use /today for the live part, and /metrics for days that have ended."],
+    ["Days are business days", "Without tz, days follow the workspace's business day: Honduras time, starting at 1:00 am. Pass tz for midnight-to-midnight days in another zone."],
+    ["Poll after each refresh", "Answers change only when the reporting data refreshes, about every 6 hours. next_expected_refresh tells you when; polling more often returns the same cached numbers."],
+    ["A first look can take a while", "A range nobody asked for before may wake the reporting database. Expect a 202 and retry; every later request for it is fast."],
+  ];
+  for (const [t, p] of items) $("#gotcha-list").append(h("div", { class: "gotcha" }, h("h4", { text: t }), h("p", { text: p })));
+}
+
+$("#footer").append(document.createTextNode(`Generated from ${Object.keys(DATA).filter((k) => !k.startsWith("_")).length} live calls to ${BASE} on ${dtUTC(DATA._capturedAt)}. The temporary key was revoked after the calls; a check with it afterwards returned 401. Response bodies hold sample data in place of the workspace's numbers and names. Contract: docs/api/openapi.yaml.`));
+
+// ---------- nav + theme ----------
+{
+  const links = [...document.querySelectorAll("nav.side a")];
+  const map = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { links.forEach((a) => a.classList.remove("active")); map.get(e.target.id)?.classList.add("active"); }
+  }, { rootMargin: "-20% 0px -70% 0px" });
+  document.querySelectorAll("section.doc").forEach((sec) => io.observe(sec));
+  const btn = $("#theme-toggle");
+  const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const label = () => (btn.textContent = isDark() ? "Switch to light" : "Switch to dark");
+  btn.addEventListener("click", () => { document.documentElement.dataset.theme = isDark() ? "light" : "dark"; label(); });
+  label();
+}
+</script>
+</body>
+</html>
