@@ -94,6 +94,12 @@ typography:
     fontWeight: 600
     lineHeight: 1.05
     fontFeature: "tnum"
+  figure-money:
+    fontFamily: "Barlow Condensed, sans-serif"
+    fontSize: "30px"
+    fontWeight: 600
+    lineHeight: 1.05
+    fontFeature: "tnum"
   figure-lg:
     fontFamily: "Barlow Condensed, sans-serif"
     fontSize: "1.625rem"
@@ -121,6 +127,12 @@ typography:
   status-word-strip:
     fontFamily: "Barlow Condensed, sans-serif"
     fontSize: "1.0625rem"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "0.08em"
+  stage-word:
+    fontFamily: "Barlow Condensed, sans-serif"
+    fontSize: "13px"
     fontWeight: 700
     lineHeight: 1
     letterSpacing: "0.08em"
@@ -246,6 +258,29 @@ components:
     rounded: "{rounded.pill}"
     height: "18px"
     padding: "0 7px"
+  money-strip:
+    backgroundColor: "{colors.board}"
+    textColor: "{colors.board-foreground}"
+    rounded: "{rounded.surface}"
+    padding: "14px 18px"
+  money-strip-cash:
+    textColor: "{colors.lime}"
+    typography: "{typography.figure-money}"
+  program-card-row:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    height: "40px"
+    padding: "6px 16px"
+  no-next-step-flag:
+    backgroundColor: "{colors.warning-surface}"
+    textColor: "{colors.warning-ink}"
+    rounded: "{rounded.chip}"
+    height: "20px"
+    padding: "0 6px"
+  lookup-row:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    height: "{spacing.board-row}"
   input:
     backgroundColor: "{colors.card}"
     textColor: "{colors.ink}"
@@ -264,7 +299,7 @@ The closer's day reads like an airport departures board set inside a calm, ordin
 
 Density is that of a second screen beside a live video call. Rows are 44px, card title rows 44 to 46px, text 14px with 13px meta lines, and every number sits in Barlow Condensed with tabular figures so times and amounts line up down a column. The navy shell and lime are the brand speaking loudly, as PRODUCT.md commits. On the paper, lime is not decoration; it is the button.
 
-The world was built and reviewed on three closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page and the task page. The rest of the app has not migrated yet (see Migration Status at the end).
+The world was built and reviewed on four closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page, the task page and My Pipeline. The rest of the app has not migrated yet (see Migration Status at the end).
 
 **Key Characteristics:**
 - Navy is a surface, not an accent: the sidebar shell, the Today board and the page strip.
@@ -279,7 +314,7 @@ The world was built and reviewed on three closer surfaces: Today (`app/workspace
 A navy and lime brand pair on a cool grey paper, with a five-colour stage scale and two urgency colours (amber for owed, red for lost or overdue).
 
 ### Primary
-- **Magnus Lime** (lime): the next action and nothing else on the paper. Primary buttons, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
+- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the money strip's cash figure, the one figure on the board that is lime. Primary buttons, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
 - **Navy on Lime** (on-lime): the only text colour on a lime fill (6.9:1).
 - **Lime Ink** (lime-ink): lime as text on light surfaces (5.7:1 on white): link buttons, the caret, the light-theme focus ring. In dark it lifts to lime-ink-dark.
 
@@ -292,7 +327,7 @@ A navy and lime brand pair on a cool grey paper, with a five-colour stage scale 
 Each deal stage has a fill colour (bars, dots, track rings, 15% chip tints) and an ink colour (text on light surfaces). Booked is blue, Held slate, Follow-up teal, Won lime, Lost red. Qualified borrows the Held slate. The scale is the only way a stage is coloured; the Deal card's track, the stage chip, the Performance bar and the board's held-call result all read from it.
 
 ### Urgency
-- **Owed Amber** (warning, warning-ink, warning-surface): something the closer still owes. "Not recorded" on the board, "Due now" on the strip, the Needs outcome count, the sidebar's owed badge (amber fill, navy text).
+- **Owed Amber** (warning, warning-ink, warning-surface): something the closer still owes. "Not recorded" on the board, "Due now" on the strip, the Needs outcome count, the sidebar's owed badge (amber fill, navy text). On My Pipeline amber is reserved for an open deal with no next step: the "No next step" flag (amber ink on the amber surface) and "N with no next step" on the money strip.
 - **Lost Red** (danger, danger-ink): lost deals, no-shows, overdue tasks, the Lost choice's title and mark, the reason chip on a task row, section errors.
 
 ### Neutral
@@ -331,10 +366,12 @@ Dark is not an inversion. The ground drops to near-black (paper-dark), cards sit
 - **Title** (600, 15px): card titles in the 44px title row.
 - **Body** (400, 14px): everything else. **Body Meta** (13px, slate ink or board-muted): the line under a name, card meta, captions, footers.
 - **Figure XL** (Condensed 600, 32px, tabular): the Performance figures.
+- **Figure Money** (Condensed 600, 30px, tabular): the money strip's figures; other currencies beside the cash sit at 17px.
 - **Figure Large** (Condensed 600, 26px, tabular): the strip's time or due time, the Boarding row's time; the phone number on the reach card at 28px.
 - **Figure** (Condensed 600, 20px, tabular): a board row's time, with its AM/PM at 12px in board-muted.
 - **Board Title** (Condensed 600, 19px, 0.02em): the board's own heading.
 - **Status Word** (Condensed 700, 15px on the board, 17px in the strip, 0.08em, uppercase): one per row, coloured by meaning.
+- **Stage Word** (Condensed 700, 13px, 0.08em, uppercase): a deal's stage as a word in its stage ink, in program card and lookup rows.
 - **Due** (Condensed 600, 14px, 0.02em): a task row's due label, red when overdue.
 - **Label** (Condensed 600, 11px, 0.14em, uppercase): column heads on the board and strip (TIME, PERSON, PROGRAM, GATE, STATUS; DUE, PERSON, DEAL, REACH BY, STATUS), day headings in the week board, task group headings ("OVERDUE · 2") and the sidebar's group label.
 - **Chip** (Condensed 700, 11px, 0.1em, uppercase): stage chips, the step chip, a task's reason chip.
@@ -351,6 +388,7 @@ The workspace is the navy sidebar plus a white 52px top bar holding the sidebar 
 - **Today:** up to 1500px wide. From `xl` up, a two-column grid: the board and then Performance on the left, and a 384px right rail with Needs outcome above Tasks. Gaps are 20px between columns and 14px between stacked cards. Below `xl` it is one column.
 - **Meeting and task pages:** the strip spans the pane; under it, a main column and a right rail of 20rem (22rem at the widest container), 18px apart, with 14px between cards. The layout responds to its container (`@container`), not the viewport.
 - **Task page:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
+- **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the money strip, the program cards, then All deals. With two or more programs the cards sit two up from `xl`; a single program takes the full width.
 - **The board and the strip** become stacked lists in narrow containers: each cell carries its own condensed label, and the time and status sit side by side above the person.
 
 Rhythm: 16px inner padding on cards and rows, 18px on the board, 20px inside the outcome panel at medium widths. Rows: 28px label rows, 44px board rows, a 56px Boarding row, 64px strip rows, 26px task group headings, two-line task rows with 7px vertical padding. Interactive targets never drop below 24px: the extra-small button, shortcut pills and card links are 24px tall at least.
@@ -425,6 +463,29 @@ Lists are rows inside a card, ruled by 1px lines, with no rule above the first. 
 
 The **task row** has two lines: "**Name** · note" with the due label right-aligned in 14px condensed (red when overdue), then a 12px context line (program · stage), with an optional red condensed reason chip (NO-SHOW, CANCELED), and a 24px Call, Text or Copy link button on the right: lime when the task is overdue, outline otherwise. Groups are headed by 26px condensed labels on the paper ("OVERDUE · 2" in red ink; "TODAY", "LATER", "WAITING ON THE PERSON"). The open task in the queue gets the lime inset marker, a 10% lime tint, and no button.
 
+### The Money Strip
+My Pipeline's month on navy, the board's sibling for figures. Four figures under 11px condensed labels: Cash collected, Won, Open deals, Programs. Each figure is 30px condensed with a 13px line under it at 75% board text.
+- **Cash:** the main currency's total in lime. Each other currency follows at 17px in board text with its own sum.
+- **Change line:** the change against the same elapsed part of last month in the main currency, signed with a true minus ("−$2,000"); a fall reads in board danger. Then the payment count, or "No payments yet".
+- **Open deals:** the count, then "Each has a next step" or, in amber, "N with no next step".
+- **Partial reads** add "(partial)" or a "+" to the figure. They are never hidden.
+
+**The Separate Currencies Rule.** Money is never added across currencies. Every currency keeps its own sum, in the strip, in a program header and in the lookup.
+
+**The Main Currency Rule.** The main currency is the one with the most payments, never the one with the larger amount. Amounts in different currencies are never compared. A tie goes to last month's main currency, then US dollars.
+
+### The Program Card
+A `DetailCard` per program. The title row carries the program name, then its cash in the month (16px condensed, each currency separately, the program's own main currency first) and "N won this month". Under it, 28px condensed column labels (PERSON, STAGE, NEXT STEP) and the open deals as ruled 40px rows: the person as the row link, the stage word, the next step. Deals with no next step sort first. Five rows show when two cards sit side by side and eight when a card is alone, then a "Show N more" row. The footer reads "N open · N closed" with "All {program} deals", which opens the lookup filtered to that program. A card with no open deals keeps one quiet `SectionEmpty` line ("No open deals in {program}.") and sits at its own height rather than stretching to its neighbour.
+
+### The Next-Step Cell
+A deal's next step in plain 14px text (13px on narrow rows), in this order: an upcoming call ("Call Thu 4:30 PM"), else the open task ("Call back today 3:00 PM", with the time in red ink once past; "Reschedule link sent · Oct 27"), else the amber "No next step" flag, a 20px chip with amber ink on the amber surface. A call that passed with no result is never the step. It goes on its own 12px slate line under the step ("Oct 27 call, no result"), so it never truncates the step or the flag.
+
+### The Lookup Table
+"All deals" on a ruled card. The header row holds the title, a segmented toggle of All / Open / Won / Lost with counts, a program select and a person search (all 30px, 7px radius, 13px). The table has 32px condensed column heads (PERSON, PROGRAM, STAGE, LAST ACTIVITY, NEXT STEP, PAID) and 44px ruled rows. Last activity is in the due style, and Paid is right-aligned in 15px condensed. Below `md` it becomes two-line rows. The footer says "N deals" or "Showing N of M", names partial reads in words, and offers "Show N more". An empty result says what was searched and offers "Clear filters".
+
+### Kept Data While Reloading
+When a month, tab, filter or search changes, the section keeps its previous data at 60% opacity (a 200ms fade, `aria-busy`) until the new data arrives, instead of flashing a skeleton. Skeletons appear only on first load. The money strip, program cards and lookup all follow this.
+
 ### `SectionEmpty` and `SectionError`
 Each section reports its own state in place, inside its card. **Empty:** one medium line saying what is absent ("No calls today."), with a slate hint when it helps ("Calls appear here as people book through Calendly."). **Error:** a red alert-circle icon and "Couldn't load {what}. Reload the page to try again." **Loading:** skeleton rows at the real row heights, labelled for screen readers.
 
@@ -441,6 +502,8 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 - **Do** build cards as `DetailCard`: 44px title row, 1px rules, 16px padding, edge-to-edge ruled rows.
 - **Do** make a list row's primary text a real link stretched over the row, with a visible inset focus ring.
 - **Do** write copy with the person's first name or "the lead"; never assume pronouns.
+- **Do** keep each currency's money separate and lead with the currency that has the most payments.
+- **Do** keep the previous data on screen, dimmed, while a section reloads for new arguments.
 - **Do** keep targets at 24px or more and every text pair at 4.5:1 in both themes.
 
 ### Don't:
@@ -450,11 +513,13 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 - **Don't** show a deal's stage or a call's attendance as a raw palette badge (emerald, indigo, violet). Use the stage scale and the status word.
 - **Don't** lift cards with drop shadows; separate surfaces by tone and rule.
 - **Don't** lay out a record page as a grid of equal-weight cards with a row of peer action buttons. The question leads.
+- **Don't** add, net or compare amounts across currencies, or choose the main currency by amount.
+- **Don't** use amber on My Pipeline for anything but an open deal with no next step.
 - **Don't** write he, she, his or her for a person in UI copy.
 
 ## Migration Status
 
-The system above is complete on the three closer surfaces and the shell. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
+The system above is complete on the four closer surfaces (Today, the meeting page, the task page and My Pipeline) and the shell. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
 
 - **Legacy status colours.** `lib/status-config.ts` still maps deal positions and meeting attendance to raw Tailwind palettes (cyan, blue, indigo, violet, emerald, orange, amber), and about 365 palette utilities in 42 files bypass the tokens. The `--status-*` aliases in `app/globals.css` point at the stage tokens only until that file moves over. The new surfaces read `status-config` for attendance logic and labels only, not colours.
 - **Type scale.** About 50 page headers range from `text-base` to `text-5xl`, with 96 arbitrary text sizes and KPI figures in mono.

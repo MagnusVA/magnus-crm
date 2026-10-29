@@ -24,7 +24,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 
 ## Data rules (settled with the user, 2026-10-29)
 - Cash: the closer's payments (attributed closer) recorded in the business month, excluding disputed payments and deposits, as Today's Performance counts them; the change compares against the previous month cut to the same elapsed length.
-- Currencies: totals are never added across currencies. The headline shows the main currency (the one with the most cash this month); other currencies are listed beside it, each with its own sum. Program headers do the same.
+- Currencies: totals are never added across currencies. The headline shows the main currency: the one with the most payments this month (amounts are never compared across currencies), then last month's main currency, then USD; other currencies are listed beside it by payment count, each with its own sum (changed at the finish review, 2026-10-29: comparing raw amounts let HNL outrank USD). Program headers do the same.
 - A deal's program: the program sold (`soldProgramId`), else the program first booked (`firstBookingProgramId`); deals with neither group under "No program".
 - Next step: the deal's next scheduled call (`nextMeetingAt`), else its open task (call back, text back, or scheduling link waiting), else "No next step" in amber.
 - Program order: by this month's cash, highest first; programs with open deals but no cash this month after them; programs with neither are left out of the sections (their deals stay in the lookup).
