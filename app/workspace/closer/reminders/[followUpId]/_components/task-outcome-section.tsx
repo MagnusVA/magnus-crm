@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useIdle } from "@/hooks/use-idle";
 import {
   ArrowRightIcon,
   BanknoteIcon,
@@ -79,6 +80,11 @@ export function TaskOutcomeSection({
   // A dialog stays mounted once opened, so the task closing underneath never
   // unmounts it mid-flow.
   const [mounted, setMounted] = useState<ReadonlySet<OutcomeDialog>>(new Set());
+  // Once the browser is idle, every outcome dialog mounts closed: a lazy
+  // component suspends on its first render even with its code loaded, so
+  // doing that early means a pick opens its dialog at once.
+  const idle = useIdle();
+  const shown = (key: OutcomeDialog) => idle || mounted.has(key);
 
   const openDialog = (next: OutcomeDialog) => {
     setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
@@ -150,44 +156,48 @@ export function TaskOutcomeSection({
     <>
       {body}
 
-      {mounted.has("payment") ? (
-        <ReminderPaymentDialog
-          followUpId={followUp._id}
-          leadName={leadName}
-          defaultProgramId={opportunity.firstBookingProgramId ?? null}
-          actingFor={mode === "admin" ? closerName : null}
-          {...dialogState("payment")}
-        />
-      ) : null}
-      {mounted.has("lost") ? (
-        <ReminderMarkLostDialog
-          followUpId={followUp._id}
-          leadName={leadName}
-          {...dialogState("lost")}
-        />
-      ) : null}
-      {mounted.has("try_again") ? (
-        <ReminderTryAgainDialog
-          followUpId={followUp._id}
-          firstName={firstName}
-          method={followUp.contactMethod === "text" ? "text" : "call"}
-          dueAt={followUp.reminderScheduledAt ?? null}
-          {...dialogState("try_again")}
-        />
-      ) : null}
-      {(["close_only", "give_up"] as const).map((step) =>
-        mounted.has(step) ? (
-          <ReminderNoAnswerDialog
-            key={step}
+      {/* A dialog suspends on its first render; this boundary keeps that wait
+          to the dialog instead of the page's loading skeleton. */}
+      <Suspense fallback={null}>
+        {shown("payment") ? (
+          <ReminderPaymentDialog
             followUpId={followUp._id}
-            nextStep={step}
-            firstName={firstName}
             leadName={leadName}
-            dealStageLabel={dealPositionLabel(opportunity.position, opportunity.systemLoss)}
-            {...dialogState(step)}
+            defaultProgramId={opportunity.firstBookingProgramId ?? null}
+            actingFor={mode === "admin" ? closerName : null}
+            {...dialogState("payment")}
           />
-        ) : null,
-      )}
+        ) : null}
+        {shown("lost") ? (
+          <ReminderMarkLostDialog
+            followUpId={followUp._id}
+            leadName={leadName}
+            {...dialogState("lost")}
+          />
+        ) : null}
+        {shown("try_again") ? (
+          <ReminderTryAgainDialog
+            followUpId={followUp._id}
+            firstName={firstName}
+            method={followUp.contactMethod === "text" ? "text" : "call"}
+            dueAt={followUp.reminderScheduledAt ?? null}
+            {...dialogState("try_again")}
+          />
+        ) : null}
+        {(["close_only", "give_up"] as const).map((step) =>
+          shown(step) ? (
+            <ReminderNoAnswerDialog
+              key={step}
+              followUpId={followUp._id}
+              nextStep={step}
+              firstName={firstName}
+              leadName={leadName}
+              dealStageLabel={dealPositionLabel(opportunity.position, opportunity.systemLoss)}
+              {...dialogState(step)}
+            />
+          ) : null,
+        )}
+      </Suspense>
     </>
   );
 }

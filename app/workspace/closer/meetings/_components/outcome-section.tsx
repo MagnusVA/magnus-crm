@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useIdle } from "@/hooks/use-idle";
 import { format } from "date-fns";
 import {
   BanknoteIcon,
@@ -100,6 +101,11 @@ export function OutcomeSection({
   // A dialog stays mounted once opened, so a write that changes the section
   // underneath (a follow-up link, a payment) never unmounts it mid-flow.
   const [mounted, setMounted] = useState<ReadonlySet<OutcomeDialog>>(new Set());
+  // Once the browser is idle, every outcome dialog mounts closed: a lazy
+  // component suspends on its first render even with its code loaded, so
+  // doing that early means a pick opens its dialog at once.
+  const idle = useIdle();
+  const shown = (key: OutcomeDialog) => idle || mounted.has(key);
   const [rescheduleLinkUrl, setRescheduleLinkUrl] = useState<string | null>(null);
 
   const viewerIsCloser = viewerRole === "closer";
@@ -220,71 +226,75 @@ export function OutcomeSection({
     <>
       {body}
 
-      {mounted.has("payment") ? (
-        <PaymentFormDialog
-          opportunityId={opportunity._id}
-          meetingId={meeting._id}
-          onSuccess={onStatusChanged}
-          leadName={leadName}
-          defaultProgramId={defaultProgramId}
-          {...dialogState("payment")}
-        />
-      ) : null}
-      {mounted.has("follow_up") ? (
-        mode === "admin" ? (
+      {/* A dialog suspends on its first render; this boundary keeps that wait
+          to the dialog instead of the page's loading skeleton. */}
+      <Suspense fallback={null}>
+        {shown("payment") ? (
+          <PaymentFormDialog
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+            onSuccess={onStatusChanged}
+            leadName={leadName}
+            defaultProgramId={defaultProgramId}
+            {...dialogState("payment")}
+          />
+        ) : null}
+        {shown("follow_up") ? (
+          mode === "admin" ? (
+            <AdminFollowUpDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              leadName={leadName}
+              {...dialogState("follow_up")}
+            />
+          ) : (
+            <FollowUpDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              leadName={leadName}
+              {...dialogState("follow_up")}
+            />
+          )
+        ) : null}
+        {shown("missed_follow_up") && mode === "admin" ? (
           <AdminFollowUpDialog
             opportunityId={opportunity._id}
-            meetingId={meeting._id}
             onSuccess={onStatusChanged}
             leadName={leadName}
-            {...dialogState("follow_up")}
+            {...dialogState("missed_follow_up")}
           />
-        ) : (
-          <FollowUpDialog
-            opportunityId={opportunity._id}
+        ) : null}
+        {shown("lost") ? (
+          mode === "admin" ? (
+            <AdminMarkLostDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              leadName={leadName}
+              {...dialogState("lost")}
+            />
+          ) : (
+            <MarkLostDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              leadName={leadName}
+              {...dialogState("lost")}
+            />
+          )
+        ) : null}
+        {shown("no_show") ? (
+          <MarkNoShowDialog
             meetingId={meeting._id}
+            mode={mode}
             onSuccess={onStatusChanged}
             leadName={leadName}
-            {...dialogState("follow_up")}
+            {...dialogState("no_show")}
           />
-        )
-      ) : null}
-      {mounted.has("missed_follow_up") && mode === "admin" ? (
-        <AdminFollowUpDialog
-          opportunityId={opportunity._id}
-          onSuccess={onStatusChanged}
-          leadName={leadName}
-          {...dialogState("missed_follow_up")}
-        />
-      ) : null}
-      {mounted.has("lost") ? (
-        mode === "admin" ? (
-          <AdminMarkLostDialog
-            opportunityId={opportunity._id}
-            meetingId={meeting._id}
-            onSuccess={onStatusChanged}
-            leadName={leadName}
-            {...dialogState("lost")}
-          />
-        ) : (
-          <MarkLostDialog
-            opportunityId={opportunity._id}
-            meetingId={meeting._id}
-            onSuccess={onStatusChanged}
-            leadName={leadName}
-            {...dialogState("lost")}
-          />
-        )
-      ) : null}
-      {mounted.has("no_show") ? (
-        <MarkNoShowDialog
-          meetingId={meeting._id}
-          mode={mode}
-          onSuccess={onStatusChanged}
-          leadName={leadName}
-          {...dialogState("no_show")}
-        />
-      ) : null}
+        ) : null}
+      </Suspense>
     </>
   );
 }
