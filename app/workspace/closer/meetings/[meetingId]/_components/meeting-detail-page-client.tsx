@@ -33,6 +33,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DealStageBadge } from "@/components/status-badge";
 import {
+  isAwaitingOutcome,
   isClosedByNoShow,
   isDealWon,
   isWaitingOnRescheduleLink,
@@ -47,6 +48,7 @@ import { LeadNotesCard } from "../../_components/lead-notes-card";
 import { DealWonCard } from "../../_components/deal-won-card";
 import { PotentialDuplicateBanner } from "../../_components/potential-duplicate-banner";
 import { NoShowActionBar } from "../../_components/no-show-action-bar";
+import { UnfinishedFollowUpBanner } from "../../_components/unfinished-follow-up-banner";
 import {
   RescheduleLinkDisplay,
   RescheduleLinkSentBanner,
@@ -189,6 +191,17 @@ export function MeetingDetailPageClient({
 
       {rescheduledFromMeeting && (
         <RescheduleChainBanner rescheduledFromMeeting={rescheduledFromMeeting} />
+      )}
+
+      {/* A follow-up that never moved the deal hides the outcome buttons */}
+      {activeFollowUp && isAwaitingOutcome(opportunity) && (
+        <UnfinishedFollowUpBanner
+          meeting={meeting}
+          opportunityId={opportunity._id}
+          followUp={activeFollowUp}
+          mode={viewerRole === "closer" ? "closer" : "admin"}
+          onResolved={refreshDetail}
+        />
       )}
 
       {viewerRole === "closer" && isClosedByNoShow(opportunity) && (

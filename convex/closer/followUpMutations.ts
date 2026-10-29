@@ -12,6 +12,7 @@ import {
 } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
 import { log } from "../lib/observability/log";
 
 /**
@@ -284,6 +285,41 @@ export const confirmFollowUpScheduled = mutation({
         recordedAt: now,
       });
     }
+  },
+});
+
+/**
+ * Cancel a follow-up the closer started but never finished: a scheduling link
+ * generated without the deal moving to Follow-up. The meeting page offers it
+ * next to "Mark follow-up scheduled", so the outcome buttons come back.
+ */
+export const cancelPendingFollowUp = mutation({
+  args: {
+    followUpId: v.id("followUps"),
+  },
+  returns: v.null(),
+  handler: async (ctx, { followUpId }) => {
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+
+    const followUp = await ctx.db.get("followUps", followUpId);
+    if (!followUp || followUp.tenantId !== tenantId) {
+      throw new Error("Follow-up not found");
+    }
+    const opportunity = await ctx.db.get("opportunities", followUp.opportunityId);
+    if (!opportunity || opportunity.tenantId !== tenantId) {
+      throw new Error("Opportunity not found");
+    }
+    if (opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your opportunity");
+    }
+
+    await expireUnfinishedFollowUp(ctx, {
+      followUp,
+      opportunity,
+      source: "closer",
+      actorUserId: userId,
+    });
+    return null;
   },
 });
 

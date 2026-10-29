@@ -69,22 +69,66 @@ export function AdminFollowUpDialog({
 }: AdminFollowUpDialogProps) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<DialogPath>("selection");
+  // A scheduling link was generated and the deal hasn't moved to Follow-up yet.
+  const [linkPending, setLinkPending] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  const handleClose = () => {
+  const confirmFollowUp = useMutation(
+    api.admin.meetingActions.adminConfirmFollowUp,
+  );
+
+  const closeDialog = () => {
     setOpen(false);
+    setLinkPending(false);
+    setConfirmError(null);
     setTimeout(() => setPath("selection"), 200);
   };
 
+  // Moves the deal to Follow-up for the generated link, then closes. When it
+  // fails, the dialog stays open with the error and a retry.
+  const confirmAndClose = async () => {
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await confirmFollowUp({ opportunityId, meetingId });
+      await onSuccess?.();
+      closeDialog();
+    } catch (err: unknown) {
+      console.error("[AdminFollowUpDialog] adminConfirmFollowUp failed", err);
+      setConfirmError(
+        getErrorMessage(
+          err,
+          "The link was generated, but the deal didn't move to Follow-up.",
+        ),
+      );
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const handleOpenChange = (value: boolean) => {
+    if (value) {
+      setOpen(true);
+      return;
+    }
+    if (confirming) {
+      return;
+    }
+    // Closing after Generate counts as Done, as in the closer's dialog.
+    if (linkPending && confirmError === null) {
+      void confirmAndClose();
+      return;
+    }
+    closeDialog();
+  };
+
+  const handleClose = () => {
+    handleOpenChange(false);
+  };
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(value) => {
-        setOpen(value);
-        if (!value) {
-          setTimeout(() => setPath("selection"), 200);
-        }
-      }}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <CalendarPlusIcon data-icon="inline-start" />
@@ -100,7 +144,7 @@ export function AdminFollowUpDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {path !== "selection" && (
+        {path !== "selection" && !linkPending && (
           <Button
             variant="ghost"
             size="sm"
@@ -119,8 +163,10 @@ export function AdminFollowUpDialog({
         {path === "scheduling_link" && (
           <AdminSchedulingLinkForm
             opportunityId={opportunityId}
-            meetingId={meetingId}
-            onSuccess={onSuccess}
+            onGenerated={() => setLinkPending(true)}
+            onDone={confirmAndClose}
+            confirming={confirming}
+            confirmError={confirmError}
             onClose={handleClose}
           />
         )}
@@ -197,21 +243,26 @@ function PathSelectionCards({
 
 /**
  * Admin scheduling link form — calls admin mutations, uses assigned closer's Calendly URI.
+ * Done (or closing the dialog) moves the deal through `AdminFollowUpDialog`.
  */
 function AdminSchedulingLinkForm({
   opportunityId,
-  meetingId,
-  onSuccess,
+  onGenerated,
+  onDone,
+  confirming,
+  confirmError,
   onClose,
 }: {
   opportunityId: Id<"opportunities">;
-  meetingId?: Id<"meetings">;
-  onSuccess?: () => Promise<void>;
+  onGenerated: () => void;
+  onDone: () => Promise<void>;
+  confirming: boolean;
+  confirmError: string | null;
   onClose: () => void;
 }) {
-  const [state, setState] = useState<
-    "idle" | "loading" | "success" | "error" | "confirming"
-  >("idle");
+  const [state, setState] = useState<"idle" | "loading" | "success" | "error">(
+    "idle",
+  );
   const [schedulingLinkUrl, setSchedulingLinkUrl] = useState<string | null>(
     null,
   );
@@ -221,9 +272,6 @@ function AdminSchedulingLinkForm({
   const createFollowUp = useMutation(
     api.admin.meetingActions.adminCreateFollowUp,
   );
-  const confirmFollowUp = useMutation(
-    api.admin.meetingActions.adminConfirmFollowUp,
-  );
 
   const handleGenerate = async () => {
     setState("loading");
@@ -231,6 +279,7 @@ function AdminSchedulingLinkForm({
     try {
       const result = await createFollowUp({ opportunityId });
       setSchedulingLinkUrl(result.schedulingLinkUrl);
+      onGenerated();
       posthog.capture("admin_follow_up_scheduling_link_created", {
         opportunity_id: opportunityId,
       });
@@ -252,24 +301,6 @@ function AdminSchedulingLinkForm({
         opportunity_id: opportunityId,
       });
       setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleDone = async () => {
-    setState("confirming");
-    try {
-      await confirmFollowUp({ opportunityId, meetingId });
-      await onSuccess?.();
-      onClose();
-    } catch (err: unknown) {
-      console.error(
-        "[AdminFollowUpDialog] adminConfirmFollowUp failed",
-        err,
-      );
-      toast.error(
-        "Link was generated but status update failed. Contact support if the issue persists.",
-      );
-      onClose();
     }
   };
 
@@ -299,15 +330,22 @@ function AdminSchedulingLinkForm({
     );
   }
 
-  if ((state === "success" || state === "confirming") && schedulingLinkUrl) {
+  if (state === "success" && schedulingLinkUrl) {
     return (
       <div className="flex flex-col gap-4">
-        <Alert>
-          <CheckIcon />
-          <AlertDescription>
-            Scheduling link generated. Copy and send to the lead.
-          </AlertDescription>
-        </Alert>
+        {confirmError ? (
+          <Alert variant="destructive">
+            <AlertCircleIcon />
+            <AlertDescription>{confirmError}</AlertDescription>
+          </Alert>
+        ) : (
+          <Alert>
+            <CheckIcon />
+            <AlertDescription>
+              Scheduling link generated. Copy and send to the lead.
+            </AlertDescription>
+          </Alert>
+        )}
         <InputGroup>
           <InputGroupInput
             value={schedulingLinkUrl}
@@ -320,7 +358,7 @@ function AdminSchedulingLinkForm({
               onClick={handleCopy}
               variant="ghost"
               size="sm"
-              disabled={state === "confirming"}
+              disabled={confirming}
               aria-label={
                 copied ? "Link copied to clipboard" : "Copy scheduling link"
               }
@@ -332,14 +370,16 @@ function AdminSchedulingLinkForm({
         </InputGroup>
         <Button
           variant="outline"
-          onClick={handleDone}
-          disabled={state === "confirming"}
+          onClick={() => void onDone()}
+          disabled={confirming}
         >
-          {state === "confirming" ? (
+          {confirming ? (
             <>
               <Spinner data-icon="inline-start" />
               Saving…
             </>
+          ) : confirmError ? (
+            "Try Again"
           ) : (
             "Done"
           )}

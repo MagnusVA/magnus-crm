@@ -80,16 +80,59 @@ export function FollowUpDialog({
 }: FollowUpDialogProps & { compact?: boolean }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [path, setPath] = useState<DialogPath>("selection");
+  // A scheduling link was generated and the deal hasn't moved to Follow-up yet.
+  const [linkPending, setLinkPending] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const open = controlledOpen ?? internalOpen;
 
-  const handleOpenChange = (value: boolean) => {
+  const confirmFollowUp = useMutation(
+    api.closer.followUpMutations.confirmFollowUpScheduled
+  );
+
+  const setOpen = (value: boolean) => {
     if (controlledOpen === undefined) {
       setInternalOpen(value);
     }
     onOpenChange?.(value);
     if (!value) {
+      setLinkPending(false);
+      setConfirmError(null);
       setTimeout(() => setPath("selection"), 200);
     }
+  };
+
+  // Moves the deal to Follow-up for the generated link, then closes. When it
+  // fails, the dialog stays open with the error and a retry.
+  const confirmAndClose = async () => {
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await confirmFollowUp({ opportunityId, meetingId });
+      await onSuccess?.();
+      setOpen(false);
+    } catch (err: unknown) {
+      console.error("[FollowUpDialog] confirmFollowUpScheduled failed", err);
+      setConfirmError(
+        getErrorMessage(err, "The link was generated, but the deal didn't move to Follow-up.")
+      );
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const handleOpenChange = (value: boolean) => {
+    if (!value && confirming) {
+      return;
+    }
+    // Closing after Generate counts as Done, so a link never stays pending on
+    // a deal that didn't move. Once a confirm has failed, closing is allowed:
+    // the meeting page shows the unfinished follow-up with its own retry.
+    if (!value && linkPending && confirmError === null) {
+      void confirmAndClose();
+      return;
+    }
+    setOpen(value);
   };
 
   const handleClose = () => {
@@ -116,7 +159,7 @@ export function FollowUpDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {path !== "selection" && (
+        {path !== "selection" && !linkPending && (
           <Button
             variant="ghost"
             size="sm"
@@ -135,8 +178,10 @@ export function FollowUpDialog({
         {path === "scheduling_link" && (
           <SchedulingLinkForm
             opportunityId={opportunityId}
-            meetingId={meetingId}
-            onSuccess={onSuccess}
+            onGenerated={() => setLinkPending(true)}
+            onDone={confirmAndClose}
+            confirming={confirming}
+            confirmError={confirmError}
             onClose={handleClose}
           />
         )}
@@ -218,25 +263,31 @@ function PathSelectionCards({
  * Scheduling link form: generates a link from the closer's personal event type.
  *
  * The flow is split into two steps to avoid a Convex reactivity race condition:
- * 1. Generate: creates the follow-up record + link (does NOT transition status)
- * 2. Done: transitions opportunity to follow_up_scheduled + closes the dialog
+ * 1. Generate: creates the follow-up record + link (does NOT move the deal)
+ * 2. Done: moves the deal to Follow-up + closes the dialog
  *
- * If we transitioned the status in step 1, Convex would push the new status to the
- * client immediately, causing OutcomeActionBar to unmount this dialog before the
- * user could see or copy the link.
+ * If we moved the deal in step 1, Convex would push the new stage to the
+ * client immediately, and the no-show bar (or the admin's bar) would unmount
+ * this dialog before the user could see or copy the link. Closing the dialog
+ * after step 1 runs step 2 too (`FollowUpDialog`), so the deal never keeps a
+ * pending link without moving.
  */
 function SchedulingLinkForm({
   opportunityId,
-  meetingId,
-  onSuccess,
+  onGenerated,
+  onDone,
+  confirming,
+  confirmError,
   onClose,
 }: {
   opportunityId: Id<"opportunities">;
-  meetingId?: Id<"meetings">;
-  onSuccess?: () => Promise<void>;
+  onGenerated: () => void;
+  onDone: () => Promise<void>;
+  confirming: boolean;
+  confirmError: string | null;
   onClose: () => void;
 }) {
-  const [state, setState] = useState<"idle" | "loading" | "success" | "error" | "confirming">(
+  const [state, setState] = useState<"idle" | "loading" | "success" | "error">(
     "idle"
   );
   const [schedulingLinkUrl, setSchedulingLinkUrl] = useState<string | null>(
@@ -248,9 +299,6 @@ function SchedulingLinkForm({
   const createFollowUp = useMutation(
     api.closer.followUpMutations.createSchedulingLinkFollowUp
   );
-  const confirmFollowUp = useMutation(
-    api.closer.followUpMutations.confirmFollowUpScheduled
-  );
 
   const handleGenerate = async () => {
     setState("loading");
@@ -258,6 +306,7 @@ function SchedulingLinkForm({
     try {
       const result = await createFollowUp({ opportunityId });
       setSchedulingLinkUrl(result.schedulingLinkUrl);
+      onGenerated();
       posthog.capture("follow_up_scheduling_link_created", {
         opportunity_id: opportunityId,
       });
@@ -279,21 +328,6 @@ function SchedulingLinkForm({
         opportunity_id: opportunityId,
       });
       setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleDone = async () => {
-    setState("confirming");
-    try {
-      await confirmFollowUp({ opportunityId, meetingId });
-      await onSuccess?.();
-      onClose();
-    } catch (err: unknown) {
-      // Status transition failed but the link was already generated — show a toast
-      // and still close. The follow-up record exists; the status can be fixed later.
-      console.error("[FollowUpDialog] confirmFollowUpScheduled failed", err);
-      toast.error("Link was generated but status update failed. Contact support if the issue persists.");
-      onClose();
     }
   };
 
@@ -323,15 +357,22 @@ function SchedulingLinkForm({
     );
   }
 
-  if ((state === "success" || state === "confirming") && schedulingLinkUrl) {
+  if (state === "success" && schedulingLinkUrl) {
     return (
       <div className="flex flex-col gap-4">
-        <Alert>
-          <CheckIcon />
-          <AlertDescription>
-            Scheduling link generated. Copy and send to the lead.
-          </AlertDescription>
-        </Alert>
+        {confirmError ? (
+          <Alert variant="destructive">
+            <AlertCircleIcon />
+            <AlertDescription>{confirmError}</AlertDescription>
+          </Alert>
+        ) : (
+          <Alert>
+            <CheckIcon />
+            <AlertDescription>
+              Scheduling link generated. Copy and send to the lead.
+            </AlertDescription>
+          </Alert>
+        )}
         <InputGroup>
           <InputGroupInput
             value={schedulingLinkUrl}
@@ -344,7 +385,7 @@ function SchedulingLinkForm({
               onClick={handleCopy}
               variant="ghost"
               size="sm"
-              disabled={state === "confirming"}
+              disabled={confirming}
               aria-label={
                 copied ? "Link copied to clipboard" : "Copy scheduling link"
               }
@@ -354,12 +395,14 @@ function SchedulingLinkForm({
             </Button>
           </InputGroupAddon>
         </InputGroup>
-        <Button variant="outline" onClick={handleDone} disabled={state === "confirming"}>
-          {state === "confirming" ? (
+        <Button variant="outline" onClick={() => void onDone()} disabled={confirming}>
+          {confirming ? (
             <>
               <Spinner data-icon="inline-start" />
               Saving…
             </>
+          ) : confirmError ? (
+            "Try Again"
           ) : (
             "Done"
           )}
