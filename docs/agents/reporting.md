@@ -93,3 +93,4 @@ The PostHog events to watch are:
 - Each key may make 60 requests a minute, counted on the key's row.
 - `/api/v1/metrics` and `/funnel` use the same cache as the pages. `/today` reads Convex live with the same metric definitions (`api/metrics.ts`).
 - The contract is `docs/api/openapi.yaml`.
+- `docs/api/metrics-api-guide.html` is the visual guide for API users: every endpoint, status code and error, with charts built from the responses. Open it in a browser. Its requests, headers and timings come from real production calls; the response bodies are sample data, because this repo is public. Keep real workspace data out of it.
