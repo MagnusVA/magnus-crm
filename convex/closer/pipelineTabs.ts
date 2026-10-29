@@ -52,3 +52,29 @@ export function closerPipelineTabFromSearch(search: {
   }
   return null;
 }
+
+// My Pipeline's lookup tabs: every deal, or the deals by outcome.
+export const CLOSER_LOOKUP_TABS = ["all", "open", "won", "lost"] as const;
+
+export type CloserLookupTab = (typeof CLOSER_LOOKUP_TABS)[number];
+
+function isCloserLookupTab(value: string): value is CloserLookupTab {
+  return (CLOSER_LOOKUP_TABS as readonly string[]).includes(value);
+}
+
+/**
+ * The lookup tab a pipeline URL opens: `tab=` when it names one, else the
+ * tab an older `stage=` or `status=` link's deals are on. Booked, Call held
+ * and Follow-up deals are open; anything else opens All.
+ */
+export function closerLookupTabFromSearch(search: {
+  get(name: string): string | null;
+}): CloserLookupTab {
+  const tab = search.get("tab");
+  if (tab !== null && isCloserLookupTab(tab)) {
+    return tab;
+  }
+  const position = closerPipelineTabFromSearch(search);
+  if (position === null) return "all";
+  return position === "won" || position === "lost" ? position : "open";
+}

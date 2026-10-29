@@ -133,7 +133,13 @@ export function countStripByStage(deals: Array<Doc<"opportunities">>): {
   return { counts, total: deals.length, won: counts.won, lost };
 }
 
-async function getCashCollectedForCloserInRange(
+/**
+ * The closer's payments that count as cash: attributed to the closer,
+ * recorded in [startDate, endDate), not disputed and not a deposit. Reads at
+ * most MAX_CLOSER_PAYMENT_SCAN_ROWS; `isPaymentDataTruncated` says there were
+ * more. Today's Performance and My Pipeline both count cash with it.
+ */
+export async function readCountedCloserPayments(
   ctx: QueryCtx,
   args: {
     tenantId: Id<"tenants">;
@@ -141,8 +147,8 @@ async function getCashCollectedForCloserInRange(
     startDate: number;
     endDate: number;
   },
-) {
-  const payments = await ctx.db
+): Promise<{ payments: Array<Doc<"paymentRecords">>; isPaymentDataTruncated: boolean }> {
+  const rows = await ctx.db
     .query("paymentRecords")
     .withIndex("by_tenantId_and_attributedCloserId_and_recordedAt", (q) =>
       q
@@ -153,25 +159,34 @@ async function getCashCollectedForCloserInRange(
     )
     .take(MAX_CLOSER_PAYMENT_SCAN_ROWS + 1);
 
+  const payments = rows
+    .slice(0, MAX_CLOSER_PAYMENT_SCAN_ROWS)
+    .filter(
+      (payment) =>
+        payment.status !== "disputed" &&
+        resolvePaymentType(payment.paymentType) !== "deposit",
+    );
+  return { payments, isPaymentDataTruncated: rows.length > MAX_CLOSER_PAYMENT_SCAN_ROWS };
+}
+
+async function getCashCollectedForCloserInRange(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    userId: Id<"users">;
+    startDate: number;
+    endDate: number;
+  },
+) {
+  const { payments, isPaymentDataTruncated } = await readCountedCloserPayments(ctx, args);
   let cashCollectedMinor = 0;
-  let cashPaymentCount = 0;
-
-  for (const payment of payments.slice(0, MAX_CLOSER_PAYMENT_SCAN_ROWS)) {
-    if (
-      payment.status === "disputed" ||
-      resolvePaymentType(payment.paymentType) === "deposit"
-    ) {
-      continue;
-    }
-
+  for (const payment of payments) {
     cashCollectedMinor += payment.amountMinor;
-    cashPaymentCount += 1;
   }
-
   return {
     cashCollectedMinor,
-    cashPaymentCount,
-    isPaymentDataTruncated: payments.length > MAX_CLOSER_PAYMENT_SCAN_ROWS,
+    cashPaymentCount: payments.length,
+    isPaymentDataTruncated,
   };
 }
 

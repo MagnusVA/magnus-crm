@@ -9,6 +9,7 @@ export function DetailCard({
   title,
   badge,
   meta,
+  metaClassName,
   titleId,
   className,
   children,
@@ -18,6 +19,8 @@ export function DetailCard({
   /** Sits right after the title, such as the deal's stage chip. */
   badge?: React.ReactNode;
   meta?: React.ReactNode;
+  /** Extra classes for the meta's box, such as its own line on narrow cards. */
+  metaClassName?: string;
   titleId?: string;
   className?: string;
   children: React.ReactNode;
@@ -30,7 +33,12 @@ export function DetailCard({
         </h2>
         {badge}
         {meta ? (
-          <div className="ml-auto flex min-w-0 items-center gap-2 text-[0.8125rem] text-muted-foreground">
+          <div
+            className={cn(
+              "ml-auto flex min-w-0 items-center gap-2 text-[0.8125rem] text-muted-foreground",
+              metaClassName,
+            )}
+          >
             {meta}
           </div>
         ) : null}
