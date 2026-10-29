@@ -47,6 +47,34 @@
         ],
         "createdAt": "2026-10-29T05:42:34.985Z",
         "reason": "Mock sketches center text in fixed-height flex rows, bars and headers; renders show no flush text"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/*.html"
+        ],
+        "createdAt": "2026-10-29T18:21:52.210Z",
+        "reason": "Claude: archived decision-round sketches; each alternative direction deliberately used its own face, and the round is closed"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "condensed",
+        "files": [
+          ".impeccable/mocks/*.html"
+        ],
+        "createdAt": "2026-10-29T18:21:52.227Z",
+        "reason": "Claude: false positive; the font shorthand names \"Barlow Condensed\", which DESIGN.md declares"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/*.html",
+          ".impeccable/mocks/decision/*.html"
+        ],
+        "createdAt": "2026-10-29T18:21:52.244Z",
+        "reason": "Claude: approved sketches predate the DESIGN.md ramp, which was derived from the shipped code; the sketches are thumbnails, not shipping UI"
       }
     ]
   }
