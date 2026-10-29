@@ -52,7 +52,6 @@ import {
   TargetIcon,
   TrendingUpIcon,
   type LucideIcon,
-  UserCircleIcon,
   UsersIcon,
 } from "lucide-react";
 import { WorkspaceBreadcrumbs } from "@/components/workspace-breadcrumbs";
@@ -385,34 +384,24 @@ function WorkspaceShellClientInner({
   return (
     <>
       <Sidebar>
-        <SidebarHeader>
+        <SidebarHeader className="px-3 pt-4 pb-3">
           <Link
             href={homeHref}
-            aria-label="MAGNUS CRM workspace home"
-            className="group/brand flex min-h-10 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
+            aria-label="Magnus workspace home"
+            className="flex min-h-9 items-center gap-2 rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
             <MagnusBrand
-              label="MAGNUS CRM"
-              size="sm"
-              textClassName="text-sidebar-foreground group-hover/brand:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+              label="Magnus"
+              size="xs"
+              markVariant="lime"
+              markClassName="size-6"
+              textClassName="font-condensed text-[22px] font-semibold tracking-[0.01em] text-sidebar-foreground group-data-[collapsible=icon]:hidden"
             />
           </Link>
-          <Separator className="mx-2" />
-          <div className="px-2 py-1.5 group-data-[collapsible=icon]:hidden">
-            <MemberIdentity
-              identity={{
-                ...initialAvatar,
-                name: displayName,
-                email: initialEmail,
-                secondaryLabel: role.replace(/_/g, " "),
-              }}
-            />
-          </div>
         </SidebarHeader>
         <SidebarContent>
           {/* Sidebar nav items */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroup className="pt-0">
             <SidebarGroupContent>
               <SidebarMenu>
                 {navItems.map((item) => {
@@ -457,7 +446,7 @@ function WorkspaceShellClientInner({
           {/* Reports section — admin only (UI visibility; layout.tsx enforces auth) */}
           {isAdmin && (
             <SidebarGroup>
-              <SidebarGroupLabel>Reports</SidebarGroupLabel>
+              <SidebarGroupLabel className="font-condensed text-[11px] font-semibold tracking-[0.14em] uppercase text-sidebar-foreground/60">Reports</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {reportNavItems.map((item) => {
@@ -484,31 +473,41 @@ function WorkspaceShellClientInner({
         </SidebarContent>
 
         {/* Sidebar footer — user info and sign out */}
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Profile">
-                <Link href="/workspace/profile">
-                  <UserCircleIcon />
-                  <span>Profile</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={handleSignOut}
-                tooltip="Sign out"
-              >
-                <LogOutIcon />
-                <span>Sign Out</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+        <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
+          <div className="flex items-center gap-1">
+            <Link
+              href="/workspace/profile"
+              aria-label="Your profile"
+              className="min-w-0 flex-1 rounded-md px-1 py-1 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:hidden"
+            >
+              <MemberIdentity
+                identity={{
+                  ...initialAvatar,
+                  name: displayName,
+                  email: initialEmail,
+                  secondaryLabel: role.replace(/_/g, " "),
+                }}
+                textClassName="text-sidebar-foreground [&_p]:capitalize [&_p]:text-sidebar-foreground/65"
+              />
+            </Link>
+            <SidebarMenu className="w-auto">
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={handleSignOut}
+                  tooltip="Sign out"
+                  aria-label="Sign out"
+                  className="size-8 justify-center p-0"
+                >
+                  <LogOutIcon />
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </div>
         </SidebarFooter>
       </Sidebar>
 
       <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
+        <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-card px-4">
           <SidebarTrigger aria-label="Toggle sidebar" />
           <Separator orientation="vertical" className="h-4" />
           <WorkspaceBreadcrumbs />
@@ -520,7 +519,7 @@ function WorkspaceShellClientInner({
         </header>
         <div
           id="main-content"
-          className="flex-1 overflow-auto p-6"
+          className="flex-1 overflow-auto px-6 py-5"
           tabIndex={-1}
         >
           {children}
