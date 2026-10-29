@@ -2,38 +2,28 @@ import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import type { Id } from "@/convex/_generated/dataModel";
-import { ReminderDetailPageClient } from "./_components/reminder-detail-page-client";
+import { TaskDetailPageClient } from "./_components/task-detail-page-client";
 
-// PPR-ready architecture marker — see AGENTS.md §RSC three-layer page
-// pattern. The static shell renders before dynamic data.
 export const unstable_instant = false;
 
 /**
- * Reminder Detail Page (Phase 4A)
- *
- * Closer-only route that surfaces everything a closer needs to complete a
- * pending manual reminder: contact card (tel/sms), metadata (scheduled
- * time, urgency, reason, related meeting), history (latest meeting + prior
- * payments), and the outcome action bar (Phase 5).
- *
- * `requireRole(["closer"])` enforces closer-only access — admins and
- * masters have no reminder UI in MVP (design doc §12.2). They are
- * redirected to their role-appropriate workspace.
+ * The closer's task page (`followUps` of type `manual_reminder`; the route
+ * keeps its old name, the UI says Task). Closers only: admins open the twin
+ * at `/workspace/pipeline/reminders/[followUpId]`.
  */
-export default async function ReminderDetailPage({
-	params,
+export default async function TaskDetailPage({
+  params,
 }: {
-	params: Promise<{ followUpId: string }>;
+  params: Promise<{ followUpId: string }>;
 }) {
-	const { session } = await requireRole(["closer"]);
-	const { followUpId } = await params;
+  const { session } = await requireRole(["closer"]);
+  const { followUpId } = await params;
 
-	const typedFollowUpId = followUpId as Id<"followUps">;
-	const preloadedDetail = await preloadQuery(
-		api.closer.reminderDetail.getReminderDetail,
-		{ followUpId: typedFollowUpId },
-		{ token: session.accessToken },
-	);
+  const preloadedDetail = await preloadQuery(
+    api.closer.reminderDetail.getReminderDetail,
+    { followUpId: followUpId as Id<"followUps"> },
+    { token: session.accessToken },
+  );
 
-	return <ReminderDetailPageClient preloadedDetail={preloadedDetail} />;
+  return <TaskDetailPageClient preloadedDetail={preloadedDetail} />;
 }

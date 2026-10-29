@@ -2,15 +2,40 @@
 
 import Link from "next/link";
 import { format } from "date-fns";
-import type { AttributionCredit } from "@/convex/lib/attribution/detailPayload";
+import type { Id } from "@/convex/_generated/dataModel";
+import type {
+  AttributionCredit,
+  DealAttributionDetail,
+} from "@/convex/lib/attribution/detailPayload";
 import {
   DEAL_POSITION_LABELS,
   type DealPosition,
+  type SystemLossReason,
 } from "@/convex/opportunities/stages";
 import { cn } from "@/lib/utils";
 import { DetailCard, DetailCardFooter, detailLinkClass } from "./detail-card";
 import { STAGE_TONE, StageChip } from "./stage-tone";
-import type { MeetingDetail } from "./meeting-detail-types";
+
+/**
+ * What the card reads. The meeting page passes its `MeetingDetail`; the task
+ * page passes the deal without a meeting.
+ */
+export type DealCardDetail = {
+  opportunity: {
+    _id: Id<"opportunities">;
+    position: DealPosition;
+    systemLoss: SystemLossReason | null;
+    soldProgramName?: string;
+    firstBookingProgramName?: string;
+  };
+  /** The page's call, whose programs come before the deal's. */
+  meeting?: { soldProgramName?: string; bookingProgramName?: string } | null;
+  lead: { _id: Id<"leads"> };
+  dealAttribution: Pick<DealAttributionDetail, "credits" | "firstTouch"> | null;
+  attributionTeam: { displayName: string } | null;
+  dmCloser: { displayName: string } | null;
+  assignedCloser: { fullName?: string; email: string } | null;
+};
 
 const ROLE_LABELS: Record<AttributionCredit["role"], string> = {
   lead_gen: "Lead gen",
@@ -58,17 +83,27 @@ function trackOf(
 
 type CreditPart = { key: string; role: string; name: string };
 
-/** One "Role Name" pair per credit, in funnel order. */
-function creditParts(detail: MeetingDetail): CreditPart[] {
+/**
+ * One "Role Name" pair per credit, in funnel order. A person credited twice
+ * in the same role (a deal can carry a credit row per booking) is named once.
+ */
+function creditParts(detail: DealCardDetail): CreditPart[] {
   const credits = detail.dealAttribution?.credits ?? [];
   if (credits.length > 0) {
+    const seen = new Set<string>();
     return [...credits]
       .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role))
       .map((credit) => ({
         key: credit.id,
         role: credit.sourceKind === "respark" ? "Respark" : ROLE_LABELS[credit.role],
         name: credit.name ?? "Unknown",
-      }));
+      }))
+      .filter((part) => {
+        const id = `${part.role}|${part.name}`;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
   }
   // A deal with no attribution rows still names who the booking points at.
   const parts: CreditPart[] = [];
@@ -89,10 +124,19 @@ function creditParts(detail: MeetingDetail): CreditPart[] {
 }
 
 /**
- * The deal behind this call: its stage on the funnel, who gets credit, its
- * first touch, and a link to the deal on the person's page.
+ * The deal behind this call or task: its stage on the funnel, who gets
+ * credit, a fact in the footer (its first touch unless the page passes
+ * another, such as its payments), and a link to the deal on the person's
+ * page.
  */
-export function DealCard({ detail }: { detail: MeetingDetail }) {
+export function DealCard({
+  detail,
+  fact,
+}: {
+  detail: DealCardDetail;
+  /** Replaces the footer's first-touch line. */
+  fact?: React.ReactNode;
+}) {
   const { opportunity, meeting, lead } = detail;
   const position = opportunity.position;
   const missedCall =
@@ -102,9 +146,9 @@ export function DealCard({ detail }: { detail: MeetingDetail }) {
   const tone = STAGE_TONE[position];
   const programName =
     (position === "won"
-      ? (meeting.soldProgramName ?? opportunity.soldProgramName)
+      ? (meeting?.soldProgramName ?? opportunity.soldProgramName)
       : null) ??
-    meeting.bookingProgramName ??
+    meeting?.bookingProgramName ??
     opportunity.firstBookingProgramName ??
     null;
   const credits = creditParts(detail);
@@ -179,9 +223,10 @@ export function DealCard({ detail }: { detail: MeetingDetail }) {
 
       <DetailCardFooter>
         <span className="text-[0.8125rem]">
-          {firstTouch
-            ? `First touch ${CHANNEL_LABELS[firstTouch.channel]} · ${format(firstTouch.occurredAt, "MMM d")}`
-            : "First touch not recorded"}
+          {fact ??
+            (firstTouch
+              ? `First touch ${CHANNEL_LABELS[firstTouch.channel]} · ${format(firstTouch.occurredAt, "MMM d")}`
+              : "First touch not recorded")}
         </span>
         <Link
           href={`/workspace/leads-customers/${lead._id}?opportunityId=${opportunity._id}`}

@@ -6,6 +6,7 @@ import { ShuffleIcon } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { useNow } from "@/hooks/use-now";
 import { useOutcomeEligibility } from "@/hooks/use-outcome-eligibility";
 import { formatCurrency } from "@/lib/format-currency";
@@ -78,6 +79,15 @@ export function MeetingDetailView({
   } = detail;
   const meetingDetailBasePath =
     mode === "admin" ? "/workspace/pipeline/meetings" : "/workspace/closer/meetings";
+  useBreadcrumbTrail([
+    mode === "admin"
+      ? { label: "Pipeline", href: "/workspace/pipeline" }
+      : { label: "Today", href: "/workspace/closer" },
+    {
+      label: `${lead?.fullName ?? meeting.leadName ?? "Unknown person"} · ${format(meeting.scheduledAt, "MMM d")} call`,
+      href: `${meetingDetailBasePath}/${meeting._id}`,
+    },
+  ]);
 
   // Before the outcome window opens, prep comes first.
   const beforeCall =

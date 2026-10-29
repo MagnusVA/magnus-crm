@@ -10,6 +10,7 @@ import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
+import { loadTaskDealContext } from "../lib/taskDealContext";
 import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -188,6 +189,8 @@ export const getReminderDetail = query({
       eventTypeConfig && eventTypeConfig.tenantId === tenantId
         ? (eventTypeConfig.paymentLinks ?? [])
         : [];
+    // The deal card, its credit line and the deal's calls.
+    const dealContext = await loadTaskDealContext(ctx, tenantId, opportunity);
 
     return {
       followUp,
@@ -201,6 +204,7 @@ export const getReminderDetail = query({
           : null,
       payments,
       paymentLinks,
+      ...dealContext,
     };
   },
 });

@@ -17,6 +17,7 @@
   --color-board-muted: var(--board-muted);
   --color-board-raised: var(--board-raised);
   --color-board-line: var(--board-line);
+  --color-board-danger: var(--board-danger);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
   --color-warning-ink: var(--warning-ink);
@@ -120,6 +121,8 @@
   --board-muted: #9aa4b6;
   --board-raised: #1d2536;
   --board-line: rgb(242 244 247 / 0.08);
+  /* Overdue on the board: the danger ink, light enough for navy. */
+  --board-danger: #ff8a8e;
   /* Deal stages. The base colour is for fills, bars and dots; -ink is for text
      on light surfaces. */
   --stage-booked: #4c6fd0;
@@ -190,6 +193,7 @@
   --board-muted: #98a2b3;
   --board-raised: #26304a;
   --board-line: rgb(242 244 247 / 0.1);
+  --board-danger: #ff8a8e;
   --stage-booked: #6f8fe6;
   --stage-booked-ink: #9db4f2;
   --stage-held: #98a2b3;

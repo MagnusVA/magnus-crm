@@ -406,20 +406,23 @@ function OutcomeQuestion({
   );
 }
 
-function OutcomeHeading({
+/** The panel's question, with its step chip beside it when there is one. */
+export function OutcomeHeading({
   ref,
   step,
   children,
 }: {
   ref: React.Ref<HTMLHeadingElement>;
-  step: string;
+  step?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-4 pt-3.5 pb-1 @md:px-5">
-      <span className="inline-flex h-5 items-center rounded bg-primary px-1.5 font-condensed text-[0.6875rem] font-bold tracking-[0.12em] text-primary-foreground uppercase">
-        {step}
-      </span>
+      {step ? (
+        <span className="inline-flex h-5 items-center rounded bg-primary px-1.5 font-condensed text-[0.6875rem] font-bold tracking-[0.12em] text-primary-foreground uppercase">
+          {step}
+        </span>
+      ) : null}
       <h2
         id="outcome-heading"
         ref={ref}
@@ -460,7 +463,8 @@ const CHOICE_TONE = {
   },
 } as const;
 
-function ChoiceButton({
+/** One outcome choice: an icon mark, what it is, and what it does. */
+export function ChoiceButton({
   tone,
   icon,
   title,

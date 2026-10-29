@@ -9,13 +9,10 @@ import { AdminReminderDetailPageClient } from "./_components/admin-reminder-deta
 export const unstable_instant = false;
 
 /**
- * Admin Reminder Detail Page (Phase 7D)
- *
- * Admin-only surface that lets tenant admins resolve a reminder on behalf
- * of the assigned closer. Mirrors the closer-facing detail page layout but:
+ * The admin twin of the closer's task page: any reminder in the tenant,
+ * the same task pane with no queue, and an "Acting for {closer}" payment.
  *   - `requireRole(["tenant_master", "tenant_admin"])` — admin-only
  *   - Uses `getAdminReminderDetail` (any reminder within the tenant)
- *   - Action bar shows an "Acting on behalf of {closer}" callout
  *
  * Payments logged here flow through the same
  * `logReminderPayment` mutation as the closer path; the backend detects

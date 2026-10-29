@@ -224,6 +224,7 @@ import type * as lib_staleOpportunityNudges from "../lib/staleOpportunityNudges.
 import type * as lib_statusTransitions from "../lib/statusTransitions.js";
 import type * as lib_syncLeadMeetingNames from "../lib/syncLeadMeetingNames.js";
 import type * as lib_syncOpportunityMeetingsAssignedCloser from "../lib/syncOpportunityMeetingsAssignedCloser.js";
+import type * as lib_taskDealContext from "../lib/taskDealContext.js";
 import type * as lib_teamMembers from "../lib/teamMembers.js";
 import type * as lib_tenantBusinessDay from "../lib/tenantBusinessDay.js";
 import type * as lib_tenantCalendlyConnection from "../lib/tenantCalendlyConnection.js";
@@ -652,6 +653,7 @@ declare const fullApi: ApiFromModules<{
   "lib/statusTransitions": typeof lib_statusTransitions;
   "lib/syncLeadMeetingNames": typeof lib_syncLeadMeetingNames;
   "lib/syncOpportunityMeetingsAssignedCloser": typeof lib_syncOpportunityMeetingsAssignedCloser;
+  "lib/taskDealContext": typeof lib_taskDealContext;
   "lib/teamMembers": typeof lib_teamMembers;
   "lib/tenantBusinessDay": typeof lib_tenantBusinessDay;
   "lib/tenantCalendlyConnection": typeof lib_tenantCalendlyConnection;

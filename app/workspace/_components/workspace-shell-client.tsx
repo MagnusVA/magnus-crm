@@ -57,7 +57,10 @@ import {
   type LucideIcon,
   UsersIcon,
 } from "lucide-react";
-import { WorkspaceBreadcrumbs } from "@/components/workspace-breadcrumbs";
+import {
+  BreadcrumbTrailProvider,
+  WorkspaceBreadcrumbs,
+} from "@/components/workspace-breadcrumbs";
 import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
 import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -543,25 +546,27 @@ function WorkspaceShellClientInner({
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset>
-        <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-card px-4">
-          <SidebarTrigger aria-label="Toggle sidebar" />
-          <Separator orientation="vertical" className="h-4" />
-          <WorkspaceBreadcrumbs />
-          <div className="ml-auto flex items-center gap-2">
-            <CommandPaletteTrigger />
-            <ThemeToggle />
-            <NotificationCenter />
+      <BreadcrumbTrailProvider>
+        <SidebarInset>
+          <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-card px-4">
+            <SidebarTrigger aria-label="Toggle sidebar" />
+            <Separator orientation="vertical" className="h-4" />
+            <WorkspaceBreadcrumbs />
+            <div className="ml-auto flex items-center gap-2">
+              <CommandPaletteTrigger />
+              <ThemeToggle />
+              <NotificationCenter />
+            </div>
+          </header>
+          <div
+            id="main-content"
+            className="flex-1 overflow-auto px-6 py-5"
+            tabIndex={-1}
+          >
+            {children}
           </div>
-        </header>
-        <div
-          id="main-content"
-          className="flex-1 overflow-auto px-6 py-5"
-          tabIndex={-1}
-        >
-          {children}
-        </div>
-      </SidebarInset>
+        </SidebarInset>
+      </BreadcrumbTrailProvider>
 
       {/* Command palette — global overlay */}
       <CommandPalette billingOpsEnabled={billingOpsEnabled} />

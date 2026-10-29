@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 /**
- * Route-level error boundary for the reminder detail page.
+ * Route-level error boundary for the task page.
  *
  * App Router requires error boundaries to be client components — they need
  * the `retry` function passed to them. On mount we report the error to
@@ -31,7 +31,7 @@ export default function ReminderDetailError({
 				<AlertCircleIcon />
 				<AlertTitle>Something went wrong</AlertTitle>
 				<AlertDescription>
-					We couldn&apos;t load this reminder. The error has been reported.
+					We couldn&apos;t load this task. The error has been reported.
 				</AlertDescription>
 			</Alert>
 			<Button onClick={() => retry()}>Try again</Button>

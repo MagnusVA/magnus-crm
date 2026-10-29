@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
@@ -14,7 +14,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,25 +37,21 @@ import {
 import { FieldGroup } from "@/components/ui/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
+import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
+import { ProofFileInput } from "@/app/workspace/closer/meetings/_components/proof-file-input";
 import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Max proof file size: 10 MB (Convex free-tier friendly + server enforces). */
+/** Max proof file size: 10 MB (the server enforces it too). */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const VALID_FILE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "application/pdf",
-];
+const VALID_FILE_TYPES = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
 
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
 const PAYMENT_TYPES = ["monthly", "split", "pif", "deposit"] as const;
@@ -90,10 +85,7 @@ const paymentFormSchema = z.object({
   proofFile: z
     .instanceof(File)
     .optional()
-    .refine(
-      (file) => !file || file.size <= MAX_FILE_SIZE,
-      "File size must be less than 10 MB",
-    )
+    .refine((file) => !file || file.size <= MAX_FILE_SIZE, "File size must be less than 10 MB")
     .refine(
       (file) => !file || VALID_FILE_TYPES.includes(file.type),
       "Only images (JPEG, PNG, GIF) and PDFs are allowed",
@@ -108,17 +100,32 @@ type PaymentFormValues = z.infer<typeof paymentFormSchema>;
 
 type Props = {
   followUpId: Id<"followUps">;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  /** Named in the title so the closer knows whose deal closes. */
+  leadName: string | null;
+  /** The deal's booked program, preselected when it is an active program. */
+  defaultProgramId: Id<"tenantPrograms"> | null;
+  /** On the admin twin, the closer the payment is credited to. */
+  actingFor?: string | null;
 };
 
 /**
- * Reminder Payment Dialog
- *
- * Parallel to the meeting payment dialog but hooked into the reminder
- * mutation. Backend resolves `meetingId` from the follow-up.
+ * Won · log payment, from a task. The meeting page's payment dialog, wired
+ * to `logReminderPayment`: the backend finds the call from the task, closes
+ * the deal as won and completes the task. An admin's payment is credited to
+ * the task's closer.
  */
-export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
-  const [open, setOpen] = useState(false);
+export function ReminderPaymentDialog({
+  followUpId,
+  open,
+  onOpenChange,
+  onSuccess,
+  leadName,
+  defaultProgramId,
+  actingFor,
+}: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -126,21 +133,45 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
     includeArchived: false,
   });
 
+  // The booked program, only while it is an active program.
+  const bookedProgram = defaultProgramId
+    ? programs?.find((program) => program._id === defaultProgramId)
+    : undefined;
+  const bookedCurrency = CURRENCIES.find(
+    (currency) => currency === bookedProgram?.defaultCurrency?.toUpperCase(),
+  );
+
   const form = useForm({
     resolver: standardSchemaResolver(paymentFormSchema),
     defaultValues: {
       amount: "",
-      currency: "USD" as const,
+      currency: "USD",
       programId: "",
       paymentType: undefined,
       proofFile: undefined,
     },
   });
 
+  const resetForm = () => {
+    form.reset({
+      amount: "",
+      currency: bookedCurrency ?? "USD",
+      programId: bookedProgram?._id ?? "",
+      paymentType: undefined,
+      proofFile: undefined,
+    });
+    setSubmitError(null);
+  };
+
+  // Programs load after the form, so the booked program fills in once they do.
+  useEffect(() => {
+    if (!bookedProgram || form.getValues("programId") !== "") return;
+    form.setValue("programId", bookedProgram._id);
+    if (bookedCurrency) form.setValue("currency", bookedCurrency);
+  }, [bookedProgram, bookedCurrency, form]);
+
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
-  const logReminderPayment = useMutation(
-    api.closer.reminderOutcomes.logReminderPayment,
-  );
+  const logReminderPayment = useMutation(api.closer.reminderOutcomes.logReminderPayment);
 
   const onSubmit = async (values: PaymentFormValues) => {
     let uploadHttpStatus: number | undefined;
@@ -163,9 +194,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
           uploadHttpStatus = uploadResponse.status;
           throw new Error("Failed to upload proof file");
         }
-        const uploadData = (await uploadResponse.json()) as {
-          storageId?: string;
-        };
+        const uploadData = (await uploadResponse.json()) as { storageId?: string };
         if (!uploadData.storageId) {
           throw new Error("File upload returned invalid storage ID");
         }
@@ -173,9 +202,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
       }
 
       const parsedAmount = parseFloat(values.amount);
-      const selectedProgram = programs.find(
-        (program) => program._id === values.programId,
-      );
+      const selectedProgram = programs.find((program) => program._id === values.programId);
       const paymentId = await logReminderPayment({
         followUpId,
         amount: parsedAmount,
@@ -196,14 +223,13 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
         has_proof: Boolean(proofFileId),
       });
 
-      toast.success("Payment logged successfully");
-      setOpen(false);
-      form.reset();
+      toast.success("Payment logged. The deal is won.");
+      onOpenChange(false);
+      resetForm();
       onSuccess();
     } catch (err: unknown) {
       reportClientError(err, { flow: "reminder_payment_log", httpStatus: uploadHttpStatus });
-      const message =
-        getErrorMessage(err, "Failed to log payment. Please try again.");
+      const message = getErrorMessage(err, "Failed to log payment. Please try again.");
       setSubmitError(message);
       toast.error(message);
     } finally {
@@ -220,24 +246,17 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
       open={open}
       onOpenChange={(value) => {
         if (isSubmitting) return;
-        setOpen(value);
-        if (!value) {
-          form.reset();
-          setSubmitError(null);
-        }
+        onOpenChange(value);
+        if (!value) resetForm();
       }}
     >
-      <DialogTrigger asChild>
-        <Button size="lg">
-          <BanknoteIcon data-icon="inline-start" />
-          Log Payment
-        </Button>
-      </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Log payment</DialogTitle>
+          <DialogTitle>{leadName ? `Log ${leadName}’s payment` : "Log payment"}</DialogTitle>
           <DialogDescription>
-            Record a payment to mark this opportunity as won.
+            {actingFor
+              ? `Logging it closes the deal as won, credits ${actingFor}, and closes this task.`
+              : "Logging it closes the deal as won and closes this task."}
           </DialogDescription>
         </DialogHeader>
 
@@ -255,10 +274,11 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                     <FormControl>
                       <Input
                         type="number"
-                        step="0.01"
-                        min="0"
                         inputMode="decimal"
+                        step="0.01"
                         placeholder="299.99"
+                        min="0"
+                        className="[appearance:textfield] tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         disabled={isSubmitting}
                         {...field}
                       />
@@ -288,9 +308,9 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                       </FormControl>
                       <SelectContent>
                         <SelectGroup>
-                          {CURRENCIES.map((c) => (
-                            <SelectItem key={c} value={c}>
-                              {c}
+                          {CURRENCIES.map((currency) => (
+                            <SelectItem key={currency} value={currency}>
+                              {currency}
                             </SelectItem>
                           ))}
                         </SelectGroup>
@@ -317,7 +337,9 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                       />
                     </FormControl>
                     <FormDescription>
-                      Attribute this payment to the correct tenant program.
+                      {bookedProgram && field.value === bookedProgram._id
+                        ? "The program this deal was booked for."
+                        : "The program this payment is for."}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -330,7 +352,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Payment Type <span className="text-destructive">*</span>
+                      Payment type <span className="text-destructive">*</span>
                     </FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -352,9 +374,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <FormDescription>
-                      Choose how the revenue should be classified.
-                    </FormDescription>
+                    <FormDescription>Choose how the revenue should be classified.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -363,29 +383,20 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
               <FormField
                 control={form.control}
                 name="proofFile"
-                render={({ field: { value, onChange, ...fieldProps } }) => (
+                render={({ field: { value, onChange, onBlur, name } }) => (
                   <FormItem>
-                    <FormLabel>Proof File</FormLabel>
+                    <FormLabel>Proof file</FormLabel>
                     <FormControl>
-                      <Input
-                        type="file"
+                      <ProofFileInput
+                        value={value}
+                        onChange={onChange}
+                        onBlur={onBlur}
+                        name={name}
                         accept={VALID_FILE_TYPES.join(",")}
                         disabled={isSubmitting}
-                        onChange={(e) => onChange(e.target.files?.[0])}
-                        {...fieldProps}
                       />
                     </FormControl>
-                    {value && (
-                      <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                        <UploadIcon className="size-3 shrink-0" />
-                        <span className="truncate">
-                          {value.name} ({(value.size / 1024).toFixed(1)} KB)
-                        </span>
-                      </div>
-                    )}
-                    <FormDescription>
-                      Max 10 MB. Allowed: PNG, JPEG, GIF, PDF.
-                    </FormDescription>
+                    <FormDescription>Max 10 MB. Allowed: PNG, JPEG, GIF, PDF</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -396,8 +407,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
               <Alert variant="destructive" className="mt-4">
                 <AlertCircleIcon />
                 <AlertDescription>
-                  No active programs are available. Create one before logging a
-                  payment.
+                  No active programs are available. Create one before logging a payment.
                 </AlertDescription>
               </Alert>
             )}
@@ -414,9 +424,8 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                 type="button"
                 variant="ghost"
                 onClick={() => {
-                  setOpen(false);
-                  form.reset();
-                  setSubmitError(null);
+                  onOpenChange(false);
+                  resetForm();
                 }}
                 disabled={isSubmitting}
               >
@@ -426,10 +435,10 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
                 {isSubmitting ? (
                   <>
                     <Spinner data-icon="inline-start" />
-                    Logging...
+                    Logging…
                   </>
                 ) : (
-                  "Log Payment"
+                  "Log payment and close as won"
                 )}
               </Button>
             </DialogFooter>
