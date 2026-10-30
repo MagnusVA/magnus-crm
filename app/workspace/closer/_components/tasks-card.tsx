@@ -15,6 +15,7 @@ import {
   type CloserTask,
   type CloserTasks,
 } from "./task-list";
+import { ScrollMoreHint } from "./scroll-more-hint";
 import { useExpandInPlace } from "./use-expand-in-place";
 
 /** At most this many rows show; "Show N more" scrolls the rest inside the card. */
@@ -58,7 +59,7 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
   const today = businessDateForInstant(now, setting);
   const { end: endOfToday } = businessDayRange(today, setting);
   const { overdue, today: dueToday, later, waiting } = groupCloserTasks(tasks, now, endOfToday);
-  const { expanded, toggle, listProps } = useExpandInPlace<HTMLDivElement>(
+  const { expanded, toggle, listProps, hintProps } = useExpandInPlace<HTMLDivElement>(
     overdue.length + dueToday.length + waiting.length > MAX_ROWS,
   );
 
@@ -108,30 +109,33 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
         partial={tasks.isPartial}
         meta={meta || undefined}
       />
-      <div {...listProps}>
-        {groups.map((group) =>
-          group.total === 0 ? null : (
-            <TaskGroup
-              key={group.key}
-              id={`tasks-${group.key}`}
-              group={group.key}
-              label={group.label}
-              total={group.total}
-            >
-              {group.tasks.length > 0
-                ? group.tasks.map((task) => (
-                    <TaskRow
-                      key={task._id}
-                      task={task}
-                      group={group.key}
-                      today={today}
-                      setting={setting}
-                    />
-                  ))
-                : null}
-            </TaskGroup>
-          ),
-        )}
+      <div className="relative">
+        <div {...listProps}>
+          {groups.map((group) =>
+            group.total === 0 ? null : (
+              <TaskGroup
+                key={group.key}
+                id={`tasks-${group.key}`}
+                group={group.key}
+                label={group.label}
+                total={group.total}
+              >
+                {group.tasks.length > 0
+                  ? group.tasks.map((task) => (
+                      <TaskRow
+                        key={task._id}
+                        task={task}
+                        group={group.key}
+                        today={today}
+                        setting={setting}
+                      />
+                    ))
+                  : null}
+              </TaskGroup>
+            ),
+          )}
+        </div>
+        <ScrollMoreHint {...hintProps} />
       </div>
       {/* Always offer the full list; reminders due after today live there. */}
       <footer className="mt-auto flex min-h-[38px] items-center justify-between gap-3 border-t px-4 text-[13px] font-medium text-muted-foreground">
