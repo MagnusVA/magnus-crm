@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext, useEffect } from "react";
 import { usePathname } from "next/navigation";
 
 export type BreadcrumbSegment = {
@@ -14,7 +15,7 @@ export type BreadcrumbSegment = {
  */
 const SEGMENT_LABELS: Record<string, string> = {
   workspace: "Home",
-  closer: "Dashboard",
+  closer: "Today",
   pipeline: "Pipeline",
   team: "Team",
   settings: "Settings",
@@ -41,8 +42,8 @@ const SEGMENT_LABELS: Record<string, string> = {
  * - `/workspace` → no breadcrumbs (it's the root)
  * - `/workspace/team` → [Home, Team]
  * - `/workspace/closer` → no breadcrumbs (it's the closer root)
- * - `/workspace/closer/pipeline` → [Dashboard, Pipeline]
- * - `/workspace/closer/meetings/[id]` → [Dashboard, Meetings, <dynamic>]
+ * - `/workspace/closer/pipeline` → [Today, Pipeline]
+ * - `/workspace/closer/meetings/[id]` → [Today, Meetings, <dynamic>]; the meeting page sets its own trail
  *
  * Dynamic segments (IDs) are returned with label "..." — the
  * consuming component should replace them with meaningful text.
@@ -57,7 +58,7 @@ export function useBreadcrumbs(): BreadcrumbSegment[] {
   if (parts.join("/") === "workspace/closer") return [];
 
   // For closer paths (/workspace/closer/*), skip the "workspace" prefix
-  // so breadcrumbs start at "Dashboard", not "Home > Dashboard"
+  // so breadcrumbs start at "Today", not "Home > Today"
   const isCloserPath =
     parts.length >= 2 && parts[0] === "workspace" && parts[1] === "closer";
   const relevantParts = isCloserPath ? parts.slice(1) : parts;
@@ -78,4 +79,28 @@ export function useBreadcrumbs(): BreadcrumbSegment[] {
   }
 
   return segments;
+}
+
+/**
+ * A page's own trail, which replaces the derived one while the page is
+ * mounted. Detail pages name themselves this way, such as
+ * "Today › Ana Paz · Call back", where the path alone has only IDs.
+ */
+export type BreadcrumbTrailStore = {
+  trail: BreadcrumbSegment[] | null;
+  setTrail: (trail: BreadcrumbSegment[] | null) => void;
+};
+
+export const BreadcrumbTrailContext = createContext<BreadcrumbTrailStore | null>(null);
+
+/** Sets the header's trail for this page; pass null while there's nothing to name. */
+export function useBreadcrumbTrail(trail: BreadcrumbSegment[] | null) {
+  const setTrail = useContext(BreadcrumbTrailContext)?.setTrail;
+  // Keyed by content, so a new array with the same crumbs doesn't re-set it.
+  const key = trail ? JSON.stringify(trail) : null;
+  useEffect(() => {
+    if (!setTrail) return;
+    setTrail(key ? (JSON.parse(key) as BreadcrumbSegment[]) : null);
+    return () => setTrail(null);
+  }, [setTrail, key]);
 }

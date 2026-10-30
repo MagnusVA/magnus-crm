@@ -4,18 +4,39 @@ This directory contains all UI components for the meeting detail page (`/workspa
 
 ## Component Hierarchy
 
+The closer's page and the admin twin (`/workspace/pipeline/meetings/[meetingId]`)
+render the same `MeetingDetailView`; `mode` picks the closer or admin mutations.
+
 ```
-[meetingId]/page.tsx (root)
-├── LeadInfoPanel — Lead context + history timeline
-├── MeetingInfoPanel — Meeting details, Zoom link, event type
-├── MeetingNotes — Editable notes with debounced auto-save
-├── PaymentLinksPanel — Copyable payment URLs from event type
-└── OutcomeActionBar
-    ├── StartMeeting button (when scheduled)
-    ├── PaymentFormDialog ← Phase 7D
-    ├── FollowUpDialog ← Phase 7E
-    └── MarkLostDialog
+MeetingDetailView (meeting-detail-view.tsx)
+├── CallStrip — the call as one board row: time, person, program, gate, status
+├── PotentialDuplicateBanner, reassignment alert, RescheduleChainBanner
+├── left column
+│   ├── OutcomeSection — the page's one next action, one of:
+│   │   ├── outcome question: "Did Ana show up?", then won, follow-up or lost
+│   │   ├── UnfinishedFollowUpBanner, while a follow-up is pending (PR #214)
+│   │   ├── NoShowActionBar, on a deal a no-show closed
+│   │   ├── RescheduleLinkDisplay, right after a reschedule link is generated
+│   │   ├── a note that the question opens 5 minutes before the call
+│   │   └── a one-line summary once the outcome is recorded
+│   │   (hosts PaymentFormDialog, FollowUpDialog, MarkLostDialog,
+│   │    MarkNoShowDialog, or the admin dialogs in admin mode)
+│   ├── PrepCard — booking answers and DM portal notes (leads before the call)
+│   ├── PaymentLinksPanel
+│   └── MeetingComments
+└── right column
+    ├── DealCard — stage track, credit line, first touch, Open deal
+    ├── PersonCard — copyable contacts, other meetings, person page
+    └── FathomLinkField
 ```
+
+"Showed up" writes nothing: no mutation marks a call held without its result,
+so it only opens step 2. Logging a payment, a follow-up, or a loss each marks
+the call held as it writes the deal. A no-show closes the deal as lost
+(`closer/noShowActions.markNoShow`); a reschedule link reopens it at Follow-up.
+
+The dialogs take `open` and `onOpenChange`; when `open` is set they render no
+trigger button, so the outcome panel owns the buttons.
 
 ## Phase 7 Components (Payment & Follow-Up)
 
@@ -123,36 +144,6 @@ This directory contains all UI components for the meeting detail page (`/workspa
 
 ---
 
-### OutcomeActionBar (Integration Point — 7F)
-
-**Purpose:** Display contextual action buttons based on meeting/opportunity status.
-
-**Props:**
-```typescript
-{
-  meeting: Doc<"meetings">;
-  opportunity: Doc<"opportunities">;
-  payments: Doc<"paymentRecords">[];
-}
-```
-
-**Rendered Actions:**
-
-| Status | Action | Component |
-|---|---|---|
-| scheduled | Join Meeting | Plain external link |
-| scheduled | Log Payment | `<PaymentFormDialog>` (7D) |
-| scheduled | Schedule Follow-up | `<FollowUpDialog>` (7E) |
-| scheduled | Mark as Lost | `<MarkLostDialog>` (Phase 6) |
-| canceled, no_show | Schedule Follow-up | `<FollowUpDialog>` (7E) |
-
-**Terminal Statuses (No Actions):**
-- `payment_received` — sale closed
-- `follow_up_scheduled` — waiting for lead to book
-- `lost` — deal lost, no follow-up available
-
----
-
 ## Backend Mutations & Queries
 
 ### Phase 7A — Payment Mutations
@@ -196,21 +187,6 @@ await api.closer.followUp.createFollowUp({
 
 ## Usage Examples
 
-### In Outcome Action Bar
-
-```tsx
-{isInProgress && (
-  <PaymentFormDialog
-    opportunityId={opportunity._id}
-    meetingId={meeting._id}
-  />
-)}
-
-{isInProgress && (
-  <FollowUpDialog opportunityId={opportunity._id} />
-)}
-```
-
 ### Standalone
 
 ```tsx
@@ -252,7 +228,7 @@ export function MyComponent() {
 
 ### FollowUpDialog
 
-- [ ] Dialog opens when clicking "Schedule Follow-up"
+- [ ] Dialog opens when clicking "Schedule follow-up"
 - [ ] Generate button triggers API call
 - [ ] Loading state shows spinner
 - [ ] On success: link displays in read-only input

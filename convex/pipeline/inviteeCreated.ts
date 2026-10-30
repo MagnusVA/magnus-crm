@@ -18,6 +18,7 @@ import { newDealStageFields } from "../opportunities/dealState";
 import { stageMoveAllowed } from "../opportunities/stages";
 import {
 	calendlyRescheduleTarget,
+	closedBookingLink,
 	followUpJoinTargets,
 	isBookingLinkTarget,
 	isWaitingOnRescheduleLink,
@@ -898,9 +899,34 @@ export const process = internalMutation({
 		);
 		const assignedCloserId = assignedCloserResolution.assignedCloserId;
 
+		// A link the CRM sent that no longer waits on the person (canceled,
+		// closed with the deal marked lost, or already used) still works in
+		// Calendly. The booking is real, so it goes the ordinary way below: it
+		// joins an eligible Follow-up deal or starts a new one, and the host,
+		// the closer whose calendar the link is, takes it. It never reopens a
+		// lost deal. A link with no provenance still blocks.
+		const closedLink =
+			utmParams?.utm_source === "ptdom" && utmParams.utm_campaign
+				? await closedBookingLink(ctx, {
+						tenantId,
+						utmMedium: utmParams.utm_medium,
+						utmCampaign: utmParams.utm_campaign,
+						utmContent: utmParams.utm_content,
+					})
+				: null;
+		if (closedLink) {
+			log.info("pipeline.invitee_created.closed_link_routed", {
+				tenantId,
+				rawEventId,
+				opportunityId: closedLink.opportunityId,
+				followUpId: closedLink.followUpId,
+				linkKind: closedLink.kind,
+			});
+		}
+
 		// Resolve the opportunity before rejecting the host: a follow-up or
 		// reschedule can retain the opportunity's already assigned closer.
-		if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign) {
+		if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign && !closedLink) {
 
 			const targetOpportunityId = ctx.db.normalizeId("opportunities", utmParams.utm_campaign);
       if (!targetOpportunityId) blockBooking("invalid_booking_link");

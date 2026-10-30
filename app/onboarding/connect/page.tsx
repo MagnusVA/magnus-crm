@@ -301,7 +301,7 @@ function ConnectCard({
         {/* Header */}
         <div className="border-b border-border px-8 pb-8 pt-10 text-center">
           <div
-            className="mx-auto flex size-16 items-center justify-center rounded-full border-2 border-primary/25 bg-primary/10 text-2xl font-semibold text-primary"
+            className="mx-auto flex size-16 items-center justify-center rounded-full border-2 border-primary/25 bg-primary/10 text-2xl font-semibold text-primary-ink"
             aria-hidden="true"
           >
             {initial}
@@ -320,7 +320,7 @@ function ConnectCard({
           {calendlyConnected ? (
             <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/10 p-3.5">
               <CheckCircle2Icon
-                className="mt-0.5 size-4 shrink-0 text-primary"
+                className="mt-0.5 size-4 shrink-0 text-primary-ink"
                 aria-hidden="true"
               />
               <div className="min-w-0">
@@ -387,7 +387,7 @@ function ConnectCard({
           {alreadyRedeemed ? (
             <div className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3.5">
               <CheckCircle2Icon
-                className="mt-0.5 size-4 shrink-0 text-primary"
+                className="mt-0.5 size-4 shrink-0 text-primary-ink"
                 aria-hidden="true"
               />
               <div className="min-w-0">
@@ -414,7 +414,7 @@ function ConnectCard({
                   style={{ animationDelay: `${200 + idx * 80}ms` }}
                 >
                   <Icon
-                    className="size-4 shrink-0 text-primary"
+                    className="size-4 shrink-0 text-primary-ink"
                     aria-hidden="true"
                   />
                   <span className="min-w-0">{label}</span>

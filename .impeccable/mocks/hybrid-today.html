@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnus · Today (Departure Board × category standard)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#141A28;--navy2:#1D2536;--navy3:#283247;--bline:rgba(242,244,247,.08);--lime:#84B135;--lime-ink:#1F2E0A;--paper:#F5F6F8;--card:#FFFFFF;--ink:#141A28;--ink2:#4F596B;--rule:#E3E7ED;--dim:#9AA4B6;--amber:#F5B700;--amber-ink:#7A5200;--amber-bg:#FFF4CC;--red:#D93A40;--red-bg:#FDE2E3;--teal:#7CCBC6;
+--st-booked:#4C6FD0;--st-held:#8E99AC;--st-fu:#2A9D95;--st-won:#84B135;--st-lost:#D93A40}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/1.45 Barlow,sans-serif;color:var(--ink);background:var(--paper);display:grid;grid-template-columns:232px 1fr;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0}
+svg{flex:none}
+/* sidebar */
+.rail{background:var(--navy);color:#E6EAF1;display:flex;flex-direction:column;padding:16px 12px}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 20px}
+.brand b{font:600 22px/1 "Barlow Condensed";letter-spacing:.01em}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:7px;color:#AEB8CA;text-decoration:none;font-weight:500;font-size:14px}
+.nav a.on{background:rgba(132,177,53,.16);color:#fff}.nav a.on svg{color:var(--lime)}
+.nav a em{margin-left:auto;font:600 12px/18px Barlow;font-style:normal;background:var(--amber);color:var(--navy);border-radius:9px;padding:0 6px}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px 8px 4px;border-top:1px solid var(--bline);font-weight:500}
+.av{width:30px;height:30px;border-radius:50%;background:var(--lime);color:var(--navy);display:grid;place-items:center;font:700 13px "Barlow Condensed"}
+.me small{display:block;color:#98A3B6;font-size:12px;font-weight:400}
+/* top bar */
+.app{display:grid;grid-template-rows:52px 1fr;min-width:0}
+.bar{display:flex;align-items:center;gap:12px;padding:0 24px;background:var(--card);border-bottom:1px solid var(--rule)}
+.crumb b{font-weight:600}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;width:280px;height:34px;padding:0 10px;border:1px solid var(--rule);border-radius:8px;color:var(--ink2);background:var(--paper)}
+.search span{flex:1}kbd{font:500 11px Barlow;border:1px solid var(--rule);border-radius:4px;padding:0 5px;background:#fff}
+.icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--rule);border-radius:8px;color:var(--ink2);background:#fff}
+main{padding:18px 24px 24px;display:grid;grid-template-columns:1fr 384px;grid-template-rows:auto 1fr;gap:14px 20px;min-height:0}
+.head{grid-column:1/-1;display:flex;align-items:flex-end;justify-content:space-between}
+h1{font:600 26px/1.1 Barlow;letter-spacing:-.01em}
+.head p{color:var(--ink2);margin-top:4px}
+.clock{text-align:right}.clock b{font:600 26px/1 "Barlow Condensed";display:block}.clock small{color:var(--ink2);font-size:12px}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0;min-height:0}
+/* signature: compact departures board */
+.board{background:var(--navy);color:#EEF1F6;border-radius:10px;overflow:hidden}
+.bh{display:flex;align-items:center;gap:12px;height:46px;padding:0 18px}
+.bh h2{font:600 19px/1 "Barlow Condensed";letter-spacing:.02em}.bh p{color:var(--dim);font-size:13px}
+.tabs{margin-left:auto;display:flex;background:var(--navy2);border-radius:7px;padding:2px}
+.tabs button{background:none;color:var(--dim);height:26px;padding:0 10px;border-radius:5px;font-weight:500;font-size:13px}.tabs .on{background:var(--navy3);color:#fff}
+.row{display:grid;grid-template-columns:92px 1.4fr 1fr 84px 168px;align-items:center;column-gap:12px;padding:0 18px;height:44px;border-top:1px solid var(--bline)}
+.row.hd{height:28px;font:600 11px "Barlow Condensed";letter-spacing:.14em;color:var(--dim)}
+.t{font:600 20px/1 "Barlow Condensed"}.t i{font-style:normal;font-size:12px;margin-left:3px;font-weight:500;color:var(--dim)}
+.p{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.p small{font-weight:400;color:var(--dim);margin-left:6px;font-size:13px}
+.g{color:#C5CDDA}
+.s{font:700 15px/1 "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.s small{font:500 13px Barlow;letter-spacing:0;text-transform:none}
+.held .t,.held .p,.held .g{color:#8E99AC}.held .s{color:#B9C2D0}.fu{color:var(--teal)}
+.row.boarding{background:var(--lime);color:var(--navy);height:56px;border:0}
+.boarding .t{font-size:26px}.boarding .t i,.boarding .p small,.boarding .g{color:var(--lime-ink)}.boarding .p{font-size:15px}
+.join{display:inline-flex;align-items:center;gap:6px;background:var(--navy);color:#fff;height:32px;padding:0 12px;border-radius:7px;font-weight:600}
+.count{font:700 22px/1 "Barlow Condensed"}.count small{font:600 12px "Barlow Condensed";margin-left:1px}
+/* standard cards */
+.card{background:var(--card);border:1px solid var(--rule);border-radius:10px}
+.ch{display:flex;align-items:center;gap:8px;height:46px;padding:0 16px;border-bottom:1px solid var(--rule)}
+.ch h3{font:600 15px Barlow}.ch .meta{color:var(--ink2);font-size:13px}.ch .right{margin-left:auto}
+.seg{display:flex;background:var(--paper);border:1px solid var(--rule);border-radius:7px;padding:2px}
+.seg button{background:none;height:24px;padding:0 10px;border-radius:5px;color:var(--ink2);font-weight:500;font-size:13px}.seg .on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(20,26,40,.12)}
+.n{font:600 12px/18px Barlow;border-radius:9px;padding:0 7px}.n.am{background:var(--amber);color:var(--navy)}.n.gr{background:#E9EDF2}
+/* performance */
+.perf{display:flex;flex-direction:column}
+.kpis{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr}
+.kpi{padding:14px 16px 12px;border-left:1px solid var(--rule)}.kpi:first-child{border-left:0}
+.kpi .l{color:var(--ink2);font-weight:500}
+.kpi b{display:block;font:600 32px/1.05 "Barlow Condensed";margin:4px 0 2px}
+.kpi small{color:var(--ink2);font-size:13px}.up{color:#3F6212;font-weight:600}
+.stages{border-top:1px solid var(--rule);padding:12px 16px 14px}
+.sh{display:flex;justify-content:space-between;color:var(--ink2);font-weight:500;margin-bottom:8px}.sh span{font-size:13px}
+.bar2{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px}
+.leg{display:flex;gap:18px;margin-top:10px;font-size:13px;color:var(--ink2)}.leg b{color:var(--ink);font-weight:600;margin-left:4px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:0}
+/* needs outcome */
+.it{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--rule)}.ch+.it{border-top:0}
+.nm{font-weight:600}.sub{display:block;color:var(--ink2);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font:700 11px/18px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:0 6px;display:inline-block;white-space:nowrap}
+.chip.nr{background:var(--amber-bg);color:var(--amber-ink)}.chip.ty{background:#E9EDF2;color:var(--ink2)}.chip.ns{background:var(--red-bg);color:#8E1B20}
+.rec{background:var(--lime);color:var(--navy);height:32px;padding:0 12px;border-radius:7px;font-weight:600;white-space:nowrap}
+/* tasks: compact two-line rows */
+.tasks{display:flex;flex-direction:column}
+.grp{display:flex;align-items:center;gap:6px;height:26px;padding:0 16px;font:600 11px "Barlow Condensed";letter-spacing:.14em;color:var(--ink2);text-transform:uppercase;background:var(--paper);border-top:1px solid var(--rule)}.ch+.grp{border-top:0}
+.grp.od{color:#B42328}
+.task{display:grid;grid-template-columns:24px 1fr auto;column-gap:10px;align-items:center;padding:7px 16px;border-top:1px solid var(--rule)}.grp+.task{border-top:0}
+.chk{width:24px;height:24px;display:grid;place-items:center;background:none;color:var(--ink2)}.chk span{width:16px;height:16px;border:1.5px solid #B8C0CC;border-radius:50%}
+.tl{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tl .nm{font-weight:600}.tl .nt{color:var(--ink2)}
+.tc{min-width:0;display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:12px;white-space:nowrap}
+.task .due{grid-column:3;grid-row:1;justify-self:end}.task .act{grid-column:3;grid-row:2;justify-self:end;margin-top:3px}
+.due{font:600 14px "Barlow Condensed";letter-spacing:.02em;color:var(--ink2);white-space:nowrap}.due.late{color:#B42328}
+.act{height:24px;padding:0 8px;border-radius:6px;border:1px solid var(--rule);background:#fff;color:var(--ink);font-weight:600;font-size:12px;white-space:nowrap}
+.act.pri{background:var(--lime);border-color:var(--lime);color:var(--navy)}
+.task>.chk{grid-row:1/3}
+.foot{display:flex;justify-content:space-between;align-items:center;height:38px;padding:0 16px;border-top:1px solid var(--rule);color:var(--ink2);font-weight:500;font-size:13px}
+.foot a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+</style></head><body>
+<aside class="rail">
+ <div class="brand"><svg width="24" height="24" viewBox="200 255 390 340" aria-hidden="true"><path fill="#84B135" d="M394.1 566.9c0 13.9 19.1 18 24.7 5.2L473 449.8h-78.9V566.9zM370.4 320.2l-42.1 64.7c-5.6 8.6-18.2 8.5-23.6-.2L235.3 273c-6.8-11-23.9-6.2-23.9 6.8v154c0 8.8 7.2 16 16 16h140.1h26.5V327.2c0-12.8-16.7-17.8-23.6-7zM550.3 275.2L473 449.8h86c8.8 0 16-7.2 16-16V280.4c0-14-19.1-18-24.7-5.2z"/></svg><b>Magnus</b></div>
+ <nav class="nav">
+  <a class="on" href="#" aria-current="page"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Today<em>3</em></a>
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7M12 7v4M16 7v10"/></svg>My Pipeline</a>
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 12 0v1M16 4a4 4 0 0 1 0 8M22 21v-1a6 6 0 0 0-4-5.6"/></svg>Leads &amp; Customers</a>
+ </nav>
+ <div class="me"><div class="av">DR</div><div>Daniela Ruiz<small>Closer</small></div></div>
+</aside>
+<div class="app">
+ <header class="bar"><span class="crumb"><b>Today</b></span>
+  <div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search people and deals</span><kbd>⌘K</kbd></div>
+  <span class="icon" aria-label="Notifications"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></span>
+ </header>
+ <main>
+  <div class="head"><div><h1>Today</h1><p>Thursday, Oct 29 · Days run 1:00 am–1:00 am, America/Tegucigalpa</p></div>
+   <div class="clock"><b>10:26 AM</b><small>5 of 7 slots booked</small></div></div>
+  <div class="col">
+   <section class="board" aria-label="Today's calls">
+    <div class="bh"><h2>Today's calls</h2><p>5 calls · 1 held · 4 to go</p>
+     <div class="tabs" role="tablist"><button class="on" role="tab" aria-selected="true">Today</button><button role="tab">Tomorrow</button><button role="tab">This week</button></div></div>
+    <div class="row hd"><span>TIME</span><span>PERSON</span><span>PROGRAM</span><span>GATE</span><span>STATUS</span></div>
+    <div class="row held"><span class="t">9:00<i>AM</i></span><span class="p">Marco Vélez<small>45 min</small></span><span class="g">Accelerator 90</span><span class="g">Zoom</span><span class="s">Held <small style="color:var(--lime);font-weight:600">Won · $3,500</small></span></div>
+    <div class="row boarding"><span class="t">10:30<i>AM</i></span><span class="p">Ana Lucía Paz<small>45 min · $6,000</small></span><span class="g" style="font-weight:600">Elite Mentorship</span>
+     <span><button class="join">Join<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg></button></span>
+     <span class="s">Boarding <span class="count">4<small>MIN</small></span></span></div>
+    <div class="row"><span class="t">1:00<i>PM</i></span><span class="p">Rodrigo Salas<small>45 min</small></span><span class="g">Elite Mentorship</span><span class="g">Zoom</span><span class="s">On time</span></div>
+    <div class="row"><span class="t">3:30<i>PM</i></span><span class="p">Camila Ortega<small>30 min</small></span><span class="g">Accelerator 90</span><span class="g">Zoom</span><span class="s fu">Follow-up</span></div>
+    <div class="row"><span class="t">5:00<i>PM</i></span><span class="p">Luis Fernández<small>45 min</small></span><span class="g">Elite Mentorship</span><span class="g">Zoom</span><span class="s">On time</span></div>
+   </section>
+   <section class="card perf" aria-label="Performance">
+    <div class="ch"><h3>Performance</h3><span class="meta">Oct 26 – Nov 1</span>
+     <div class="seg right" role="tablist"><button role="tab">Day</button><button class="on" role="tab" aria-selected="true">Week</button><button role="tab">Month</button></div></div>
+    <div class="kpis">
+     <div class="kpi"><div class="l">Cash collected</div><b>$18,400</b><small><span class="up">+$5,500</span> vs last week · 6 payments</small></div>
+     <div class="kpi"><div class="l">Won</div><b>8</b><small>of 31 deals this week</small></div>
+     <div class="kpi"><div class="l">Close rate</div><b>32%</b><small>8 of 25 decided</small></div>
+     <div class="kpi"><div class="l">Show-up rate</div><b>78%</b><small>25 of 32 booked calls</small></div>
+    </div>
+    <div class="stages"><div class="sh">Deal stages this week<span>31 deals</span></div>
+     <div class="bar2" role="img" aria-label="Booked 12, Call held 3, Follow-up 6, Won 8, Lost 2"><i style="flex:12;background:var(--st-booked)"></i><i style="flex:3;background:var(--st-held)"></i><i style="flex:6;background:var(--st-fu)"></i><i style="flex:8;background:var(--st-won)"></i><i style="flex:2;background:var(--st-lost)"></i></div>
+     <div class="leg"><span><i class="dot" style="background:var(--st-booked)"></i>Booked<b>12</b></span><span><i class="dot" style="background:var(--st-held)"></i>Call held<b>3</b></span><span><i class="dot" style="background:var(--st-fu)"></i>Follow-up<b>6</b></span><span><i class="dot" style="background:var(--st-won)"></i>Won<b>8</b></span><span><i class="dot" style="background:var(--st-lost)"></i>Lost<b>2</b></span></div>
+    </div>
+   </section>
+  </div>
+  <div class="col">
+   <section class="card"><div class="ch"><h3>Needs outcome</h3><span class="n am">2</span><span class="meta right">From yesterday</span></div>
+    <div class="it"><div><span class="nm">Jorge Méndez</span> <span class="chip nr">Not recorded</span><span class="sub">Accelerator 90 · Oct 28, 4:30 PM</span></div><button class="rec">Record outcome</button></div>
+    <div class="it"><div><span class="nm">Sofía Castro</span> <span class="chip nr">Not recorded</span><span class="sub">Elite Mentorship · Oct 28, 6:00 PM</span></div><button class="rec">Record outcome</button></div>
+   </section>
+   <section class="card tasks"><div class="ch"><h3>Tasks</h3><span class="n gr">17</span><span class="meta right">1 overdue · 2 today</span></div>
+    <div class="grp od">Overdue · 1</div>
+    <div class="task"><button class="chk" aria-label="Mark done"><span></span></button>
+     <div class="tl"><span class="nm">Patricia Gómez</span> <span class="nt">· Payment plan call-back</span></div>
+     <div class="tc">Elite Mentorship · Follow-up</div>
+     <span class="due late">Yesterday</span><button class="act pri">Call</button></div>
+    <div class="grp">Today · 2</div>
+    <div class="task"><button class="chk" aria-label="Mark done"><span></span></button>
+     <div class="tl"><span class="nm">Diego Herrera</span> <span class="nt">· Confirm the deposit</span></div>
+     <div class="tc">Elite Mentorship · Follow-up</div>
+     <span class="due">2:00 PM</span><button class="act">Call</button></div>
+    <div class="task"><button class="chk" aria-label="Mark done"><span></span></button>
+     <div class="tl"><span class="nm">Valeria Núñez</span> <span class="nt">· Offer a new time</span></div>
+     <div class="tc"><span class="chip ns">No-show</span>Accelerator 90</div>
+     <span class="due">6:00 PM</span><button class="act">Text</button></div>
+    <div class="grp">Waiting on the lead · 1</div>
+    <div class="task"><button class="chk" aria-label="Mark done"><span></span></button>
+     <div class="tl"><span class="nm">Héctor Ramos</span> <span class="nt">· Link not booked yet</span></div>
+     <div class="tc">Accelerator 90 · Follow-up</div>
+     <span class="due">Sent Oct 27</span><button class="act">Copy link</button></div>
+    <div class="foot"><span>13 more this week</span><a href="#">All tasks</a></div>
+   </section>
+  </div>
+ </main>
+</div>
+</body></html>

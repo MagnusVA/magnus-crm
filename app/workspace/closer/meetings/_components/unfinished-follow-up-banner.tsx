@@ -3,12 +3,10 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { format } from "date-fns";
-import { AlertCircleIcon, CheckIcon, CopyIcon } from "lucide-react";
+import { CalendarClockIcon, CheckIcon, CopyIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { ActiveFollowUpSummary } from "@/convex/lib/activeFollowUp";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   InputGroup,
@@ -19,37 +17,27 @@ import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
 
 type UnfinishedFollowUpBannerProps = {
-  meeting: Pick<Doc<"meetings">, "_id" | "status">;
-  opportunityId: Id<"opportunities">;
   followUp: ActiveFollowUpSummary;
   mode: "closer" | "admin";
   onResolved?: () => Promise<void>;
 };
 
 /**
- * A pending follow-up on a deal that still waits for its call's result:
- * usually a scheduling link whose dialog closed before Done. While it is
- * pending, the meeting's outcome buttons stay hidden, so this shows it and
- * either finishes it (the deal moves to Follow-up) or cancels it (the
- * buttons come back).
+ * A pending follow-up on a deal that still waits for its call's result.
+ * Generating a link or setting a task moves the deal to Follow-up at once,
+ * so this is a fallback for one left behind before that change, or another
+ * odd state. While it is pending it takes the outcome question's place on
+ * the meeting page; cancelling it brings the question back.
  */
 export function UnfinishedFollowUpBanner({
-  meeting,
-  opportunityId,
   followUp,
   mode,
   onResolved,
 }: UnfinishedFollowUpBannerProps) {
-  const [pendingAction, setPendingAction] = useState<"finish" | "cancel" | null>(
-    null,
-  );
+  const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const closerConfirm = useMutation(
-    api.closer.followUpMutations.confirmFollowUpScheduled,
-  );
-  const adminConfirm = useMutation(api.admin.meetingActions.adminConfirmFollowUp);
   const closerCancel = useMutation(
     api.closer.followUpMutations.cancelPendingFollowUp,
   );
@@ -57,35 +45,26 @@ export function UnfinishedFollowUpBanner({
     api.admin.meetingActions.adminCancelPendingFollowUp,
   );
 
-  const run = async (action: "finish" | "cancel") => {
-    setPendingAction(action);
+  const isLink = followUp.type === "scheduling_link";
+  const cancelLabel = isLink ? "Cancel the link" : "Cancel the task";
+
+  const cancel = async () => {
+    setCanceling(true);
     setError(null);
     try {
-      if (action === "finish") {
-        const confirm = mode === "admin" ? adminConfirm : closerConfirm;
-        await confirm({
-          opportunityId,
-          meetingId: meeting.status === "scheduled" ? meeting._id : undefined,
-          followUpId: followUp._id,
-        });
-        toast.success("Deal moved to Follow-up");
-      } else {
-        const cancel = mode === "admin" ? adminCancel : closerCancel;
-        await cancel({ followUpId: followUp._id });
-        toast.success("Follow-up canceled");
-      }
+      const run = mode === "admin" ? adminCancel : closerCancel;
+      await run({ followUpId: followUp._id });
+      toast.success(isLink ? "Link canceled" : "Task canceled");
       await onResolved?.();
     } catch (err: unknown) {
       setError(
         getErrorMessage(
           err,
-          action === "finish"
-            ? "Couldn't move the deal to Follow-up."
-            : "Couldn't cancel the follow-up.",
+          isLink ? "Couldn't cancel the link." : "Couldn't cancel the task.",
         ),
       );
     } finally {
-      setPendingAction(null);
+      setCanceling(false);
     }
   };
 
@@ -98,78 +77,84 @@ export function UnfinishedFollowUpBanner({
   };
 
   const createdAt = format(new Date(followUp.createdAt), "MMM d, h:mm a");
-  const what =
-    followUp.type === "scheduling_link"
-      ? `A scheduling link was generated on ${createdAt}`
-      : `A reminder was set on ${createdAt}${
-          followUp.reminderScheduledAt
-            ? ` for ${format(new Date(followUp.reminderScheduledAt), "MMM d, h:mm a")}`
-            : ""
-        }`;
+  const what = isLink
+    ? `A scheduling link from ${createdAt} is still open`
+    : `A task set on ${createdAt}${
+        followUp.reminderScheduledAt
+          ? ` for ${format(new Date(followUp.reminderScheduledAt), "MMM d, h:mm a")}`
+          : ""
+      } is still open`;
 
   return (
-    <Alert>
-      <AlertCircleIcon />
-      <AlertTitle>Follow-up not finished</AlertTitle>
-      <AlertDescription className="flex flex-col gap-3">
-        <p>
-          {what}, but the deal never moved to Follow-up, so{" "}
-          {mode === "admin" ? "the closer\u2019s" : "the"} outcome buttons are
-          hidden. Mark the follow-up scheduled if it was sent, or cancel it to
-          record the call&apos;s outcome.
-        </p>
-        {followUp.schedulingLinkUrl ? (
-          <InputGroup>
-            <InputGroupInput
-              value={followUp.schedulingLinkUrl}
-              readOnly
-              className="font-mono text-xs"
-              aria-label="Scheduling link"
-            />
-            <InputGroupAddon align="inline-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCopy}
-                aria-label={
-                  copied ? "Link copied to clipboard" : "Copy scheduling link"
-                }
-              >
-                {copied ? (
-                  <CheckIcon data-icon="inline-start" />
-                ) : (
-                  <CopyIcon data-icon="inline-start" />
-                )}
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </InputGroupAddon>
-          </InputGroup>
-        ) : null}
-        {error ? <p className="text-destructive">{error}</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            onClick={() => void run("finish")}
-            disabled={pendingAction !== null}
+    <section
+      aria-labelledby="unfinished-follow-up-heading"
+      className="flex flex-col gap-3 rounded-xl border-2 border-warning bg-card px-4 py-3.5"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning text-board"
+        >
+          <CalendarClockIcon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2
+            id="unfinished-follow-up-heading"
+            className="text-lg leading-tight font-semibold"
           >
-            {pendingAction === "finish" ? (
-              <Spinner data-icon="inline-start" />
-            ) : null}
-            Mark follow-up scheduled
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void run("cancel")}
-            disabled={pendingAction !== null}
-          >
-            {pendingAction === "cancel" ? (
-              <Spinner data-icon="inline-start" />
-            ) : null}
-            Cancel follow-up
-          </Button>
+            Follow-up not finished
+          </h2>
+          <p className="mt-1 text-muted-foreground">
+            {what}, but the deal is still waiting for this call&apos;s
+            outcome, so the outcome question is on hold
+            {mode === "admin" ? " for the closer" : ""}. {cancelLabel} to
+            record the outcome here.
+          </p>
         </div>
-      </AlertDescription>
-    </Alert>
+      </div>
+      {followUp.schedulingLinkUrl ? (
+        <InputGroup className="sm:ml-11 sm:w-auto">
+          <InputGroupInput
+            value={followUp.schedulingLinkUrl}
+            readOnly
+            className="font-mono text-xs"
+            aria-label="Scheduling link"
+          />
+          <InputGroupAddon align="inline-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              aria-label={
+                copied ? "Link copied to clipboard" : "Copy scheduling link"
+              }
+            >
+              {copied ? (
+                <CheckIcon data-icon="inline-start" />
+              ) : (
+                <CopyIcon data-icon="inline-start" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </InputGroupAddon>
+        </InputGroup>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-danger-ink sm:ml-11">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2 sm:ml-11">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void cancel()}
+          disabled={canceling}
+        >
+          {canceling ? <Spinner data-icon="inline-start" /> : null}
+          {cancelLabel}
+        </Button>
+      </div>
+    </section>
   );
 }

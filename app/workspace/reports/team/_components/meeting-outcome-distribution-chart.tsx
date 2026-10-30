@@ -29,7 +29,7 @@ import type { OutcomeKey } from "./team-report-types";
 const OUTCOME_META: Record<OutcomeKey, { label: string; color: string }> = {
   sold: { label: "Sold", color: "var(--chart-1)" },
   lost: { label: "Lost", color: "var(--chart-2)" },
-  no_show: { label: "No Show", color: "hsl(var(--destructive))" },
+  no_show: { label: "No-show", color: "var(--destructive)" },
   canceled: { label: "Canceled", color: "var(--muted-foreground)" },
   rescheduled: { label: "Rescheduled", color: "var(--chart-3)" },
   dq: { label: "Disqualified", color: "var(--chart-5)" },

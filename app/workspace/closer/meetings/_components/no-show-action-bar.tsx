@@ -1,33 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
+import { CalendarPlusIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { getErrorMessage } from "@/lib/errors";
 
-const FollowUpDialog = dynamic(() =>
-  import("./follow-up-dialog").then((m) => ({ default: m.FollowUpDialog })),
-);
-
 type NoShowActionBarProps = {
   meeting: Doc<"meetings">;
   opportunity: Doc<"opportunities">;
   lead: Doc<"leads">;
-  onStatusChanged?: () => Promise<void>;
   onRescheduleLinkCreated?: (url: string) => void;
+  /**
+   * Opens the follow-up dialog, which the outcome section mounts: a link
+   * moves the deal to Follow-up at once, which unmounts this bar, so a
+   * dialog inside it would close before the link could be copied.
+   */
+  onScheduleFollowUp?: () => void;
+  /** Replaces the closer's actions, as the admin view does with its own. */
+  actions?: React.ReactNode;
 };
 
+// The reasons in the no-show dialog's words (mark-no-show-dialog.tsx).
 const REASON_LABELS: Record<string, string> = {
-  no_response: "Lead didn't show up",
-  late_cancel: "Lead messaged -- couldn't make it",
+  no_response: "No communication",
+  late_cancel: "Messaged \u2014 can\u2019t make it",
   technical_issues: "Technical issues",
   other: "Other reason",
 };
@@ -36,8 +39,9 @@ export function NoShowActionBar({
   meeting,
   opportunity,
   lead,
-  onStatusChanged,
   onRescheduleLinkCreated,
+  onScheduleFollowUp,
+  actions,
 }: NoShowActionBarProps) {
   const createRescheduleLink = useMutation(
     api.closer.noShowActions.createNoShowRescheduleLink,
@@ -84,51 +88,73 @@ export function NoShowActionBar({
     }
   };
 
+  const name = lead.fullName ?? lead.email ?? "The lead";
+
   return (
-    <div
-      role="region"
-      aria-label="No-show actions"
-      className="flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20"
+    // A no-show is closed, not owed: a neutral ruled card, red only on the
+    // status, and lime only on the next action (the reschedule link).
+    <section
+      aria-label="No-show"
+      className="overflow-hidden rounded-xl border bg-card text-card-foreground"
     >
-      <div className="flex items-start gap-3">
-        <AlertTriangleIcon className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div className="flex-1">
-          <p className="font-medium text-amber-900 dark:text-amber-100">
-            {lead.fullName ?? lead.email ?? "Unknown lead"} &mdash; {reasonLabel}
+      <div className="flex items-start gap-3 px-4 pt-3.5 pb-3">
+        <span
+          aria-hidden
+          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-stage-lost/12 text-stage-lost-ink"
+        >
+          <UserXIcon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg leading-tight font-semibold">
+            {name} didn&rsquo;t show up
+            <span className="font-normal text-muted-foreground"> · {reasonLabel}</span>
+          </h2>
+          <p className="mt-1 text-[0.8125rem] text-muted-foreground">
+            The deal closed as lost.{" "}
+            {actions === undefined
+              ? "Send a reschedule link to reopen it at Follow-up, or schedule a follow-up."
+              : null}
           </p>
-          <p className="mt-0.5 text-sm text-amber-700 dark:text-amber-300">
+          <p className="mt-0.5 text-[0.8125rem] text-muted-foreground tabular-nums">
             {format(new Date(meeting.scheduledAt), "MMM d, h:mm a")}
             {sourceLabel && ` \u00b7 ${sourceLabel}`}
-            {meeting.noShowNote && ` \u00b7 "${meeting.noShowNote}"`}
+            {meeting.noShowNote && ` \u00b7 \u201c${meeting.noShowNote}\u201d`}
           </p>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRequestReschedule}
-          disabled={isCreating}
-        >
-          {isCreating ? (
-            <>
-              <Spinner data-icon="inline-start" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <RefreshCwIcon data-icon="inline-start" />
-              Request Reschedule
-            </>
-          )}
-        </Button>
+      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/50 px-4 py-2.5 sm:pl-[60px]">
+        {actions !== undefined ? (
+          actions
+        ) : (
+          <>
+            <Button
+              size="sm"
+              onClick={handleRequestReschedule}
+              disabled={isCreating}
+            >
+              {isCreating ? (
+                <>
+                  <Spinner data-icon="inline-start" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <RefreshCwIcon data-icon="inline-start" />
+                  Send reschedule link
+                </>
+              )}
+            </Button>
 
-        <FollowUpDialog
-          opportunityId={opportunity._id}
-          onSuccess={onStatusChanged}
-        />
+            {onScheduleFollowUp ? (
+              <Button variant="outline" size="sm" onClick={onScheduleFollowUp}>
+                <CalendarPlusIcon data-icon="inline-start" />
+                Schedule follow-up
+              </Button>
+            ) : null}
+          </>
+        )}
       </div>
-    </div>
+    </section>
   );
 }

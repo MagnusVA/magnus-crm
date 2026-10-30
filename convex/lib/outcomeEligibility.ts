@@ -1,7 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import { canRecordMeetingOutcome, describeDealState } from "../opportunities/dealGuards";
 
-const OUTCOME_LEAD_MS = 5 * 60_000;
+/** How long before a call its outcome can be recorded. */
+export const OUTCOME_LEAD_MS = 5 * 60_000;
 
 export function isMeetingOutcomeEligible(
   meeting: Doc<"meetings">,

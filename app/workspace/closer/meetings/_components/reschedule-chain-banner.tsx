@@ -16,10 +16,13 @@ type RescheduleChainBannerProps = {
     status: MeetingStatus;
     durationMinutes: number;
   };
+  /** Where meeting pages live for this viewer, closer or admin. */
+  meetingDetailBasePath?: string;
 };
 
 export function RescheduleChainBanner({
   rescheduledFromMeeting,
+  meetingDetailBasePath = "/workspace/closer/meetings",
 }: RescheduleChainBannerProps) {
   const router = useRouter();
   const status = meetingStatusConfig[
@@ -29,14 +32,14 @@ export function RescheduleChainBanner({
   return (
     <Alert className="mb-0">
       <RefreshCwIcon className="size-4" />
-      <AlertDescription className="flex items-center justify-between">
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-x-3">
         <span>
           This is a reschedule of the{" "}
           {format(
             new Date(rescheduledFromMeeting.scheduledAt),
             "MMM d, h:mm a",
           )}{" "}
-          meeting ({status.label})
+          call ({status.label})
         </span>
         <Button
           variant="link"
@@ -44,7 +47,7 @@ export function RescheduleChainBanner({
           className="gap-1 px-0"
           onClick={() =>
             router.push(
-              `/workspace/closer/meetings/${rescheduledFromMeeting._id}`,
+              `${meetingDetailBasePath}/${rescheduledFromMeeting._id}`,
             )
           }
         >

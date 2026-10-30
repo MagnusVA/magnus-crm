@@ -108,7 +108,7 @@ export function SupportRequestForm() {
 
       {submitted ? (
         <Alert className="mb-5 border-primary/30 bg-primary/5">
-          <CheckCircle2Icon className="size-4 text-primary" aria-hidden="true" />
+          <CheckCircle2Icon className="size-4 text-primary-ink" aria-hidden="true" />
           <AlertTitle>Request submitted</AlertTitle>
           <AlertDescription>
             We received your support request and will respond by email.

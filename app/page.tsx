@@ -162,7 +162,7 @@ export default function Home() {
 								}}
 							>
 								<span
-									className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold tabular-nums text-primary"
+									className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold tabular-nums text-primary-ink"
 									aria-hidden="true"
 								>
 									{idx + 1}

@@ -94,6 +94,51 @@ describe("getMeetingsForRange", () => {
     });
   });
 
+  it("gives a won deal its collected amount, without disputed payments or deposits", async () => {
+    const { harness, seed } = await seededCloserPipeline();
+    await harness.t.run(async (ctx) => {
+      const programId = await ctx.db.insert("tenantPrograms", {
+        tenantId: harness.tenantId,
+        name: "Accelerator",
+        normalizedName: "accelerator",
+        createdAt: T0,
+        createdByUserId: harness.closerId,
+        updatedAt: T0,
+      });
+      const payment = (
+        amountMinor: number,
+        paymentType: "pif" | "split" | "deposit",
+        status: "recorded" | "verified" | "disputed",
+      ) =>
+        ctx.db.insert("paymentRecords", {
+          tenantId: harness.tenantId,
+          opportunityId: seed.deals.won,
+          attributedCloserId: harness.closerId,
+          recordedByUserId: harness.closerId,
+          amountMinor,
+          currency: "USD",
+          programId,
+          programName: "Accelerator",
+          paymentType,
+          status,
+          recordedAt: T0 + 2 * DAY,
+          origin: "closer_meeting",
+        });
+      await payment(250_000, "split", "recorded");
+      await payment(100_000, "split", "verified");
+      await payment(50_000, "deposit", "recorded");
+      await payment(70_000, "pif", "disputed");
+    });
+
+    const { meetings: calendar } = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
+    const byId = new Map(calendar.map((entry) => [entry.meeting._id, entry]));
+
+    expect(byId.get(seed.meetings.won)?.wonAmount).toEqual({ amountMinor: 350_000, currency: "USD" });
+    // Open and lost deals carry no amount.
+    expect(byId.get(seed.meetings.booked)).not.toHaveProperty("wonAmount");
+    expect(byId.get(seed.meetings.lostByCloser)).not.toHaveProperty("wonAmount");
+  });
+
   it("refuses a range that ends before it starts", async () => {
     const { harness } = await seededCloserPipeline();
     await expect(

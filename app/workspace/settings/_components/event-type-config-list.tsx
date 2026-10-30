@@ -213,7 +213,7 @@ export function EventTypeConfigList({
           ) : (
             <div className="max-h-[min(68vh,720px)] overflow-auto border-t">
               <Table>
-                <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_hsl(var(--border))]">
+                <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="min-w-72 pl-4">Event Type</TableHead>
                     <TableHead>Status</TableHead>

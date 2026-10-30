@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment } from "react";
+import { Fragment, useContext, useMemo, useState } from "react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,7 +10,18 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useBreadcrumbs } from "@/hooks/use-breadcrumbs";
+import {
+  BreadcrumbTrailContext,
+  useBreadcrumbs,
+  type BreadcrumbSegment,
+} from "@/hooks/use-breadcrumbs";
+
+/** Holds the trail a page sets with `useBreadcrumbTrail`, for the shell's header. */
+export function BreadcrumbTrailProvider({ children }: { children: React.ReactNode }) {
+  const [trail, setTrail] = useState<BreadcrumbSegment[] | null>(null);
+  const store = useMemo(() => ({ trail, setTrail }), [trail]);
+  return <BreadcrumbTrailContext value={store}>{children}</BreadcrumbTrailContext>;
+}
 
 interface WorkspaceBreadcrumbsProps {
   /**
@@ -22,7 +33,8 @@ interface WorkspaceBreadcrumbsProps {
 }
 
 export function WorkspaceBreadcrumbs({ overrides }: WorkspaceBreadcrumbsProps) {
-  const segments = useBreadcrumbs();
+  const derived = useBreadcrumbs();
+  const segments = useContext(BreadcrumbTrailContext)?.trail ?? derived;
 
   if (segments.length <= 1) return null;
 

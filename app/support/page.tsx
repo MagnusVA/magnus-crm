@@ -56,7 +56,7 @@ export default function SupportPage() {
         </header>
 
         <section className="border-b border-border pb-8">
-          <div className="mb-5 flex size-11 items-center justify-center rounded-md border border-border bg-card text-primary">
+          <div className="mb-5 flex size-11 items-center justify-center rounded-md border border-border bg-card text-primary-ink">
             <LifeBuoyIcon className="size-5" aria-hidden="true" />
           </div>
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">

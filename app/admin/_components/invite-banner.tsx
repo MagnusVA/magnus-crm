@@ -53,7 +53,7 @@ export function InviteBanner({
       aria-live="polite"
     >
       <div className="flex items-start gap-3">
-        <Link2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+        <Link2 className="mt-0.5 size-4 shrink-0 text-primary-ink" aria-hidden="true" />
         <div className="min-w-0 flex-1 flex flex-col gap-3">
           <div>
             <p className="text-sm font-semibold text-foreground">

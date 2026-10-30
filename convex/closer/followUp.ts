@@ -35,9 +35,9 @@ function extractBookingUrl(payload: SchedulingLinkPayload): string | null {
  * 1. Validate caller is a closer with access to this opportunity
  * 2. Get a valid Calendly access token for the tenant
  * 3. Create a single-use scheduling link via Calendly API
- * 4. Create a followUps record (status: pending)
- * 5. Move the deal to Follow-up
- * 6. Return the booking URL for the closer to share with the lead
+ * 4. Create a followUps record (status: pending) and move the deal to
+ *    Follow-up, in one mutation
+ * 5. Return the booking URL for the closer to share with the lead
  *
  * Note: This requires the scheduling_links:write Calendly scope.
  * If the scope is not available, this action will fail with a
@@ -152,7 +152,7 @@ export const createFollowUp = action({
       throw new Error("Calendly did not return a booking URL");
     }
 
-    // ==== Step 4: Create follow-up record ====
+    // ==== Step 4: Create the follow-up and move the deal to Follow-up ====
     await ctx.runMutation(
       internal.closer.followUpMutations.createFollowUpRecord,
       {
@@ -162,14 +162,6 @@ export const createFollowUp = action({
         closerId: caller.userId,
         schedulingLinkUrl: bookingUrl,
         reason: "closer_initiated",
-      },
-    );
-
-    // ==== Step 5: Move the deal to Follow-up ====
-    await ctx.runMutation(
-      internal.closer.followUpMutations.transitionToFollowUp,
-      {
-        opportunityId,
       },
     );
 

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnus · Task · Ana Lucía Paz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#141A28;--navy2:#1D2536;--bline:rgba(242,244,247,.08);--lime:#84B135;--lime-ink:#1F2E0A;--paper:#F5F6F8;--card:#FFFFFF;--ink:#141A28;--ink2:#4F596B;--rule:#E3E7ED;--dim:#9AA4B6;--amber:#F5B700;--amber-ink:#7A5200;--amber-bg:#FFF4CC;--red:#D93A40;--red-bg:#FDE2E3;
+--st-booked:#4C6FD0;--st-held:#8E99AC;--st-fu:#2A9D95;--st-won:#84B135;--st-lost:#D93A40}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/1.45 Barlow,sans-serif;color:var(--ink);background:var(--paper);display:grid;grid-template-columns:232px 1fr;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0}svg{flex:none}
+.rail{background:var(--navy);color:#E6EAF1;display:flex;flex-direction:column;padding:16px 12px}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 20px}.brand b{font:600 22px/1 "Barlow Condensed";letter-spacing:.01em}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:7px;color:#AEB8CA;text-decoration:none;font-weight:500}
+.nav a.on{background:rgba(132,177,53,.16);color:#fff}.nav a.on svg{color:var(--lime)}
+.nav a em{margin-left:auto;font:600 12px/18px Barlow;font-style:normal;background:var(--amber);color:var(--navy);border-radius:9px;padding:0 6px}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px 8px 4px;border-top:1px solid var(--bline);font-weight:500}
+.av{width:30px;height:30px;border-radius:50%;background:var(--lime);color:var(--navy);display:grid;place-items:center;font:700 13px "Barlow Condensed"}.me small{display:block;color:#98A3B6;font-size:12px;font-weight:400}
+.app{display:grid;grid-template-rows:52px 1fr;min-width:0}
+.bar{display:flex;align-items:center;gap:8px;padding:0 24px;background:#fff;border-bottom:1px solid var(--rule);color:var(--ink2)}.bar b{color:var(--ink);font-weight:600}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;width:280px;height:34px;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--paper)}.search span{flex:1}
+kbd{font:500 11px Barlow;border:1px solid var(--rule);border-radius:4px;padding:0 5px;background:#fff}
+
+/* signature: the call as one board row */
+.strip{grid-column:1/-1;background:var(--navy);color:#EEF1F6;border-radius:10px;overflow:hidden}
+.sh,.sr{display:grid;grid-template-columns:150px 1.3fr 1.1fr 210px 230px;column-gap:16px;align-items:center;padding:0 18px}
+.sh{height:28px;font:600 11px "Barlow Condensed";letter-spacing:.14em;color:var(--dim);border-bottom:1px solid var(--bline)}
+.sr{height:64px}
+.t{font:600 26px/1 "Barlow Condensed"}.t i{font-style:normal;font-size:13px;margin-left:3px;color:var(--dim);font-weight:500}.t small{display:block;font:500 13px Barlow;color:var(--dim);margin-top:3px}
+.p{font:600 19px/1.3 Barlow}.p small{display:block;font-weight:400;font-size:13px;color:var(--dim);margin-top:3px}
+.g{color:#C5CDDA}.g b{color:#fff;font-weight:600}
+.gate{display:flex;gap:6px}
+.gbtn{height:30px;padding:0 10px;border-radius:7px;background:var(--navy2);color:#fff;border:1px solid rgba(242,244,247,.14);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.s{font:700 17px/1 "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase;color:var(--amber)}.s small{display:block;font:500 13px Barlow;letter-spacing:0;text-transform:none;color:var(--dim);margin-top:4px}
+/* cards */
+.card{background:#fff;border:1px solid var(--rule);border-radius:10px}
+.ch{display:flex;align-items:center;gap:8px;height:44px;padding:0 16px;border-bottom:1px solid var(--rule)}.ch h3{font:600 15px Barlow}.ch .meta{margin-left:auto;color:var(--ink2);font-size:13px}
+.col{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+/* outcome: the screen's one next action */
+.outcome{border:2px solid var(--lime);border-radius:10px;background:#fff;overflow:hidden}
+.oh{display:flex;align-items:center;gap:10px;padding:14px 18px 4px}.oh h2{font:600 20px/1.2 Barlow}
+.step{font:700 11px/20px "Barlow Condensed";letter-spacing:.12em;background:var(--lime);color:var(--navy);border-radius:4px;padding:0 7px}
+.oq{padding:0 18px;color:var(--ink2)}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 18px 16px}
+.choice{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;align-items:center;text-align:left;padding:14px 16px;border:1px solid var(--rule);border-radius:9px;background:#fff}
+.choice b{font:600 17px Barlow;grid-column:2}.choice .d{grid-column:2;color:var(--ink2);font-size:13px}
+.choice .k{grid-row:1/3;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 14px "Barlow Condensed"}
+.choice.yes{border-color:var(--lime);background:#F5F9EC}.choice.yes .k{background:var(--lime);color:var(--navy)}
+.choice.no .k{background:var(--red-bg);color:#8E1B20}
+.next{display:flex;align-items:center;gap:8px;padding:10px 18px;border-top:1px solid var(--rule);background:var(--paper);color:var(--ink2);font-size:13px}
+.next .pill{font:600 12px/20px Barlow;border:1px solid var(--rule);background:#fff;border-radius:10px;padding:0 8px;color:var(--ink)}
+/* prep */
+.qa{display:grid;grid-template-columns:200px 1fr;gap:6px 16px;padding:12px 16px 14px}
+.qa dt{color:var(--ink2)}.qa dd{font-weight:500}
+.note{padding:10px 16px;border-top:1px solid var(--rule)}.note b{font-weight:600}.note span{color:var(--ink2);font-size:13px;margin-left:6px}.note p{margin-top:2px}
+/* right column */
+.kv{display:grid;grid-template-columns:96px 1fr auto;gap:8px 10px;align-items:center;padding:12px 16px}
+.kv dt{color:var(--ink2)}.kv dd{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.copy{height:24px;padding:0 8px;border:1px solid var(--rule);border-radius:6px;background:#fff;font-weight:600;font-size:12px}
+.chip{font:700 11px/18px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:0 6px;display:inline-block}
+.chip.bk{background:#E5ECFB;color:#2B4AA8}
+.track{display:grid;grid-template-columns:repeat(4,1fr);padding:14px 16px 6px;position:relative}
+.track:before{content:"";position:absolute;left:28px;right:28px;top:21px;height:2px;background:var(--rule)}
+.track:after{content:"";position:absolute;left:28px;width:calc((100% - 56px)/3);top:21px;height:2px;background:var(--st-booked)}
+.track div{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;font:600 11px "Barlow Condensed";letter-spacing:.1em;color:var(--ink2);text-transform:uppercase}
+.track i{width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #C3CAD5}.track .done i{background:var(--st-booked);border-color:var(--st-booked)}.track .cur i{background:#fff;border:3px solid var(--st-booked);width:16px;height:16px}.track .cur{color:var(--ink)}
+.credit{padding:8px 16px 12px;color:var(--ink2);font-size:13px;line-height:1.6}.credit b{color:var(--ink);font-weight:600}
+.more a{color:var(--ink);font-weight:600;text-underline-offset:3px}
+.more{display:flex;justify-content:space-between;align-items:center;height:40px;padding:0 16px;border-top:1px solid var(--rule);color:var(--ink2);font-weight:500}
+.field{display:flex;gap:8px;padding:12px 16px}.field input{flex:1;height:32px;border:1px solid var(--rule);border-radius:7px;padding:0 10px;font:inherit;color:var(--ink2);background:#fff}
+.btn{height:32px;padding:0 12px;border:1px solid var(--rule);border-radius:7px;background:#fff;font-weight:600}
+
+.lime{background:var(--lime);color:var(--navy);border:0}
+.b{height:36px;padding:0 14px;border-radius:8px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--rule);background:#fff;color:var(--ink)}
+.b.lime{border-color:var(--lime);background:var(--lime);color:var(--navy)}
+.s.ov{color:#FF8A8F}
+.num{font:600 34px/1 "Barlow Condensed";letter-spacing:.01em}
+.task-note{font:500 17px/1.45 Barlow}
+.why{color:var(--ink2);font-size:13px;margin-top:6px}
+.chip.fu{background:#DDF3F1;color:#17665F}.chip.ns{background:var(--red-bg);color:#8E1B20}.chip.ow{background:var(--amber-bg);color:var(--amber-ink)}
+.rows{list-style:none}.rows li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 16px;border-top:1px solid var(--rule)}.rows li:first-child{border-top:0}
+.rows .r1{font-weight:600}.rows .r2{grid-column:1/-1;color:var(--ink2);font-size:13px}.rows .t2{font:600 14px "Barlow Condensed";letter-spacing:.02em;color:var(--ink2)}
+.over{color:#B4232A!important}
+.track{grid-template-columns:repeat(4,1fr)}
+.track:after{width:calc((100% - 56px)*2/3);background:var(--st-fu)}
+.track .done i{background:var(--st-fu);border-color:var(--st-fu)}.track .cur i{border-color:var(--st-fu)}
+
+main{display:grid;grid-template-columns:340px 1fr;min-height:0;overflow:hidden}
+.q{background:#fff;border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+.qh{display:flex;align-items:center;gap:8px;height:48px;padding:0 16px;border-bottom:1px solid var(--rule)}.qh h2{font:600 15px Barlow}.qh .n{font:600 12px/18px Barlow;background:#EDF0F4;border-radius:9px;padding:0 7px}
+.grp{font:700 11px/30px "Barlow Condensed";letter-spacing:.12em;color:var(--ink2);text-transform:uppercase;padding:0 16px;background:var(--paper);border-bottom:1px solid var(--rule)}.grp.over{color:#B4232A}
+.qi{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:9px 16px;border-bottom:1px solid var(--rule)}.qi b{font-weight:600}.qi span{color:var(--ink2);font-size:13px}.qi .tm{font:600 14px "Barlow Condensed";color:var(--ink2)}
+.qi.on{background:#F5F9EC;box-shadow:inset 3px 0 0 var(--lime)}
+.pane{padding:18px 24px;display:grid;grid-template-columns:1fr 340px;grid-template-rows:auto auto 1fr;gap:14px 18px;min-height:0;overflow:hidden}
+.pane .strip{grid-column:1/-1}
+.sh,.sr{grid-template-columns:100px 1.5fr 1.1fr 170px 130px;column-gap:14px}
+.pane .p{font-size:17px}.pane .p small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.reach2{display:flex;gap:8px;align-items:center;padding:12px 16px}.reach2 .num{font-size:26px;margin-right:auto}
+.ask{padding:12px 16px}
+</style></head><body>
+<aside class="rail">
+ <div class="brand"><svg width="24" height="24" viewBox="200 255 390 340" aria-hidden="true"><path fill="#84B135" d="M394.1 566.9c0 13.9 19.1 18 24.7 5.2L473 449.8h-78.9V566.9zM370.4 320.2l-42.1 64.7c-5.6 8.6-18.2 8.5-23.6-.2L235.3 273c-6.8-11-23.9-6.2-23.9 6.8v154c0 8.8 7.2 16 16 16h140.1h26.5V327.2c0-12.8-16.7-17.8-23.6-7zM550.3 275.2L473 449.8h86c8.8 0 16-7.2 16-16V280.4c0-14-19.1-18-24.7-5.2z"/></svg><b>Magnus</b></div>
+ <nav class="nav">
+  <a class="on" href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Today<em>4</em></a>
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7M12 7v4M16 7v10"/></svg>My Pipeline</a>
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 12 0v1M16 4a4 4 0 0 1 0 8M22 21v-1a6 6 0 0 0-4-5.6"/></svg>Leads &amp; Customers</a>
+ </nav>
+ <div class="me"><div class="av">DR</div><div>Daniela Ruiz<small>Closer</small></div></div>
+</aside>
+<div class="app">
+ <header class="bar"><a>Today</a><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 6 6 6-6 6"/></svg><b>Ana Lucía Paz · Call back</b><div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search people and deals</span><kbd>⌘K</kbd></div></header>
+ <main>
+  <aside class="q"><div class="qh"><h2>Tasks</h2><span class="n">6</span></div><div class="grp over">Overdue · 2</div><div class="qi on"><b>Ana Lucía Paz</b><span class="tm over">3:00 PM</span><span>Call back · Accelerator</span></div><div class="qi"><b>Marco Ayala</b><span class="tm over">Yesterday</span><span>Text back · No-show Oct 26</span></div><div class="grp ">Today · 1</div><div class="qi"><b>Lucía Ferrer</b><span class="tm">5:30 PM</span><span>Call back · Elite Mentorship</span></div><div class="grp ">Waiting on the person · 3</div><div class="qi"><b>Diego Navas</b><span class="tm">Sent Oct 28</span><span>Link not booked yet</span></div><div class="qi"><b>Paola Ríos</b><span class="tm">Sent Oct 27</span><span>Link not booked yet</span></div><div class="qi"><b>Iván Cruz</b><span class="tm">Sent Oct 24</span><span>Link not booked yet</span></div></aside>
+  <div class="pane">
+   <section class="strip" aria-label="This task">
+   <div class="sh"><span>DUE</span><span>PERSON</span><span>DEAL</span><span>REACH BY</span><span>STATUS</span></div>
+   <div class="sr"><span class="t">3:00<i>PM</i><small>Today, Thu Oct 29</small></span>
+    <span class="p">Ana Lucía Paz<small>Call back · set by you after the Oct 27 call</small></span>
+    <span class="g"><b>Accelerator</b> · Follow-up<small style="display:block;color:var(--dim);font-size:13px;margin-top:3px">Since Oct 27</small></span>
+    <span class="g"><b>Call</b> · +504 9876-2210</span>
+    <span class="s ov">Overdue<small>42 min past due</small></span></div>
+  </section>
+   <div class="col">
+    <section class="card ask"><p class="task-note">"Wants to check with family first. Call after 3 to take the payment."</p><p class="why">Your note · Oct 27</p></section>
+    <section class="card reach2"><span class="num">+504 9876-2210</span><button class="b lime"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>Call</button><button class="b"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Text</button><button class="b" aria-label="Copy number"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></section>
+    <section class="outcome" aria-labelledby="oq">
+   <div class="oh"><h2 id="oq">Did you reach Ana?</h2></div>
+   <p class="oq">Record it after the call. Nothing is saved until you pick what happened next.</p>
+   <div class="choices">
+    <button class="choice yes"><span class="k">Y</span><b>Yes, we talked</b><span class="d">Then: Won · log payment, or Lost</span></button>
+    <button class="choice no"><span class="k">N</span><b>No answer</b><span class="d">Then: try again, close this task, or mark lost</span></button>
+   </div>
+   <div class="next">Closes this task. A win closes the deal as Won and credits you.</div>
+  </section>
+   </div>
+   <div class="col"><section class="card"><div class="ch"><h3>Deal</h3><span class="chip fu">Follow-up</span><span class="meta">Accelerator</span></div>
+   <div class="track"><div class="done"><i></i>Booked</div><div class="done"><i></i>Held</div><div class="cur"><i></i>Follow-up</div><div><i></i>Won</div></div>
+   <p class="credit">Booked by <b>Sofía Rivas</b> (DM team) · closer <b>you</b></p>
+   <div class="more"><span>No payments yet</span><a href="#">Open deal</a></div></section><section class="card"><div class="ch"><h3>Calls on this deal</h3><span class="meta">2</span></div>
+   <ul class="rows"><li><span class="r1">Oct 27 · 4:30 PM</span><span class="t2">HELD</span><span class="r2">45 min · "Wants to check with family before paying"</span></li>
+   <li><span class="r1">Oct 20 · 11:00 AM</span><span class="t2 over">NO-SHOW</span><span class="r2">Rescheduled through the link</span></li></ul></section></div>
+  </div>
+ </main>
+</div></body></html>

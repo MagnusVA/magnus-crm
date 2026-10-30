@@ -94,8 +94,8 @@ export function CommentInput({ meetingId }: CommentInputProps) {
 
   const placeholder =
     enterBehavior === "send"
-      ? "Add a comment… (Enter to send, Shift+Enter for newline)"
-      : "Add a comment… (Shift+Enter to send, Enter for newline)";
+      ? "Add a comment for the team…"
+      : "Add a comment for the team… (Shift+Enter sends)";
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -106,18 +106,19 @@ export function CommentInput({ meetingId }: CommentInputProps) {
           onChange={(e) => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="min-h-[72px] resize-none text-sm"
+          rows={1}
+          className="min-h-8 resize-none py-1.5 text-sm field-sizing-content"
           aria-label="New comment"
           disabled={isSubmitting}
         />
         <Button
-          size="icon"
+          variant="outline"
           onClick={handleSubmit}
           disabled={!content.trim() || isSubmitting}
           className="shrink-0 self-end"
-          aria-label="Post comment"
         >
-          <SendIcon className="size-4" />
+          <SendIcon data-icon="inline-start" aria-hidden />
+          Send
         </Button>
       </div>
       <div className="flex justify-end">
@@ -126,9 +127,9 @@ export function CommentInput({ meetingId }: CommentInputProps) {
             <button
               type="button"
               onClick={toggleEnterBehavior}
-              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="flex min-h-6 items-center gap-1 rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
-              <CornerDownLeftIcon className="size-3" />
+              <CornerDownLeftIcon className="size-3" aria-hidden />
               Enter: {enterBehavior === "send" ? "sends" : "newline"}
             </button>
           </TooltipTrigger>

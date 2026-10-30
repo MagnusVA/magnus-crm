@@ -126,7 +126,7 @@ export const meetingStatusConfig: Record<MeetingAttendanceStatus, MeetingBlockCo
     dotClass: "bg-muted-foreground",
   },
   no_show: {
-    label: "No Show",
+    label: "No-show",
     blockClass: "bg-orange-500/10 border-l-orange-500",
     textClass: "text-orange-700 dark:text-orange-300",
     badgeClass: "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",

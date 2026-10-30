@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnus · Today (Midnight Transit)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0B1230;--navy2:#141C40;--ink:#0B1230;--muted:#4A5470;--rule:#DCE1EA;--bg:#F2F4F8;--lime:#84B135;--lime-ink:#47660F;--cobalt:#1E5BFF;--amber:#FFC20E;--scarlet:#E21D2D;--on-navy:#AEB8D6}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font-family:Overpass,sans-serif;background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;display:grid;grid-template-columns:232px 1fr}
+::selection{background:var(--lime);color:var(--navy)}
+:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* rail */
+nav{background:var(--navy);color:#fff;padding:22px 16px;display:flex;flex-direction:column;gap:6px}
+.mark{display:flex;align-items:center;gap:10px;padding:0 8px 18px;font-weight:800;font-size:23px;letter-spacing:-.01em}
+.mark svg{width:30px;height:30px}
+.search{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(255,255,255,.05);color:var(--on-navy);font-size:14px;margin-bottom:14px}
+.search kbd{margin-left:auto;font:600 12px Overpass;color:#D5DBEC;border:1px solid rgba(255,255,255,.22);border-radius:5px;padding:2px 6px}
+.nav{display:flex;align-items:center;gap:12px;height:44px;padding:0 12px;border-radius:8px;font-size:15px;font-weight:600;color:#D5DBEC;text-decoration:none}
+.nav.on{background:var(--lime);color:var(--navy);font-weight:800}
+.nav .n{margin-left:auto;font-size:12px;font-weight:800;background:var(--navy);color:#fff;border-radius:10px;padding:1px 8px}
+.user{margin-top:auto;display:flex;align-items:center;gap:10px;padding:14px 8px 0;border-top:1px solid rgba(255,255,255,.12)}
+.av{width:36px;height:36px;border-radius:50%;background:var(--cobalt);display:grid;place-items:center;font-weight:800;font-size:14px}
+.user b{display:block;font-size:14px}.user span{font-size:13px;color:var(--on-navy)}
+/* main */
+main{padding:28px 32px;display:grid;grid-template-rows:64px 420px 1fr;gap:16px 0;min-width:0}
+header{display:flex;align-items:flex-end;justify-content:space-between}
+h1{font-size:38px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.note{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px;margin-top:8px}
+.note .i{width:15px;height:15px}
+.btn{height:40px;padding:0 16px;border-radius:8px;font:700 15px Overpass;display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;white-space:nowrap;cursor:pointer}
+.lime{background:var(--lime);color:var(--navy)}
+.out{background:#fff;border-color:#C5CCDA;color:var(--ink)}
+.ghost{background:transparent;border-color:rgba(255,255,255,.4);color:#fff}
+/* diagram panel */
+.panel{position:relative;background:var(--navy);border-radius:14px;color:#fff;overflow:hidden;box-shadow:0 2px 4px rgba(0,0,0,.08),0 10px 24px rgba(0,0,0,.10)}
+.panel svg.map{position:absolute;inset:0}
+.ph{position:absolute;left:32px;right:32px;top:24px;display:flex;align-items:center;gap:14px}
+.ph h2{font-size:18px;font-weight:800}.ph .s{color:var(--on-navy);font-size:14px}
+.legend{margin-left:auto;display:flex;gap:18px;font-size:13px;color:var(--on-navy);align-items:center}
+.legend i{display:inline-block;width:16px;height:5px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.next{position:absolute;left:32px;top:292px;display:flex;gap:28px}
+.count{line-height:1;color:var(--lime);font-weight:800}
+.count b{font-size:92px;letter-spacing:-.04em}.count span{font-size:28px;margin-left:4px}
+.count p{font-size:14px;font-weight:600;color:var(--on-navy);margin-top:4px}
+.who h3{font-size:32px;font-weight:800;letter-spacing:-.01em;line-height:1.1}
+.who p{font-size:15px;color:#C9D2EA;margin:6px 0 16px}
+.who .row{display:flex;gap:10px}
+.deal{position:absolute;left:632px;right:32px;top:292px}
+.deal h3{font-size:15px;font-weight:700}.deal h3 span{color:var(--on-navy);font-weight:400}
+/* lower grid */
+.lower{display:grid;grid-template-columns:1fr 330px 224px;gap:20px;min-height:0}
+.card{background:#fff;border:1px solid var(--rule);border-radius:12px;box-shadow:0 1px 2px rgba(11,18,48,.05),0 4px 14px rgba(11,18,48,.04);display:flex;flex-direction:column;min-width:0}
+.ch{display:flex;align-items:center;gap:10px;padding:18px 20px 14px}
+.ch h2{font-size:18px;font-weight:800}
+.badge{font-size:12px;font-weight:800;border-radius:999px;padding:2px 9px;background:var(--navy);color:#fff}
+.badge.amber{background:var(--amber);color:var(--navy)}.badge.soft{background:#E8ECF3;color:var(--ink)}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:9px 20px;background:#F6F8FB;border-block:1px solid var(--rule)}
+td{padding:0 20px;height:72px;white-space:nowrap;border-bottom:1px solid var(--rule)}
+td.r{text-align:right}
+.d{display:inline-block;width:4px;height:4px;border-radius:50%;background:currentColor;margin:0 8px;vertical-align:middle}
+.prog{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:2px}
+td b{display:block}
+.ln{display:inline-block;width:14px;height:5px;border-radius:3px}
+.foot{margin-top:auto;padding:14px 20px;font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.fu{list-style:none;padding:0 20px}
+.fu li{padding:13px 0;border-top:1px solid var(--rule)}
+.fu .t{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:15px}
+.fu p{font-size:13px;color:var(--muted);margin-top:3px}
+.kpi{padding:0 20px}
+.kpi div{padding:11px 0;border-top:1px solid var(--rule)}
+.kpi span{font-size:13px;color:var(--muted)}
+.kpi b{display:block;font-size:25px;font-weight:800;letter-spacing:-.01em;line-height:1.2}
+.kpi em{font-style:normal;font-size:13px;color:var(--lime-ink);font-weight:700}
+.kpi em.m{color:var(--muted);font-weight:400}
+</style></head>
+<body>
+<nav>
+  <div class="mark"><svg viewBox="87 91 485 485" aria-hidden="true"><path fill="#84B135" d="M459.5,91.7h-260c-61.7,0-111.7,50-111.7,111.7v260c0,61.7,50,111.7,111.7,111.7h260c61.7,0,111.7-50,111.7-111.7v-260C571.2,141.7,521.2,91.7,459.5,91.7z M511.2,363.5c0,8.8-7.2,16-16,16h-86l-54.2,122.3c-5.6,12.7-24.7,8.7-24.7-5.2V379.5h-26.5H163.7c-8.8,0-16-7.2-16-16v-154c0-13,17-17.8,23.9-6.8L241,314.4c5.4,8.7,18,8.8,23.6,0.2l42.1-64.7c7-10.8,23.7-5.8,23.7,7v122.5h78.9l77.3-174.6c5.6-12.7,24.7-8.7,24.7,5.2V363.5z"/></svg>Magnus</div>
+  <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search<kbd>⌘K</kbd></div>
+  <a class="nav on" href="#"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>Today<span class="n">2</span></a>
+  <a class="nav" href="#"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7M12 7v10M16 7v4"/></svg>My Pipeline</a>
+  <a class="nav" href="#"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></svg>Leads &amp; Customers</a>
+  <div class="user"><div class="av">DR</div><div><b>Daniela Ruiz</b><span>Closer</span></div></div>
+</nav>
+<main>
+  <header>
+    <div><h1>Thursday, Oct 29</h1><p class="note"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Days run 1:00 am–1:00 am, America/Tegucigalpa</p></div>
+    <button class="btn out"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add follow-up</button>
+  </header>
+
+  <section class="panel" aria-label="Today's calls">
+    <svg class="map" width="1144" height="420" viewBox="0 0 1144 420" font-family="Overpass" aria-hidden="true">
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="10">
+        <path d="M40 128H500" stroke="#84B135" stroke-opacity=".5"/>
+        <path d="M500 128H830L890 188H1112" stroke="#84B135"/>
+      </g>
+      <rect x="35" y="112" width="10" height="32" rx="2" fill="#fff"/><text x="40" y="168" fill="#AEB8D6" font-size="13" text-anchor="middle">1:00 AM</text>
+      <rect x="1107" y="172" width="10" height="32" rx="2" fill="#fff"/>
+      <path d="M500 104V152" stroke="#fff" stroke-width="2" stroke-dasharray="3 4"/><text x="490" y="173" fill="#D5DBEC" font-size="13" font-weight="700" text-anchor="end">NOW 10:26</text>
+      <g font-weight="800" font-size="22" fill="#fff" text-anchor="middle" letter-spacing=".5">
+        <text x="220" y="96">9:00 AM</text><text x="560" y="96" fill="#84B135" font-size="24">10:30 AM</text><text x="740" y="96">1:00 PM</text><text x="930" y="156">3:30 PM</text><text x="1056" y="156">5:00 PM</text>
+      </g>
+      <rect x="215" y="105" width="10" height="20" rx="2" fill="#fff"/>
+      <circle cx="560" cy="128" r="21" fill="#0B1230" stroke="#fff" stroke-width="7"/>
+      <g fill="#0B1230" stroke="#fff" stroke-width="3"><rect x="735" y="104" width="10" height="20" rx="2"/><rect x="925" y="164" width="10" height="20" rx="2"/><rect x="1051" y="164" width="10" height="20" rx="2"/></g>
+      <g font-size="15" font-weight="700" fill="#fff" text-anchor="middle">
+        <text x="220" y="162">Marco Vélez</text><text x="560" y="176" font-size="16" font-weight="800">Ana Lucía Paz</text><text x="740" y="162">Rodrigo Salas</text><text x="930" y="222">Camila Ortega</text><text x="1056" y="222">Luis Fernández</text>
+      </g>
+      <g font-size="13" fill="#AEB8D6">
+        <rect x="174" y="173" width="12" height="5" rx="2.5" fill="#FFC20E"/><text x="192" y="182" fill="#9CCB4C" font-weight="700">Won $3,500</text>
+        <rect x="529" y="187" width="12" height="5" rx="2.5" fill="#1E5BFF"/><text x="547" y="196">Booked</text>
+        <rect x="709" y="173" width="12" height="5" rx="2.5" fill="#1E5BFF"/><text x="727" y="182">Booked</text>
+        <rect x="891" y="233" width="12" height="5" rx="2.5" fill="#FFC20E"/><text x="909" y="242">Follow-up</text>
+        <rect x="1025" y="233" width="12" height="5" rx="2.5" fill="#1E5BFF"/><text x="1043" y="242">Booked</text>
+      </g>
+      <path d="M32 268H1112" stroke="#fff" stroke-opacity=".12"/>
+      <g stroke-width="8" stroke-linecap="round"><path d="M652 350H792" stroke="#1E5BFF"/><path d="M808 350H1090" stroke="#1E5BFF" stroke-opacity=".45"/></g>
+      <circle cx="660" cy="350" r="8" fill="#fff"/>
+      <circle cx="800" cy="350" r="17" fill="#0B1230" stroke="#fff" stroke-width="6"/>
+      <g fill="#0B1230" stroke="#fff" stroke-width="3"><circle cx="940" cy="350" r="8"/><circle cx="1080" cy="350" r="8"/></g>
+      <g font-size="13" font-weight="700" fill="#AEB8D6" text-anchor="middle" letter-spacing="1"><text x="660" y="392">QUALIFIED</text><text x="800" y="392" fill="#fff" font-size="15" font-weight="800">BOOKED</text><text x="940" y="392">CALL HELD</text><text x="1080" y="392">WON</text></g>
+    </svg>
+    <div class="ph"><h2>Today's calls</h2><span class="s">5 calls<i class="d"></i>1 held<i class="d"></i>4 to go</span>
+      <div class="legend"><span><i style="background:#1E5BFF"></i>Elite Mentorship</span><span><i style="background:#FFC20E"></i>Accelerator 90</span></div></div>
+    <div class="next">
+      <div class="count"><b>4</b><span>min</span><p>until the 10:30 AM call</p></div>
+      <div class="who"><h3>Ana Lucía Paz</h3><p>10:30 AM<i class="d"></i>45 min<i class="d"></i>Elite Mentorship<i class="d"></i>$6,000</p>
+        <div class="row"><button class="btn lime"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg>Join call</button><button class="btn ghost">Open deal</button></div></div>
+    </div>
+    <div class="deal"><h3>Deal stage <span><i class="d"></i>Elite Mentorship, $6,000</span></h3></div>
+  </section>
+
+  <section class="lower">
+    <div class="card">
+      <div class="ch"><h2>Needs outcome</h2><span class="badge">2</span></div>
+      <table><thead><tr><th>Call</th><th>Person and program</th><th class="r" style="text-align:right">Action</th></tr></thead><tbody>
+        <tr><td>Yesterday, 4:30 PM</td><td><b>Jorge Méndez</b><span class="prog"><i class="ln" style="background:#FFC20E"></i>Accelerator 90</span></td><td class="r"><button class="btn lime">Record outcome</button></td></tr>
+        <tr><td>Yesterday, 6:00 PM</td><td><b>Sofía Castro</b><span class="prog"><i class="ln" style="background:#1E5BFF"></i>Elite Mentorship</span></td><td class="r"><button class="btn lime">Record outcome</button></td></tr>
+      </tbody></table>
+      <p class="foot"><svg class="i" viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>Recording an outcome sets the call's attendance and moves the deal stage.</p>
+    </div>
+    <div class="card">
+      <div class="ch"><h2>Follow-ups</h2><span class="badge amber">1 overdue</span><span class="badge soft">2 today</span></div>
+      <ul class="fu">
+        <li><div class="t">Patricia Gómez<span class="badge amber">Overdue</span></div><p>Call back about payment plan<i class="d"></i>due yesterday</p></li>
+        <li><div class="t">Andrés Molina<span class="badge soft">Today</span></div><p>Send the Accelerator 90 payment link</p></li>
+        <li><div class="t">Valeria Ríos<span class="badge soft">Today</span></div><p>Confirm start date for Elite Mentorship</p></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="ch"><h2>This week</h2></div>
+      <div class="kpi">
+        <div><span>Cash collected</span><b>$18,400</b><em><svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px"><path d="M7 17 17 7M8 7h9v9"/></svg> up from $12,900</em></div>
+        <div><span>Close rate</span><b>32%</b><em class="m">8 of 25 held calls</em></div>
+        <div><span>Show-up rate</span><b>78%</b><em class="m">Mon, Oct 26 – today</em></div>
+      </div>
+    </div>
+  </section>
+</main>
+</body></html>

@@ -1,269 +1,156 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { usePaginatedQuery, useQuery } from "convex/react";
 import posthog from "posthog-js";
-import { KanbanIcon } from "lucide-react";
-import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { closerLookupTabFromSearch } from "@/convex/closer/pipelineTabs";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { isMonthKey, pipelineMonth, type MonthKey } from "@/lib/closer-pipeline";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import {
-  closerPipelineTabFromSearch,
-  type CloserPipelineTab,
-} from "@/convex/closer/pipelineTabs";
-import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
-import {
-  getDateRange,
-  type TimePeriod,
-} from "@/app/workspace/_components/time-period-filter";
-import {
-  PipelineFilters,
-  type PipelinePeriod,
-} from "@/app/workspace/_components/pipeline/pipeline-filters";
-import { OpportunitiesTable } from "@/app/workspace/_components/pipeline/opportunities-table";
-import { CloserEmptyState } from "../../_components/closer-empty-state";
+import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
+import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { SectionError } from "@/app/workspace/closer/_components/section-state";
+import { DealsLookup, type LookupFilters } from "./deals-lookup";
+import { PipelineDesk, useHasAnyDeal } from "./pipeline-desk";
+import { PipelineHeader } from "./pipeline-header";
+import { PipelinePageSkeleton } from "./pipeline-skeleton";
 
-const VALID_PERIODS: readonly PipelinePeriod[] = [
-  "all",
-  "today",
-  "this_week",
-  "this_month",
-];
+const HOUR = 3_600_000;
 
-function isValidPeriod(value: string | null): value is PipelinePeriod {
-  return value !== null && (VALID_PERIODS as readonly string[]).includes(value);
+/** The URL for the page's month and lookup filters; defaults are left out. */
+function pipelineSearch(month: MonthKey | null, filters: LookupFilters) {
+  const params = new URLSearchParams();
+  if (month) params.set("month", month);
+  if (filters.tab !== "all") params.set("tab", filters.tab);
+  if (filters.programKey) params.set("program", filters.programKey);
+  if (filters.search) params.set("q", filters.search);
+  const search = params.toString();
+  return search ? `?${search}` : "";
 }
 
+/**
+ * My Pipeline: the month's money strip and one card per program with its
+ * open deals, then All deals, the lookup. The month (`month=`) and the
+ * lookup's filters (`tab=`, `program=`, `q=`) live in the URL, written with
+ * `history.replaceState` so a change doesn't navigate and flash the route
+ * skeleton. Today's `stage=` links and old `status=` links open the tab
+ * their deals are on.
+ */
 export function CloserPipelinePageClient() {
-  return (
-    <Suspense fallback={<PageHeaderSkeleton />}>
-      <CloserPipelineContent />
-    </Suspense>
-  );
-}
-
-function CloserPipelineContent() {
   usePageTitle("My Pipeline");
+  useBreadcrumbTrail([
+    { label: "Today", href: "/workspace/closer" },
+    { label: "My Pipeline", href: "/workspace/closer/pipeline" },
+  ]);
   const searchParams = useSearchParams();
   const pathname = usePathname();
+  const now = useNow();
+  const { setting, loaded, rebuilding } = useBusinessDay();
+  const today = businessDateForInstant(now, setting);
+  const currentKey = today.slice(0, 7);
 
-  // `stage=`, or an old `status=` link mapped to the tab its deals are on.
-  const initialStage = closerPipelineTabFromSearch(searchParams);
+  const [monthParam, setMonthParam] = useState<MonthKey | null>(() => {
+    const value = searchParams.get("month");
+    return isMonthKey(value) ? value : null;
+  });
+  const [filters, setFilters] = useState<LookupFilters>(() => ({
+    tab: closerLookupTabFromSearch(searchParams),
+    programKey: searchParams.get("program") || null,
+    search: searchParams.get("q")?.trim() ?? "",
+  }));
 
-  const periodParam = searchParams.get("period");
-  const initialPeriod: PipelinePeriod = isValidPeriod(periodParam)
-    ? periodParam
-    : "today";
-
-  const [stageFilter, setStageFilter] = useState<CloserPipelineTab | null>(
-    initialStage,
+  // The previous month is cut at the next hour, so the arguments hold still
+  // between clock ticks.
+  const hour = Math.floor(now / HOUR);
+  const month = useMemo(
+    () => pipelineMonth(monthParam ?? currentKey, today, (hour + 1) * HOUR, setting),
+    [monthParam, currentKey, today, hour, setting],
   );
-  const [periodFilter, setPeriodFilter] =
-    useState<PipelinePeriod>(initialPeriod);
+  const monthInUrl = month.isCurrent ? null : month.key;
 
-  // Update URL (via history.replaceState) without triggering a Next.js
-  // navigation — that would re-run the async server component and flash the
-  // full-page loading skeleton.
-  const writeUrl = useCallback(
-    (next: { stage?: CloserPipelineTab | null; period?: PipelinePeriod }) => {
-      const params = new URLSearchParams(window.location.search);
-      const nextStage = "stage" in next ? next.stage : stageFilter;
-      const nextPeriod = "period" in next ? next.period : periodFilter;
-
-      // The URL names the stage, never the old status.
-      params.delete("status");
-      if (nextStage) {
-        params.set("stage", nextStage);
-      } else {
-        params.delete("stage");
-      }
-
-      if (nextPeriod && nextPeriod !== "today") {
-        params.set("period", nextPeriod);
-      } else {
-        params.delete("period");
-      }
-
-      const qs = params.toString();
-      window.history.replaceState(
-        null,
-        "",
-        `${pathname}${qs ? `?${qs}` : ""}`,
-      );
-    },
-    [pathname, stageFilter, periodFilter],
-  );
-
-  // An old `status=` link, or a `stage=` no tab has, opens a tab: write that
-  // tab back as `stage=`.
-  const hasStaleStageParam =
-    searchParams.has("status") ||
-    (searchParams.has("stage") && searchParams.get("stage") !== initialStage);
+  // Writes the URL in place, which also turns an old `stage=` or `status=`
+  // link into `tab=`.
   useEffect(() => {
-    if (hasStaleStageParam) {
-      writeUrl({});
+    window.history.replaceState(null, "", `${pathname}${pipelineSearch(monthInUrl, filters)}`);
+  }, [pathname, monthInUrl, filters]);
+
+  const changeMonth = useCallback(
+    (key: MonthKey) => {
+      setMonthParam(key === currentKey ? null : key);
+      posthog.capture("pipeline_month_changed", { current: key === currentKey });
+    },
+    [currentKey],
+  );
+
+  const changeFilters = useCallback((next: LookupFilters) => {
+    setFilters((previous) => {
+      if (previous.tab !== next.tab) {
+        posthog.capture("pipeline_tab_changed", { tab: next.tab });
+      }
+      if (previous.programKey !== next.programKey) {
+        posthog.capture("pipeline_program_filter_changed", { any: next.programKey === null });
+      }
+      return next;
+    });
+  }, []);
+
+  const lookupHeading = useRef<HTMLHeadingElement>(null);
+  const showProgram = useCallback((programKey: string) => {
+    setFilters({ tab: "all", programKey, search: "" });
+    const heading = lookupHeading.current;
+    if (heading) {
+      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.focus({ preventScroll: true });
     }
-  }, [hasStaleStageParam, writeUrl]);
+  }, []);
 
-  const handleStageChange = useCallback(
-    (next: CloserPipelineTab | null) => {
-      setStageFilter(next);
-      posthog.capture("pipeline_stage_filter_changed", {
-        stage: next ?? "all",
-      });
-      writeUrl({ stage: next });
-    },
-    [writeUrl],
-  );
+  const hasAnyDeal = useHasAnyDeal();
 
-  const handlePeriodChange = useCallback(
-    (value: PipelinePeriod) => {
-      setPeriodFilter(value);
-      posthog.capture("pipeline_period_filter_changed", { period: value });
-      writeUrl({ period: value });
-    },
-    [writeUrl],
-  );
-
-  // No date filter on the pipeline page — these counts are always all-time.
-  const pipelineSummary = useQuery(api.closer.dashboard.getPipelineSummary, {});
-
-  if (pipelineSummary === undefined) {
-    return <PageHeaderSkeleton />;
+  if (!loaded) {
+    return <PipelinePageSkeleton />;
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">My Pipeline</h1>
-        <p className="mt-2 text-muted-foreground">
-          Track your opportunities and meeting outcomes
-        </p>
-      </div>
-
-      <PipelineFilters
-        stageFilter={stageFilter}
-        periodFilter={periodFilter}
-        onStageChange={handleStageChange}
-        onPeriodChange={handlePeriodChange}
-        counts={pipelineSummary.counts}
-        total={pipelineSummary.total}
+    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6">
+      <PipelineHeader
+        month={month}
+        currentKey={currentKey}
+        setting={setting}
+        rebuilding={rebuilding}
+        onMonthChange={changeMonth}
       />
 
-      <Suspense fallback={<TableSkeleton />}>
-        <CloserOpportunitiesTable
-          stageFilter={stageFilter}
-          periodFilter={periodFilter}
-          onClearFilter={() => handleStageChange(null)}
-        />
-      </Suspense>
-    </div>
-  );
-}
+      <SectionErrorBoundary
+        sectionName="pipeline desk"
+        fallback={
+          <div className="rounded-xl border bg-card">
+            <SectionError what="your month and open deals" />
+          </div>
+        }
+      >
+        <PipelineDesk month={month} now={now} setting={setting} onShowProgram={showProgram} />
+      </SectionErrorBoundary>
 
-function CloserOpportunitiesTable({
-  stageFilter,
-  periodFilter,
-  onClearFilter,
-}: {
-  stageFilter: CloserPipelineTab | null;
-  periodFilter: PipelinePeriod;
-  onClearFilter: () => void;
-}) {
-  const queryArgs = useMemo(() => {
-    const args: {
-      positionFilter?: CloserPipelineTab;
-      periodStart?: number;
-      periodEnd?: number;
-    } = {};
-
-    if (stageFilter) {
-      args.positionFilter = stageFilter;
-    }
-
-    if (periodFilter !== "all") {
-      const { periodStart, periodEnd } = getDateRange(
-        periodFilter as TimePeriod,
-      );
-      args.periodStart = periodStart;
-      args.periodEnd = periodEnd;
-    }
-
-    return args;
-  }, [stageFilter, periodFilter]);
-
-  const {
-    results: opportunities,
-    status: paginationStatus,
-    loadMore,
-  } = usePaginatedQuery(
-    api.closer.pipeline.listMyOpportunities,
-    queryArgs,
-    { initialNumItems: 25 },
-  );
-
-  if (paginationStatus === "LoadingFirstPage") {
-    return <TableSkeleton />;
-  }
-
-  const emptyState = (
-    <CloserEmptyState
-      title={
-        stageFilter
-          ? `No ${dealPositionLabel(stageFilter).toLowerCase()} opportunities`
-          : "No opportunities yet"
-      }
-      description={
-        stageFilter
-          ? "Try selecting a different stage above."
-          : "Opportunities will appear here when leads book meetings through Calendly."
-      }
-      icon={KanbanIcon}
-    >
-      {stageFilter && (
-        <Button variant="outline" size="sm" onClick={onClearFilter}>
-          Show all opportunities
-        </Button>
+      {hasAnyDeal === false ? null : (
+        <SectionErrorBoundary
+          sectionName="all deals"
+          fallback={
+            <div className="rounded-xl border bg-card">
+              <SectionError what="your deals" />
+            </div>
+          }
+        >
+          <DealsLookup
+            filters={filters}
+            onFiltersChange={changeFilters}
+            now={now}
+            setting={setting}
+            headingRef={lookupHeading}
+          />
+        </SectionErrorBoundary>
       )}
-    </CloserEmptyState>
-  );
-
-  return (
-    <OpportunitiesTable
-      opportunities={opportunities}
-      canLoadMore={paginationStatus === "CanLoadMore"}
-      isLoadingMore={paginationStatus === "LoadingMore"}
-      onLoadMore={() => loadMore(25)}
-      emptyState={emptyState}
-    />
-  );
-}
-
-function PageHeaderSkeleton() {
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-4 w-72" />
-      </div>
-      <Skeleton className="h-9 w-full rounded-lg" />
     </div>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex flex-col gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
-        </div>
-      </CardContent>
-    </Card>
   );
 }

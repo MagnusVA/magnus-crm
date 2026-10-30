@@ -1,0 +1,81 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/*.html"
+        ],
+        "createdAt": "2026-10-29T05:22:43.570Z",
+        "reason": "Decision sketches: fixed-height flex rows and inputs center their text; renders verified at 1440x900 show no flush text"
+      },
+      {
+        "rule": "repeating-stripes-gradient",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/assigned.html"
+        ],
+        "createdAt": "2026-10-29T05:22:43.585Z",
+        "reason": "The clapper-stripe rule is the Call Sheet direction's named signature move"
+      },
+      {
+        "rule": "overused-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/canon.html"
+        ],
+        "createdAt": "2026-10-29T05:22:43.600Z",
+        "reason": "The category-standard card deliberately keeps the app's current face (Geist)"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/hybrid-today.html"
+        ],
+        "createdAt": "2026-10-29T05:28:33.344Z",
+        "reason": "Sketch rows, tabs and inputs center text in fixed-height flex boxes; the 1440x900 render shows no flush text"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/*.html"
+        ],
+        "createdAt": "2026-10-29T05:42:34.985Z",
+        "reason": "Mock sketches center text in fixed-height flex rows, bars and headers; renders show no flush text"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/*.html"
+        ],
+        "createdAt": "2026-10-29T18:21:52.210Z",
+        "reason": "Claude: archived decision-round sketches; each alternative direction deliberately used its own face, and the round is closed"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "condensed",
+        "files": [
+          ".impeccable/mocks/*.html"
+        ],
+        "createdAt": "2026-10-29T18:21:52.227Z",
+        "reason": "Claude: false positive; the font shorthand names \"Barlow Condensed\", which DESIGN.md declares"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/*.html",
+          ".impeccable/mocks/decision/*.html"
+        ],
+        "createdAt": "2026-10-29T18:21:52.244Z",
+        "reason": "Claude: approved sketches predate the DESIGN.md ramp, which was derived from the shipped code; the sketches are thumbnails, not shipping UI"
+      }
+    ]
+  }
+}

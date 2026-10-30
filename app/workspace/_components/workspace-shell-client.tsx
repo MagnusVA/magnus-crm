@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import { RoleProvider, useRole } from "@/components/auth/role-context";
 import {
@@ -43,6 +45,7 @@ import {
   DollarSignIcon,
   KanbanIcon,
   LayoutDashboardIcon,
+  CalendarClockIcon,
   LogOutIcon,
   MegaphoneIcon,
   MessageSquareTextIcon,
@@ -52,15 +55,21 @@ import {
   TargetIcon,
   TrendingUpIcon,
   type LucideIcon,
-  UserCircleIcon,
   UsersIcon,
 } from "lucide-react";
-import { WorkspaceBreadcrumbs } from "@/components/workspace-breadcrumbs";
+import {
+  BreadcrumbTrailProvider,
+  WorkspaceBreadcrumbs,
+} from "@/components/workspace-breadcrumbs";
 import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
 import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MagnusBrand } from "@/components/magnus-brand";
+import { useBusinessDay } from "@/hooks/use-business-day";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
+import { useNow } from "@/hooks/use-now";
+import { businessDateForInstant, businessDayRange } from "@/lib/businessDay";
+import { endedCalls } from "@/app/workspace/closer/_components/needs-outcome-card";
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { MemberIdentity } from "./member-identity";
@@ -146,8 +155,12 @@ const billingNavItem: NavItem = {
   icon: DollarSignIcon,
 };
 
+// Active items take a lime tint and a lime icon, as in the locked direction.
+const ACTIVE_NAV_CLASS =
+  "data-[active=true]:bg-primary/16 data-[active=true]:text-sidebar-accent-foreground data-[active=true]:[&>svg]:text-primary";
+
 const closerNavItems: NavItem[] = [
-  { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
+  { href: "/workspace/closer", label: "Today", icon: CalendarClockIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
   leadsCustomersNavItem,
 ];
@@ -316,6 +329,23 @@ export function WorkspaceShellClient({
 // (vercel-composition-patterns: state-lift-state)
 // ---------------------------------------------------------------------------
 
+/**
+ * How many of the closer's calls have ended with no outcome, for the badge on
+ * Today. Bounded by the business day like the Today page's Needs outcome, so
+ * the query stays live and only the ended filter follows the clock.
+ */
+function useNeedsOutcomeCount(enabled: boolean) {
+  const now = useNow();
+  const { setting, loaded } = useBusinessDay();
+  const businessDate = businessDateForInstant(now, setting);
+  const dayEnd = useMemo(() => businessDayRange(businessDate, setting).end, [businessDate, setting]);
+  const result = useQuery(
+    api.closer.dashboard.getMeetingsNeedingOutcome,
+    enabled && loaded ? { before: dayEnd } : "skip",
+  );
+  return endedCalls(result, now).length;
+}
+
 function WorkspaceShellClientInner({
   initialDisplayName,
   initialEmail,
@@ -329,6 +359,7 @@ function WorkspaceShellClientInner({
 }: Omit<WorkspaceShellClientProps, "initialRole"> & { initialRole: CrmRole }) {
   const { isAdmin, role } = useRole();
   const handleSignOut = useSignOut();
+  const needsOutcomeCount = useNeedsOutcomeCount(role === "closer");
   const pathname = usePathname();
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
@@ -385,34 +416,24 @@ function WorkspaceShellClientInner({
   return (
     <>
       <Sidebar>
-        <SidebarHeader>
+        <SidebarHeader className="px-3 pt-4 pb-3">
           <Link
             href={homeHref}
-            aria-label="MAGNUS CRM workspace home"
-            className="group/brand flex min-h-10 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
+            aria-label="Magnus workspace home"
+            className="flex min-h-9 items-center gap-2 rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
             <MagnusBrand
-              label="MAGNUS CRM"
-              size="sm"
-              textClassName="text-sidebar-foreground group-hover/brand:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+              label="Magnus"
+              size="xs"
+              markVariant="lime"
+              markClassName="size-6"
+              textClassName="font-condensed text-[22px] font-semibold tracking-[0.01em] text-sidebar-foreground group-data-[collapsible=icon]:hidden"
             />
           </Link>
-          <Separator className="mx-2" />
-          <div className="px-2 py-1.5 group-data-[collapsible=icon]:hidden">
-            <MemberIdentity
-              identity={{
-                ...initialAvatar,
-                name: displayName,
-                email: initialEmail,
-                secondaryLabel: role.replace(/_/g, " "),
-              }}
-            />
-          </div>
         </SidebarHeader>
         <SidebarContent>
           {/* Sidebar nav items */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroup className="pt-0">
             <SidebarGroupContent>
               <SidebarMenu>
                 {navItems.map((item) => {
@@ -428,20 +449,27 @@ function WorkspaceShellClientInner({
                   const isActive = item.exact
                     ? pathname === item.href
                     : pathname.startsWith(item.href);
+                  // The closer's Today carries the count of calls still owed an outcome.
                   const badgeCount =
-                    0;
+                    item.href === "/workspace/closer"
+                      ? needsOutcomeCount
+                      : 0;
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
                         asChild
                         isActive={isActive}
                         tooltip={item.label}
+                        className={ACTIVE_NAV_CLASS}
                       >
                         <Link href={item.href}>
                           <item.icon />
                           <span>{item.label}</span>
                           {badgeCount > 0 && (
-                            <span className="ml-auto inline-flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                            <span
+                              className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-warning px-1.5 text-xs font-semibold tabular-nums text-primary-foreground"
+                              aria-label={`${badgeCount} calls need an outcome`}
+                            >
                               {badgeCount >= 100 ? "99+" : badgeCount}
                             </span>
                           )}
@@ -457,7 +485,7 @@ function WorkspaceShellClientInner({
           {/* Reports section — admin only (UI visibility; layout.tsx enforces auth) */}
           {isAdmin && (
             <SidebarGroup>
-              <SidebarGroupLabel>Reports</SidebarGroupLabel>
+              <SidebarGroupLabel className="font-condensed text-[11px] font-semibold tracking-[0.14em] uppercase text-sidebar-foreground/60">Reports</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {reportNavItems.map((item) => {
@@ -468,6 +496,7 @@ function WorkspaceShellClientInner({
                           asChild
                           isActive={isActive}
                           tooltip={item.label}
+                          className={ACTIVE_NAV_CLASS}
                         >
                           <Link href={item.href}>
                             <item.icon />
@@ -484,48 +513,60 @@ function WorkspaceShellClientInner({
         </SidebarContent>
 
         {/* Sidebar footer — user info and sign out */}
-        <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Profile">
-                <Link href="/workspace/profile">
-                  <UserCircleIcon />
-                  <span>Profile</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={handleSignOut}
-                tooltip="Sign out"
-              >
-                <LogOutIcon />
-                <span>Sign Out</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+        <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
+          <div className="flex items-center gap-1">
+            <Link
+              href="/workspace/profile"
+              aria-label="Your profile"
+              className="min-w-0 flex-1 rounded-md px-1 py-1 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:hidden"
+            >
+              <MemberIdentity
+                identity={{
+                  ...initialAvatar,
+                  name: displayName,
+                  email: initialEmail,
+                  secondaryLabel: role.replace(/_/g, " "),
+                }}
+                textClassName="text-sidebar-foreground [&_p]:capitalize [&_p]:text-sidebar-foreground/65"
+              />
+            </Link>
+            <SidebarMenu className="w-auto">
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={handleSignOut}
+                  tooltip="Sign out"
+                  aria-label="Sign out"
+                  className="size-8 justify-center p-0"
+                >
+                  <LogOutIcon />
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </div>
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
-          <SidebarTrigger aria-label="Toggle sidebar" />
-          <Separator orientation="vertical" className="h-4" />
-          <WorkspaceBreadcrumbs />
-          <div className="ml-auto flex items-center gap-2">
-            <CommandPaletteTrigger />
-            <ThemeToggle />
-            <NotificationCenter />
+      <BreadcrumbTrailProvider>
+        <SidebarInset>
+          <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-card px-4">
+            <SidebarTrigger aria-label="Toggle sidebar" />
+            <Separator orientation="vertical" className="h-4" />
+            <WorkspaceBreadcrumbs />
+            <div className="ml-auto flex items-center gap-2">
+              <CommandPaletteTrigger />
+              <ThemeToggle />
+              <NotificationCenter />
+            </div>
+          </header>
+          <div
+            id="main-content"
+            className="flex-1 overflow-auto px-6 py-5"
+            tabIndex={-1}
+          >
+            {children}
           </div>
-        </header>
-        <div
-          id="main-content"
-          className="flex-1 overflow-auto p-6"
-          tabIndex={-1}
-        >
-          {children}
-        </div>
-      </SidebarInset>
+        </SidebarInset>
+      </BreadcrumbTrailProvider>
 
       {/* Command palette — global overlay */}
       <CommandPalette billingOpsEnabled={billingOpsEnabled} />

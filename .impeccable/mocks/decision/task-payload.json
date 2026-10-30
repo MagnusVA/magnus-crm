@@ -1,0 +1,107 @@
+{
+  "title": "Choose the Task page's structure",
+  "question": "Three structures for the closer's Task page, all in the locked Magnus world. Lock one, steer it, or ask for another hand.",
+  "options": [
+    {
+      "id": "assigned",
+      "kind": "assigned",
+      "label": "The call script",
+      "kicker": "THE ROLL",
+      "lineage": "A phone-room call sheet read top to bottom",
+      "thesis": "One column in the order the closer works: why you're calling, reach them, what happened.",
+      "palette": ["#141A28", "#F5F6F8", "#84B135", "#F5B700"],
+      "materials": ["navy board strip", "white ruled cards", "Barlow Condensed figures"],
+      "viewport": "Navy strip (due, person, deal, reach by, status), then a single 760px column: the task note and its trigger, the phone number large with Call, Text and Copy, then \"Did you reach Ana?\" with its outcomes. Deal, last call and payments sit below as ruled lines.",
+      "risk": "Context for the call (deal stage, last meeting) sits below the fold on a laptop.",
+      "raised": [
+        { "from": "rw-timetable-slide-rack", "raise": "Rank is carried by weight, case and rule: the column uses three type sizes, no more." },
+        { "from": "signals-instruments-split-flap-concourse", "raise": "The strip's status cell changes its word in place (OVERDUE, DUE 3:00 PM, DONE) and the layout never moves." }
+      ],
+      "html": ".impeccable/mocks/decision/task-script.html",
+      "comp": ".impeccable/mocks/decision/task-script.webp"
+    },
+    {
+      "id": "dealt-queue",
+      "kind": "dealt",
+      "label": "Queue and task",
+      "lineage": "A dialer's call list beside the open record",
+      "thesis": "Work every task in one sitting: the queue stays on the left, the open task on the right.",
+      "palette": ["#141A28", "#F5F6F8", "#84B135", "#D93A40"],
+      "materials": ["ruled task rows", "navy board strip", "lime next action"],
+      "viewport": "Left 340px: the open tasks grouped Overdue, Today, Waiting, the current one marked. Right: the task strip with the number and Call/Text, the two-step outcome, then the deal card. Recording an outcome opens the next task.",
+      "risk": "Repeats Today's Tasks card; the page reads more data and the URL is still one task.",
+      "html": ".impeccable/mocks/decision/task-queue.html",
+      "comp": ".impeccable/mocks/decision/task-queue.webp"
+    },
+    {
+      "id": "dealt-callsheet",
+      "kind": "dealt",
+      "label": "The call sheet",
+      "lineage": "The meeting page's twin",
+      "thesis": "Same anatomy as the meeting page, so a task feels like a call you place yourself.",
+      "palette": ["#141A28", "#F5F6F8", "#84B135", "#2A9D95"],
+      "materials": ["navy board row", "lime-bordered outcome panel", "deal stage track"],
+      "viewport": "Navy strip as one board row with Call and Text in the gate column. Left: the task note, the lime-bordered outcome panel, comments. Right: the deal card with its stage track, the person card, the last call and payments.",
+      "risk": "The most familiar of the three; the number lives in a compact strip cell.",
+      "html": ".impeccable/mocks/decision/task-callsheet.html",
+      "comp": ".impeccable/mocks/decision/task-callsheet.webp"
+    },
+    {
+      "id": "challenger-slide-rack", "kind": "challenger", "catalogId": "rw-timetable-slide-rack", "verdict": "declined",
+      "label": "Timetable slide rack", "lineage": "1971 pocket airline timetable on a light table",
+      "thesis": "Every block one type size, rank by weight, case and reversal.",
+      "palette": ["#D9A521", "#1E2226", "#F2EEDF", "#C8341F"], "materials": ["tinted glass slides", "goldenrod light bed"],
+      "viewport": "A raked rack of slides travelled sideways.", "risk": "Raked containers and lateral travel break a working screen.",
+      "case": "Loses both axes: closers don't read their work as a timetable rack, and the rake hides the task.",
+      "kept": "One-size discipline: rank by weight, case and rule."
+    },
+    {
+      "id": "challenger-plate-section", "kind": "challenger", "catalogId": "design-annual-s-plate-section", "verdict": "declined",
+      "label": "Design annual plates", "lineage": "a design annual's plate section",
+      "thesis": "Registration furniture and one signed stamp on near-white stock.",
+      "palette": ["#F5F4F6", "#16181A", "#DCDDF3", "#C9C7C4"], "materials": ["uncoated stock", "letterpress stamp"],
+      "viewport": "One continuous sheet with crosshair-marked plates.", "risk": "Gallery staging for a phone task.",
+      "case": "Loses both axes: no closer identifies with a plate section, and it adds ornament, not clarity.",
+      "kept": "Hairline-built grid: every division is a 1px rule."
+    },
+    {
+      "id": "challenger-centre-rail", "kind": "challenger", "catalogId": "rw-centre-rail-reference-setting", "verdict": "declined",
+      "label": "Centre-rail reference", "lineage": "wide-margin reference edition",
+      "thesis": "Twin columns round a rail of keys, apparatus in the margin.",
+      "palette": ["#EDE6D6", "#1A1714", "#B3261E"], "materials": ["bone paper", "ruled hairlines"],
+      "viewport": "Two short columns twinned around a keyed rail.", "risk": "Reading furniture on an action screen.",
+      "case": "Loses both axes: it's a reading world, and the task is to call and record.",
+      "kept": "State as a printed mark in a fixed cell."
+    },
+    {
+      "id": "challenger-crouwel", "kind": "challenger", "catalogId": "crouwel-grid-specimen", "verdict": "declined",
+      "label": "Crouwel grid specimen", "lineage": "Wim Crouwel gridded specimens",
+      "thesis": "The construction grid is the design.",
+      "palette": ["#FFFFFF", "#111111", "#2F5BD3"], "materials": ["graph-paper grid", "constructed letters"],
+      "viewport": "Monumental grid letters over small grotesk.", "risk": "Display type crowds the task.",
+      "case": "Loses both axes: a specimen poster, not a working page.",
+      "kept": "The grid as visible armature: cards snap to one column system."
+    },
+    {
+      "id": "challenger-doujin", "kind": "challenger", "catalogId": "pop-culture-shelf-doujin-event-catalog", "verdict": "declined",
+      "label": "Convention circle catalog", "lineage": "newsprint convention catalog",
+      "thesis": "Thousands of stamp-size cells keyed to a hall map.",
+      "palette": ["#E7E3DA", "#1B1B1B", "#E2483C"], "materials": ["newsprint", "biro circles"],
+      "viewport": "A packed thumbnail grid with a folded hall map.", "risk": "Built for browsing hundreds, not one task.",
+      "case": "Loses both axes: one task has nothing to pack into a grid.",
+      "kept": "The marked cell: the current item is circled, done items struck."
+    },
+    {
+      "id": "challenger-split-flap", "kind": "challenger", "catalogId": "signals-instruments-split-flap-concourse", "verdict": "declined",
+      "label": "Split-flap concourse", "lineage": "rail concourse departure board",
+      "thesis": "Rows ranked by time, columns that never move, state restyles in place.",
+      "palette": ["#121212", "#F2F2F2", "#F0A020", "#B03030"], "materials": ["flap faces", "steel frame"],
+      "viewport": "A full departure board.", "risk": "Already the world's own signature; more of it is costume.",
+      "case": "Declined: its board is already Magnus's signature on Today, and a single task is one row.",
+      "kept": "State restyles a cell in place without moving the grid."
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": { "value": "code" }
+}

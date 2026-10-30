@@ -1,14 +1,12 @@
 "use client";
 
 import type { FunctionReturnType } from "convex/server";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { Preloaded } from "convex/react";
 import { usePreloadedQuery } from "convex/react";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -17,59 +15,32 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { format } from "date-fns";
-import {
-  ArrowLeftIcon,
-  AlertCircleIcon,
-  ShuffleIcon,
-  UserIcon,
-} from "lucide-react";
-import { DealStageBadge } from "@/components/status-badge";
-import {
-  isAwaitingOutcome,
-  isDealWon,
-  isWaitingOnRescheduleLink,
-} from "@/lib/deal-controls";
-
-// Cross-import reusable display components from closer meeting detail
-import { LeadInfoPanel } from "@/app/workspace/closer/meetings/_components/lead-info-panel";
-import { MeetingInfoPanel } from "@/app/workspace/closer/meetings/_components/meeting-info-panel";
-import { MeetingComments } from "@/app/workspace/closer/meetings/_components/meeting-comments";
-import { PaymentLinksPanel } from "@/app/workspace/closer/meetings/_components/payment-links-panel";
-import { BookingAnswersCard } from "@/app/workspace/closer/meetings/_components/booking-answers-card";
-import { DealWonCard } from "@/app/workspace/closer/meetings/_components/deal-won-card";
-import { AttributionCard } from "@/app/workspace/closer/meetings/_components/attribution-card";
-import { PotentialDuplicateBanner } from "@/app/workspace/closer/meetings/_components/potential-duplicate-banner";
-import {
-  RescheduleLinkDisplay,
-  RescheduleLinkSentBanner,
-} from "@/app/workspace/closer/meetings/_components/reschedule-link-display";
-import { RescheduleChainBanner } from "@/app/workspace/closer/meetings/_components/reschedule-chain-banner";
-import { UnfinishedFollowUpBanner } from "@/app/workspace/closer/meetings/_components/unfinished-follow-up-banner";
-import { FathomLinkField } from "@/app/workspace/closer/meetings/_components/fathom-link-field";
-import { AdminActionBar } from "@/app/workspace/pipeline/meetings/_components/admin-action-bar";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import { ArrowLeftIcon, AlertCircleIcon } from "lucide-react";
+import { MeetingDetailView } from "@/app/workspace/closer/meetings/_components/meeting-detail-view";
+import { MeetingDetailSkeleton } from "@/app/workspace/closer/meetings/_components/meeting-detail-skeleton";
 
 type MeetingDetailData = FunctionReturnType<
   typeof api.closer.meetingDetail.getMeetingDetail
 >;
 
+/**
+ * The admin twin of the closer's meeting page: the same composition, with
+ * the outcome actions calling the admin mutations on the assigned closer's
+ * behalf, and no outcome window.
+ */
 export function AdminMeetingDetailClient({
   preloadedDetail,
+  viewerRole,
 }: {
   preloadedDetail: Preloaded<typeof api.closer.meetingDetail.getMeetingDetail>;
+  viewerRole: Doc<"users">["role"];
 }) {
   const router = useRouter();
   const detail = usePreloadedQuery(preloadedDetail) as MeetingDetailData;
   usePageTitle(detail?.lead?.fullName ? `${detail.lead.fullName} — Admin` : "Meeting");
 
-  const [rescheduleLinkUrl, setRescheduleLinkUrl] = useState<string | null>(
-    null,
-  );
-
   if (detail === undefined) {
-    return <AdminMeetingDetailSkeleton />;
+    return <MeetingDetailSkeleton />;
   }
 
   if (detail === null) {
@@ -78,185 +49,7 @@ export function AdminMeetingDetailClient({
     );
   }
 
-  const {
-    meeting,
-    opportunity,
-    lead,
-    assignedCloser,
-    meetingHistory,
-    eventTypeName,
-    paymentLinks,
-    payments,
-    potentialDuplicate,
-    reassignmentInfo,
-    rescheduledFromMeeting,
-    activeFollowUp,
-    attributionTeam,
-    dmCloser,
-    assignedCloserIdentity,
-    dmCloserIdentity,
-    dealAttribution,
-  } = detail;
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Header: Back to pipeline + status badge */}
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/workspace/pipeline">
-            <ArrowLeftIcon data-icon="inline-start" />
-            Pipeline
-          </Link>
-        </Button>
-        <DealStageBadge
-          position={opportunity.position}
-          systemLoss={opportunity.systemLoss}
-        />
-      </div>
-
-      {/* Assigned closer info — prominent for admins */}
-      {assignedCloser && (
-        <Alert className="mb-0">
-          <UserIcon className="size-4" />
-          <AlertDescription>
-            <div className="flex items-center gap-2">
-              <span>Assigned to</span>
-              {assignedCloserIdentity ? (
-                <MemberIdentity identity={assignedCloserIdentity} />
-              ) : (
-                <span className="font-medium">
-                  {assignedCloser.fullName ?? assignedCloser.email}
-                </span>
-              )}
-            </div>
-            {!assignedCloserIdentity && assignedCloser.fullName && (
-              <span className="text-muted-foreground"> ({assignedCloser.email})</span>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Feature E: Potential duplicate banner */}
-      {potentialDuplicate && (
-        <PotentialDuplicateBanner
-          duplicateLead={potentialDuplicate}
-          currentLeadName={lead.fullName}
-          opportunityId={opportunity._id}
-          currentLeadId={lead._id}
-        />
-      )}
-
-      {/* Feature H: Reassignment info alert */}
-      {reassignmentInfo && (
-        <Alert className="mb-0">
-          <ShuffleIcon className="size-4" />
-          <AlertDescription>
-            This meeting was reassigned from{" "}
-            <span className="font-medium">
-              {reassignmentInfo.reassignedFromCloserName}
-            </span>{" "}
-            on{" "}
-            {format(
-              new Date(reassignmentInfo.reassignedAt),
-              "MMM d, h:mm a",
-            )}{" "}
-            — {reassignmentInfo.reason}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Feature B: Reschedule chain banner */}
-      {rescheduledFromMeeting && (
-        <RescheduleChainBanner
-          rescheduledFromMeeting={rescheduledFromMeeting}
-        />
-      )}
-
-      {/* A follow-up that never moved the deal hides the closer's outcome buttons */}
-      {activeFollowUp && isAwaitingOutcome(opportunity) && (
-        <UnfinishedFollowUpBanner
-          meeting={meeting}
-          opportunityId={opportunity._id}
-          followUp={activeFollowUp}
-          mode="admin"
-        />
-      )}
-
-      {/* Feature B: Reschedule Link Display (survives action bar interactions) */}
-      {rescheduleLinkUrl && (
-        <RescheduleLinkDisplay
-          url={rescheduleLinkUrl}
-          onDismiss={() => setRescheduleLinkUrl(null)}
-        />
-      )}
-
-      {/* Feature B: Reschedule Link Sent Banner, on a Follow-up deal with a
-          pending reschedule link */}
-      {isWaitingOnRescheduleLink(opportunity) && !rescheduleLinkUrl && (
-        <RescheduleLinkSentBanner />
-      )}
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
-        <div className="md:col-span-1">
-          <LeadInfoPanel
-            lead={lead}
-            meetingHistory={meetingHistory}
-            meetingDetailBasePath="/workspace/pipeline/meetings"
-          />
-        </div>
-
-        <div className="flex flex-col gap-6 md:col-span-2 lg:col-span-3">
-          <MeetingInfoPanel
-            meeting={meeting}
-            eventTypeName={eventTypeName}
-            assignedCloser={assignedCloser}
-            assignedCloserIdentity={assignedCloserIdentity}
-          />
-          <BookingAnswersCard
-            answers={detail.bookingAnswers}
-          />
-
-          {/* Deal Won Card — only on a Closed won deal with payments */}
-          {isDealWon(opportunity) && payments.length > 0 && (
-            <DealWonCard payments={payments} />
-          )}
-
-          {/* Attribution Card */}
-          <AttributionCard
-            opportunity={opportunity}
-            meeting={meeting}
-            attributionTeam={attributionTeam}
-            dmCloser={dmCloser}
-            dmCloserIdentity={dmCloserIdentity}
-            dealAttribution={dealAttribution}
-          />
-
-          {/* v2: Fathom Recording link — admin can save/update for any
-              meeting. Same component as closer side (backend authorizes
-              both roles). */}
-          <FathomLinkField
-            meetingId={meeting._id}
-            initialLink={meeting.fathomLink ?? ""}
-            savedAt={meeting.fathomLinkSavedAt}
-          />
-
-          {/* Comments */}
-          <MeetingComments meetingId={meeting._id} />
-
-          {paymentLinks && paymentLinks.length > 0 && (
-            <PaymentLinksPanel paymentLinks={paymentLinks} />
-          )}
-        </div>
-      </div>
-
-      {/* Admin Action Bar — contextual actions from the deal's stage and loss */}
-      <AdminActionBar
-        meeting={meeting}
-        opportunity={opportunity}
-        onRescheduleLinkCreated={(url) => setRescheduleLinkUrl(url)}
-      />
-    </div>
-  );
+  return <MeetingDetailView detail={detail} mode="admin" viewerRole={viewerRole} />;
 }
 
 function MeetingNotFound({ onBack }: { onBack: () => void }) {
@@ -278,40 +71,6 @@ function MeetingNotFound({ onBack }: { onBack: () => void }) {
           </Button>
         </EmptyHeader>
       </Empty>
-    </div>
-  );
-}
-
-function AdminMeetingDetailSkeleton() {
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-9 w-28" />
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-5 w-24 rounded-full" />
-          <Skeleton className="h-9 w-20 rounded-md" />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
-        <div className="flex flex-col gap-4">
-          <Skeleton className="h-48 rounded-xl" />
-          <Skeleton className="h-40 rounded-xl" />
-        </div>
-
-        <div className="flex flex-col gap-4 md:col-span-2 lg:col-span-3">
-          <Skeleton className="h-56 rounded-xl" />
-          <Skeleton className="h-32 rounded-xl" />
-          <Skeleton className="h-36 rounded-xl" />
-          <Skeleton className="h-52 rounded-xl" />
-        </div>
-      </div>
-
-      <div className="flex gap-3 border-t pt-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-32 rounded-md" />
-        ))}
-      </div>
     </div>
   );
 }

@@ -46,6 +46,11 @@ type AdminMarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
   meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
+  /** Controlled open state. When set, the dialog renders no trigger button. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Named in the dialog so the closer knows whose deal closes. */
+  leadName?: string | null;
 };
 
 /**
@@ -56,8 +61,17 @@ export function AdminMarkLostDialog({
   opportunityId,
   meetingId,
   onSuccess,
+  open: controlledOpen,
+  onOpenChange,
+  leadName,
 }: AdminMarkLostDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => {
+    if (!isControlled) setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [isLoading, setIsLoading] = useState(false);
   const markAsLost = useMutation(api.admin.meetingActions.adminMarkAsLost);
 
@@ -83,7 +97,7 @@ export function AdminMarkLostDialog({
         meeting_id: meetingId ?? null,
         has_reason: Boolean(trimmedReason),
       });
-      toast.success("Opportunity marked as lost");
+      toast.success("Deal closed as lost");
       setOpen(false);
       form.reset();
     } catch (error) {
@@ -98,10 +112,17 @@ export function AdminMarkLostDialog({
 
   return (
     <>
-      <Button variant="destructive" size="sm" onClick={() => setOpen(true)}>
-        <XCircleIcon data-icon="inline-start" />
-        Mark as Lost
-      </Button>
+      {isControlled ? null : (
+        <Button
+          variant="destructive"
+          size="sm"
+          className="text-danger-ink"
+          onClick={() => setOpen(true)}
+        >
+          <XCircleIcon data-icon="inline-start" />
+          Mark as Lost
+        </Button>
+      )}
 
       <AlertDialog
         open={open}
@@ -116,13 +137,18 @@ export function AdminMarkLostDialog({
           <AlertDialogHeader>
             <div className="flex items-start gap-3">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
-                <AlertTriangleIcon className="size-4 text-destructive" />
+                <AlertTriangleIcon className="size-4 text-danger-ink" />
               </div>
               <div className="flex-1">
-                <AlertDialogTitle>Mark as Lost?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {leadName
+                    ? `Close ${leadName}\u2019s deal as lost?`
+                    : "Close the deal as lost?"}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will mark the opportunity as lost on behalf of the
-                  assigned closer. This action is permanent.
+                  {meetingId
+                    ? "On behalf of the assigned closer: the call is marked held and the deal closes as lost. This can\u2019t be undone here."
+                    : "On behalf of the assigned closer: the deal closes as lost. This can\u2019t be undone here."}
                 </AlertDialogDescription>
               </div>
             </div>
@@ -156,6 +182,7 @@ export function AdminMarkLostDialog({
                 <Button
                   type="submit"
                   variant="destructive"
+                  className="text-danger-ink"
                   disabled={isLoading}
                 >
                   {isLoading ? (
@@ -164,7 +191,7 @@ export function AdminMarkLostDialog({
                       Marking…
                     </>
                   ) : (
-                    "Mark as Lost"
+                    "Close as lost"
                   )}
                 </Button>
               </AlertDialogFooter>

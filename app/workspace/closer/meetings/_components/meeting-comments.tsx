@@ -7,12 +7,6 @@ import { toast } from "sonner";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -30,7 +23,9 @@ import {
 
 import { CommentEntry } from "./comment-entry";
 import { CommentInput } from "./comment-input";
+import { DetailCard } from "./detail-card";
 import { getErrorMessage } from "@/lib/errors";
+import { useBusinessDay } from "@/hooks/use-business-day";
 
 type MeetingCommentsProps = {
   meetingId: Id<"meetings">;
@@ -38,6 +33,7 @@ type MeetingCommentsProps = {
 
 export function MeetingComments({ meetingId }: MeetingCommentsProps) {
   const [expanded, setExpanded] = useState(false);
+  const { setting } = useBusinessDay();
   const comments = useQuery(api.closer.meetingComments.getComments, {
     meetingId,
   });
@@ -73,8 +69,8 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
     }
     if (comments.length === 0) {
       return (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          No comments yet. Be the first to add one.
+        <p className="py-6 text-center text-muted-foreground">
+          No comments yet.
         </p>
       );
     }
@@ -85,15 +81,28 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
             key={comment._id}
             comment={comment}
             onDelete={handleDelete}
+            timeZone={setting.timeZone}
           />
         ))}
       </div>
     );
     if (maxHeight) {
       return (
-        <ScrollArea className="pr-2" style={{ maxHeight }}>
+        <div
+          className="overflow-y-auto overscroll-contain"
+          // Scroll shadows: the bottom edge darkens while more comments sit
+          // below, and the cover scrolls away at the end of the list.
+          style={{
+            maxHeight,
+            background:
+              "linear-gradient(var(--card) 30%, transparent) top / 100% 24px no-repeat local, linear-gradient(transparent, var(--card) 70%) bottom / 100% 24px no-repeat local, radial-gradient(farthest-side at 50% 0, color-mix(in oklab, var(--foreground) 14%, transparent), transparent) top / 100% 10px no-repeat scroll, radial-gradient(farthest-side at 50% 100%, color-mix(in oklab, var(--foreground) 14%, transparent), transparent) bottom / 100% 10px no-repeat scroll",
+          }}
+          tabIndex={0}
+          role="region"
+          aria-label="Comment list"
+        >
           {list}
-        </ScrollArea>
+        </div>
       );
     }
     return list;
@@ -101,40 +110,37 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
 
   return (
     <>
-      <Card size="sm">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <MessageSquareIcon
-              className="size-4 text-muted-foreground"
-              aria-hidden
-            />
-            <CardTitle className="text-sm">Comments</CardTitle>
-            {!isLoading && comments.length > 0 && (
-              <span className="text-xs text-muted-foreground">
-                ({comments.length})
-              </span>
-            )}
+      <DetailCard
+        title="Comments"
+        meta={
+          <>
+            <span className="tabular-nums">
+              {isLoading ? null : comments.length}
+            </span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="ml-auto size-7"
+                  size="icon-sm"
+                  className="-mr-2 text-muted-foreground"
                   onClick={() => setExpanded(true)}
-                  aria-label="Expand comments"
+                  aria-label="Open comments in a larger view"
                 >
-                  <MaximizeIcon className="size-3.5" />
+                  <MaximizeIcon className="size-3.5" aria-hidden />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">Open larger view</TooltipContent>
             </Tooltip>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {commentList("260px")}
+          </>
+        }
+      >
+        {isLoading || comments.length > 0 ? (
+          <div>{commentList("260px")}</div>
+        ) : null}
+        <div className={isLoading || comments.length > 0 ? "border-t px-4 py-3" : "px-4 py-3"}>
           <CommentInput meetingId={meetingId} />
-        </CardContent>
-      </Card>
+        </div>
+      </DetailCard>
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-3xl">
@@ -149,7 +155,7 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
               )}
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto px-6">
+          <div className="flex-1 overflow-y-auto px-2">
             {commentList()}
           </div>
           <div className="border-t px-6 py-4">

@@ -172,6 +172,7 @@ export const createNoShowRescheduleLink = mutation({
       schedulingLinkUrl,
       reason: "no_show_follow_up",
       status: "pending",
+      sourceMeetingId: meetingId,
       createdAt: now,
       createdByUserId: userId,
       createdSource: "closer",

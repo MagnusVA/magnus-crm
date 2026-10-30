@@ -1731,6 +1731,11 @@ export default defineSchema({
     ),
     schedulingLinkUrl: v.optional(v.string()),
     calendlyEventUri: v.optional(v.string()),
+    // The call the follow-up was set from (the meeting's outcome, or the
+    // no-show a reschedule link follows). Absent on rows written before
+    // 2026-10-29 and on follow-ups set without a meeting; readers fall back
+    // to `loadFollowedMeeting` (lib/followedMeeting.ts).
+    sourceMeetingId: v.optional(v.id("meetings")),
     contactMethod: v.optional(
       v.union(v.literal("call"), v.literal("text")),
     ),

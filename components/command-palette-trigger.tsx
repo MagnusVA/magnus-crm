@@ -14,7 +14,7 @@ export function CommandPaletteTrigger() {
     <Button
       variant="outline"
       size="sm"
-      className="hidden gap-2 text-muted-foreground sm:flex"
+      className="hidden h-8 w-64 justify-start gap-2 bg-background text-muted-foreground sm:flex"
       onClick={() => {
         // Dispatch Cmd+K to trigger the palette
         document.dispatchEvent(
@@ -23,8 +23,8 @@ export function CommandPaletteTrigger() {
       }}
     >
       <SearchIcon data-icon="inline-start" />
-      <span className="text-xs">Search</span>
-      <Kbd className="ml-1">
+      <span className="text-sm">Search people and deals</span>
+      <Kbd className="ml-auto">
         <span className="text-[10px]">⌘K</span>
       </Kbd>
     </Button>

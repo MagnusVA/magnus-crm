@@ -1,0 +1,222 @@
+{
+ "title": "What My Pipeline becomes",
+ "question": "Three structures for the closer's own desk: their money, their open deals, and a lookup of every deal. Lock one, steer it, or ask for another hand.",
+ "options": [
+  {
+   "id": "assigned",
+   "kind": "assigned",
+   "label": "Desk by program",
+   "kicker": "THE ROLL",
+   "lineage": "How a high-ticket sales floor talks: by program",
+   "thesis": "Your desk split by the programs you sell: each one's money this month and its open deals, then every deal in a lookup.",
+   "palette": [
+    "#141A28",
+    "#F5F6F8",
+    "#84B135",
+    "#2A9D95"
+   ],
+   "materials": [
+    "navy money strip",
+    "program sections",
+    "ruled deal rows"
+   ],
+   "viewport": "Navy strip: cash this month vs this time last month, wins, open deals. Then one section per program (Accelerator, Elite Mentorship): its cash and wins this month, and its open deals as rows with stage, last activity and next step. Below: All deals, the filterable lookup.",
+   "risk": "A closer who sells one program gets one section, which is just a list.",
+   "raised": [
+    {
+     "from": "signals-instruments-split-flap-concourse",
+     "raise": "Each row's stage word changes in place, in the board's condensed caps, and rows never jump."
+    },
+    {
+     "from": "vernacular-ephemera-boarding-pass-and-gate-board",
+     "raise": "One alert colour (amber) is reserved for open deals with no next step."
+    }
+   ],
+   "html": ".impeccable/mocks/decision/pipeline-programs.html",
+   "comp": ".impeccable/mocks/decision/pipeline-programs.webp"
+  },
+  {
+   "id": "dealt-month",
+   "kind": "dealt",
+   "label": "My month",
+   "lineage": "A sales rep's month-to-date sheet",
+   "thesis": "Your month on top, your open deals under it, every deal one tab away.",
+   "palette": [
+    "#141A28",
+    "#F5F6F8",
+    "#84B135",
+    "#4C6FD0"
+   ],
+   "materials": [
+    "navy month band",
+    "stage groups",
+    "tabs"
+   ],
+   "viewport": "Navy month band: cash collected, payments, wins and close rate this month against this time last month, with week-by-week figures. Below, tabs Open deals / All deals: open deals grouped Booked, Call held, Follow-up with last activity and next step; All deals is the lookup.",
+   "risk": "Repeats Today's Performance card unless the month band says more than it does.",
+   "html": ".impeccable/mocks/decision/pipeline-month.html",
+   "comp": ".impeccable/mocks/decision/pipeline-month.webp"
+  },
+  {
+   "id": "dealt-timeline",
+   "kind": "dealt",
+   "label": "Deal timeline",
+   "lineage": "A brokerage statement: running total over dated entries",
+   "thesis": "Everything that happened on your deals, newest first, with your month's running total pinned on top.",
+   "palette": [
+    "#141A28",
+    "#F5F6F8",
+    "#84B135",
+    "#D93A40"
+   ],
+   "materials": [
+    "running total",
+    "dated ledger entries",
+    "filter chips"
+   ],
+   "viewport": "Pinned navy total: cash this month and wins. Under it, a dated ledger of events across your deals: payment recorded +$3,500, call held, no-show, deal lost, task set; filters by event and program. A Deals toggle turns the ledger into the lookup of all deals.",
+   "risk": "Deals are read through events, so finding one deal's state takes a toggle.",
+   "html": ".impeccable/mocks/decision/pipeline-timeline.html",
+   "comp": ".impeccable/mocks/decision/pipeline-timeline.webp"
+  },
+  {
+   "id": "challenger-split-flap",
+   "kind": "challenger",
+   "catalogId": "signals-instruments-split-flap-concourse",
+   "verdict": "declined",
+   "label": "Split-flap concourse",
+   "lineage": "rail concourse departure board",
+   "thesis": "Rows ranked by time; columns never move; state restyles in place.",
+   "palette": [
+    "#121212",
+    "#F2F2F2",
+    "#F0A020",
+    "#B03030"
+   ],
+   "materials": [
+    "flap faces",
+    "steel frame"
+   ],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Already Magnus's signature on Today; a deal book isn't a departures list.",
+   "kept": "Status restyles a cell in place without moving the grid."
+  },
+  {
+   "id": "challenger-boarding-pass",
+   "kind": "challenger",
+   "catalogId": "vernacular-ephemera-boarding-pass-and-gate-board",
+   "verdict": "declined",
+   "label": "Boarding pass and gate board",
+   "lineage": "travel documents and gate boards",
+   "thesis": "A pass with a sequence number beside a board that reranks in place.",
+   "palette": [
+    "#F4F4F2",
+    "#141414",
+    "#E4572E"
+   ],
+   "materials": [
+    "segmented pass",
+    "scannable block"
+   ],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Fuses toward the board Magnus already has; the pass adds a costume, not clarity.",
+   "kept": "One alert colour reserved for what changed."
+  },
+  {
+   "id": "challenger-doujin",
+   "kind": "challenger",
+   "catalogId": "pop-culture-shelf-doujin-event-catalog",
+   "verdict": "declined",
+   "label": "Convention circle catalog",
+   "lineage": "newsprint convention catalog",
+   "thesis": "Stamp-size cells keyed to a hall map.",
+   "palette": [
+    "#E7E3DA",
+    "#1B1B1B",
+    "#E2483C"
+   ],
+   "materials": [
+    "newsprint",
+    "biro circles"
+   ],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "A closer has tens of deals, not thousands; the grid has nothing to pack.",
+   "kept": "The marked cell: the current item circled."
+  },
+  {
+   "id": "challenger-zoo-map",
+   "kind": "challenger",
+   "catalogId": "aww2-zoo-gardens-guide-map",
+   "verdict": "declined",
+   "label": "Zoo guide map",
+   "lineage": "zoo and gardens guide maps",
+   "thesis": "Areas as swelling lobes of flat colour.",
+   "palette": [
+    "#8ED462",
+    "#F5F1E4",
+    "#2C2E2A"
+   ],
+   "materials": [
+    "flat colour lobes"
+   ],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Maps space, and a pipeline has no geography.",
+   "kept": "Flat, unmodulated colour fields for groups."
+  },
+  {
+   "id": "challenger-metro",
+   "kind": "challenger",
+   "catalogId": "digital-design-canon-metro-typographic-tiles",
+   "verdict": "declined",
+   "label": "Metro tiles",
+   "lineage": "Metro-style tile screens",
+   "thesis": "Giant lowercase, colour tiles as content.",
+   "palette": [
+    "#000000",
+    "#84B135",
+    "#00ABA9",
+    "#FFFFFF"
+   ],
+   "materials": [
+    "flat tiles",
+    "giant type"
+   ],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Display type and chromeless tiles fight a dense working page.",
+   "kept": "Type carries the interface; chrome deleted."
+  },
+  {
+   "id": "challenger-orienteering",
+   "kind": "challenger",
+   "catalogId": "notation-diagram-systems-orienteering-map",
+   "verdict": "declined",
+   "label": "Orienteering map",
+   "lineage": "ISOM orienteering maps",
+   "thesis": "Standard inks; the course rides in purple over everything.",
+   "palette": [
+    "#FFFFFF",
+    "#7A5C2E",
+    "#F4D03F",
+    "#A3279B"
+   ],
+   "materials": [
+    "map inks",
+    "contours"
+   ],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Terrain notation has no reading for deals or money.",
+   "kept": "One reserved ink for the active leg."
+  }
+ ],
+ "reroll": true,
+ "steer": true,
+ "buildPath": {
+  "value": "code"
+ }
+}

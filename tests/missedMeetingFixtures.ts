@@ -254,13 +254,37 @@ export async function missedMeetingHarness() {
 
   /** The closer's actions on the deal, each at the test clock. */
   const closerActions = {
-    /** A follow-up scheduling link the closer copied but never confirmed. */
-    async unconfirmedSchedulingLink(opportunityId: Id<"opportunities">) {
+    /** A scheduling link from the meeting's outcome, which moves the deal to Follow-up. */
+    async schedulingLink(opportunityId: Id<"opportunities">, meetingId?: Id<"meetings">) {
       const { followUpId } = await harness.closer.mutation(
         api.closer.followUpMutations.createSchedulingLinkFollowUp,
-        { opportunityId },
+        { opportunityId, meetingId },
       );
       return followUpId;
+    },
+    /**
+     * A follow-up scheduling link left pending on a deal that never moved,
+     * as one generated before links moved the deal at once could be. Today
+     * generating a link moves the deal (`createSchedulingLinkFollowUp`), so
+     * the row is written as that older dialog left it.
+     */
+    async legacyUnconfirmedSchedulingLink(opportunityId: Id<"opportunities">) {
+      return await t.run(async (ctx) => {
+        const deal = (await ctx.db.get("opportunities", opportunityId))!;
+        return await ctx.db.insert("followUps", {
+          tenantId: deal.tenantId,
+          opportunityId,
+          leadId: deal.leadId,
+          closerId: deal.assignedCloserId!,
+          type: "scheduling_link",
+          reason: "closer_initiated",
+          status: "pending",
+          schedulingLinkUrl: `${PERSONAL_EVENT_TYPE}?utm_medium=follow_up`,
+          createdAt: Date.now(),
+          createdByUserId: deal.assignedCloserId!,
+          createdSource: "closer",
+        });
+      });
     },
     async rescheduleLink(
       opportunityId: Id<"opportunities">,

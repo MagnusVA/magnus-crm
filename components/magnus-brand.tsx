@@ -28,7 +28,7 @@ const sizeConfig = {
 type MagnusBrandProps = {
   label?: string;
   size?: keyof typeof sizeConfig;
-  markVariant?: "auto" | "color" | "white";
+  markVariant?: "auto" | "color" | "white" | "lime";
   showText?: boolean;
   priority?: boolean;
   className?: string;
@@ -82,8 +82,21 @@ function MagnusMark({
   className?: string;
   priority: boolean;
   size: number;
-  variant: "auto" | "color" | "white";
+  variant: "auto" | "color" | "white" | "lime";
 }) {
+  if (variant === "lime") {
+    // The bare M in brand lime, for the navy shell in both themes.
+    return (
+      <svg
+        viewBox="200 255 390 340"
+        aria-hidden="true"
+        className={cn("shrink-0 fill-primary", className)}
+      >
+        <path d="M394.1 566.9c0 13.9 19.1 18 24.7 5.2L473 449.8h-78.9V566.9zM370.4 320.2l-42.1 64.7c-5.6 8.6-18.2 8.5-23.6-.2L235.3 273c-6.8-11-23.9-6.2-23.9 6.8v154c0 8.8 7.2 16 16 16h140.1h26.5V327.2c0-12.8-16.7-17.8-23.6-7zM550.3 275.2L473 449.8h86c8.8 0 16-7.2 16-16V280.4c0-14-19.1-18-24.7-5.2z" />
+      </svg>
+    );
+  }
+
   if (variant === "auto") {
     return (
       <span

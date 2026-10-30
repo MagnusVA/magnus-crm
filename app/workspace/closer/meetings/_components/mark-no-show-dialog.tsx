@@ -67,6 +67,8 @@ type MarkNoShowDialogProps = {
   meetingId: Id<"meetings">;
   mode?: "closer" | "admin";
   onSuccess?: () => Promise<void>;
+  /** Named in the dialog so the closer knows whose call this records. */
+  leadName?: string | null;
 };
 
 export function MarkNoShowDialog({
@@ -75,6 +77,7 @@ export function MarkNoShowDialog({
   meetingId,
   mode = "closer",
   onSuccess,
+  leadName,
 }: MarkNoShowDialogProps) {
   const closerMarkNoShow = useMutation(api.closer.noShowActions.markNoShow);
   const adminMarkNoShow = useMutation(api.admin.meetingActions.adminMarkNoShow);
@@ -113,7 +116,7 @@ export function MarkNoShowDialog({
         source: mode,
       });
 
-      toast.success("Meeting marked as no-show");
+      toast.success("No-show recorded. The deal is closed as lost.");
       await onSuccess?.();
       onOpenChange(false);
     } catch (error) {
@@ -126,15 +129,25 @@ export function MarkNoShowDialog({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(value) => {
+        // Esc mid-submit would reset the form under the running mutation.
+        if (!isSubmitting) onOpenChange(value);
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <UserXIcon className="size-5" />
-            Mark as No-Show
+            {leadName ? `${leadName} didn\u2019t show up` : "Record a no-show"}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Record that the lead didn&rsquo;t show up for this meeting.
+            The call is marked no-show and the deal closes as lost, with the
+            reason you pick.{" "}
+            {mode === "admin"
+              ? "You can then send a reschedule link from this page."
+              : "You can then send a reschedule link."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -202,6 +215,7 @@ export function MarkNoShowDialog({
               <Button
                 type="submit"
                 variant="destructive"
+                className="text-danger-ink"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
@@ -210,7 +224,7 @@ export function MarkNoShowDialog({
                     Marking…
                   </>
                 ) : (
-                  "Confirm No-Show"
+                  "Record no-show"
                 )}
               </Button>
             </AlertDialogFooter>

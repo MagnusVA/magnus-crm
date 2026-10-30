@@ -10,6 +10,8 @@ import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
+import { loadFollowedMeeting } from "../lib/followedMeeting";
+import { loadTaskDealContext } from "../lib/taskDealContext";
 import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -82,6 +84,12 @@ async function loadPaymentUserMaps(
   return { userNameById, userIdentityById };
 }
 
+/**
+ * The closer's task page: one of their own tasks, a call-back or text-back
+ * reminder or a scheduling link waiting on a booking, with the deal it
+ * belongs to. Null for anything else: another closer's task, another
+ * tenant's, or a missing one, which the page reads as "Task not found".
+ */
 export const getReminderDetail = query({
   args: { followUpId: v.id("followUps") },
   handler: async (ctx, { followUpId }) => {
@@ -95,9 +103,6 @@ export const getReminderDetail = query({
       return null;
     }
     if (followUp.closerId !== userId) {
-      return null;
-    }
-    if (followUp.type !== "manual_reminder") {
       return null;
     }
 
@@ -188,6 +193,15 @@ export const getReminderDetail = query({
       eventTypeConfig && eventTypeConfig.tenantId === tenantId
         ? (eventTypeConfig.paymentLinks ?? [])
         : [];
+    // The deal card, its credit line and the deal's calls.
+    const dealContext = await loadTaskDealContext(ctx, tenantId, opportunity);
+    // The call the task follows ("after the Oct 26 no-show"): the one the
+    // task was set from, or the deal's last call up to its early-outcome
+    // window, however old.
+    const followed = await loadFollowedMeeting(ctx, followUp);
+    const followedMeeting = followed
+      ? { _id: followed._id, scheduledAt: followed.scheduledAt, status: followed.status }
+      : null;
 
     return {
       followUp,
@@ -201,6 +215,31 @@ export const getReminderDetail = query({
           : null,
       payments,
       paymentLinks,
+      ...dealContext,
+      followedMeeting,
+      bookedMeeting: await loadBookedMeeting(ctx, tenantId, followUp),
     };
   },
 });
+
+/**
+ * The call a booked scheduling link made, by the Calendly event the booking
+ * stamped on the link: one indexed read, and only for a booked link.
+ */
+async function loadBookedMeeting(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  followUp: Doc<"followUps">,
+): Promise<{ _id: Id<"meetings">; scheduledAt: number } | null> {
+  const eventUri = followUp.calendlyEventUri;
+  if (followUp.type !== "scheduling_link" || followUp.status !== "booked" || !eventUri) {
+    return null;
+  }
+  const meeting = await ctx.db
+    .query("meetings")
+    .withIndex("by_tenantId_and_calendlyEventUri", (q) =>
+      q.eq("tenantId", tenantId).eq("calendlyEventUri", eventUri),
+    )
+    .first();
+  return meeting ? { _id: meeting._id, scheduledAt: meeting.scheduledAt } : null;
+}

@@ -1,190 +1,173 @@
 import { v } from "convex/values";
-import { paginationOptsValidator } from "convex/server";
-import type { PaginationOptions } from "convex/server";
+import { literals } from "convex-helpers/validators";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
-import { loadPendingRescheduleLink } from "../opportunities/dealState";
 import { dealLabelOf } from "../opportunities/stageLabels";
-import { stageOfPosition, type DealPosition } from "../opportunities/stages";
+import { DEAL_POSITIONS } from "../opportunities/stages";
+import { CLOSER_LOOKUP_TABS, type CloserLookupTab } from "./pipelineTabs";
+import {
+  dealLastActivityAt,
+  dealNextStepValidator,
+  dealProgramKey,
+  loadDealNextStep,
+  loadPrograms,
+  NO_PROGRAM,
+  personNameOf,
+  programFallbackNames,
+  readCloserDeals,
+  sumByCurrency,
+} from "./pipelineDeals";
 
-// The closer's pipeline list (docs/plans/phase-5-deal-status.md §6.2): the
-// closer's deals at one position, or all of them, optionally created in a
-// period, newest first.
+// My Pipeline's lookup, "All deals": every deal the closer owns, by outcome
+// tab, program and person, the last active first
+// (.impeccable/surfaces/app-workspace-closer-pipeline-page-tsx.md).
 
-const positionFilterValidator = v.union(
-  v.literal("qualified"),
-  v.literal("booked"),
-  v.literal("call_held"),
-  v.literal("follow_up"),
-  v.literal("won"),
-  v.literal("lost"),
-);
+// The rows one call returns at most; the client asks for more in steps.
+const MAX_LOOKUP_ROWS = 300;
+// The search matches read; a search past it says so.
+const SEARCH_MATCH_LIMIT = 200;
+// Far above the payments one deal has.
+const DEAL_PAYMENT_SCAN = 50;
 
-// Far above the pending tasks one deal has; the reminder read stops here.
-const PENDING_TASK_SCAN = 20;
+const tabValidator = literals(...CLOSER_LOOKUP_TABS);
 
-/** What a Follow-up deal waits on (§4.5), or null when it waits on nothing. */
-export type CloserNextStep =
-  | { kind: "reschedule_link_sent" }
-  | { kind: "reminder"; reminderScheduledAt: number };
-
-/**
- * The page of the closer's deals: at `position` on its stage index, or all
- * of them on the createdAt index, each with `createdAt` in [periodStart,
- * periodEnd) when a period is given.
- */
-async function paginateCloserDeals(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  closerId: Id<"users">,
-  filters: {
-    position?: DealPosition;
-    period?: { start: number; end: number };
-  },
-  paginationOpts: PaginationOptions,
-) {
-  const { position, period } = filters;
-
-  if (position) {
-    const { stage, outcome } = stageOfPosition(position);
-    return await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_assignedCloserId_stage_outcome_createdAt", (q) => {
-        const atPosition = q
-          .eq("tenantId", tenantId)
-          .eq("assignedCloserId", closerId)
-          .eq("stage", stage)
-          .eq("outcome", outcome);
-        return period
-          ? atPosition.gte("createdAt", period.start).lt("createdAt", period.end)
-          : atPosition;
-      })
-      .order("desc")
-      .paginate(paginationOpts);
-  }
-
-  return await ctx.db
-    .query("opportunities")
-    .withIndex("by_tenantId_and_assignedCloserId_and_createdAt", (q) => {
-      const closers = q.eq("tenantId", tenantId).eq("assignedCloserId", closerId);
-      return period
-        ? closers.gte("createdAt", period.start).lt("createdAt", period.end)
-        : closers;
-    })
-    .order("desc")
-    .paginate(paginationOpts);
+function inTab(deal: Doc<"opportunities">, tab: CloserLookupTab): boolean {
+  return tab === "all" || deal.outcome === tab;
 }
 
 /**
- * A Follow-up deal's next step: "Reschedule link sent" when it has a pending
- * reschedule link, else its earliest pending reminder, else none. An
- * ordinary scheduling link isn't shown. Two indexed reads, each bounded.
- */
-export async function loadCloserNextStep(
-  ctx: QueryCtx,
-  dealId: Id<"opportunities">,
-): Promise<CloserNextStep | null> {
-  const { link } = await loadPendingRescheduleLink(ctx, dealId);
-  if (link) {
-    return { kind: "reschedule_link_sent" };
-  }
-
-  const pending = await ctx.db
-    .query("followUps")
-    .withIndex("by_opportunityId_and_status_and_reason", (q) =>
-      q.eq("opportunityId", dealId).eq("status", "pending"),
-    )
-    .take(PENDING_TASK_SCAN);
-  let earliest: number | null = null;
-  for (const task of pending) {
-    if (task.type !== "manual_reminder" || task.reminderScheduledAt === undefined) {
-      continue;
-    }
-    if (earliest === null || task.reminderScheduledAt < earliest) {
-      earliest = task.reminderScheduledAt;
-    }
-  }
-  return earliest === null ? null : { kind: "reminder", reminderScheduledAt: earliest };
-}
-
-/**
- * One row of the closer's pipeline: the deal's stage, outcome, position and
- * the loss the system wrote on it (`dealLabelOf`), never its status.
- */
-async function toPipelineRow(
-  ctx: QueryCtx,
-  deal: Doc<"opportunities">,
-  lead: Pick<Doc<"leads">, "_id" | "fullName" | "email" | "phone"> | undefined,
-) {
-  const label = dealLabelOf(deal);
-  const nextStep =
-    label.position === "follow_up" ? await loadCloserNextStep(ctx, deal._id) : null;
-
-  return {
-    _id: deal._id,
-    leadId: deal.leadId,
-    leadName:
-      lead?.fullName ?? lead?.email ?? (lead ? `Lead ${lead._id.slice(-6)}` : "Unknown"),
-    leadEmail: lead?.email,
-    leadPhone: lead?.phone,
-    ...label,
-    nextStep,
-    nextMeetingId: deal.nextMeetingId,
-    nextMeetingAt: deal.nextMeetingAt,
-    latestMeetingId: deal.latestMeetingId,
-    latestMeetingAt: deal.latestMeetingAt,
-    createdAt: deal.createdAt,
-  };
-}
-
-/**
- * List the closer's deals with an optional position and created-time period.
+ * The closer's deals for the lookup, sorted by last activity, newest first.
  *
- * Each row carries the person's name and email, the deal's position, the
- * missed meeting that closed it, a Follow-up deal's next step, and the
- * meeting refs already on the deal.
+ * Reads the closer's deals once, bounded (`readCloserDeals`), and filters
+ * them by `programKey` (a tenantPrograms id, or "none") and by `search`,
+ * matched through the deal search index on the closer's deals. `counts` are
+ * each tab's deals under the program and search; `programs` lists every
+ * program the closer has deals in, for the filter. Returns the first `limit`
+ * rows of the tab (at most MAX_LOOKUP_ROWS), each with its person, program,
+ * stage, last activity, next step (open deals) and what was paid on it by
+ * currency, disputed payments left out.
+ *
+ * `isPartial` says the closer has more deals than the read covers, so the
+ * oldest are missing; `isSearchPartial` that the search had more matches
+ * than it read.
  */
 export const listMyOpportunities = query({
   args: {
-    paginationOpts: paginationOptsValidator,
-    positionFilter: v.optional(positionFilterValidator),
-    periodStart: v.optional(v.number()),
-    periodEnd: v.optional(v.number()),
+    tab: tabValidator,
+    programKey: v.optional(v.string()),
+    search: v.optional(v.string()),
+    limit: v.number(),
   },
-  handler: async (ctx, { paginationOpts, positionFilter, periodStart, periodEnd }) => {
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        opportunityId: v.id("opportunities"),
+        leadId: v.id("leads"),
+        personName: v.string(),
+        programKey: v.string(),
+        programName: v.union(v.string(), v.null()),
+        position: literals(...DEAL_POSITIONS),
+        systemLoss: v.union(v.null(), literals("stale", "no_show", "canceled")),
+        lastActivityAt: v.number(),
+        nextStep: v.union(v.null(), dealNextStepValidator),
+        paid: v.array(v.object({ currency: v.string(), amountMinor: v.number() })),
+      }),
+    ),
+    counts: v.object({ all: v.number(), open: v.number(), won: v.number(), lost: v.number() }),
+    programs: v.array(
+      v.object({
+        programKey: v.string(),
+        programName: v.union(v.string(), v.null()),
+        deals: v.number(),
+      }),
+    ),
+    matched: v.number(),
+    isPartial: v.boolean(),
+    isSearchPartial: v.boolean(),
+  }),
+  handler: async (ctx, { tab, programKey, search, limit }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    const period =
-      periodStart !== undefined && periodEnd !== undefined
-        ? { start: periodStart, end: periodEnd }
-        : undefined;
+    const { deals, capped } = await readCloserDeals(ctx, tenantId, userId);
 
-    const paginatedResult = await paginateCloserDeals(
-      ctx,
-      tenantId,
-      userId,
-      { position: positionFilter, period },
-      paginationOpts,
-    );
+    // The programs for the filter, from every deal the read covers.
+    const dealsByProgram = new Map<string, number>();
+    for (const deal of deals) {
+      const key = dealProgramKey(deal);
+      dealsByProgram.set(key, (dealsByProgram.get(key) ?? 0) + 1);
+    }
+    const programInfo = await loadPrograms(ctx, tenantId, programFallbackNames(deals));
+    const programName = (key: string) =>
+      key === NO_PROGRAM ? null : (programInfo.get(key)?.name ?? null);
 
-    // Most recently updated first within the page, as before.
-    const deals = [...paginatedResult.page].sort((a, b) => b.updatedAt - a.updatedAt);
-
-    const leadIds = [...new Set(deals.map((deal) => deal.leadId))];
-    const leads = await Promise.all(leadIds.map((leadId) => ctx.db.get("leads", leadId)));
-    const leadById = new Map<Id<"leads">, Doc<"leads">>();
-    for (const lead of leads) {
-      if (lead) {
-        leadById.set(lead._id, lead);
-      }
+    const term = search?.trim() ?? "";
+    let matches: Set<Id<"opportunities">> | null = null;
+    let isSearchPartial = false;
+    if (term !== "") {
+      const found = await ctx.db
+        .query("opportunitySearch")
+        .withSearchIndex("search_opportunities", (q) =>
+          q.search("searchText", term).eq("tenantId", tenantId).eq("assignedCloserId", userId),
+        )
+        .take(SEARCH_MATCH_LIMIT);
+      matches = new Set(found.map((row) => row.opportunityId));
+      isSearchPartial = found.length === SEARCH_MATCH_LIMIT;
     }
 
-    const page = await Promise.all(
-      deals.map((deal) => toPipelineRow(ctx, deal, leadById.get(deal.leadId))),
+    const filtered = deals.filter(
+      (deal) =>
+        (programKey === undefined || dealProgramKey(deal) === programKey) &&
+        (matches === null || matches.has(deal._id)),
+    );
+    const counts = { all: filtered.length, open: 0, won: 0, lost: 0 };
+    for (const deal of filtered) counts[deal.outcome] += 1;
+
+    const inThisTab = filtered
+      .filter((deal) => inTab(deal, tab))
+      .sort((a, b) => dealLastActivityAt(b) - dealLastActivityAt(a));
+    const shown = inThisTab.slice(0, Math.max(1, Math.min(Math.floor(limit), MAX_LOOKUP_ROWS)));
+
+    const rows = await Promise.all(
+      shown.map(async (deal) => {
+        const label = dealLabelOf(deal);
+        const [lead, nextStep, payments] = await Promise.all([
+          ctx.db.get("leads", deal.leadId),
+          deal.outcome === "open" ? loadDealNextStep(ctx, deal) : Promise.resolve(null),
+          ctx.db
+            .query("paymentRecords")
+            .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", deal._id))
+            .take(DEAL_PAYMENT_SCAN),
+        ]);
+        const key = dealProgramKey(deal);
+        return {
+          opportunityId: deal._id,
+          leadId: deal.leadId,
+          personName: personNameOf(lead && lead.tenantId === tenantId ? lead : null),
+          programKey: key,
+          programName: programName(key),
+          position: label.position,
+          systemLoss: label.systemLoss,
+          lastActivityAt: dealLastActivityAt(deal),
+          nextStep,
+          paid: sumByCurrency(
+            payments.filter((payment) => payment.tenantId === tenantId && payment.status !== "disputed"),
+          ).map(({ currency, amountMinor }) => ({ currency, amountMinor })),
+        };
+      }),
     );
 
-    return { ...paginatedResult, page };
+    return {
+      rows,
+      counts,
+      programs: [...dealsByProgram].map(([key, count]) => ({
+        programKey: key,
+        programName: programName(key),
+        deals: count,
+      })),
+      matched: inThisTab.length,
+      isPartial: capped,
+      isSearchPartial,
+    };
   },
 });
