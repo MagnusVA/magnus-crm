@@ -29,8 +29,10 @@ export function NeedsOutcomeCard({
   now: number;
   timeZone: string;
 }) {
-  const { expanded, toggle, listProps } = useExpandInPlace<HTMLUListElement>();
   const meetings = endedCalls(result, now);
+  const { expanded, toggle, listProps } = useExpandInPlace<HTMLUListElement>(
+    meetings.length > SHOWN,
+  );
   const visible = expanded ? meetings : meetings.slice(0, SHOWN);
   const oldest = meetings.at(-1);
 

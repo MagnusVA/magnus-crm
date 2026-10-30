@@ -53,7 +53,9 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
   const today = businessDateForInstant(now, setting);
   const { end: endOfToday } = businessDayRange(today, setting);
   const { overdue, today: dueToday, later, waiting } = groupCloserTasks(tasks, now, endOfToday);
-  const { expanded, toggle, listProps } = useExpandInPlace<HTMLDivElement>();
+  const { expanded, toggle, listProps } = useExpandInPlace<HTMLDivElement>(
+    overdue.length + dueToday.length + waiting.length > MAX_ROWS,
+  );
 
   // Fill the rows group by group, in order, up to MAX_ROWS; expanded, all of them.
   let room = expanded ? Number.POSITIVE_INFINITY : MAX_ROWS;
@@ -72,6 +74,8 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
   const total = tasks.reminders.length + tasks.schedulingLinks.length;
   const hidden = groups.reduce((sum, group) => sum + group.total - group.tasks.length, 0);
   const canExpand = expanded || hidden > 0;
+  // `isPartial` is one flag for both kinds of task, so it marks the total,
+  // not a count that may be exact.
   const meta = [
     overdue.length > 0 ? `${overdue.length} overdue` : null,
     dueToday.length > 0 ? `${dueToday.length} today` : null,
@@ -92,7 +96,12 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
 
   return (
     <>
-      <TasksHeader titleId="tasks-title" total={total} meta={meta || undefined} />
+      <TasksHeader
+        titleId="tasks-title"
+        total={total}
+        partial={tasks.isPartial}
+        meta={meta || undefined}
+      />
       <div {...listProps}>
         {groups.map((group) =>
           group.total === 0 ? null : (
@@ -135,8 +144,7 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
           {later.length > 0 ? (
             <span>
               {canExpand ? "· " : ""}
-              {later.length}
-              {tasks.isPartial ? "+" : ""} later
+              {later.length} later
             </span>
           ) : null}
         </span>

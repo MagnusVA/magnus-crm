@@ -77,7 +77,7 @@ const POSITION_TEXT: Record<DealPosition, string> = {
  *
  * The board answers to its own width (`@container/board`), so a half-screen
  * window or a zoomed-in browser gets the layout that fits: the full table
- * from 48rem, the table without its Gate column from 32rem, and two-line
+ * from 48rem, the table without its Gate column from 36rem, and two-line
  * rows below that.
  */
 export function TodaysCallsBoard({
@@ -143,7 +143,7 @@ export function CallsBoardView({
           theme's tokens to it, so text, inks and focus rings are the ones
           made for a dark ground. The navy itself comes from the page's theme. */}
       <Tabs value={tab} onValueChange={(value) => onTabChange(value as BoardTab)} className="dark gap-0">
-        <header className="flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 @lg/board:px-[18px]">
+        <header className="flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 @xl/board:px-[18px]">
           <h2
             id="todays-calls-title"
             className="font-condensed text-[19px] leading-none font-semibold tracking-[0.02em]"
@@ -264,20 +264,21 @@ const ROW_LINK =
   "outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring";
 
 // The table's columns. A fixed-layout table takes its widths from the first
-// row, so they sit on the header cells; Gate drops out below 48rem, and the
-// Boarding row's Join moves beside the person.
+// row, so they sit on the header cells. Below 48rem Gate drops out, Time and
+// Program narrow, and the Boarding row's Join moves beside the person in
+// place of the call's length, so the name keeps room to be read.
 const COLUMNS = [
-  { label: "Time", className: "w-[96px] pl-[18px]" },
+  { label: "Time", className: "w-[80px] pl-[18px] @3xl/board:w-[96px]" },
   { label: "Person", className: "" },
-  { label: "Program", className: "w-[26%]" },
+  { label: "Program", className: "w-[22%] @3xl/board:w-[26%]" },
   { label: "Gate", className: `w-[96px] ${WIDE_ONLY}` },
   { label: "Status", className: "w-[176px]" },
 ];
 
-/** From 32rem: the board as a table. */
+/** From 36rem: the board as a table. */
 function BoardTable({ meetings, nextMeetingId, now, setting, groupByDay }: RowProps) {
   return (
-    <Table className="hidden table-fixed @lg/board:table">
+    <Table className="hidden table-fixed @xl/board:table">
       <TableHeader className="[&_tr]:border-b-0">
         <TableRow className="h-7 border-t border-board-line hover:bg-transparent">
           {COLUMNS.map((column) => (
@@ -385,6 +386,7 @@ function BoardTableRow({
               className={cn(
                 "ml-1.5 text-[13px]",
                 boarding ? "text-primary-foreground/80" : "text-board-muted",
+                boarding && joinUrl && "hidden @3xl/board:inline",
               )}
             >
               {meeting.durationMinutes} min
@@ -495,10 +497,10 @@ function JoinButton({ href, name }: { href: string; name: string }) {
   );
 }
 
-/** Below 32rem: two lines per call, the status on the right. */
+/** Below 36rem: two lines per call, the status on the right. */
 function BoardList({ meetings, nextMeetingId, now, setting, groupByDay }: RowProps) {
   return (
-    <ul className="@lg/board:hidden">
+    <ul className="@xl/board:hidden">
       {withDays(sortedCalls(meetings), setting, groupByDay).map((item) =>
         "day" in item ? (
           <li

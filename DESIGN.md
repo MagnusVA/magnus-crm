@@ -390,7 +390,7 @@ The workspace is the navy sidebar plus a white 52px top bar holding the sidebar 
 - **Task page:** the strip spans the pane; under it, a main column and a right rail of 20rem (22rem at the widest container), 18px apart, with 14px between cards.
 - **Task queue:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
 - **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the money strip, the program cards, then All deals. With two or more programs the cards sit two up from `xl`; a single program takes the full width.
-- **The board** answers to its own width (`@container/board`): the full table from `@3xl` (48rem), the table without Gate from `@lg` (32rem) with Join beside the person on the Boarding row, and below that two-line rows with the time on the left and the status word on the right.
+- **The board** answers to its own width (`@container/board`): the full table from `@3xl` (48rem), the table without Gate from `@xl` (36rem), with narrower Time and Program columns and Join beside the person on the Boarding row (in place of the call's length), and below that two-line rows with the time on the left and the status word on the right.
 - **The meeting strip** is one row from `@4xl`, two rows from `@lg` (time, person and status; then the program under the person and the gate under the status), and below that stacked cells that each carry a condensed label. The task strip still goes straight from one row to stacked cells at `@3xl`.
 
 ### Responsive rules

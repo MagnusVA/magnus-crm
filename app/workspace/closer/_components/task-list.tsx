@@ -36,11 +36,14 @@ export function taskHref(task: CloserTask): string {
 export function TasksHeader({
   titleId,
   total,
+  partial = false,
   meta,
   className,
 }: {
   titleId: string;
   total?: number;
+  /** The total is a lower bound: the read stopped before the last task. */
+  partial?: boolean;
   meta?: string;
   className?: string;
 }) {
@@ -52,6 +55,7 @@ export function TasksHeader({
       {total ? (
         <span className="rounded-full bg-secondary px-[7px] text-xs leading-[18px] font-semibold tabular-nums">
           {total}
+          {partial ? "+" : ""}
         </span>
       ) : null}
       {meta ? <span className="ml-auto text-[13px] text-muted-foreground">{meta}</span> : null}
