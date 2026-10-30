@@ -402,6 +402,7 @@ Pages and components respond to the space they get, not to the screen: a half-sc
 - **Fold before you stack.** Between the full row and the phone stack, add a middle layout that drops the lowest-value column or puts two cells in one row. Stacked, labelled cells are for phones.
 - **`short:`** (viewport height under 54rem: laptops, zoomed browsers) tightens vertical rhythm only: the page inset, page gaps and board row heights (44px to 40px, the Boarding row 56px to 48px). It never hides content.
 - Skeletons use the same container steps as the page they stand in for.
+- **Today's cards keep their height.** Needs outcome shows four calls and Tasks eight rows; "Show N more" adds the rest inside the same height and the list scrolls (`useExpandInPlace`), so a long list never pushes the page down. Tasks' footer also counts reminders due after today ("· 3 later") beside All tasks.
 
 Rhythm: 16px inner padding on cards and rows, 18px on the board, 20px inside the outcome panel at medium widths. Rows: 28px label rows, 44px board rows, a 56px Boarding row, 64px strip rows, 26px task group headings, two-line task rows with 7px vertical padding. Interactive targets never drop below 24px: the extra-small button, shortcut pills and card links are 24px tall at least.
 

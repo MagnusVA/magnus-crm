@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
@@ -8,6 +7,7 @@ import { meetingAttendanceDisplay } from "@/lib/status-config";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionEmpty } from "./section-state";
+import { useExpandInPlace } from "./use-expand-in-place";
 import { formatDateTime, formatShortDate } from "./today-time";
 
 type NeedsOutcome = FunctionReturnType<typeof api.closer.dashboard.getMeetingsNeedingOutcome>;
@@ -18,6 +18,7 @@ const SHOWN = 4;
  * The closer's past calls with no result yet ("Not recorded"), newest first,
  * each with Record outcome on its meeting page. The query also returns
  * today's calls still to come; each joins the list once `now` passes its end.
+ * Four show; "Show N more" scrolls the rest inside the same height.
  */
 export function NeedsOutcomeCard({
   result,
@@ -28,7 +29,7 @@ export function NeedsOutcomeCard({
   now: number;
   timeZone: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const { expanded, toggle, listProps } = useExpandInPlace<HTMLUListElement>();
   const meetings = endedCalls(result, now);
   const visible = expanded ? meetings : meetings.slice(0, SHOWN);
   const oldest = meetings.at(-1);
@@ -68,7 +69,7 @@ export function NeedsOutcomeCard({
         <SectionEmpty title="Every past call has an outcome." />
       ) : (
         <>
-          <ul>
+          <ul {...listProps}>
             {visible.map((meeting) => (
               <li
                 key={meeting.meetingId}
@@ -105,7 +106,7 @@ export function NeedsOutcomeCard({
                 size="sm"
                 className="h-7 px-0 text-[13px] text-foreground"
                 aria-expanded={expanded}
-                onClick={() => setExpanded((value) => !value)}
+                onClick={toggle}
               >
                 {expanded ? "Show fewer" : `Show ${meetings.length - SHOWN} more`}
               </Button>
