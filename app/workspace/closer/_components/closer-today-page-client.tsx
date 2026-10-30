@@ -22,9 +22,10 @@ import { UnmatchedBanner } from "./unmatched-banner";
 
 /**
  * The closer's Today page: the calls board and performance on the left,
- * the calls still owed an outcome and today's tasks on the right. Below xl
- * the columns stack in the order a closer works them: calls, outcomes,
- * tasks, then performance.
+ * the calls still owed an outcome and today's tasks on the right. The page
+ * is a container: narrower than 56rem (a half-screen window, a zoomed-in
+ * browser) the columns stack in the order a closer works them: calls,
+ * outcomes, tasks, then performance.
  */
 export function CloserTodayPageClient() {
   usePageTitle("Today");
@@ -62,13 +63,13 @@ export function CloserTodayPageClient() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6">
+    <div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6 short:gap-3">
       <TodayHeader setting={setting} />
 
       {!profile.isCalendlyLinked && <UnmatchedBanner />}
 
-      <div className="grid gap-x-5 gap-y-3.5 xl:grid-cols-[minmax(0,1fr)_384px] xl:grid-rows-[auto_1fr]">
-        <div className="min-w-0 xl:col-start-1 xl:row-start-1">
+      <div className="grid gap-x-5 gap-y-3.5 @4xl:grid-cols-[minmax(0,1fr)_20rem] @4xl:grid-rows-[auto_1fr] @6xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-w-0 @4xl:col-start-1 @4xl:row-start-1">
           <SectionErrorBoundary
             sectionName="today's calls"
             fallback={
@@ -81,7 +82,7 @@ export function CloserTodayPageClient() {
           </SectionErrorBoundary>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3.5 xl:col-start-2 xl:row-span-2 xl:row-start-1">
+        <div className="flex min-w-0 flex-col gap-3.5 @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1">
           <SectionErrorBoundary
             sectionName="calls that need an outcome"
             fallback={
@@ -104,7 +105,7 @@ export function CloserTodayPageClient() {
           </SectionErrorBoundary>
         </div>
 
-        <div className="min-w-0 xl:col-start-1 xl:row-start-2 xl:self-start">
+        <div className="min-w-0 @4xl:col-start-1 @4xl:row-start-2 @4xl:self-start">
           <SectionErrorBoundary
             sectionName="performance"
             fallback={

@@ -54,8 +54,10 @@ function paidValue(detail: MeetingDetail): string | null {
 /**
  * The meeting page, shared by the closer's page and the admin twin: the call
  * as a board row, the outcome question, prep and comments on the left, and
- * the deal, the person and the recording on the right. `mode` picks which
- * mutations the outcome actions call.
+ * the deal, the person and the recording on the right. The page is a
+ * container: below 56rem (a half-screen window, a zoomed-in browser) the
+ * right column moves under the left. `mode` picks which mutations the
+ * outcome actions call.
  */
 export function MeetingDetailView({
   detail,
@@ -111,7 +113,7 @@ export function MeetingDetailView({
   const prep = <PrepCard leadId={lead._id} answers={detail.bookingAnswers} />;
 
   return (
-    <div className="flex flex-col gap-3.5">
+    <div className="@container flex flex-col gap-3.5 short:gap-3">
       <CallStrip
         meeting={meeting}
         now={now}
@@ -153,7 +155,7 @@ export function MeetingDetailView({
         />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_24rem] lg:gap-5">
+      <div className="grid grid-cols-1 gap-3.5 @4xl:grid-cols-[minmax(0,1fr)_20rem] @4xl:gap-x-5 @6xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="flex min-w-0 flex-col gap-3.5">
           {beforeCall ? (
             <>

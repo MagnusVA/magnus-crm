@@ -74,6 +74,11 @@ const POSITION_TEXT: Record<DealPosition, string> = {
  * business day, one condensed status word per call, and the next or live
  * call as a lime Boarding row with Join and a countdown. Each row opens its
  * meeting.
+ *
+ * The board answers to its own width (`@container/board`), so a half-screen
+ * window or a zoomed-in browser gets the layout that fits: the full table
+ * from 48rem, the table without its Gate column from 32rem, and two-line
+ * rows below that.
  */
 export function TodaysCallsBoard({
   setting,
@@ -132,13 +137,13 @@ export function CallsBoardView({
   return (
     <section
       aria-labelledby="todays-calls-title"
-      className="overflow-hidden rounded-xl border border-board-line bg-board text-sm text-board-foreground"
+      className="@container/board overflow-hidden rounded-xl border border-board-line bg-board text-sm text-board-foreground"
     >
       {/* The board is a dark surface in both themes: `dark` scopes the dark
           theme's tokens to it, so text, inks and focus rings are the ones
           made for a dark ground. The navy itself comes from the page's theme. */}
       <Tabs value={tab} onValueChange={(value) => onTabChange(value as BoardTab)} className="dark gap-0">
-        <header className="flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-[18px]">
+        <header className="flex min-h-[46px] flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 @lg/board:px-[18px]">
           <h2
             id="todays-calls-title"
             className="font-condensed text-[19px] leading-none font-semibold tracking-[0.02em]"
@@ -245,6 +250,9 @@ function sortedCalls(meetings: BoardEntry[]) {
   return [...meetings].sort((a, b) => a.meeting.scheduledAt - b.meeting.scheduledAt);
 }
 
+// Cells shown only when the board is 48rem or wider.
+const WIDE_ONLY = "hidden @3xl/board:table-cell";
+
 const meetingHref = (id: string) => `/workspace/closer/meetings/${id}`;
 const programOf = (entry: BoardEntry) =>
   entry.meeting.bookingProgramName ?? entry.eventTypeName ?? null;
@@ -255,28 +263,32 @@ const joinUrlOf = (entry: BoardEntry) =>
 const ROW_LINK =
   "outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring";
 
-/** md and up: the board as a table. */
+// The table's columns. A fixed-layout table takes its widths from the first
+// row, so they sit on the header cells; Gate drops out below 48rem, and the
+// Boarding row's Join moves beside the person.
+const COLUMNS = [
+  { label: "Time", className: "w-[96px] pl-[18px]" },
+  { label: "Person", className: "" },
+  { label: "Program", className: "w-[26%]" },
+  { label: "Gate", className: `w-[96px] ${WIDE_ONLY}` },
+  { label: "Status", className: "w-[176px]" },
+];
+
+/** From 32rem: the board as a table. */
 function BoardTable({ meetings, nextMeetingId, now, setting, groupByDay }: RowProps) {
   return (
-    <Table className="hidden table-fixed md:table">
-      <colgroup>
-        <col className="w-[96px]" />
-        <col />
-        <col className="w-[26%]" />
-        <col className="w-[96px]" />
-        <col className="w-[176px]" />
-      </colgroup>
+    <Table className="hidden table-fixed @lg/board:table">
       <TableHeader className="[&_tr]:border-b-0">
         <TableRow className="h-7 border-t border-board-line hover:bg-transparent">
-          {["Time", "Person", "Program", "Gate", "Status"].map((label, index) => (
+          {COLUMNS.map((column) => (
             <TableHead
-              key={label}
+              key={column.label}
               className={cn(
                 "h-7 font-condensed text-[11px] font-semibold tracking-[0.14em] text-board-muted uppercase",
-                index === 0 && "pl-[18px]",
+                column.className,
               )}
             >
-              {label}
+              {column.label}
             </TableHead>
           ))}
         </TableRow>
@@ -332,8 +344,8 @@ function BoardTableRow({
       className={cn(
         "relative border-t border-b-0 border-board-line",
         boarding
-          ? "h-14 border-transparent bg-primary text-primary-foreground hover:bg-primary"
-          : "h-11 hover:bg-accent/50",
+          ? "h-14 border-transparent bg-primary text-primary-foreground hover:bg-primary short:h-12"
+          : "h-11 hover:bg-accent/50 short:h-10",
       )}
     >
       <TableCell className="pl-[18px]">
@@ -355,26 +367,35 @@ function BoardTableRow({
           </span>
         </span>
       </TableCell>
-      <TableCell className="truncate">
-        <Link
-          href={meetingHref(meeting._id)}
-          className={cn(
-            ROW_LINK,
-            "font-semibold",
-            boarding && "text-[15px] focus-visible:after:ring-board",
-            dim && "text-board-muted",
-          )}
-        >
-          {entry.leadName}
-        </Link>
-        <span
-          className={cn(
-            "ml-1.5 text-[13px]",
-            boarding ? "text-primary-foreground/80" : "text-board-muted",
-          )}
-        >
-          {meeting.durationMinutes} min
-        </span>
+      <TableCell>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate">
+            <Link
+              href={meetingHref(meeting._id)}
+              className={cn(
+                ROW_LINK,
+                "font-semibold",
+                boarding && "text-[15px] focus-visible:after:ring-board",
+                dim && "text-board-muted",
+              )}
+            >
+              {entry.leadName}
+            </Link>
+            <span
+              className={cn(
+                "ml-1.5 text-[13px]",
+                boarding ? "text-primary-foreground/80" : "text-board-muted",
+              )}
+            >
+              {meeting.durationMinutes} min
+            </span>
+          </span>
+          {boarding && joinUrl ? (
+            <span className="ml-auto shrink-0 @3xl/board:hidden">
+              <JoinButton href={joinUrl} name={entry.leadName} />
+            </span>
+          ) : null}
+        </div>
       </TableCell>
       <TableCell
         className={cn(
@@ -384,7 +405,13 @@ function BoardTableRow({
       >
         {program ?? <span className="text-board-muted">—</span>}
       </TableCell>
-      <TableCell className={cn("truncate", boarding ? "" : dim ? "text-board-muted" : "text-board-foreground/80")}>
+      <TableCell
+        className={cn(
+          "truncate",
+          WIDE_ONLY,
+          boarding ? "" : dim ? "text-board-muted" : "text-board-foreground/80",
+        )}
+      >
         {boarding && joinUrl ? (
           <JoinButton href={joinUrl} name={entry.leadName} />
         ) : (
@@ -402,15 +429,17 @@ function StatusWord({
   entry,
   status,
   now,
+  className,
 }: {
   entry: BoardEntry;
   status: BoardStatus;
   now: number;
+  className?: string;
 }) {
   const countdown =
     status === "boarding" ? boardingCountdown(entry.meeting.scheduledAt, now) : null;
   return (
-    <span className="flex items-center gap-2.5 whitespace-nowrap">
+    <span className={cn("flex items-center gap-2.5 whitespace-nowrap", className)}>
       <span
         className={cn(
           "font-condensed text-[15px] leading-none font-bold tracking-[0.08em] uppercase",
@@ -466,10 +495,10 @@ function JoinButton({ href, name }: { href: string; name: string }) {
   );
 }
 
-/** Below md: the board as a stacked list. */
+/** Below 32rem: two lines per call, the status on the right. */
 function BoardList({ meetings, nextMeetingId, now, setting, groupByDay }: RowProps) {
   return (
-    <ul className="md:hidden">
+    <ul className="@lg/board:hidden">
       {withDays(sortedCalls(meetings), setting, groupByDay).map((item) =>
         "day" in item ? (
           <li
@@ -515,13 +544,13 @@ function BoardListItem({
   return (
     <li
       className={cn(
-        "relative grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t border-board-line px-4 py-2.5",
+        "relative grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-board-line px-4 py-2 short:py-1.5",
         boarding && "border-transparent bg-primary text-primary-foreground",
       )}
     >
       <span
         className={cn(
-          "row-span-2 font-condensed text-xl leading-none font-semibold tabular-nums",
+          "font-condensed text-xl leading-none font-semibold tabular-nums",
           dim && "text-board-muted",
         )}
       >
@@ -546,8 +575,13 @@ function BoardListItem({
           {detail}
         </p>
       </div>
-      <div className="col-start-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <StatusWord entry={entry} status={status} now={now} />
+      <div className="flex max-w-[11rem] flex-col items-end gap-1.5">
+        <StatusWord
+          entry={entry}
+          status={status}
+          now={now}
+          className="flex-wrap justify-end gap-x-2 gap-y-1"
+        />
         {boarding && joinUrl ? <JoinButton href={joinUrl} name={entry.leadName} /> : null}
       </div>
     </li>
@@ -587,7 +621,7 @@ function BoardSkeleton() {
   return (
     <div role="status" aria-label="Loading calls" className="border-t border-board-line">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="flex h-11 items-center gap-4 border-b border-board-line px-[18px] last:border-b-0">
+        <div key={index} className="flex h-11 items-center gap-4 border-b border-board-line px-[18px] last:border-b-0 short:h-10">
           <Skeleton className="h-5 w-14 bg-accent" />
           <Skeleton className="h-4 w-40 bg-accent" />
           <Skeleton className="ml-auto h-4 w-20 bg-accent" />

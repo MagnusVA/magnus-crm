@@ -34,7 +34,7 @@ export function NeedsOutcomeCard({
   const oldest = meetings.at(-1);
 
   return (
-    <section aria-labelledby="needs-outcome-title" className="rounded-xl border bg-card text-sm text-card-foreground">
+    <section aria-labelledby="needs-outcome-title" className="@container rounded-xl border bg-card text-sm text-card-foreground">
       <header className="flex min-h-[46px] items-center gap-2 border-b px-4 py-2">
         <h2 id="needs-outcome-title" className="text-[15px] font-semibold">
           Needs outcome
@@ -75,7 +75,7 @@ export function NeedsOutcomeCard({
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 border-t px-4 py-2.5 first:border-t-0"
               >
                 <div className="min-w-0">
-                  <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 sm:flex-nowrap">
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 @sm:flex-nowrap">
                     <span className="min-w-0 truncate font-semibold">{meeting.leadName}</span>
                     <span className="shrink-0 rounded-[4px] bg-warning-surface px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-warning-ink uppercase">
                       Not recorded

@@ -383,13 +383,25 @@ Dark is not an inversion. The ground drops to near-black (paper-dark), cards sit
 
 ## Layout
 
-The workspace is the navy sidebar plus a white 52px top bar holding the sidebar toggle, breadcrumbs and the wide "Search people and deals" field (256px, ⌘K). Page content sits in a 24px by 20px inset on the paper.
+The workspace is the navy sidebar plus a white 52px top bar holding the sidebar toggle, breadcrumbs and the wide "Search people and deals" field (256px, ⌘K). Page content sits in the `page-inset` on the paper: 24px by 20px from `sm`, 16px on phones, and 12px top and bottom on short screens.
 
-- **Today:** up to 1500px wide. From `xl` up, a two-column grid: the board and then Performance on the left, and a 384px right rail with Needs outcome above Tasks. Gaps are 20px between columns and 14px between stacked cards. Below `xl` it is one column.
-- **Meeting and task pages:** the strip spans the pane; under it, a main column and a right rail of 20rem (22rem at the widest container), 18px apart, with 14px between cards. The layout responds to its container (`@container`), not the viewport.
-- **Task page:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
+- **Today:** up to 1500px wide. In a page container of `@4xl` (56rem) or wider, a two-column grid: the board and then Performance on the left, and a right rail with Needs outcome above Tasks, 20rem wide (24rem from `@6xl`). Gaps are 20px between columns and 14px between stacked cards. Narrower, it is one column in the order a closer works: calls, outcomes, tasks, performance.
+- **Meeting page:** the strip spans the page; under it, from `@4xl`, a main column and a right rail of 20rem (24rem from `@6xl`), 20px apart, with 14px between cards. Narrower, the rail moves under the main column.
+- **Task page:** the strip spans the pane; under it, a main column and a right rail of 20rem (22rem at the widest container), 18px apart, with 14px between cards.
+- **Task queue:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
 - **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the money strip, the program cards, then All deals. With two or more programs the cards sit two up from `xl`; a single program takes the full width.
-- **The board and the strip** become stacked lists in narrow containers: each cell carries its own condensed label, and the time and status sit side by side above the person.
+- **The board** answers to its own width (`@container/board`): the full table from `@3xl` (48rem), the table without Gate from `@lg` (32rem) with Join beside the person on the Boarding row, and below that two-line rows with the time on the left and the status word on the right.
+- **The meeting strip** is one row from `@4xl`, two rows from `@lg` (time, person and status; then the program under the person and the gate under the status), and below that stacked cells that each carry a condensed label. The task strip still goes straight from one row to stacked cells at `@3xl`.
+
+### Responsive rules
+
+Pages and components respond to the space they get, not to the screen: a half-screen window, an open sidebar or a zoomed-in browser all shrink the space without changing the viewport the way `md`/`xl` expect.
+
+- **Make the page root a container** (`@container` on the page's outer element) and lay the page out with `@4xl:` and `@6xl:`. Viewport breakpoints (`sm:`, `lg:`) are for the shell only: the page inset, the sidebar, the task queue.
+- **Make any card whose inside changes shape a container too** (the board, the strip, the outcome panel, Performance, Needs outcome), so it reflows by its own width in either column. Name it (`@container/board`) when an inner container could catch the query by mistake.
+- **Fold before you stack.** Between the full row and the phone stack, add a middle layout that drops the lowest-value column or puts two cells in one row. Stacked, labelled cells are for phones.
+- **`short:`** (viewport height under 54rem: laptops, zoomed browsers) tightens vertical rhythm only: the page inset, page gaps and board row heights (44px to 40px, the Boarding row 56px to 48px). It never hides content.
+- Skeletons use the same container steps as the page they stand in for.
 
 Rhythm: 16px inner padding on cards and rows, 18px on the board, 20px inside the outcome panel at medium widths. Rows: 28px label rows, 44px board rows, a 56px Boarding row, 64px strip rows, 26px task group headings, two-line task rows with 7px vertical padding. Interactive targets never drop below 24px: the extra-small button, shortcut pills and card links are 24px tall at least.
 
