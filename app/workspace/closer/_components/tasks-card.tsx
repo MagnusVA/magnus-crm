@@ -20,6 +20,11 @@ import { useExpandInPlace } from "./use-expand-in-place";
 /** At most this many rows show; "Show N more" scrolls the rest inside the card. */
 const MAX_ROWS = 8;
 
+// `getCloserTasks` reads at most this many of each kind, reminders soonest
+// first (MAX_TASKS_PER_KIND in convex/closer/followUpQueries.ts). A partial
+// result with a full reminder read may have cut reminders due after today.
+const TASKS_READ_PER_KIND = 50;
+
 type Group = { key: Exclude<TaskGroupKey, "later">; label: string; tasks: CloserTask[] };
 
 /**
@@ -74,8 +79,9 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
   const total = tasks.reminders.length + tasks.schedulingLinks.length;
   const hidden = groups.reduce((sum, group) => sum + group.total - group.tasks.length, 0);
   const canExpand = expanded || hidden > 0;
-  // `isPartial` is one flag for both kinds of task, so it marks the total,
-  // not a count that may be exact.
+  // `isPartial` is one flag for both kinds of task: it marks the total, and
+  // the later count only when the reminder read itself was full.
+  const laterPartial = tasks.isPartial && tasks.reminders.length >= TASKS_READ_PER_KIND;
   const meta = [
     overdue.length > 0 ? `${overdue.length} overdue` : null,
     dueToday.length > 0 ? `${dueToday.length} today` : null,
@@ -144,7 +150,8 @@ function TasksBody({ tasks, setting, now }: { tasks: CloserTasks; setting: Busin
           {later.length > 0 ? (
             <span>
               {canExpand ? "· " : ""}
-              {later.length} later
+              {later.length}
+              {laterPartial ? "+" : ""} later
             </span>
           ) : null}
         </span>
