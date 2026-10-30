@@ -117,10 +117,22 @@ type CallStripProps = {
 const COLUMNS =
   "@4xl:grid-cols-[9.5rem_minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(8.5rem,auto)_minmax(11rem,14rem)]";
 
+// From 32rem to 56rem the strip is two rows: time, person and status, then
+// the program under the person and the gate under the status. From 56rem
+// each cell takes its column again, in source order with Status moved last.
+const PLACE = {
+  time: "@lg:col-start-1 @lg:row-start-1",
+  person: "col-span-2 @lg:col-span-1 @lg:col-start-2 @lg:row-start-1",
+  status: "@lg:col-start-3 @lg:row-start-1 @4xl:order-last",
+  program: "col-span-2 @lg:col-span-1 @lg:col-start-2 @lg:row-start-2",
+  gate: "col-span-2 @lg:col-span-1 @lg:col-start-3 @lg:row-start-2",
+};
+const PLACE_RESET = "@4xl:col-start-auto @4xl:row-start-auto";
+
 /**
  * The call as one row of the departures board: time, person, program, the
- * gate to the call, and one status word. In a narrow container each cell stacks and
- * carries its own label.
+ * gate to the call, and one status word. Below 56rem it folds into two rows,
+ * and below 32rem each cell stacks and carries its own label.
  */
 export function CallStrip({
   meeting,
@@ -153,11 +165,11 @@ export function CallStrip({
       </div>
       <div
         className={cn(
-          "grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3 @4xl:min-h-16 @4xl:items-center @4xl:gap-y-0 @4xl:py-2",
+          "grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3 @lg:grid-cols-[auto_minmax(0,1fr)_auto] @lg:gap-x-5 @lg:gap-y-2 @4xl:min-h-16 @4xl:items-center @4xl:gap-y-0 @4xl:py-2",
           COLUMNS,
         )}
       >
-        <StripCell label="Time">
+        <StripCell label="Time" className={cn(PLACE.time, PLACE_RESET)}>
           <p className="font-condensed text-[1.625rem] leading-none font-semibold tabular-nums">
             {format(meeting.scheduledAt, "h:mm")}
             <span className="ml-1 text-sm font-medium text-board-muted">
@@ -169,7 +181,7 @@ export function CallStrip({
           </p>
         </StripCell>
 
-        <StripCell label="Status" className="@4xl:order-last">
+        <StripCell label="Status" className={cn(PLACE.status, PLACE_RESET)}>
           <p
             className={cn(
               "flex items-center gap-2 font-condensed text-[1.0625rem] leading-none font-bold tracking-[0.08em] uppercase",
@@ -190,7 +202,7 @@ export function CallStrip({
           </p>
         </StripCell>
 
-        <StripCell label="Person" className="col-span-2 @4xl:col-span-1">
+        <StripCell label="Person" className={cn(PLACE.person, PLACE_RESET)}>
           <h1 className="truncate text-lg leading-tight font-semibold" title={leadName}>
             {leadName}
           </h1>
@@ -199,7 +211,7 @@ export function CallStrip({
           </p>
         </StripCell>
 
-        <StripCell label="Program" className="col-span-2 @4xl:col-span-1">
+        <StripCell label="Program" className={cn(PLACE.program, PLACE_RESET)}>
           <p className="truncate text-board-muted" title={programName ?? undefined}>
             <span className="font-semibold text-board-foreground">
               {programName ?? "No program mapped"}
@@ -208,7 +220,7 @@ export function CallStrip({
           </p>
         </StripCell>
 
-        <StripCell label="Gate" className="col-span-2 @4xl:col-span-1">
+        <StripCell label="Gate" className={cn(PLACE.gate, PLACE_RESET)}>
           {joinUrl ? (
             <div className="flex flex-wrap gap-1.5">
               <Button
@@ -243,7 +255,7 @@ function StripCell({
 }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <p className="mb-1 font-condensed text-[0.6875rem] font-semibold tracking-[0.14em] text-board-muted uppercase @4xl:sr-only">
+      <p className="mb-1 font-condensed text-[0.6875rem] font-semibold tracking-[0.14em] text-board-muted uppercase @lg:sr-only">
         {label}
       </p>
       {children}

@@ -92,7 +92,7 @@ export function PerformanceCard({
   return (
     <section
       aria-labelledby="performance-title"
-      className="rounded-xl border bg-card text-sm text-card-foreground"
+      className="@container rounded-xl border bg-card text-sm text-card-foreground"
     >
       <header className="flex min-h-[46px] flex-wrap items-center gap-x-2 gap-y-2 border-b px-4 py-2">
         <h2 id="performance-title" className="text-[15px] font-semibold">
@@ -147,11 +147,11 @@ function PerformanceBody({
 
   return (
     <>
-      <dl className="grid grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+      <dl className="grid grid-cols-2 @2xl:grid-cols-[1.5fr_1fr_1fr_1fr]">
         <Figure
           label="Cash collected"
           value={MONEY.format(cash / 100)}
-          className="border-r border-b lg:border-b-0"
+          className="border-r border-b @2xl:border-b-0"
         >
           {change !== null ? (
             <>
@@ -169,7 +169,7 @@ function PerformanceBody({
           {payments} {payments === 1 ? "payment" : "payments"}
           {current.isPaymentDataTruncated ? " (partial)" : ""}
         </Figure>
-        <Figure label="Won" value={String(won)} className="border-b lg:border-r lg:border-b-0">
+        <Figure label="Won" value={String(won)} className="border-b @2xl:border-r @2xl:border-b-0">
           of {current.total} {current.total === 1 ? "deal" : "deals"} {periodNoun}
         </Figure>
         <Figure
@@ -363,7 +363,7 @@ function PeriodControl({
 function PerformanceSkeleton() {
   return (
     <div role="status" aria-label="Loading performance">
-      <div className="grid grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+      <div className="grid grid-cols-2 @2xl:grid-cols-[1.5fr_1fr_1fr_1fr]">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="flex flex-col gap-2 px-4 pt-3.5 pb-3">
             <Skeleton className="h-4 w-24" />

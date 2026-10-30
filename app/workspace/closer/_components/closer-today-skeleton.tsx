@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function CloserTodaySkeleton() {
   return (
     <div
-      className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6"
+      className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6 short:gap-3"
       role="status"
       aria-label="Loading today"
     >
@@ -17,15 +17,15 @@ export function CloserTodaySkeleton() {
         <Skeleton className="h-7 w-24" />
       </header>
 
-      <div className="grid gap-x-5 gap-y-3.5 xl:grid-cols-[minmax(0,1fr)_384px] xl:grid-rows-[auto_1fr]">
-        <div className="overflow-hidden rounded-xl bg-board xl:col-start-1 xl:row-start-1">
+      <div className="grid gap-x-5 gap-y-3.5 @4xl:grid-cols-[minmax(0,1fr)_20rem] @4xl:grid-rows-[auto_1fr] @6xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="overflow-hidden rounded-xl bg-board @4xl:col-start-1 @4xl:row-start-1">
           <div className="flex h-[46px] items-center gap-3 px-[18px]">
             <Skeleton className="h-5 w-32 bg-board-raised" />
             <Skeleton className="ml-auto h-[30px] w-52 bg-board-raised" />
           </div>
           <div className="h-7 border-t border-board-line" />
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="flex h-11 items-center gap-4 border-t border-board-line px-[18px]">
+            <div key={index} className="flex h-11 items-center gap-4 border-t border-board-line px-[18px] short:h-10">
               <Skeleton className="h-5 w-14 bg-board-raised" />
               <Skeleton className="h-4 w-40 bg-board-raised" />
               <Skeleton className="ml-auto h-4 w-20 bg-board-raised" />
@@ -33,7 +33,7 @@ export function CloserTodaySkeleton() {
           ))}
         </div>
 
-        <div className="flex flex-col gap-3.5 xl:col-start-2 xl:row-span-2 xl:row-start-1">
+        <div className="flex flex-col gap-3.5 @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1">
           <div className="rounded-xl border bg-card">
             <div className="flex h-[46px] items-center border-b px-4">
               <Skeleton className="h-4 w-28" />
@@ -61,12 +61,12 @@ export function CloserTodaySkeleton() {
           </div>
         </div>
 
-        <div className="rounded-xl border bg-card xl:col-start-1 xl:row-start-2 xl:self-start">
+        <div className="@container rounded-xl border bg-card @4xl:col-start-1 @4xl:row-start-2 @4xl:self-start">
           <div className="flex h-[46px] items-center gap-2 border-b px-4">
             <Skeleton className="h-4 w-28" />
             <Skeleton className="ml-auto h-7 w-44" />
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+          <div className="grid grid-cols-2 @2xl:grid-cols-[1.5fr_1fr_1fr_1fr]">
             {Array.from({ length: 4 }).map((_, index) => (
               <div key={index} className="flex flex-col gap-2 px-4 pt-3.5 pb-3">
                 <Skeleton className="h-4 w-24" />

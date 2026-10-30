@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
@@ -8,6 +7,7 @@ import { meetingAttendanceDisplay } from "@/lib/status-config";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionEmpty } from "./section-state";
+import { useExpandInPlace } from "./use-expand-in-place";
 import { formatDateTime, formatShortDate } from "./today-time";
 
 type NeedsOutcome = FunctionReturnType<typeof api.closer.dashboard.getMeetingsNeedingOutcome>;
@@ -18,6 +18,7 @@ const SHOWN = 4;
  * The closer's past calls with no result yet ("Not recorded"), newest first,
  * each with Record outcome on its meeting page. The query also returns
  * today's calls still to come; each joins the list once `now` passes its end.
+ * Four show; "Show N more" scrolls the rest inside the same height.
  */
 export function NeedsOutcomeCard({
   result,
@@ -28,13 +29,15 @@ export function NeedsOutcomeCard({
   now: number;
   timeZone: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const meetings = endedCalls(result, now);
+  const { expanded, toggle, listProps } = useExpandInPlace<HTMLUListElement>(
+    meetings.length > SHOWN,
+  );
   const visible = expanded ? meetings : meetings.slice(0, SHOWN);
   const oldest = meetings.at(-1);
 
   return (
-    <section aria-labelledby="needs-outcome-title" className="rounded-xl border bg-card text-sm text-card-foreground">
+    <section aria-labelledby="needs-outcome-title" className="@container rounded-xl border bg-card text-sm text-card-foreground">
       <header className="flex min-h-[46px] items-center gap-2 border-b px-4 py-2">
         <h2 id="needs-outcome-title" className="text-[15px] font-semibold">
           Needs outcome
@@ -68,14 +71,14 @@ export function NeedsOutcomeCard({
         <SectionEmpty title="Every past call has an outcome." />
       ) : (
         <>
-          <ul>
+          <ul {...listProps}>
             {visible.map((meeting) => (
               <li
                 key={meeting.meetingId}
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 border-t px-4 py-2.5 first:border-t-0"
               >
                 <div className="min-w-0">
-                  <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 sm:flex-nowrap">
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 @sm:flex-nowrap">
                     <span className="min-w-0 truncate font-semibold">{meeting.leadName}</span>
                     <span className="shrink-0 rounded-[4px] bg-warning-surface px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-warning-ink uppercase">
                       Not recorded
@@ -105,7 +108,7 @@ export function NeedsOutcomeCard({
                 size="sm"
                 className="h-7 px-0 text-[13px] text-foreground"
                 aria-expanded={expanded}
-                onClick={() => setExpanded((value) => !value)}
+                onClick={toggle}
               >
                 {expanded ? "Show fewer" : `Show ${meetings.length - SHOWN} more`}
               </Button>

@@ -4,6 +4,28 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Short viewports: a laptop screen, a zoomed-in browser, a window docked to
+   half the screen. Tightens vertical rhythm (page inset, row heights, gaps)
+   so more of the page fits; widths are handled by container queries. */
+@custom-variant short (@media (max-height: 54rem));
+
+/* The workspace page's inset around every page. Pages that run edge to edge
+   (the task queue) cancel it with -mx-(--page-x) -my-(--page-y). */
+@utility page-inset {
+  --page-x: calc(var(--spacing) * 4);
+  --page-y: calc(var(--spacing) * 4);
+  padding: var(--page-y) var(--page-x);
+
+  @variant sm {
+    --page-x: calc(var(--spacing) * 6);
+    --page-y: calc(var(--spacing) * 5);
+  }
+
+  @variant short {
+    --page-y: calc(var(--spacing) * 3);
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -94,7 +94,7 @@ export function WorkspaceShellSkeleton() {
         </header>
         <div
           id="main-content"
-          className="flex-1 overflow-auto p-6"
+          className="page-inset flex-1 overflow-auto"
           tabIndex={-1}
         >
           {/* Main content skeleton */}

@@ -13,16 +13,16 @@ export function TaskPageLayout({
 }) {
   if (!queue) return <div className="flex min-w-0 flex-col gap-3.5 pb-6">{children}</div>;
   return (
-    // Cancels the workspace's px-6 py-5 so the queue meets the sidebar and
+    // Cancels the workspace's page inset so the queue meets the sidebar and
     // the header.
-    <div className="-mx-6 -my-5 grid min-h-[calc(100svh-3.25rem)] lg:grid-cols-[340px_minmax(0,1fr)]">
+    <div className="-mx-(--page-x) -my-(--page-y) grid min-h-[calc(100svh-3.25rem)] lg:grid-cols-[340px_minmax(0,1fr)]">
       <aside
         aria-labelledby="queue-tasks-title"
         className="hidden min-w-0 border-r bg-card lg:block"
       >
         {queue}
       </aside>
-      <div className="flex min-w-0 flex-col gap-3.5 px-6 pt-5 pb-11">{children}</div>
+      <div className="flex min-w-0 flex-col gap-3.5 px-(--page-x) pt-(--page-y) pb-11">{children}</div>
     </div>
   );
 }

@@ -560,7 +560,7 @@ function WorkspaceShellClientInner({
           </header>
           <div
             id="main-content"
-            className="flex-1 overflow-auto px-6 py-5"
+            className="page-inset flex-1 overflow-auto"
             tabIndex={-1}
           >
             {children}
