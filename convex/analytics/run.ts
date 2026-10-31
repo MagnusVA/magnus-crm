@@ -124,6 +124,8 @@ export const runPostSyncBatch = internalAction({
   args: {
     force: v.optional(v.boolean()),
     watermark: v.optional(v.number()),
+    /** The window the first page read. Every page reads the same one, or its cursor is rejected. */
+    since: v.optional(v.number()),
     cursor: v.optional(v.union(v.string(), v.null())),
     keysPerTenant: v.optional(v.record(v.string(), v.number())),
   },
@@ -152,8 +154,9 @@ export const runPostSyncBatch = internalAction({
       watermark = fromClickHouse;
     }
 
+    const since = args.since ?? Date.now() - RECENT_KEY_WINDOW_MS;
     const page = await ctx.runQuery(internal.analytics.sync.recentKeys, {
-      since: Date.now() - RECENT_KEY_WINDOW_MS,
+      since,
       paginationOpts: { cursor: args.cursor ?? null, numItems: BATCH_PAGE_SIZE },
     });
     const keysPerTenant = { ...args.keysPerTenant };
@@ -179,6 +182,7 @@ export const runPostSyncBatch = internalAction({
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.analytics.run.runPostSyncBatch, {
         watermark,
+        since,
         cursor: page.continueCursor,
         keysPerTenant,
       });
