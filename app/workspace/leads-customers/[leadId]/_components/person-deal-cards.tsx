@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
+import type { AttributionTouch } from "@/convex/lib/attribution/detailPayload";
 import { SYSTEM_LOSS_REASON_LABELS } from "@/convex/opportunities/stages";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
@@ -15,20 +16,25 @@ import {
   detailLinkClass,
 } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { StageChip } from "@/app/workspace/closer/meetings/_components/stage-tone";
-import { StepWords } from "@/app/workspace/closer/pipeline/_components/deal-cells";
-import { DealCreditLine, DealStageTrack } from "@/app/workspace/_components/deal-stage-track";
+import { ROW_LINK, StageWord, StepWords } from "@/app/workspace/closer/pipeline/_components/deal-cells";
+import {
+  DealCreditLine,
+  DealStageTrack,
+  TOUCH_CHANNEL_LABELS,
+} from "@/app/workspace/_components/deal-stage-track";
 import { SetNextStepButton } from "@/app/workspace/_components/set-next-step-button";
 import { useEntityDetail, type EntityDetailPayload } from "./entity-detail-context";
 import { meetingDetailHref } from "./meeting-link-utils";
 import { useOpportunitySheet } from "./opportunity-sheet-context";
+import { DealCalls, useDealCalls } from "./person-deal-calls";
 import { personDate } from "./person-format";
 import { usePersonDeals, type PersonDealEntry } from "./person-deals";
 
 /**
- * One card per deal: its program, stage chip and closer, the stage track,
- * who gets credit, and a footer with the deal's next step (or what it
- * paid, or why it was lost) beside its actions. Open deals come first, the
- * ones that need a step at the top.
+ * The person's deals: a full card per open deal (its track, credit, calls
+ * and next step), the ones that need a step first; the won and lost deals
+ * folded into one "Closed deals" list under them. A person with no open
+ * deal keeps the newest closed one as a full card.
  */
 export function PersonDealCards() {
   const { caps } = useEntityDetail();
@@ -45,11 +51,19 @@ export function PersonDealCards() {
     );
   }
 
+  const open = deals.filter((deal) => deal.outcome === "open");
+  const closed = deals
+    .filter((deal) => deal.outcome !== "open")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const full = open.length > 0 ? open : closed.slice(0, 1);
+  const listed = open.length > 0 ? closed : closed.slice(1);
+
   return (
     <section aria-label="Deals" className="flex flex-col gap-3.5">
-      {deals.map((deal) => (
+      {full.map((deal) => (
         <PersonDealCard key={deal.item.opportunity._id} deal={deal} />
       ))}
+      {listed.length > 0 ? <ClosedDealsCard deals={listed} /> : null}
       {caps.opportunities ? (
         <p className="px-1 text-[0.8125rem] text-muted-foreground">Showing the newest 50 deals</p>
       ) : null}
@@ -58,7 +72,7 @@ export function PersonDealCards() {
 }
 
 function PersonDealCard({ deal }: { deal: PersonDealEntry }) {
-  const { lead, viewer, payments } = useEntityDetail();
+  const { lead, viewer, payments, firstTouch: personFirstTouch } = useEntityDetail();
   const {
     actions: { openOpportunity },
   } = useOpportunitySheet();
@@ -68,6 +82,7 @@ function PersonDealCard({ deal }: { deal: PersonDealEntry }) {
   const closerName = closer?.fullName ?? closer?.email ?? null;
   const ownView = permissions.canOpenOpportunity;
   const titleId = `deal-${opportunity._id}`;
+  const { owed } = useDealCalls(opportunity._id);
   // A won deal's header carries what it paid, each currency on its own.
   const paid =
     deal.outcome === "won"
@@ -77,6 +92,10 @@ function PersonDealCard({ deal }: { deal: PersonDealEntry }) {
     nextStep?.taskId && deal.canAct
       ? `${viewer.role === "closer" ? "/workspace/closer/reminders" : "/workspace/pipeline/reminders"}/${nextStep.taskId}`
       : null;
+  // The call row's "Record outcome" is the deal's next action; the footer
+  // doesn't repeat it, and no second lime button joins it.
+  const callCarriesStep = owed !== null && deal.state?.kind === "not_recorded";
+  const firstTouch = item.attribution?.firstTouch ?? personFirstTouch;
 
   return (
     <DetailCard
@@ -99,11 +118,16 @@ function PersonDealCard({ deal }: { deal: PersonDealEntry }) {
     >
       <DealStageTrack position={opportunity.position} systemLoss={opportunity.systemLoss} />
       <DealCreditLine source={{ dealAttribution: item.attribution, assignedCloser: closer }} />
+      <DealCalls opportunityId={opportunity._id} canOpenDeal={ownView} />
       <DetailCardFooter className="text-sm">
-        <DealFact deal={deal} viewerRole={viewer.role} />
+        {callCarriesStep ? (
+          <FirstTouchFact touch={firstTouch} />
+        ) : (
+          <DealFact deal={deal} viewerRole={viewer.role} />
+        )}
         {deal.canAct || ownView ? (
           <div className="ml-auto flex flex-wrap items-center gap-x-3.5 gap-y-1">
-            {deal.canAct && nextStep?.canSet && deal.state?.kind !== "step" ? (
+            {deal.canAct && nextStep?.canSet && deal.state?.kind !== "step" && owed === null ? (
               <SetNextStepButton opportunityId={opportunity._id} leadName={lead.fullName ?? null} />
             ) : null}
             {taskHref ? (
@@ -125,6 +149,98 @@ function PersonDealCard({ deal }: { deal: PersonDealEntry }) {
         ) : null}
       </DetailCardFooter>
     </DetailCard>
+  );
+}
+
+/** "First touch Calendly · Jun 18", when the call row carries the deal's next action. */
+function FirstTouchFact({ touch }: { touch: AttributionTouch | null }) {
+  const { setting } = useBusinessDay();
+  const now = useNow();
+  if (!touch) return <span className="text-[0.8125rem] font-normal">First touch not recorded</span>;
+  return (
+    <span className="min-w-0 truncate text-[0.8125rem] font-normal" suppressHydrationWarning>
+      First touch {TOUCH_CHANNEL_LABELS[touch.channel]} ·{" "}
+      <span className="font-condensed text-sm font-semibold tabular-nums">{personDate(touch.occurredAt, setting, now)}</span>
+    </span>
+  );
+}
+
+/**
+ * The won and lost deals, one ruled row each: program, stage word, closer,
+ * what it paid or why it was lost, and the date. A row opens the deal
+ * modal; another closer's deal is a plain row.
+ */
+function ClosedDealsCard({ deals }: { deals: PersonDealEntry[] }) {
+  return (
+    <DetailCard
+      title="Closed deals"
+      meta={<span className="font-condensed text-sm font-semibold tabular-nums">{deals.length}</span>}
+      className="@container/closed"
+    >
+      <ul className="divide-y">
+        {deals.map((deal) => (
+          <ClosedDealRow key={deal.item.opportunity._id} deal={deal} />
+        ))}
+      </ul>
+    </DetailCard>
+  );
+}
+
+function ClosedDealRow({ deal }: { deal: PersonDealEntry }) {
+  const { payments } = useEntityDetail();
+  const { setting } = useBusinessDay();
+  const now = useNow();
+  const {
+    actions: { openOpportunity },
+  } = useOpportunitySheet();
+  const { opportunity, closer, permissions } = deal.item;
+  const program = dealProgramName(opportunity) ?? "No program";
+  const closerName = closer?.fullName ?? closer?.email ?? "No closer";
+  const own = payments.filter((payment) => payment.opportunityId === opportunity._id);
+  const latestPayment = own.reduce<number | null>(
+    (max, payment) => (max === null || payment.recordedAt > max ? payment.recordedAt : max),
+    null,
+  );
+  const when =
+    deal.outcome === "won"
+      ? (latestPayment ?? opportunity.paymentReceivedAt ?? null)
+      : (opportunity.lostAt ?? null);
+  // A loss the system wrote is already named by the stage word ("Lost: no-show").
+  const reason = opportunity.systemLoss ? null : opportunity.lostReason?.trim() || null;
+  const amounts = paidByCurrency(own);
+
+  return (
+    <li className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-0.5 px-4 py-2 hover:bg-muted/60 @xl/closed:min-h-11 @xl/closed:grid-cols-[minmax(0,1.3fr)_8.5rem_minmax(0,1fr)_minmax(0,1.2fr)_4.5rem] @xl/closed:py-1.5">
+      <p className="min-w-0 truncate font-medium" title={program}>
+        {permissions.canOpenOpportunity ? (
+          <button type="button" className={cn(ROW_LINK, "text-left")} onClick={() => openOpportunity(opportunity._id)}>
+            {program}
+          </button>
+        ) : (
+          program
+        )}
+      </p>
+      <StageWord position={opportunity.position} systemLoss={opportunity.systemLoss} className="justify-self-end @xl/closed:justify-self-start" />
+      <p className="col-span-2 min-w-0 truncate text-[0.8125rem] text-muted-foreground @xl/closed:col-span-1" translate="no">
+        {closerName}
+      </p>
+      <p className="col-span-2 min-w-0 truncate text-[0.8125rem] empty:hidden @xl/closed:col-span-1" title={deal.outcome === "lost" ? (reason ?? undefined) : undefined}>
+        {deal.outcome === "won" ? (
+          amounts.length > 0 ? (
+            <span className="font-condensed text-[15px] font-semibold tabular-nums">
+              {amounts.map((entry) => formatCash(entry.amountMinor, entry.currency)).join(" · ")}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">No payments shown</span>
+          )
+        ) : (
+          reason ? <span className="text-danger-ink">{reason}</span> : null
+        )}
+      </p>
+      <p className="hidden text-right font-condensed text-sm font-semibold text-muted-foreground tabular-nums @xl/closed:block" suppressHydrationWarning>
+        {when ? personDate(when, setting, now) : null}
+      </p>
+    </li>
   );
 }
 

@@ -6,44 +6,44 @@ import { SectionError } from "@/app/workspace/closer/_components/section-state";
 import { OpportunityDetailSheet } from "./opportunity-detail-sheet";
 import { OpportunitySheetProvider } from "./opportunity-sheet-context";
 import { PersonDealCards } from "./person-deal-cards";
-import { PersonRecordCard } from "./person-record-card";
-import { BookingAnswersCard, SourceCard } from "./person-rail-cards";
+import { PersonCard } from "./person-card";
+import { BookingAnswersCard } from "./person-rail-cards";
 import { PersonStrip } from "./person-strip";
 import { PersonTimelineCard } from "./person-timeline-card";
 
 /**
- * The person page, as the approved sketch lays it out: the person as one
- * board row, then a card per deal, beside a rail of booking answers, source,
- * the person's timeline and the rest of the record. In a narrow container
- * it is one column: deals, then the rail in that order.
+ * The person page at a glance (.impeccable/mocks/person-glance.html): the
+ * person as one board row; the open deals with their calls, the closed
+ * deals folded into a list, and the booking answers beside the timeline;
+ * one dense person card on the right. The page responds to its own width
+ * (DESIGN.md, Responsive rules): from @4xl the person card takes a 360px
+ * column and the answers and timeline sit side by side; narrower, it is one
+ * column in the order strip, deals, answers, timeline, person.
  */
 export function EntityDetailFrame() {
   return (
     <OpportunitySheetProvider>
-      <div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6">
+      <div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3">
         <Section what="this person">
           <PersonStrip />
         </Section>
-        <div className="grid grid-cols-1 items-start gap-3.5 @3xl:grid-cols-[minmax(0,1fr)_20rem] @3xl:gap-x-[1.125rem] @5xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="flex min-w-0 flex-col gap-3.5">
+        <div className="grid grid-cols-1 items-start gap-3.5 short:gap-3 @4xl:grid-cols-[minmax(0,1fr)_360px] @4xl:gap-x-[1.125rem]">
+          <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
             <Section what="the deals">
               <PersonDealCards />
             </Section>
+            <div className="grid grid-cols-1 items-start gap-3.5 short:gap-3 @4xl:grid-cols-2">
+              <Section what="the booking answers">
+                <BookingAnswersCard />
+              </Section>
+              <Section what="the timeline">
+                <PersonTimelineCard />
+              </Section>
+            </div>
           </div>
-          <aside aria-label="About this person" className="flex min-w-0 flex-col gap-3.5">
-            <Section what="the booking answers">
-              <BookingAnswersCard />
-            </Section>
-            <Section what="the source">
-              <SourceCard />
-            </Section>
-            <Section what="the timeline">
-              <PersonTimelineCard />
-            </Section>
-            <Section what="the record">
-              <PersonRecordCard />
-            </Section>
-          </aside>
+          <Section what="this person's details">
+            <PersonCard />
+          </Section>
         </div>
       </div>
       <OpportunityDetailSheet />

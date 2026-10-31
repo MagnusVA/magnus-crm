@@ -51,3 +51,12 @@ export function personDateTime(ms: number, timeZone: string) {
 export function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
 }
+
+/**
+ * A contact value to compare by: case, spaces and a leading @ don't count,
+ * and a phone number is its digits. "@Ana.Lead" and "ana.lead" match.
+ */
+export function contactKey(value: string) {
+  const compact = value.trim().toLowerCase().replace(/\s+/g, "").replace(/^@/, "");
+  return /^[+\d().-]{7,}$/.test(compact) ? compact.replace(/\D/g, "") : compact;
+}

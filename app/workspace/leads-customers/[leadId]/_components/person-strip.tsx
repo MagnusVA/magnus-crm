@@ -1,6 +1,5 @@
 "use client";
 
-import { MailIcon, MessageSquareIcon, PhoneIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +18,10 @@ import { useEntityDetail } from "./entity-detail-context";
 import { personDate, plural } from "./person-format";
 import { usePersonDeals, type PersonDealEntry } from "./person-deals";
 
+// The full row from @5xl (the sketch's widths); from @xl a fold: person,
+// stage and paid on one row, the next step and reach by under them.
 const COLUMNS =
-  "@5xl:grid-cols-[minmax(0,1.35fr)_8rem_8rem_minmax(0,1.25fr)_17.75rem]";
+  "@xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] @5xl:grid-cols-[minmax(0,1.5fr)_9.375rem_9.375rem_minmax(0,1.2fr)_18.75rem]";
 
 /**
  * The lifecycle stage as a word on navy, in board text: lifecycle stages
@@ -80,7 +81,7 @@ export function PersonStrip() {
         <div
           aria-hidden
           className={cn(
-            "hidden h-7 items-center gap-x-4 border-b border-board-line px-[18px] font-condensed text-[0.6875rem] font-semibold tracking-[0.14em] text-board-muted uppercase @5xl:grid",
+            "hidden h-7 items-center gap-x-5 border-b border-board-line px-[18px] font-condensed text-[0.6875rem] font-semibold tracking-[0.14em] text-board-muted uppercase @5xl:grid",
             COLUMNS,
           )}
         >
@@ -88,15 +89,15 @@ export function PersonStrip() {
           <span>Stage</span>
           <span>Paid</span>
           <span>Next step</span>
-          <span>Reach by</span>
+          <span className="text-right">Reach by</span>
         </div>
         <div
           className={cn(
-            "grid grid-cols-2 gap-x-4 gap-y-3.5 px-4 py-3 @5xl:min-h-16 @5xl:items-center @5xl:gap-y-0 @5xl:px-[18px] @5xl:py-2",
+            "grid grid-cols-2 gap-x-4 gap-y-3.5 px-4 py-3 @xl:gap-x-5 @5xl:min-h-16 @5xl:items-center @5xl:gap-y-0 @5xl:px-[18px] @5xl:py-2",
             COLUMNS,
           )}
         >
-          <StripCell label="Person" className="col-span-2 @5xl:col-span-1">
+          <StripCell label="Person" className="col-span-2 @xl:col-span-1">
             <h1 className="truncate text-lg leading-tight font-semibold" title={name} translate="no">
               {name}
             </h1>
@@ -113,11 +114,11 @@ export function PersonStrip() {
             <PaidCell payments={payments} partial={caps.payments} />
           </StripCell>
 
-          <StripCell label="Next step" className="col-span-2 @5xl:col-span-1">
+          <StripCell label="Next step" className="col-span-2 @xl:col-span-1">
             <NextStepCell deals={deals} />
           </StripCell>
 
-          <StripCell label="Reach by" className="col-span-2 @5xl:col-span-1">
+          <StripCell label="Reach by" className="col-span-2 @5xl:col-span-1 @5xl:justify-self-end">
             <ReachButtons name={name} phone={lead.phone ?? null} email={lead.email ?? null} />
           </StripCell>
         </div>
@@ -265,8 +266,8 @@ function NextStepCell({ deals }: { deals: PersonDealEntry[] }) {
         word = step.dueAt === null ? verb : `${verb} ${whenLabel(step.dueAt, now, setting)}`;
         tone = step.dueAt !== null && step.dueAt < now ? "overdue" : "step";
       } else {
-        word = "Link sent";
-        detail = `${step.reschedule ? "Reschedule" : "Scheduling"} link · ${personDate(step.sentAt, setting, now)} · ${detail}`;
+        word = step.reschedule ? "Reschedule link" : "Link sent";
+        detail = `${detail} · sent ${personDate(step.sentAt, setting, now)}`;
         tone = "link";
       }
       break;
@@ -320,7 +321,6 @@ function ReachButtons({
         <>
           <Button asChild size="sm" className={BOARD_BUTTON}>
             <a href={`tel:${phone}`} aria-label={`Call ${name} at ${phone}`}>
-              <PhoneIcon data-icon="inline-start" aria-hidden />
               Call
               <span className="font-condensed text-[0.9375rem] tracking-[0.02em] tabular-nums" translate="no">
                 {phone}
@@ -329,7 +329,6 @@ function ReachButtons({
           </Button>
           <Button asChild size="sm" className={BOARD_BUTTON}>
             <a href={`sms:${phone}`} aria-label={`Text ${name}`}>
-              <MessageSquareIcon data-icon="inline-start" aria-hidden />
               Text
             </a>
           </Button>
@@ -340,14 +339,13 @@ function ReachButtons({
       {email ? (
         <Button
           type="button"
-          size={phone ? "icon" : "sm"}
-          className={cn(BOARD_BUTTON, phone && "w-8 px-0")}
+          size="sm"
+          className={BOARD_BUTTON}
           onClick={copyEmail}
-          title={`Copy email · ${email}`}
+          title={`Copy ${email}`}
           aria-label={`Copy email ${email}`}
         >
-          <MailIcon data-icon={phone ? undefined : "inline-start"} aria-hidden />
-          {phone ? null : "Copy email"}
+          Copy email
         </Button>
       ) : null}
     </div>
