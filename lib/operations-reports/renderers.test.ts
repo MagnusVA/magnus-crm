@@ -39,15 +39,32 @@ describe("report formats", () => {
   it("keeps mixed-currency Excel money and rates numeric with row currency labels", () => {
     const definition = exportSectionDefinition("sales_closer_money", "xlsx");
     const book = XLSX.read(renderReportWorkbook({ ...report, tables: [{ ...definition, rows: [
-      { label: "Ana", currency: "USD", paymentRevenueMinor: 125050, paymentCloseRate: 1.25 },
-      { label: "Jo", currency: "JPY", paymentRevenueMinor: 125050, paymentCloseRate: 0.5 },
+      { label: "Ana", currency: "USD", paymentRevenueMinor: 125050 },
+      { label: "Jo", currency: "JPY", paymentRevenueMinor: 125050 },
     ] }] }), { type: "array", cellNF: true });
     const sheet = book.Sheets[book.SheetNames[1]];
     const cellFor = (key: string, row = 1) => sheet[XLSX.utils.encode_cell({ r: row, c: definition.columns.findIndex(column => column.key === key) })];
     expect(cellFor("paymentRevenueMinor")).toMatchObject({ t: "n", v: 1250.5, z: '"USD" #,##0.00' });
     expect(cellFor("paymentRevenueMinor", 2)).toMatchObject({ t: "n", v: 1250.5, z: '"JPY" #,##0' });
-    expect(cellFor("paymentCloseRate")).toMatchObject({ t: "n", v: 1.25, z: "0.0%" });
     expect(exportSectionDefinition("sales_closer_money", "summary_csv").columns.find(column => column.key === "paymentRevenueMinor")?.label).toContain("stored hundredths");
+  });
+  it("exports the cohort close rate with its counts, not a payment close rate", () => {
+    for (const section of ["sales_summary_money", "sales_closer_money", "sales_program_money"]) {
+      expect(exportSectionDefinition(section, "summary_csv").columns.map((column) => column.key))
+        .not.toEqual(expect.arrayContaining([expect.stringMatching(/closeRate/i)]));
+    }
+    for (const section of ["sales_calls_summary", "sales_closer", "sales_program"]) {
+      expect(exportSectionDefinition(section, "summary_csv").columns.map((column) => column.key))
+        .toEqual(expect.arrayContaining(["closeRate", "wonDeals", "cohortDeals"]));
+    }
+    const definition = exportSectionDefinition("sales_closer", "xlsx");
+    const book = XLSX.read(renderReportWorkbook({ ...report, tables: [{ ...definition, rows: [
+      { label: "Ana", closeRate: 0.25, wonDeals: 1, cohortDeals: 4 },
+    ] }] }), { type: "array", cellNF: true });
+    const sheet = book.Sheets[book.SheetNames[1]];
+    const cellFor = (key: string) => sheet[XLSX.utils.encode_cell({ r: 1, c: definition.columns.findIndex(column => column.key === key) })];
+    expect(cellFor("closeRate")).toMatchObject({ t: "n", v: 0.25, z: "0.0%" });
+    expect(cellFor("cohortDeals")).toMatchObject({ t: "n", v: 4 });
   });
   it("keeps malformed currency buckets visible instead of throwing", () => {
     expect(formatCell(12345, "money", "bad code")).toBe("123.45 BAD CODE");

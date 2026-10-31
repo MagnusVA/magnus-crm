@@ -108,6 +108,48 @@ function meetingBucketRows(
 }
 
 /**
+ * What `closeRateCohortSql` returns: each deal's first held call (by
+ * scheduled time, then creation time), kept when it is in the range and the
+ * deal exists, counted by that call's closer and booked program.
+ */
+function closeRateCohortRows(
+  meetings: Doc<"meetings">[],
+  deals: Map<Id<"opportunities">, Doc<"opportunities">>,
+  range: { fromMs: number; toMs: number },
+) {
+  const firstHeld = new Map<Id<"opportunities">, Doc<"meetings">>();
+  for (const meeting of meetings) {
+    if (meeting.status !== "held") continue;
+    const current = firstHeld.get(meeting.opportunityId);
+    if (
+      !current ||
+      meeting.scheduledAt < current.scheduledAt ||
+      (meeting.scheduledAt === current.scheduledAt && meeting._creationTime < current._creationTime)
+    ) {
+      firstHeld.set(meeting.opportunityId, meeting);
+    }
+  }
+  const groups = new Map<string, { key: (string | null)[]; cohort: number; won: number }>();
+  for (const meeting of firstHeld.values()) {
+    const deal = deals.get(meeting.opportunityId);
+    if (!deal || meeting.scheduledAt < range.fromMs || meeting.scheduledAt >= range.toMs) continue;
+    const key = [meeting.assignedCloserId, meeting.bookingProgramId ?? null];
+    const group = groups.get(JSON.stringify(key)) ?? { key, cohort: 0, won: 0 };
+    group.cohort += 1;
+    if (deal.outcome === "won") group.won += 1;
+    groups.set(JSON.stringify(key), group);
+  }
+  return [...groups.values()]
+    .sort((left, right) => compareKeys(left.key, right.key))
+    .map(({ key, cohort, won }) => ({
+      closer_id: key[0],
+      booking_program_id: key[1],
+      cohort_deals: cohort,
+      won_deals: won,
+    }));
+}
+
+/**
  * Meetings over `days`, their deals and payments, and the buckets the
  * projection would hold for them, inserted in index order.
  */
@@ -135,20 +177,25 @@ async function createSalesCallsFixture(days: string[]) {
       });
     const mentorship = await program("Mentorship");
     const coaching = await program("Coaching");
-    const deal = async (closerId: Id<"users">, soldProgramId?: Id<"tenantPrograms">) => {
+    const deal = async (
+      closerId: Id<"users">,
+      soldProgramId?: Id<"tenantPrograms">,
+      outcome: Doc<"opportunities">["outcome"] = soldProgramId ? "won" : "open",
+      dealTenantId: Id<"tenants"> = tenantId,
+    ) => {
       const leadId = await ctx.db.insert("leads", {
         ...qualifiedLifecycle(at(0, 0)),
-        tenantId,
+        tenantId: dealTenantId,
         fullName: "Lead",
         firstSeenAt: at(0, 0),
         updatedAt: at(0, 0),
         status: "active",
       });
       return await ctx.db.insert("opportunities", {
-        tenantId,
+        tenantId: dealTenantId,
         leadId,
-        stage: soldProgramId ? "closed" : "booked",
-        outcome: soldProgramId ? "won" : "open",
+        stage: outcome === "open" ? "booked" : "closed",
+        outcome,
         assignedCloserId: closerId,
         ...(soldProgramId ? { soldProgramId, soldProgramName: "Mentorship" } : {}),
         createdAt: at(0, 0),
@@ -158,6 +205,12 @@ async function createSalesCallsFixture(days: string[]) {
     const sold = await deal(carla, mentorship);
     const open = await deal(beto);
     const former = await deal(olga);
+    // Close rate cases: two held calls in the range on a deal since
+    // reassigned to Beto (credited once, to Carla's first call), a lost deal,
+    // and a deal whose calls were never held.
+    const twice = await deal(beto, mentorship);
+    const lost = await deal(beto, undefined, "lost");
+    const ghost = await deal(carla, undefined, "lost");
     let meetingIndex = 0;
     const meeting = (
       opportunityId: Id<"opportunities">,
@@ -165,10 +218,11 @@ async function createSalesCallsFixture(days: string[]) {
       scheduledAt: number,
       status: Doc<"meetings">["status"],
       bookingProgramId?: Id<"tenantPrograms">,
+      meetingTenantId: Id<"tenants"> = tenantId,
     ) => {
       meetingIndex += 1;
       return ctx.db.insert("meetings", {
-        tenantId,
+        tenantId: meetingTenantId,
         opportunityId,
         assignedCloserId,
         calendlyEventUri: `https://example.invalid/event/${meetingIndex}`,
@@ -189,9 +243,23 @@ async function createSalesCallsFixture(days: string[]) {
     await meeting(former, olga, at(1, 16), "held");
     await meeting(sold, carla, at(last, 13), "scheduled", mentorship);
     await meeting(open, beto, at(last, 14), "held", coaching);
-    // Outside the range.
+    await meeting(twice, carla, at(0, 9), "held", mentorship);
+    await meeting(twice, beto, at(1, 10), "held", coaching);
+    await meeting(lost, beto, at(1, 12), "held");
+    await meeting(ghost, carla, at(0, 15), "canceled", mentorship);
+    await meeting(ghost, carla, at(1, 13), "no_show", mentorship);
+    // Outside the range. The sold deal's first held call is here, so the
+    // deal stays out of the close rate though it has held calls in the range.
     await meeting(sold, carla, at(0, 0) - 2 * HOUR, "held", mentorship);
     await meeting(open, beto, businessDayStart(addBusinessDays(days[last], 1), day) + HOUR, "held");
+    // Another tenant's won deal, held in the range.
+    const otherTenantId = await insertTenant(ctx, { workosOrgId: "org_other" });
+    const outsider = await ctx.db.insert("users", {
+      tenantId: otherTenantId, workosUserId: "closer_other", email: "closer_other@example.invalid",
+      role: "closer", fullName: "Other Tenant", isActive: true,
+    });
+    const foreign = await deal(outsider, undefined, "won", otherTenantId);
+    await meeting(foreign, outsider, at(0, 10), "held", undefined, otherTenantId);
 
     const pay = (fields: Partial<Doc<"paymentRecords">>) =>
       ctx.db.insert("paymentRecords", {
@@ -216,8 +284,13 @@ async function createSalesCallsFixture(days: string[]) {
     await pay({ attributedCloserId: carla, status: "disputed" });
     await pay({ attributedCloserId: carla, recordedAt: at(0, 0) - HOUR });
 
-    const meetings = await ctx.db.query("meetings").take(100);
-    const deals = new Map((await ctx.db.query("opportunities").take(100)).map((doc) => [doc._id, doc]));
+    // This tenant's documents, as the views return them for its tenant_id.
+    const meetings = (await ctx.db.query("meetings").take(100)).filter((doc) => doc.tenantId === tenantId);
+    const deals = new Map(
+      (await ctx.db.query("opportunities").take(100))
+        .filter((doc) => doc.tenantId === tenantId)
+        .map((doc) => [doc._id, doc]),
+    );
     // The buckets the projection keeps, in by_tenantId_and_dayKey order.
     const buckets = new Map<string, { dayKey: string; meeting: Doc<"meetings">; count: number }>();
     for (const doc of [...meetings].sort((left, right) => left.scheduledAt - right.scheduledAt)) {
@@ -271,8 +344,29 @@ async function expectSalesCallsParity(
     rows: {
       buckets: meetingBucketRows(fixture.meetings, fixture.deals, range),
       payments: payments.map((doc) => rowFromDoc("paymentRecords", doc)),
+      closeRateCohort: closeRateCohortRows(fixture.meetings, fixture.deals, range),
     },
   });
+}
+
+/**
+ * The close rate cohort in both ranges: the reassigned deal won at Carla's
+ * first call, an open deal and a lost one for Beto, Olga's open deal. The
+ * sold deal (first held call before the range), the never-held deal and the
+ * other tenant's deal stay out.
+ */
+function expectCloseRates(live: FunctionReturnType<typeof api.operations.salesCallsDashboard.getSalesCallsDashboard>) {
+  expect(live.stats).toMatchObject({ closeRate: 0.25, cohortDeals: 4, wonDeals: 1 });
+  expect(live.teamTotal).toMatchObject({ closeRate: 0.25, cohortDeals: 4, wonDeals: 1 });
+  const closer = (label: string) => live.closers.find((row) => row.label === label);
+  expect(closer("Carla Closer")).toMatchObject({ closeRate: 1, cohortDeals: 1, wonDeals: 1 });
+  expect(closer("Beto Closer")).toMatchObject({ closeRate: 0, cohortDeals: 2, wonDeals: 0 });
+  expect(closer("Olga Former")).toMatchObject({ closeRate: 0, cohortDeals: 1, wonDeals: 0 });
+  expect(closer("Zed Idle")).toMatchObject({ closeRate: null, cohortDeals: 0, wonDeals: 0 });
+  const program = (label: string) => live.perProgram.find((row) => row.label === label);
+  expect(program("Mentorship")).toMatchObject({ closeRate: 1, cohortDeals: 1, wonDeals: 1 });
+  expect(program("Coaching")).toMatchObject({ closeRate: 0, cohortDeals: 1, wonDeals: 0 });
+  expect(program("No program")).toMatchObject({ closeRate: 0, cohortDeals: 2, wonDeals: 0 });
 }
 
 describe("Sales Calls from ClickHouse rows", () => {
@@ -281,19 +375,21 @@ describe("Sales Calls from ClickHouse rows", () => {
     const live = await expectSalesCallsParity("2026-09-14", "2026-09-16", days);
     expect(live).toMatchObject({
       capped: false,
-      stats: { totalCalls: 8, showed: 4, canceled: 1, noShows: 1, pastCalls: 7 },
+      stats: { totalCalls: 13, showed: 7, canceled: 2, noShows: 2, pastCalls: 11 },
     });
     expect(live.stats.moneyByCurrency.map((bucket) => bucket.currency)).toEqual(["GBP", "USD"]);
     expect(live.closers.map((closer) => closer.label)).toEqual([
       "Beto Closer", "Carla Closer", "Olga Former", "Zed Idle",
     ]);
+    expectCloseRates(live);
   });
 
   it("matches the Convex reader up to today, the last days kept", async () => {
     const today = businessDateForInstant(Date.now(), day);
     const days = [-4, -3, -2, -1, 0].map((offset) => addBusinessDays(today, offset));
     const live = await expectSalesCallsParity(days[0], today, days);
-    expect(live).toMatchObject({ capped: false, stats: { totalCalls: 8 } });
+    expect(live).toMatchObject({ capped: false, stats: { totalCalls: 13 } });
+    expectCloseRates(live);
   });
 });
 

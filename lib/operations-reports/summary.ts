@@ -17,6 +17,7 @@ export function summaryCards(kind: string, fields: ScalarRecord) {
       { key: "canceled", label: "Canceled" },
       { key: "noShows", label: "No Shows" },
       { key: "showUpRate", label: "Show-up Rate", format: "percent" },
+      { key: "closeRate", label: "Close Rate", format: "percent" },
     ],
   };
   return (keys[kind] ?? []).map((column) => ({

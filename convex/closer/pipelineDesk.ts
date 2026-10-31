@@ -92,7 +92,7 @@ export const getMonthCash = query({
  * The closer's wins in [startDate, endDate), by program: the deals behind
  * their calls scheduled in the range, as Today's Performance counts them, so
  * the two pages agree. `decided` is the wins plus the deals a person lost;
- * the losses a no-show or cancellation wrote are left out, as in the close
+ * the losses a no-show or cancellation wrote are left out, as in the win
  * rate. `isPartial` says the meeting read stopped at its bound.
  */
 export const getMonthWins = query({

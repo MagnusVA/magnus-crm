@@ -3,6 +3,7 @@ import { isHeldStatus } from "../../lib/meetingAttendance";
 import { timestampToBusinessDateKey } from "../../reporting/lib/hondurasBusinessTime";
 import { weekdayForBusinessDate, type Weekday } from "../../lib/workSchedule";
 import { normalizeLeadGenOrigin } from "../../leadGen/normalization";
+import { closeRateOf } from "../../reporting/lib/closeRateCohort";
 import type {
   NormalizedReportRange,
   ReportContribution,
@@ -428,6 +429,32 @@ function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
   return [...flushPageMetrics(pageMetrics), ...qualifiers];
 }
 
+// Each cohort deal counts once toward the summary, its first held call's
+// closer and that call's booked program; finalize turns the sums into the
+// close rate.
+function reduceSalesCloseRateCohort(rows: ReportSourceRow[]) {
+  const pageMetrics = new Map<string, number>();
+  const closerIds = new Set<string>();
+  for (const row of rows) {
+    if (row.kind !== "sales_close_rate_deal") continue;
+    closerIds.add(row.closerId);
+    for (const [section, rowKey] of [
+      ["sales_calls_summary", "main"],
+      ["sales_closer", row.closerId],
+      ["sales_program", row.bookingProgramId ?? "none"],
+    ]) {
+      addPageMetric(pageMetrics, section, rowKey, "cohortDeals", 1);
+      addPageMetric(pageMetrics, section, rowKey, "wonDeals", row.won ? 1 : 0);
+    }
+  }
+  return [
+    ...flushPageMetrics(pageMetrics),
+    ...[...closerIds].map((closerId) =>
+      set("sales_closer", closerId, "closerId", closerId),
+    ),
+  ];
+}
+
 function reduceSalesPayment(row: Extract<ReportSourceRow, { kind: "sales_payment" }>) {
   const currency = row.currency.trim().toUpperCase() || "UNKNOWN";
   const programMoneyKey = `${row.programId}:${currency}`;
@@ -526,6 +553,8 @@ export function reduceReportSourcePage(args: {
       );
     case "sales_meeting_stats":
       return reduceSalesMeetingStats(args.rows);
+    case "sales_close_rate_cohort":
+      return reduceSalesCloseRateCohort(args.rows);
   }
 
   const result: ReportContribution[] = [];
@@ -738,6 +767,7 @@ export function reduceReportSourcePage(args: {
       case "lead_gen_origin":
       case "lead_gen_team_origin":
       case "sales_meeting_stat":
+      case "sales_close_rate_deal":
         break;
     }
   }
@@ -751,6 +781,16 @@ function numberField(fields: ScalarRecord, key: string) {
 
 function nullableRate(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : null;
+}
+
+// The close rate from the cohort sums (closeRateOf in
+// convex/reporting/lib/closeRateCohort.ts).
+function finalizeCloseRate(payload: ScalarRecord) {
+  const cohortDeals = numberField(payload, "cohortDeals");
+  const wonDeals = numberField(payload, "wonDeals");
+  payload.cohortDeals = cohortDeals;
+  payload.wonDeals = wonDeals;
+  payload.closeRate = closeRateOf({ cohortDeals, wonDeals });
 }
 
 export function finalizeAggregateRecord(args: {
@@ -829,6 +869,7 @@ export function finalizeAggregateRecord(args: {
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
       payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
       payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
+      finalizeCloseRate(payload);
       payload.start = args.range.startTimestamp;
       payload.end = args.range.endTimestampExclusive;
       break;
@@ -836,10 +877,8 @@ export function finalizeAggregateRecord(args: {
     case "sales_summary_money": {
       const paymentSales = numberField(payload, "paymentSalesCount");
       const revenue = numberField(payload, "cashCollectedMinor");
-      const showed = numberField(args.relatedFields ?? {}, "showed");
       payload.paymentSalesCount = paymentSales;
       payload.cashCollectedMinor = revenue;
-      payload.closeRate = nullableRate(paymentSales, showed);
       payload.avgCashPerSaleMinor = nullableRate(revenue, paymentSales);
       break;
     }
@@ -855,6 +894,7 @@ export function finalizeAggregateRecord(args: {
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
       payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
       payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
+      finalizeCloseRate(payload);
       break;
     }
     case "sales_program": {
@@ -870,16 +910,15 @@ export function finalizeAggregateRecord(args: {
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
       payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
       payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
+      finalizeCloseRate(payload);
       break;
     }
     case "sales_closer_money":
     case "sales_program_money": {
       const paymentSales = numberField(payload, "paymentSales");
       const revenue = numberField(payload, "paymentRevenueMinor");
-      const showed = numberField(args.relatedFields ?? {}, "showed");
       payload.paymentSales = paymentSales;
       payload.paymentRevenueMinor = revenue;
-      payload.paymentCloseRate = nullableRate(paymentSales, showed);
       payload.avgPaymentDealMinor = nullableRate(revenue, paymentSales);
       break;
     }

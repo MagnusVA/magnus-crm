@@ -106,7 +106,7 @@ describe("getMonthWins", () => {
 
     const wins = await harness.closer.query(api.closer.pipelineDesk.getMonthWins, MEETING_RANGE);
 
-    // As Today's close rate: the person's loss is decided, the no-show's and
+    // As Today's win rate: the person's loss is decided, the no-show's and
     // the cancellation's losses aren't.
     expect(wins).toEqual({
       won: 1,

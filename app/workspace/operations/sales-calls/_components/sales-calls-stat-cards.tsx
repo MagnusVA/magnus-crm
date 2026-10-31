@@ -18,6 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
+import { DealsWon, formatCloseRate, TEAM_CLOSE_RATE_HELP } from "./close-rate";
 import {
   summaryMoneyForCurrency,
   type SalesCallsStats,
@@ -86,9 +87,8 @@ export function SalesCallsStatCards({
     },
     {
       label: "Close Rate",
-      description:
-        `Payment sales recorded in ${currency} ÷ showed calls. Shows — when no calls showed in the range.`,
-      value: money === undefined ? undefined : formatRateOrDash(money.closeRate),
+      description: TEAM_CLOSE_RATE_HELP,
+      value: stats === undefined ? undefined : formatCloseRate(stats),
       icon: TargetIcon,
     },
   ];
@@ -115,6 +115,7 @@ export function SalesCallsStatCards({
                 </p>
               )}
               {label === "Show-up Rate" && stats ? <ResultsRecorded {...stats} attendanceCountsPartial={attendanceCountsPartial} /> : null}
+              {label === "Close Rate" && stats ? <DealsWon row={stats} /> : null}
             </CardContent>
           </Card>
         ))}

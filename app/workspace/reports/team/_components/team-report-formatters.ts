@@ -3,6 +3,41 @@ export function formatRate(rate: number | null): string {
   return `${(rate * 100).toFixed(1)}%`;
 }
 
+export const CLOSER_CLOSE_RATE_HELP =
+  "Of the deals whose first held call in the range was with this closer, the share won so far. Open deals can still close, so a recent range's rate rises over time.";
+
+export const TEAM_CLOSE_RATE_HELP =
+  "Of the deals whose first held call was in the range, the share won so far. Open deals can still close, so a recent range's rate rises over time.";
+
+/**
+ * The cohort close rate and its counts, or nulls when they're unknown: the
+ * cohort read was capped, or the answer was cached before the report had
+ * cohort counts (its `closeRate` then is the old payment rate, so it's left
+ * out too).
+ */
+export function cohortCloseRate(row: {
+  closeRate?: number | null;
+  cohortDeals?: number | null;
+  wonDeals?: number | null;
+}): { rate: number | null; wonDeals: number | null; cohortDeals: number | null } {
+  if (typeof row.cohortDeals !== "number" || typeof row.wonDeals !== "number") {
+    return { rate: null, wonDeals: null, cohortDeals: null };
+  }
+  return {
+    rate: row.closeRate ?? null,
+    wonDeals: row.wonDeals,
+    cohortDeals: row.cohortDeals,
+  };
+}
+
+export function formatCohortCounts(counts: {
+  wonDeals: number | null;
+  cohortDeals: number | null;
+}): string | null {
+  if (counts.wonDeals === null || counts.cohortDeals === null) return null;
+  return `${counts.wonDeals} won of ${counts.cohortDeals} ${counts.cohortDeals === 1 ? "deal" : "deals"}`;
+}
+
 export function formatCurrency(minorUnits: number): string {
   return `$${(minorUnits / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,

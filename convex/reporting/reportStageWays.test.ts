@@ -138,7 +138,7 @@ describe("each report number by stage", () => {
     });
   });
 
-  it("gives the strip the same won and lost, leaving the system's losses out of the close rate", async () => {
+  it("gives the strip the same won and lost, leaving the system's losses out of the win rate", async () => {
     const { harness } = await seeded();
     const strips = await harness.t.run(async (ctx) => {
       const strip = async (closerId: Id<"users">) => {

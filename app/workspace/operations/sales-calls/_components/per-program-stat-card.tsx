@@ -60,6 +60,11 @@ import {
   formatCompactAmountMinor,
 } from "@/lib/format-currency";
 import {
+  DealsWon,
+  formatCloseRate,
+  PROGRAM_CLOSE_RATE_HELP,
+} from "./close-rate";
+import {
   performanceMoneyForCurrency,
   type SalesProgramRow,
 } from "./sales-calls-data";
@@ -96,7 +101,7 @@ const VIEW_OPTIONS: Array<{
   {
     value: "table",
     label: "Table",
-    tooltip: "Calls, showed, payment sales, and revenue per program.",
+    tooltip: "Calls, showed, close rate, payment sales, and revenue per program.",
     icon: TableIcon,
   },
 ];
@@ -148,6 +153,7 @@ function ProgramTooltipBody({
         label="Payment sales"
         value={numberFormatter.format(datum.paymentSales)}
       />
+      <TooltipMetricRow label="Close rate" value={formatCloseRate(datum)} />
     </div>
   );
 }
@@ -235,7 +241,7 @@ export function PerProgramStatCard({
       <CardHeader>
         <CardTitle>
           <OverviewHelpTooltip
-            description={`Sales-call and payment performance broken down by program. Calls and showed use the meeting's booked program; payment sales and revenue show ${currency} payments against the payment's own program.`}
+            description={`Sales-call and payment performance broken down by program. Calls, showed and close rate use the meeting's booked program; payment sales and revenue show ${currency} payments against the payment's own program.`}
             label="Per Program Statistic"
           >
             Per Program Statistic
@@ -406,6 +412,15 @@ export function PerProgramStatCard({
                   </TableHead>
                   <TableHead className="text-right font-semibold text-foreground/80">
                     <OverviewHelpTooltip
+                      description={PROGRAM_CLOSE_RATE_HELP}
+                      label="Close Rate"
+                      triggerClassName="w-full justify-end"
+                    >
+                      Close Rate
+                    </OverviewHelpTooltip>
+                  </TableHead>
+                  <TableHead className="text-right font-semibold text-foreground/80">
+                    <OverviewHelpTooltip
                       description={`Final payments in ${currency} recorded against this program in the range.`}
                       label="Payment Sales"
                       triggerClassName="w-full justify-end"
@@ -444,6 +459,10 @@ export function PerProgramStatCard({
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
                       {numberFormatter.format(row.showed)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">
+                      {formatCloseRate(row)}
+                      <DealsWon row={row} hideWhenEmpty />
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
                       {numberFormatter.format(row.paymentSales)}

@@ -17,6 +17,7 @@ import {
 } from "../../reporting/teamPerformance";
 import { deriveCallOutcomeByStage } from "../../reporting/lib/outcomeDerivation";
 import type { SqlRow } from "../clickhouse";
+import { closeRateCohortCounts, closeRateCohortSql } from "./closeRateCohort";
 import {
   defineReport,
   noFilters,
@@ -32,7 +33,8 @@ import { docsFromRows } from "../rows";
 // business days, so every report here does too. The meetingsByStatus counts,
 // the operationsMeetingStatsV2 buckets, each meeting's outcome inputs and the
 // closer action counts are rebuilt in SQL at the grain each builder reads;
-// payments come back as rows. The builders do the rest, and the readers' scan
+// payments come back as rows, and the close rate cohort as counts by closer
+// and booked program (closeRateCohort.ts). The builders do the rest, and the readers' scan
 // caps don't apply.
 
 type NoFilters = Record<string, never>;
@@ -348,11 +350,13 @@ export const teamReports = [
         params: { ...rangeParams(input.range), recent_from_ms: Date.now() - 2 * DAY_MS },
       },
       payments: { sql: paymentsSql, params: rangeParams(input.range) },
+      closeRate: { sql: closeRateCohortSql, params: rangeParams(input.range) },
     }),
     finalize: async (ctx, input) =>
       await buildTeamPerformanceMetrics(ctx, input.tenantId, rangeArgs(input), {
         countMeetings: meetingCounter(input.rows.meetings),
         paymentScan: { payments: docsFromRows<"paymentRecords">(input.rows.payments), isTruncated: false },
+        closeRateCohort: { counts: closeRateCohortCounts(input.rows.closeRate), capped: false },
       }),
     live: { name: "reporting/teamPerformance:getTeamPerformanceMetrics", args: rangeArgs },
   }),

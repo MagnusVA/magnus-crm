@@ -28,6 +28,16 @@ import {
   reportingUserIdentity,
   summarizePaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
+import {
+  closeRateOf,
+  countCloseRateCohort,
+  emptyCloseRateTally,
+  readCloseRateCohort,
+  tallyCloseRate,
+  totalCloseRateTally,
+  type CloseRateCohortCount,
+  type CloseRateTally,
+} from "../reporting/lib/closeRateCohort";
 import type { PaymentScan } from "../reporting/revenue";
 import { requireTenantUser } from "../requireTenantUser";
 import type { MeetingStatsCount } from "./meetingStats";
@@ -52,9 +62,16 @@ const moneyBucketValidator = v.object({
   currency: v.string(),
   paymentSales: v.number(),
   paymentRevenueMinor: v.number(),
-  paymentCloseRate: v.union(v.number(), v.null()),
   avgPaymentDealMinor: v.union(v.number(), v.null()),
 });
+
+// The close rate cohort (convex/reporting/lib/closeRateCohort.ts): deals whose
+// first held call is in the window, and how many of them are won now.
+const closeRateFields = {
+  closeRate: v.union(v.number(), v.null()),
+  cohortDeals: v.number(),
+  wonDeals: v.number(),
+};
 
 const closerTotalsFields = {
   notRecorded: v.number(),
@@ -65,6 +82,7 @@ const closerTotalsFields = {
   resultsRecorded: v.number(),
   pastCalls: v.number(),
   showUpRate: v.union(v.number(), v.null()),
+  ...closeRateFields,
   moneyByCurrency: v.array(moneyBucketValidator),
 };
 
@@ -163,14 +181,12 @@ function addPayment(
 
 function moneyByCurrency(
   totalsByCurrency: Map<string, PaymentTotals> | undefined,
-  showed: number,
 ) {
   return [...(totalsByCurrency?.entries() ?? [])]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([currency, totals]) => ({
       currency,
       ...totals,
-      paymentCloseRate: toRate(totals.paymentSales, showed),
       avgPaymentDealMinor: toRate(
         totals.paymentRevenueMinor,
         totals.paymentSales,
@@ -180,15 +196,26 @@ function moneyByCurrency(
 
 function summaryMoneyByCurrency(
   totalsByCurrency: Map<string, PaymentTotals>,
-  showed: number,
 ) {
-  return moneyByCurrency(totalsByCurrency, showed).map((bucket) => ({
+  return moneyByCurrency(totalsByCurrency).map((bucket) => ({
     currency: bucket.currency,
     paymentSalesCount: bucket.paymentSales,
     cashCollectedMinor: bucket.paymentRevenueMinor,
-    closeRate: bucket.paymentCloseRate,
     avgCashPerSaleMinor: bucket.avgPaymentDealMinor,
   }));
+}
+
+/**
+ * A cohort tally's fields. When the cohort read was capped the counts are
+ * unknown, so the rate is null rather than a rate of a partial cohort.
+ */
+function withCloseRate(tally: CloseRateTally | undefined, known: boolean) {
+  const counts = known ? (tally ?? emptyCloseRateTally()) : emptyCloseRateTally();
+  return {
+    closeRate: known ? closeRateOf(counts) : null,
+    cohortDeals: counts.cohortDeals,
+    wonDeals: counts.wonDeals,
+  };
 }
 
 function emptyDashboard(start: number, end: number) {
@@ -201,11 +228,16 @@ function emptyDashboard(start: number, end: number) {
       resultsRecorded: 0,
       pastCalls: 0,
       showUpRate: null,
+      ...withCloseRate(undefined, false),
       moneyByCurrency: [],
     },
     perProgram: [],
     closers: [],
-    teamTotal: { ...withMeetingRates(emptyMeetingTotals()), moneyByCurrency: [] },
+    teamTotal: {
+      ...withMeetingRates(emptyMeetingTotals()),
+      ...withCloseRate(undefined, false),
+      moneyByCurrency: [],
+    },
     window: { start, end },
     attendanceCountsPartial: false,
     capped: true,
@@ -218,6 +250,15 @@ function uniqueIds<T extends string>(ids: Array<T | undefined>): T[] {
 
 function compareLabels(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: "base" });
+}
+
+// Last tiebreak, so rows with the same counts and label (two removed closers)
+// keep one order whichever source fed the builder.
+function compareIds(left: string | null, right: string | null) {
+  if (left === right) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return left < right ? -1 : 1;
 }
 
 function validateWindow(start: number, end: number) {
@@ -238,7 +279,10 @@ function validateWindow(start: number, end: number) {
  * Population: the operationsMeetingStatsV2 rollup keyed by the UTC day of
  * `scheduledAt` (dayKey), all four meeting statuses counted. Payments follow the
  * teamPerformance/revenue definition of cash collected: non-disputed,
- * non-deposit (final) payments by `recordedAt`.
+ * non-deposit (final) payments by `recordedAt`. The close rate is the cohort
+ * close rate (convex/reporting/lib/closeRateCohort.ts) over the same window:
+ * deals whose first held call falls in it, credited to that call's closer and
+ * booked program; payments play no part in it.
  *
  * The view list stays on listPhoneSalesMeetings — pass `window.start/end`
  * into its scheduledFrom/scheduledTo args so both surfaces share one time
@@ -258,11 +302,11 @@ export const getSalesCallsDashboard = query({
       resultsRecorded: v.number(),
       pastCalls: v.number(),
       showUpRate: v.union(v.number(), v.null()),
+      ...closeRateFields,
       moneyByCurrency: v.array(v.object({
         currency: v.string(),
         paymentSalesCount: v.number(),
         cashCollectedMinor: v.number(),
-        closeRate: v.union(v.number(), v.null()),
         avgCashPerSaleMinor: v.union(v.number(), v.null()),
       })),
     }),
@@ -277,6 +321,7 @@ export const getSalesCallsDashboard = query({
         resultsRecorded: v.number(),
         pastCalls: v.number(),
         showUpRate: v.union(v.number(), v.null()),
+        ...closeRateFields,
         moneyByCurrency: v.array(moneyBucketValidator),
       }),
     ),
@@ -298,7 +343,10 @@ export const getSalesCallsDashboard = query({
 
     const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
-    const [statsScan, paymentScan] = await Promise.all([
+    // The cohort window is the meeting buckets' window: operationsStartDate
+    // and operationsEndDate are the starts of the first and the day-after-last
+    // business days, the same days the buckets' dayKeys cover.
+    const [statsScan, paymentScan, cohort] = await Promise.all([
       readLiveQueryRows(
         ctx.db
           .query("operationsMeetingStatsV2")
@@ -318,20 +366,30 @@ export const getSalesCallsDashboard = query({
         range.operationsStartDate,
         range.operationsEndDate,
       ),
+      readCloseRateCohort(ctx, tenantId, {
+        start: range.operationsStartDate,
+        end: range.operationsEndDate,
+      }),
     ]);
     return await buildSalesCallsDashboard(ctx, tenantId, range, {
       statsRows: statsScan.rows,
       statsCapped: statsScan.capped,
       paymentScan,
+      closeRateCohort: countCloseRateCohort(cohort.deals),
+      closeRateCohortCapped: cohort.capped,
     });
   },
 });
 
 /**
- * The Sales Calls dashboard from a range's meeting buckets and non-disputed
- * payments. The Convex reader reads the operationsMeetingStatsV2 buckets; the
- * ClickHouse report (convex/analytics/definitions/operations.ts) rebuilds the
- * same buckets from the meetings and their deals.
+ * The Sales Calls dashboard from a range's meeting buckets, non-disputed
+ * payments and close rate cohort counts. The Convex reader reads the
+ * operationsMeetingStatsV2 buckets and the cohort live; the ClickHouse report
+ * (convex/analytics/definitions/operations.ts) rebuilds the same buckets and
+ * cohort counts from the meetings and their deals.
+ *
+ * A capped cohort leaves every close rate null and marks the answer capped,
+ * so the page falls back to the report job, without blanking the rest.
  */
 export async function buildSalesCallsDashboard(
   ctx: QueryCtx,
@@ -341,6 +399,8 @@ export async function buildSalesCallsDashboard(
     statsRows: MeetingStatsCount[];
     statsCapped: boolean;
     paymentScan: PaymentScan;
+    closeRateCohort: CloseRateCohortCount[];
+    closeRateCohortCapped: boolean;
   },
 ) {
   const activeUserScan = await readLiveQueryRows(
@@ -430,10 +490,21 @@ export async function buildSalesCallsDashboard(
     }
   }
 
+  // Close rate cohort: each deal at its first held call's closer and booked
+  // program. Unknown (null rates) when the cohort read was capped.
+  const closeRateKnown = !loaded.closeRateCohortCapped;
+  const cohortCounts = closeRateKnown ? loaded.closeRateCohort : [];
+  const cohortByCloser = tallyCloseRate(cohortCounts, (count) => count.closerId);
+  const cohortByProgram = tallyCloseRate(
+    cohortCounts,
+    (count) => count.bookingProgramId,
+  );
+
   // Program labels — bounded by the tenant's program registry.
   const programIds = uniqueIds<Id<"tenantPrograms">>([
     ...[...meetingsByProgram.keys()].map((id) => id ?? undefined),
     ...paymentsByProgram.keys(),
+    ...[...cohortByProgram.keys()].map((id) => id ?? undefined),
   ]);
   if (programIds.length > LIVE_DIMENSION_LIMIT) {
     return emptyDashboard(
@@ -460,6 +531,7 @@ export async function buildSalesCallsDashboard(
   const perProgramKeys = new Set<Id<"tenantPrograms"> | null>([
     ...meetingsByProgram.keys(),
     ...paymentsByProgram.keys(),
+    ...cohortByProgram.keys(),
   ]);
   const perProgram = [...perProgramKeys]
     .map((programId) => {
@@ -485,22 +557,21 @@ export async function buildSalesCallsDashboard(
           meetingTotals.showed,
           meetingTotals.showed + meetingTotals.noShows,
         ),
-        moneyByCurrency: moneyByCurrency(
-          payments?.byCurrency,
-          meetingTotals.showed,
-        ),
+        ...withCloseRate(cohortByProgram.get(programId), closeRateKnown),
+        moneyByCurrency: moneyByCurrency(payments?.byCurrency),
       };
     })
     .sort(
       (left, right) =>
         right.calls - left.calls ||
-        compareLabels(left.label, right.label),
+        compareLabels(left.label, right.label) ||
+        compareIds(left.programId, right.programId),
     );
 
   // Closer rows: every active closer (zero rows included, like
-  // teamPerformance) plus any closer that appears in the meeting rollup or
-  // in payment attribution (so removed/deactivated closers keep their
-  // history visible, like getTeamOperationsDimensions).
+  // teamPerformance) plus any closer that appears in the meeting rollup, in
+  // payment attribution or in the close rate cohort (so removed/deactivated
+  // closers keep their history visible, like getTeamOperationsDimensions).
   const userById = new Map<Id<"users">, Doc<"users">>(
     activeClosers.map((closer) => [closer._id, closer]),
   );
@@ -508,6 +579,7 @@ export async function buildSalesCallsDashboard(
     ...userById.keys(),
     ...meetingsByCloser.keys(),
     ...paymentsByCloser.keys(),
+    ...cohortByCloser.keys(),
   ]);
   if (closerIds.size > LIVE_DIMENSION_LIMIT) {
     return emptyDashboard(
@@ -544,21 +616,20 @@ export async function buildSalesCallsDashboard(
         label: user ? getUserDisplayName(user) : "Removed closer",
         avatar: await reportingUserIdentity(ctx, user, "Removed closer"),
         ...withMeetingRates(meetings),
-        moneyByCurrency: moneyByCurrency(
-          paymentsByCloser.get(closerId),
-          meetings.showed,
-        ),
+        ...withCloseRate(cohortByCloser.get(closerId), closeRateKnown),
+        moneyByCurrency: moneyByCurrency(paymentsByCloser.get(closerId)),
       };
     }),
   );
   closers.sort(
     (left, right) =>
       right.booked - left.booked ||
-      compareLabels(left.label, right.label),
+      compareLabels(left.label, right.label) ||
+      compareIds(left.closerId, right.closerId),
   );
 
-  // Team total meeting counts come from the closer rows; money includes
-  // only closer-attributed payments and remains split by currency.
+  // Team total meeting and cohort counts come from the closer rows; money
+  // includes only closer-attributed payments and remains split by currency.
   const teamSums = closers.reduce(
     (acc, closer) => ({
       booked: acc.booked + closer.booked,
@@ -568,6 +639,13 @@ export async function buildSalesCallsDashboard(
       notRecorded: acc.notRecorded + closer.notRecorded,
     }),
     emptyMeetingTotals(),
+  );
+  const teamCohort = closers.reduce(
+    (acc, closer) => ({
+      cohortDeals: acc.cohortDeals + closer.cohortDeals,
+      wonDeals: acc.wonDeals + closer.wonDeals,
+    }),
+    emptyCloseRateTally(),
   );
 
   // Stat cards: meeting counts are the tenant-wide rollup totals;
@@ -588,26 +666,22 @@ export async function buildSalesCallsDashboard(
         showed,
         showed + overallMeetings.noShows,
       ),
-      moneyByCurrency: summaryMoneyByCurrency(
-        allPaymentsByCurrency,
-        showed,
-      ),
+      ...withCloseRate(totalCloseRateTally(cohortCounts), closeRateKnown),
+      moneyByCurrency: summaryMoneyByCurrency(allPaymentsByCurrency),
     },
     perProgram,
     closers,
     teamTotal: {
       ...withMeetingRates(teamSums),
-      moneyByCurrency: moneyByCurrency(
-        attributedPaymentsByCurrency,
-        teamSums.showed,
-      ),
+      ...withCloseRate(teamCohort, closeRateKnown),
+      moneyByCurrency: moneyByCurrency(attributedPaymentsByCurrency),
     },
     window: {
       start: range.operationsStartDate,
       end: range.operationsEndDate,
     },
     attendanceCountsPartial: attendance.attendanceCountsPartial,
-    capped: false,
+    capped: loaded.closeRateCohortCapped,
   };
 }
 

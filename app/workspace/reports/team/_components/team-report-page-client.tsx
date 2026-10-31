@@ -189,6 +189,15 @@ export function TeamReportPageClient() {
     });
   }
 
+  if (metrics?.isCloseRateCohortTruncated) {
+    notices.push({
+      id: "close-rate-cap",
+      title: "Close rate unavailable",
+      description:
+        "This range has more held calls than the live close rate can read, so the close rates show a dash. Narrow the date range to see them.",
+    });
+  }
+
   if (actionsPerCloser?.isTruncated) {
     notices.push({
       id: "action-cap",

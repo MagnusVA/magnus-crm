@@ -11,7 +11,7 @@ export const summaryDefaults: Record<string, ScalarRecord> = {
   },
   qualifications_summary: { totalQualified: 0, dailyQuota: null, target: null },
   booked_calls_summary: { totalBooked: 0, teamOnlyBooked: 0, totalTarget: null },
-  sales_calls_summary: { booked: 0, showed: 0, canceled: 0, noShows: 0 },
+  sales_calls_summary: { booked: 0, showed: 0, canceled: 0, noShows: 0, cohortDeals: 0, wonDeals: 0 },
 };
 
 export async function finalizeReportRow(
@@ -55,20 +55,13 @@ export async function finalizeReportRow(
     // team-only booking counts toward its team here (D9).
     if (typeof fields.teamId !== "string") return null;
   }
-  if (section === "sales_summary_money") {
-    relatedFields = await lookup("sales_calls_summary", "main");
-  }
   if (section === "sales_closer_money") {
-    const closerId = fields.closerId;
-    const closer = await lookup("user_dimension", closerId);
+    const closer = await lookup("user_dimension", fields.closerId);
     Object.assign(fields, closer, row.fields);
-    relatedFields = await lookup("sales_closer", closerId);
   }
   if (section === "sales_program_money") {
-    const programId = fields.programId;
-    const program = await lookup("program_dimension", programId);
+    const program = await lookup("program_dimension", fields.programId);
     Object.assign(fields, program, row.fields);
-    relatedFields = await lookup("sales_program", programId);
   }
   if (
     [

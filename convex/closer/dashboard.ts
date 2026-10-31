@@ -111,7 +111,7 @@ export async function readCloserMeetingDeals(
 }
 
 /**
- * The strip's counts by position (§6.2). `won` and `lost` feed the close
+ * The strip's counts by position (§6.2). `won` and `lost` feed the win
  * rate: lost counts only the deals a person lost, so the canceled and no-show
  * deals, Lost since the backfill, leave the rate where it was.
  */
@@ -353,7 +353,7 @@ export const getMeetingsNeedingOutcome = query({
  *
  * **Filtered mode** (`startDate` and `endDate`): the dashboard strip. The
  * deals behind the closer's meetings scheduled in [startDate, endDate), by
- * position, with `decided` for the close rate: the won deals and the deals a
+ * position, with `decided` for the win rate: the won deals and the deals a
  * person lost, so the missed meetings' losses leave the rate where the
  * status left it. Plus the cash collected in the range, and the attendance
  * of the closer's calls in the range (`heldCount`, `noShowCount`) for the
