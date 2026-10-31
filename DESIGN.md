@@ -281,6 +281,24 @@ components:
     backgroundColor: "{colors.card}"
     textColor: "{colors.ink}"
     height: "{spacing.board-row}"
+  person-strip:
+    backgroundColor: "{colors.board}"
+    textColor: "{colors.board-foreground}"
+    rounded: "{rounded.surface}"
+    height: "{spacing.strip-row}"
+    padding: "8px 18px"
+  timeline-row:
+    typography: "{typography.body-meta}"
+    padding: "5px 16px"
+  deal-modal:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.surface}"
+    width: "672px"
+  deal-modal-section-title:
+    typography: "{typography.title}"
+    height: "{spacing.title-row}"
+    padding: "8px 20px"
   input:
     backgroundColor: "{colors.card}"
     textColor: "{colors.ink}"
@@ -299,10 +317,10 @@ The closer's day reads like an airport departures board set inside a calm, ordin
 
 Density is that of a second screen beside a live video call. Rows are 44px, card title rows 44 to 46px, text 14px with 13px meta lines, and every number sits in Barlow Condensed with tabular figures so times and amounts line up down a column. The navy shell and lime are the brand speaking loudly, as PRODUCT.md commits. On the paper, lime is not decoration; it is the button.
 
-The world was built and reviewed on four closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page, the task page and My Pipeline. The rest of the app has not migrated yet (see Migration Status at the end).
+The world was built and reviewed on five closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page, the task page, My Pipeline, and the person page with its deal modal. The rest of the app has not migrated yet (see Migration Status at the end).
 
 **Key Characteristics:**
-- Navy is a surface, not an accent: the sidebar shell, the Today board and the page strip.
+- Navy is a surface, not an accent: the sidebar shell, the Today board and the page strips.
 - One status word per row, condensed, uppercase and coloured by meaning. It changes in place and never moves to a badge somewhere else.
 - Lime is reserved for the next action and primary buttons, always with navy text on it.
 - White cards with 1px rules and a 44px title row; rows ruled, never zebra-striped.
@@ -314,20 +332,20 @@ The world was built and reviewed on four closer surfaces: Today (`app/workspace/
 A navy and lime brand pair on a cool grey paper, with a five-colour stage scale and two urgency colours (amber for owed, red for lost or overdue).
 
 ### Primary
-- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the money strip's cash figure, the one figure on the board that is lime. Primary buttons, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
+- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the money strip's cash figure and the person strip's CUSTOMER word; nothing else on a board is lime text. Primary buttons, Set next step on a deal with none, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
 - **Navy on Lime** (on-lime): the only text colour on a lime fill (6.9:1).
 - **Lime Ink** (lime-ink): lime as text on light surfaces (5.7:1 on white): link buttons, the caret, the light-theme focus ring. In dark it lifts to lime-ink-dark.
 
 ### Secondary
-- **Magnus Navy** (navy-shell, board): the sidebar shell, the Today board and the page strip. Navy in both themes. Its raised tone (board-raised, shell-raised) is for buttons on the board and the shell's hover.
+- **Magnus Navy** (navy-shell, board): the sidebar shell, the Today board and the page strips. Navy in both themes. Its raised tone (board-raised, shell-raised) is for buttons on the board and the shell's hover.
 - **Board text** (board-foreground, board-muted): primary and secondary text on navy. Board rules are hairlines of board-line.
 - **Board Danger** (board-danger): Overdue on navy, light enough to read on it.
 
 ### Tertiary: the stage scale
-Each deal stage has a fill colour (bars, dots, track rings, 15% chip tints) and an ink colour (text on light surfaces). Booked is blue, Held slate, Follow-up teal, Won lime, Lost red. Qualified borrows the Held slate. The scale is the only way a stage is coloured; the Deal card's track, the stage chip, the Performance bar and the board's held-call result all read from it.
+Each deal stage has a fill colour (bars, dots, track rings, 15% chip tints, the person timeline's 6px event dots) and an ink colour (text on light surfaces). Booked is blue, Held slate, Follow-up teal, Won lime, Lost red. Qualified borrows the Held slate. The scale is the only way a stage is coloured; the Deal card's track, the stage chip, the Performance bar and the board's held-call result all read from it.
 
 ### Urgency
-- **Owed Amber** (warning, warning-ink, warning-surface): something the closer still owes. "Not recorded" on the board, "Due now" on the strip, the Needs outcome count, the sidebar's owed badge (amber fill, navy text). On My Pipeline amber is reserved for an open deal with no next step: the "No next step" flag (amber ink on the amber surface) and "N with no next step" on the money strip.
+- **Owed Amber** (warning, warning-ink, warning-surface): something the closer still owes. "Not recorded" on the board, "Due now" on the strip, the Needs outcome count, the sidebar's owed badge (amber fill, navy text). On My Pipeline amber is reserved for an open deal with no next step: the "No next step" flag (amber ink on the amber surface) and "N with no next step" on the money strip. On the person page it marks what the viewer owes on a deal: the strip's NO NEXT STEP and NOT RECORDED words, and the deal footer's "No next step" and "Not recorded" flags.
 - **Lost Red** (danger, danger-ink): lost deals, no-shows, overdue tasks, the Lost choice's title and mark, the reason chip on a task row, section errors.
 
 ### Neutral
@@ -361,19 +379,19 @@ Dark is not an inversion. The ground drops to near-black (paper-dark), cards sit
 ### Hierarchy
 - **Display** (600, 26px, 1.1, -0.01em): the page title ("Today") and, in Condensed at the same size, the clock beside it.
 - **Headline** (600, 20px): the outcome question ("Did Ana show up?", "How did the call end?").
-- **Title Strip** (600, 18px): the person's name in the board strip. It is the page's `h1` on the meeting and task pages.
+- **Title Strip** (600, 18px): the person's name in the board strip. It is the page's `h1` on the meeting, task and person pages, and the deal modal's title.
 - **Title Choice** (600, 17px): an outcome choice's name; the task note (500, 17px, relaxed leading).
 - **Title** (600, 15px): card titles in the 44px title row.
 - **Body** (400, 14px): everything else. **Body Meta** (13px, slate ink or board-muted): the line under a name, card meta, captions, footers.
 - **Figure XL** (Condensed 600, 32px, tabular): the Performance figures.
 - **Figure Money** (Condensed 600, 30px, tabular): the money strip's figures; other currencies beside the cash sit at 17px.
-- **Figure Large** (Condensed 600, 26px, tabular): the strip's time or due time, the Boarding row's time; the phone number on the reach card at 28px.
+- **Figure Large** (Condensed 600, 26px, tabular): the strip's time or due time, the person strip's paid figure in the main currency (other currencies at 17px), the Boarding row's time; the phone number on the reach card at 28px.
 - **Figure** (Condensed 600, 20px, tabular): a board row's time, with its AM/PM at 12px in board-muted.
 - **Board Title** (Condensed 600, 19px, 0.02em): the board's own heading.
-- **Status Word** (Condensed 700, 15px on the board, 17px in the strip, 0.08em, uppercase): one per row, coloured by meaning.
+- **Status Word** (Condensed 700, 15px on the board, 17px in the strip, 0.08em, uppercase): one per row, coloured by meaning. The person strip sets two: the lifecycle stage and the next step.
 - **Stage Word** (Condensed 700, 13px, 0.08em, uppercase): a deal's stage as a word in its stage ink, in program card and lookup rows.
-- **Due** (Condensed 600, 14px, 0.02em): a task row's due label, red when overdue.
-- **Label** (Condensed 600, 11px, 0.14em, uppercase): column heads on the board and strip (TIME, PERSON, PROGRAM, GATE, STATUS; DUE, PERSON, DEAL, REACH BY, STATUS), day headings in the week board, task group headings ("OVERDUE · 2") and the sidebar's group label.
+- **Due** (Condensed 600, 14px, 0.02em): a task row's due label, red when overdue. At 15px it is the person deal card's footer fact, and at 13px the timeline's date column.
+- **Label** (Condensed 600, 11px, 0.14em, uppercase): column heads on the board and strip (TIME, PERSON, PROGRAM, GATE, STATUS; DUE, PERSON, DEAL, REACH BY, STATUS; PERSON, STAGE, PAID, NEXT STEP, REACH BY), day headings in the week board, task group headings ("OVERDUE · 2") and the sidebar's group label.
 - **Chip** (Condensed 700, 11px, 0.1em, uppercase): stage chips, the step chip, a task's reason chip.
 
 ### Named Rules
@@ -390,8 +408,10 @@ The workspace is the navy sidebar plus a white 52px top bar holding the sidebar 
 - **Task page:** the strip spans the pane; under it, a main column and a right rail of 20rem (22rem at the widest container), 18px apart, with 14px between cards.
 - **Task queue:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
 - **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the money strip, the program cards, then All deals. With two or more programs the cards sit two up from `xl`; a single program takes the full width.
+- **Person page:** up to 1500px wide. The person strip spans the column; under it the deal cards and a right rail of 20rem (22rem at the widest container), 18px apart, 14px between cards, responding to the container. In a narrow container it is one column: deals, then the rail.
+- **Deal modal:** centred, up to 672px wide and 88% of the viewport tall (56rem at most). The header stays fixed and the sections scroll under it. On a phone it fills the screen but for an 8px margin.
 - **The board** answers to its own width (`@container/board`): the full table from `@3xl` (48rem), the table without Gate from `@xl` (36rem), with narrower Time and Program columns and Join beside the person on the Boarding row (in place of the call's length), and below that two-line rows with the time on the left and the status word on the right.
-- **The meeting strip** is one row from `@4xl`, two rows from `@lg` (time, person and status; then the program under the person and the gate under the status), and below that stacked cells that each carry a condensed label. The task strip still goes straight from one row to stacked cells at `@3xl`.
+- **The meeting strip** is one row from `@4xl`, two rows from `@lg` (time, person and status; then the program under the person and the gate under the status), and below that stacked cells that each carry a condensed label. The task strip and the person strip still go straight from one row to stacked cells in narrow containers.
 
 ### Responsive rules
 
@@ -457,6 +477,12 @@ The meeting and task pages open with their record as one board row: a navy strip
 - **Meeting:** On time (board text, slate dot), Boarding and In progress (lime word and dot), Not recorded (amber), Held (board text, slate dot), No-show and Canceled (board text, red dot).
 - **Task:** Due 4:15 PM / Due Tomorrow (board text, blue dot), Due now (amber), Overdue (board danger), Done (board text, slate dot).
 
+**The person strip** is the strip's sibling on the person page: PERSON, STAGE, PAID, NEXT STEP, REACH BY. The name is the `h1` with "Customer since Oct 25 · 3 deals" under it. STAGE is the lifecycle stage as a 17px condensed word in board text; lifecycle stages are not deal stages and never take the stage scale, and only CUSTOMER is lime. A disposition or "Inactive · 12 days" sits under it in board-muted (Do not contact in board danger). PAID is per currency: the main currency at 26px, each other currency beside it at 17px, then "N payments", or "Nothing paid". NEXT STEP is a word with an 8px dot, then a 13px line naming the deal:
+- NO NEXT STEP and NOT RECORDED in amber when the viewer can act on that deal. Another closer's deal with no step reads NO NEXT STEP in board text, "deal of {closer}".
+- CALL THU 4:30 PM or CALL BACK … in board text with a blue dot; a past-due task in board danger; LINK SENT with a slate dot; NO OPEN DEALS with a slate dot.
+
+REACH BY holds the board buttons: Call with the number in 15px condensed, Text, and an icon button that copies the email.
+
 ### The Outcome Panel
 The page's one next action, on the meeting and the task page. A white panel with a 2px lime border and a 9.8px radius. A step chip (lime, navy condensed "STEP 1 OF 2") sits beside a 20px question; a slate line under it states what recording does. The choices are 64px buttons (7px radius, a 32px round icon mark, a 17px title and a 13px consequence line) in a responsive grid. A paper band at the foot holds shortcuts or "Back to …".
 - **Step 1:** "Did {first name} show up?" (meeting) or "Did you reach {first name}?" (task). The yes choice has a lime border on a 10% lime tint; the no choice is plain with a red mark. Step 1 writes nothing.
@@ -466,7 +492,7 @@ The page's one next action, on the meeting and the task page. A white panel with
 - **Not yet open:** a dashed card with a clock icon saying when recording opens.
 
 ### `DealCard` and the Stage Track
-A `DetailCard` titled "Deal" with the stage chip beside the title and the program as meta. Under it, the stage track: one node per stage on the deal's own path (Qualified, Booked, Held, then Won; Follow-up inserted when it applies; Lost as the ending, or straight after Booked when a missed call closed it). Passed nodes are filled with the current stage's colour, the current node is a 3px ring of it on white, and later nodes are 40% slate rings. Connecting lines take the stage colour up to the current node. Labels are 11px condensed; the current one is in ink. Then a 13px credit line ("Lead gen **Ana** · Closer **Bo**") and a footer with first touch (or payments) and Open deal.
+The track and the credit line are shared components, `DealStageTrack` and `DealCreditLine` (`app/workspace/_components/deal-stage-track.tsx`), used by the meeting page's Deal card, the person deal card and the deal modal. A `DetailCard` titled "Deal" with the stage chip beside the title and the program as meta. Under it, the stage track: one node per stage on the deal's own path (Qualified, Booked, Held, then Won; Follow-up inserted when it applies; Lost as the ending, or straight after Booked when a missed call closed it). Passed nodes are filled with the current stage's colour, the current node is a 3px ring of it on white, and later nodes are 40% slate rings. Connecting lines take the stage colour up to the current node. Labels are 11px condensed; the current one is in ink. Then a 13px credit line ("Lead gen **Ana** · Closer **Bo**") and a footer with first touch (or payments) and Open deal.
 
 ### Stage Chip
 A 20px condensed chip, 4px radius, 11px bold uppercase, stage ink on a 15% stage tint (12% for Lost): BOOKED, HELD, FOLLOW-UP, WON, LOST: NO-SHOW.
@@ -493,6 +519,29 @@ A `DetailCard` per program. The title row carries the program name, then its cas
 ### The Next-Step Cell
 A deal's next step in plain 14px text (13px on narrow rows), in this order: an upcoming call ("Call Thu 4:30 PM"), else the open task ("Call back today 3:00 PM", with the time in red ink once past; "Reschedule link sent · Oct 27"), else the amber "No next step" flag, a 20px chip with amber ink on the amber surface. A call that passed with no result is never the step. It goes on its own 12px slate line under the step ("Oct 27 call, no result"), so it never truncates the step or the flag.
 
+**The Business Day Rule.** A date without a time is the business day the instant falls on (the tenant's time zone and its day-start hour), never the calendar day, so the strip, deal cards, rail, timeline and deal modal agree with My Pipeline. Times of day stay in the tenant's time zone. The year shows only when it is not this year.
+
+### `SetNextStepButton`
+A small lime button with a calendar-plus icon, "Set next step", shared from `app/workspace/_components/set-next-step-button.tsx`. It opens the call-back or booking-link dialog (the admin version for an admin, who sets it for the deal's closer). It shows only where the server says the deal takes a step, so it is lime only on an open deal with none.
+
+### The Person Deal Card
+One `DetailCard` per deal, open deals first with the ones needing a step at the top, 14px apart. The title row holds the program name, the stage chip and, as meta, the closer ("Deal of {closer}" for another closer's deal), then a won deal's money in 14px condensed ink, each currency separately. Under it the shared `DealStageTrack` and `DealCreditLine`. The footer states one fact in condensed 15px (semibold, 0.02em, tabular) with its verb or lead word in medium slate: "**Call** Thu 4:30 PM", "**Call back** today 3:00 PM", "**Paid** $2,000 · Oct 29", or the lost reason in danger ink with its day. An open deal with no step shows the amber "No next step" flag; a passed call with no result shows the amber "Not recorded" flag, the call's day and a Record outcome link.
+
+Actions sit right in the footer: the lime Set next step (the page's one lime action), then Open task and Open deal as card links. Another closer's deal shows the same summary with no actions and does not open.
+
+### The Person Rail and Timeline
+The rail runs Booking answers, Source, Timeline, Record. Booking answers and Source are ruled `<dl>` rows: a 13px slate label over or beside the value, numbers in 16px condensed. The Record card ends with the admin's lifecycle controls as outline buttons in its footer.
+
+**The timeline** is the person's history, newest first, one row per event: a 52px condensed date column, a 6px dot on the stage scale (lime for payments, enrolment and becoming a customer; red for no-shows, cancellations, losses and voided payments; blue for bookings; teal for follow-ups; slate otherwise), and a 13px sentence: the fact in medium, an amount as a 14px condensed figure, then " · {program}" in slate ("Payment recorded · $2,000", "No-show · TestProgram call Oct 10"). The title row counts the events. Ten rows show, then the footer's "Show older" adds ten more and keeps the shown rows while a bigger page loads.
+
+### The Deal Modal
+A deal opens in a centred modal, never a side sheet, and a `?opportunityId=` link opens it on page load; closing it removes the parameter. It is a card-white dialog with a 9.8px radius and a 10% ring, no shadow.
+- **Header:** fixed, ruled beneath: the program as an 18px title with the stage chip beside it, a 13px line ("Created Oct 9 · Booked through Calendly"), and a ghost close button.
+- **Track and credit:** the shared `DealStageTrack`, then the credit line with the Slack qualifier named when the deal came through Slack.
+- **Next step** (open deals): the next-step cell at 15px beside the deal's actions: Record outcome and Open task as links, the lime Set next step. An open side deal's Record payment is lime only when Set next step is absent. Under it, a band at 50% muted fill holds the closing actions as outline buttons: "Fix the deal" for an admin (cancel task, mark lost, delete), "Close the deal" for a closer's side deal.
+- **Sections:** ruled sections with a 44px title row and right-aligned meta, no card of their own: Lost reason (in danger ink), Calls with the count, Payments with the per-currency total (an outline Add payment on a won deal), Notes, and Details (the booked program beside the sold one when they differ, first booked, payment received, first and latest touch).
+- **No activity feed.** History lives on the person page's timeline.
+
 ### The Lookup Table
 "All deals" on a ruled card. The header row holds the title, a segmented toggle of All / Open / Won / Lost with counts, a program select and a person search (all 30px, 7px radius, 13px). The table has 32px condensed column heads (PERSON, PROGRAM, STAGE, LAST ACTIVITY, NEXT STEP, PAID) and 44px ruled rows. Last activity is in the due style, and Paid is right-aligned in 15px condensed. Below `md` it becomes two-line rows. The footer says "N deals" or "Showing N of M", names partial reads in words, and offers "Show N more". An empty result says what was searched and offers "Clear filters".
 
@@ -518,6 +567,8 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 - **Do** keep each currency's money separate and lead with the currency that has the most payments.
 - **Do** keep the previous data on screen, dimmed, while a section reloads for new arguments.
 - **Do** keep targets at 24px or more and every text pair at 4.5:1 in both themes.
+- **Do** write dates as business days, with the year only outside this year.
+- **Do** use the shared `DealStageTrack`, `DealCreditLine` and `SetNextStepButton` wherever a deal shows its stage, credit or missing step.
 
 ### Don't:
 - **Don't** put a small uppercase label above a heading to restate it. Condensed labels name columns, days and groups only.
@@ -532,11 +583,11 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 
 ## Migration Status
 
-The system above is complete on the four closer surfaces (Today, the meeting page, the task page and My Pipeline) and the shell. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
+The system above is complete on five closer surfaces (Today, the meeting page, the task page, My Pipeline, and the person page with its deal modal) and the shell. Admins use the same person page and deal modal, as they use the meeting and task pages. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. The person page replaced the old header metrics, the grid of Programs, Opportunities, Meetings, Portal Notes, Payments and Timeline cards and the six-card rail; the right-hand Opportunity Detail sheet became the deal modal, and the `entity-*` section components and the sheet's body were removed. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
 
 - **Legacy status colours.** `lib/status-config.ts` still maps deal positions and meeting attendance to raw Tailwind palettes (cyan, blue, indigo, violet, emerald, orange, amber), and about 365 palette utilities in 42 files bypass the tokens. The `--status-*` aliases in `app/globals.css` point at the stage tokens only until that file moves over. The new surfaces read `status-config` for attendance logic and labels only, not colours.
 - **Type scale.** About 50 page headers range from `text-base` to `text-5xl`, with 96 arbitrary text sizes and KPI figures in mono.
 - **Layout.** 216 arbitrary layout values, nested page padding and 59 card padding overrides.
-- **Forms.** 21 form files still use `FormItem` instead of `Field`/`FieldGroup`.
+- **Forms.** 21 form files still use `FormItem` instead of `Field`/`FieldGroup`. Seven of them open from the person page and deal modal: the lifecycle, enrolment-status, mark-lost, delete, side-deal payment, add payment and void payment dialogs.
 - **Charts.** The chart tokens are now categorical (blue, teal, lime, amber, slate); chart modules have not been reviewed against them.
-- **Admin twins.** The admin meeting and task pages share these components; the other admin, report and settings screens have not been migrated.
+- **Admin twins.** The admin meeting and task pages and the person page share these components; the other admin, report and settings screens have not been migrated.
