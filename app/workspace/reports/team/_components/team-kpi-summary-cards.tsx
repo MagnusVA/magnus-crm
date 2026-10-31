@@ -22,8 +22,11 @@ import type {
   TeamTotals,
 } from "./team-report-types";
 import {
+  cohortCloseRate,
+  formatCohortCounts,
   formatCompactCurrency,
   formatRate,
+  TEAM_CLOSE_RATE_HELP,
 } from "./team-report-formatters";
 
 interface TeamKpiSummaryCardsProps {
@@ -40,7 +43,11 @@ export function TeamKpiSummaryCards({
   actionsPerCloser,
 }: TeamKpiSummaryCardsProps) {
   const totalBooked = totals.newBookedCalls + totals.followUpBookedCalls;
-  const totalShowed = totals.newShowed + totals.followUpShowed;
+  const closeRate = cohortCloseRate({
+    closeRate: totals.overallCloseRate,
+    cohortDeals: totals.cohortDeals,
+    wonDeals: totals.wonDeals,
+  });
 
   return (
     <div className="flex flex-col gap-4">
@@ -105,7 +112,7 @@ export function TeamKpiSummaryCards({
         <Card size="sm">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="text-sm font-medium text-muted-foreground" title={TEAM_CLOSE_RATE_HELP}>
                 Close Rate
               </CardTitle>
               <TrendingUpIcon className="size-4 text-muted-foreground" />
@@ -113,10 +120,10 @@ export function TeamKpiSummaryCards({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold tabular-nums">
-              {formatRate(totals.overallCloseRate)}
+              {formatRate(closeRate.rate)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {totals.totalSales} sales / {totalShowed} showed
+              {formatCohortCounts(closeRate) ?? "Not available for this range"}
             </p>
           </CardContent>
         </Card>

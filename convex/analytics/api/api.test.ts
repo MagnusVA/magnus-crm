@@ -266,6 +266,7 @@ describe("API metrics from Convex and from ClickHouse rows", () => {
     const rows = {
       meetings_scheduled: [meetingsRow("2026-09-01", 1, 1, 0), meetingsRow("2026-09-02", 0, 0, 1)],
       deals_won: [{ period: "2026-09-01", group_id: teamMemberId, deals_won: 1 }],
+      close_rate_cohort: [{ period: "2026-09-01", group_id: teamMemberId, cohort_deals: 1, cohort_won: 1 }],
       payments: [
         { period: "2026-09-01", group_id: teamMemberId, currency: "USD", cash_collected: 100_000, deposits: 0, final_cash: 100_000, final_count: 1 },
         { period: "2026-09-02", group_id: teamMemberId, currency: "USD", cash_collected: 20_000, deposits: 20_000, final_cash: 0, final_count: 0 },
@@ -285,9 +286,167 @@ describe("API metrics from Convex and from ClickHouse rows", () => {
     const value = (metric: string, period: string) =>
       live.rows.find((row: { metric: string; period: string }) => row.metric === metric && row.period === period)?.value;
     expect(value("show_rate", "2026-09-01")).toBe(0.5);
+    // The won deal's first held call was on 2026-09-01.
     expect(value("close_rate", "2026-09-01")).toBe(1);
+    expect(value("close_rate", "2026-09-02")).toBeUndefined();
     expect(value("average_deal_size", "2026-09-01")).toBe(100_000);
     expect(value("average_deal_size", "2026-09-02")).toBeNull();
     expect(value("deposits", "2026-09-02")).toBe(20_000);
+  });
+
+  it("count each deal in the close rate once, in the period of its first held call", async () => {
+    const fixture = await createFixture();
+    const before = Date.UTC(2026, 7, 31, 15);
+    const day1 = Date.UTC(2026, 8, 1, 15);
+    const day2 = Date.UTC(2026, 8, 2, 15);
+    const from = Date.UTC(2026, 8, 1);
+    const to = Date.UTC(2026, 8, 3);
+    const ids = await fixture.t.run(async (ctx) => {
+      const member = (displayName: string) =>
+        ctx.db.insert("teamMembers", { tenantId: fixture.tenantA, displayName, createdAt: from, updatedAt: from });
+      const carla = await member("Carla");
+      const bo = await member("Bo");
+      const closerA = (await ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "closer_a"))
+        .unique())!._id;
+      await ctx.db.patch("users", closerA, { teamMemberId: carla });
+      const closerB = await ctx.db.insert("users", {
+        tenantId: fixture.tenantA, workosUserId: "closer_b", email: "closer_b@example.invalid",
+        role: "closer", isActive: true, fullName: "closer_b", teamMemberId: bo,
+      });
+      const program = (await ctx.db
+        .query("tenantPrograms")
+        .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", fixture.tenantA))
+        .first())!;
+      const leadId = await ctx.db.insert("leads", {
+        tenantId: fixture.tenantA,
+        fullName: "Pat",
+        firstSeenAt: from,
+        updatedAt: from,
+        status: "active",
+        lifecycleStage: "customer",
+        lifecycleStageEnteredAt: { prospect: from, customer: day1 },
+        disposition: "open",
+      });
+      const deal = (outcome: Doc<"opportunities">["outcome"], assignedCloserId: Id<"users">) =>
+        ctx.db.insert("opportunities", {
+          tenantId: fixture.tenantA,
+          leadId,
+          stage: outcome === "open" ? "call_held" : "closed",
+          outcome,
+          assignedCloserId,
+          ...(outcome === "won" ? { paymentReceivedAt: day2 } : {}),
+          createdAt: from,
+          updatedAt: from,
+        });
+      let index = 0;
+      const meeting = async (
+        opportunityId: Id<"opportunities">,
+        assignedCloserId: Id<"users">,
+        scheduledAt: number,
+        status: Doc<"meetings">["status"] = "held",
+        withProgram = false,
+      ) => {
+        index += 1;
+        await ctx.db.insert("meetings", {
+          tenantId: fixture.tenantA,
+          opportunityId,
+          assignedCloserId,
+          calendlyEventUri: `event-${index}`,
+          calendlyInviteeUri: `invitee-${index}`,
+          scheduledAt,
+          durationMinutes: 30,
+          status,
+          createdAt: from - DAY,
+          ...(withProgram ? { bookingProgramId: program._id, bookingProgramName: program.name } : {}),
+        });
+      };
+      // Won: first held with A on day 1 in the program; B's later call doesn't count it again.
+      const twoHeld = await deal("won", closerA);
+      await meeting(twoHeld, closerA, day1, "held", true);
+      await meeting(twoHeld, closerB, day2);
+      // Open: first held before the range, so out.
+      const heldBefore = await deal("open", closerA);
+      await meeting(heldBefore, closerA, before);
+      await meeting(heldBefore, closerA, day2);
+      // Lost: B on day 2.
+      const lost = await deal("lost", closerB);
+      await meeting(lost, closerB, day2);
+      // Won and now assigned to B, but A held its first call: A's, day 2.
+      const reassigned = await deal("won", closerB);
+      await meeting(reassigned, closerA, day2, "held", true);
+      // Won and paid in the range with no held call: out.
+      const paidNoHeld = await deal("won", closerA);
+      await meeting(paidNoHeld, closerA, day1, "no_show");
+      await ctx.db.insert("paymentRecords", {
+        tenantId: fixture.tenantA, opportunityId: paidNoHeld, attributedCloserId: closerA, amountMinor: 100_000,
+        currency: "USD", recordedByUserId: closerA, programId: program._id, programName: program.name,
+        paymentType: "pif", status: "verified", recordedAt: day1, origin: "closer_meeting",
+      });
+      // Open: first held with B and no program; A's later call has one. B's, no program.
+      const programLater = await deal("open", closerA);
+      await meeting(programLater, closerB, day1);
+      await meeting(programLater, closerA, day2, "held", true);
+      return { carla, bo, programId: program._id };
+    });
+
+    const range = { startDate: "2026-09-01", endDateInclusive: "2026-09-02", fromMs: from, toMs: to, timeZone: "UTC", dayStartHour: 0 };
+    const compare = async (
+      granularity: string,
+      groupBy: string,
+      cohortRows: Array<{ period: string; group_id: string; cohort_deals: number; cohort_won: number }>,
+    ) => {
+      const live = JSON.parse(
+        await fixture.t.query(internal.analytics.api.queries.liveMetricsForWindow, {
+          tenantId: fixture.tenantA, metrics: "close_rate", granularity, groupBy,
+          fromMs: from, toMs: to, timeZone: "UTC", dayStartHour: 0,
+        }),
+      );
+      const fromRows = JSON.parse(
+        await fixture.t.query(internal.analytics.results.previewFinalize, {
+          reportId: "api.metrics",
+          tenantId: fixture.tenantA,
+          filtersJson: JSON.stringify({ metrics: "close_rate", granularity, group_by: groupBy }),
+          range,
+          rowsJson: JSON.stringify({ close_rate_cohort: cohortRows }),
+        }),
+      );
+      expect(fromRows).toEqual(live);
+      return live.rows.map((row: { period: string; group_id: string | null; value: number | null }) => [row.period, row.group_id, row.value]);
+    };
+
+    // What the close_rate_cohort SQL returns for each grouping.
+    expect(
+      await compare("day", "closer", [
+        { period: "2026-09-01", group_id: ids.carla, cohort_deals: 1, cohort_won: 1 },
+        { period: "2026-09-01", group_id: ids.bo, cohort_deals: 1, cohort_won: 0 },
+        { period: "2026-09-02", group_id: ids.carla, cohort_deals: 1, cohort_won: 1 },
+        { period: "2026-09-02", group_id: ids.bo, cohort_deals: 1, cohort_won: 0 },
+      ]),
+    ).toEqual(
+      [
+        ["2026-09-01", ids.bo, 0],
+        ["2026-09-01", ids.carla, 1],
+        ["2026-09-02", ids.bo, 0],
+        ["2026-09-02", ids.carla, 1],
+      ].sort((left, right) => JSON.stringify([left[0], left[1]]).localeCompare(JSON.stringify([right[0], right[1]]))),
+    );
+    expect(
+      await compare("day", "program", [
+        { period: "2026-09-01", group_id: ids.programId, cohort_deals: 1, cohort_won: 1 },
+        { period: "2026-09-01", group_id: "", cohort_deals: 1, cohort_won: 0 },
+        { period: "2026-09-02", group_id: ids.programId, cohort_deals: 1, cohort_won: 1 },
+        { period: "2026-09-02", group_id: "", cohort_deals: 1, cohort_won: 0 },
+      ]),
+    ).toEqual([
+      ["2026-09-01", null, 0],
+      ["2026-09-01", ids.programId, 1],
+      ["2026-09-02", null, 0],
+      ["2026-09-02", ids.programId, 1],
+    ]);
+    expect(
+      await compare("total", "none", [{ period: "total", group_id: "", cohort_deals: 4, cohort_won: 2 }]),
+    ).toEqual([["total", null, 0.5]]);
   });
 });

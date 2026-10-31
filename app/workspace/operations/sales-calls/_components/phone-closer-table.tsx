@@ -28,6 +28,7 @@ import {
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
+import { CLOSE_RATE_HELP, DealsWon, formatCloseRate } from "./close-rate";
 import {
   performanceMoneyForCurrency,
   type SalesCloserRow,
@@ -72,8 +73,8 @@ const tooltips = {
   showUpRate: SHOW_RATE_HELP,
   paymentSales:
     "Final payments attributed to this closer in the range.",
+  closeRate: CLOSE_RATE_HELP,
   paymentRevenue: "Sum of those payments' amounts.",
-  paymentCloseRate: "Payment sales ÷ showed. Shows — with no showed calls.",
   avgPaymentDeal:
     "Payment revenue ÷ payment sales. Shows — with no payment sales.",
   teamTotal:
@@ -119,6 +120,12 @@ function numericColumns(currency: string): Array<{
       render: (t) => formatRate(t.showUpRate),
     },
     {
+      key: "closeRate",
+      label: "Close Rate",
+      tooltip: tooltips.closeRate,
+      render: (t) => formatCloseRate(t),
+    },
+    {
       key: "paymentSales",
       label: "Payment Sales",
       tooltip: `${tooltips.paymentSales} Showing ${currency}.`,
@@ -135,13 +142,6 @@ function numericColumns(currency: string): Array<{
           currency,
         ),
       emphasized: true,
-    },
-    {
-      key: "paymentCloseRate",
-      label: "Payment Close Rate",
-      tooltip: `${tooltips.paymentCloseRate} Showing ${currency}.`,
-      render: (t) =>
-        formatRate(performanceMoneyForCurrency(t, currency).paymentCloseRate),
     },
     {
       key: "avgPaymentDealMinor",
@@ -194,8 +194,8 @@ export function PhoneCloserTable({
           </OverviewHelpTooltip>
         </CardTitle>
         <CardDescription className="text-xs">
-          Call outcomes and payment performance per phone closer for the
-          selected range.
+          Call outcomes, close rate, and payment performance per phone closer
+          for the selected range.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -256,6 +256,7 @@ export function PhoneCloserTable({
                       >
                         {column.render(row)}
                         {column.key === "showUpRate" ? <ResultsRecorded {...row} attendanceCountsPartial={attendanceCountsPartial} /> : null}
+                        {column.key === "closeRate" ? <DealsWon row={row} hideWhenEmpty /> : null}
                       </TableCell>
                     ))}
                   </TableRow>
@@ -278,6 +279,7 @@ export function PhoneCloserTable({
                     >
                       {column.render(teamTotal)}
                       {column.key === "showUpRate" ? <ResultsRecorded {...teamTotal} attendanceCountsPartial={attendanceCountsPartial} /> : null}
+                      {column.key === "closeRate" ? <DealsWon row={teamTotal} hideWhenEmpty /> : null}
                     </TableCell>
                   ))}
                 </TableRow>

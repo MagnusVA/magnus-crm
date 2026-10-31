@@ -57,7 +57,7 @@ const PRESETS = [
 ] as const;
 
 /**
- * How the closer's period went: cash, wins, close rate and show-up rate,
+ * How the closer's period went: cash, wins, win rate and show-up rate,
  * each with the counts behind it, then the period's deals by stage.
  *
  * Everything comes from `getPipelineSummary` over the closer's calls
@@ -173,10 +173,10 @@ function PerformanceBody({
           of {current.total} {current.total === 1 ? "deal" : "deals"} {periodNoun}
         </Figure>
         <Figure
-          label="Close rate"
+          label="Win rate"
           value={decided === 0 ? "—" : PERCENT.format(won / decided)}
           className="border-r"
-          help="Won ÷ decided: the deals won, plus the deals you or an admin marked lost. Deals a no-show or a cancellation closed are left out."
+          help="Won ÷ decided: of your deals won or lost, the share won. Lost counts only the deals you or an admin marked lost; deals a no-show or a cancellation closed are left out."
         >
           {decided === 0 ? "No deals decided yet" : `${won} of ${decided} decided`}
         </Figure>

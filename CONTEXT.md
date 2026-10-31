@@ -63,6 +63,13 @@ _Avoid_: deal status, closed won, meeting outcome
 One scheduled sales call. It records attendance only: scheduled, held, no-show, or canceled, each recorded with its own time. A call still scheduled after it ends shows as "Not recorded"; that is a display rule, not a fifth state.
 _Avoid_: appointment, completed (as a meeting state)
 
+**Close rate**:
+Of the deals whose first held call was in a period, the share that are won now. A deal counts once, at its first held call, credited to that call's closer and booked program; follow-up calls never count it again. Because won is read now, a past period's rate rises as its late deals close. Side deals have no held call and stay out, and payments play no part.
+_Avoid_: payment close rate, sales ÷ shows
+
+**Win rate**:
+A closer's won deals ÷ their won and lost deals, counting only losses a person recorded, so deals closed by a no-show or cancellation stay out. It is the closer's own card, not the close rate.
+
 **Business day**:
 The day a tenant's reports count by: from a start hour in the tenant's time zone, by default 1:00 am Honduras time, when the last qualifier's shift ends. Screens that use the viewer's browser clock say so.
 _Avoid_: calendar day, UTC day

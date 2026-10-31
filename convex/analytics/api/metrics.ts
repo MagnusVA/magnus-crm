@@ -6,6 +6,7 @@ import {
   type BusinessDaySetting,
 } from "../../../lib/businessDay";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
+import { readCloseRateCohort } from "../../reporting/lib/closeRateCohort";
 import type { SqlQuery, SqlRow } from "../clickhouse";
 import {
   num,
@@ -56,6 +57,7 @@ type Source =
   | "meetings_booked"
   | "meetings_scheduled"
   | "deals_won"
+  | "close_rate_cohort"
   | "payments";
 
 type BaseMetric =
@@ -70,6 +72,8 @@ type BaseMetric =
   | "no_shows"
   | "cancellations"
   | "deals_won"
+  | "cohort_deals"
+  | "cohort_won"
   | "cash_collected"
   | "deposits"
   | "final_cash"
@@ -82,6 +86,7 @@ const SOURCE_METRICS: Record<Source, readonly BaseMetric[]> = {
   meetings_booked: ["calls_booked"],
   meetings_scheduled: ["calls_scheduled", "calls_held", "no_shows", "cancellations"],
   deals_won: ["deals_won"],
+  close_rate_cohort: ["cohort_deals", "cohort_won"],
   payments: ["cash_collected", "deposits", "final_cash", "final_count"],
 };
 
@@ -102,7 +107,10 @@ export const METRIC_CATALOG: Record<ApiMetric, { groups: readonly ApiGroup[]; so
   cancellations: { groups: SALES_GROUPS, sources: ["meetings_scheduled"] },
   show_rate: { groups: SALES_GROUPS, sources: ["meetings_scheduled"] },
   deals_won: { groups: SALES_GROUPS, sources: ["deals_won"] },
-  close_rate: { groups: SALES_GROUPS, sources: ["deals_won", "meetings_scheduled"] },
+  // The cohort close rate (CONTEXT.md, reporting/lib/closeRateCohort.ts):
+  // each deal in the period of its first held call, by that call's closer
+  // and booked program, won as of now.
+  close_rate: { groups: SALES_GROUPS, sources: ["close_rate_cohort"] },
   cash_collected: { groups: SALES_GROUPS, sources: ["payments"] },
   deposits: { groups: SALES_GROUPS, sources: ["payments"] },
   average_deal_size: { groups: SALES_GROUPS, sources: ["payments"] },
@@ -237,6 +245,35 @@ SELECT
 FROM analytics.deals AS d
 LEFT JOIN analytics.users AS u ON u.id = d.assigned_closer_id AND u.tenant_id = {tenant_id:String}
 WHERE d.tenant_id = {tenant_id:String} AND d.outcome = 'won' AND ${inRange("d.payment_received_at_ms")}
+GROUP BY period, group_id`,
+  // closeRateCohortSql (definitions/closeRateCohort.ts) by the period of each
+  // deal's first held call. The call's closer and program are taken as one
+  // tuple: argMin skips a NULL argument, so a program alone would come from a
+  // later call when the first has none.
+  close_rate_cohort: `
+SELECT
+  ${periodSql("f.first_held_at_ms")} AS period,
+  ${SALES_GROUP("u.team_member_id", "f.first_program_id")} AS group_id,
+  count() AS cohort_deals,
+  countIf(d.outcome = 'won') AS cohort_won
+FROM (
+  SELECT
+    opportunity_id,
+    argMin((assigned_closer_id, booking_program_id), (scheduled_at_ms, creation_time_ms)) AS first_call,
+    tupleElement(first_call, 1) AS first_closer_id,
+    tupleElement(first_call, 2) AS first_program_id,
+    min(scheduled_at_ms) AS first_held_at_ms
+  FROM analytics.meetings
+  WHERE tenant_id = {tenant_id:String} AND status = 'held'
+  GROUP BY opportunity_id
+  HAVING ${inRange("first_held_at_ms")}
+) AS f
+INNER JOIN (
+  SELECT id, outcome
+  FROM analytics.deals
+  WHERE tenant_id = {tenant_id:String}
+) AS d ON d.id = f.opportunity_id
+LEFT JOIN analytics.users AS u ON u.id = f.first_closer_id AND u.tenant_id = {tenant_id:String}
 GROUP BY period, group_id`,
   payments: `
 SELECT
@@ -421,6 +458,17 @@ async function liveFacts(
       add("cancellations", meeting.scheduledAt, groupId, meeting.status === "canceled" ? 1 : 0);
     }
   }
+  if (sources.includes("close_rate_cohort")) {
+    // A capped read returns no deals, so the close rate is left out and the
+    // answer is partial.
+    const cohort = await readCloseRateCohort(ctx, tenantId, { start: window.fromMs, end: window.toMs });
+    if (cohort.capped) partial = true;
+    for (const deal of cohort.deals) {
+      const groupId = await salesGroup(deal.closerId, deal.bookingProgramId ?? undefined);
+      add("cohort_deals", deal.firstHeldAt, groupId);
+      add("cohort_won", deal.firstHeldAt, groupId, deal.won ? 1 : 0);
+    }
+  }
   if (sources.includes("payments") || sources.includes("deals_won")) {
     const payments = bounded(
       await ctx.db
@@ -509,8 +557,10 @@ export function assembleMetrics(facts: readonly BaseFact[], metrics: readonly Ap
         rows.push({ metric, period: cell.period, group_id: cell.groupId, value: ratio(held, held + get("no_shows", cell)) });
       }
     } else if (metric === "close_rate") {
-      for (const cell of salesCells) {
-        rows.push({ metric, period: cell.period, group_id: cell.groupId, value: ratio(get("deals_won", cell), get("calls_held", cell)) });
+      // A cell with no cohort deal has no close rate row.
+      for (const cell of plainCells) {
+        if (!has("cohort_deals", cell)) continue;
+        rows.push({ metric, period: cell.period, group_id: cell.groupId, value: ratio(get("cohort_won", cell), get("cohort_deals", cell)) });
       }
     } else if (metric === "average_deal_size") {
       for (const cell of moneyCells) {

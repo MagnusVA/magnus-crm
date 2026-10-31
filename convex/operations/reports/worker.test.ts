@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import schema from "../../schema";
 import { convexTestModules } from "../../test.setup";
 import { api, internal } from "../../_generated/api";
+import { qualifiedLifecycle } from "../../../tests/bookingHarness";
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -252,6 +253,8 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
       companyName: "Sales parity test",
       contactEmail: "sales-parity@example.invalid",
       workosOrgId: "org_sales_parity",
+      // The fixture's buckets stand in for a verified projection.
+      meetingProjectionVersion: 2,
       status: "active",
       inviteExpiresAt: recordedAt + 60_000,
       createdBy: "test",
@@ -319,6 +322,26 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
         bucketKey: `fixture-${meetingStatus}`, count, updatedAt: recordedAt,
       });
     }
+    // The two held calls start two deals, one won: a 50% close rate whatever
+    // the payments say. (The buckets above are fixed counts; the cohort reads
+    // the meetings.)
+    for (const [index, outcome] of (["won", "open"] as const).entries()) {
+      const leadId = await ctx.db.insert("leads", {
+        ...qualifiedLifecycle(recordedAt),
+        tenantId, fullName: `Lead ${index}`, firstSeenAt: recordedAt, updatedAt: recordedAt, status: "active",
+      });
+      const opportunityId = await ctx.db.insert("opportunities", {
+        tenantId, leadId, stage: outcome === "won" ? "closed" : "call_held", outcome,
+        assignedCloserId: historicalCloserId, createdAt: recordedAt, updatedAt: recordedAt,
+      });
+      await ctx.db.insert("meetings", {
+        tenantId, opportunityId, assignedCloserId: historicalCloserId,
+        calendlyEventUri: `https://example.invalid/event/${index}`,
+        calendlyInviteeUri: `https://example.invalid/invitee/${index}`,
+        scheduledAt: recordedAt - (index + 1) * 60 * 60 * 1000, durationMinutes: 30, status: "held",
+        createdAt: recordedAt - 24 * 60 * 60 * 1000, bookingProgramId: callsProgramId, bookingProgramName: "Calls Program",
+      });
+    }
     for (const payment of [
       { programId: callsProgramId, programName: "Calls Program", currency: "usd", amountMinor: 10_000 },
       { programId: paymentOnlyProgramId, programName: "Payment-only Program", currency: "EUR", amountMinor: 20_000 },
@@ -338,7 +361,7 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
         origin: "admin_side_deal",
       });
     }
-    return { historicalCloserId, paymentOnlyProgramId };
+    return { historicalCloserId, callsProgramId, paymentOnlyProgramId };
   });
   const authed = t.withIdentity({
     subject: "user_sales_parity",
@@ -363,17 +386,27 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
     showUpRate: 2 / 3,
     resultsRecorded: 3,
     pastCalls: 5,
+    closeRate: 0.5,
+    cohortDeals: 2,
+    wonDeals: 1,
     moneyByCurrency: [
-      { currency: "EUR", paymentSalesCount: 1, cashCollectedMinor: 20_000, closeRate: 0.5 },
-      { currency: "USD", paymentSalesCount: 1, cashCollectedMinor: 10_000, closeRate: 0.5 },
+      { currency: "EUR", paymentSalesCount: 1, cashCollectedMinor: 20_000, avgCashPerSaleMinor: 20_000 },
+      { currency: "USD", paymentSalesCount: 1, cashCollectedMinor: 10_000, avgCashPerSaleMinor: 10_000 },
     ],
   });
+  expect(live.teamTotal).toMatchObject({ closeRate: 0.5, cohortDeals: 2, wonDeals: 1 });
+  expect(live.perProgram).toContainEqual(
+    expect.objectContaining({ programId: fixture.callsProgramId, closeRate: 0.5, cohortDeals: 2, wonDeals: 1 }),
+  );
   expect(live.closers).toEqual([
     expect.objectContaining({
       closerId: fixture.historicalCloserId,
       label: "Historical Closer",
       booked: 6,
       showed: 2,
+      closeRate: 0.5,
+      cohortDeals: 2,
+      wonDeals: 1,
       moneyByCurrency: [
         expect.objectContaining({ currency: "EUR", paymentRevenueMinor: 20_000 }),
         expect.objectContaining({ currency: "USD", paymentRevenueMinor: 10_000 }),
@@ -422,16 +455,27 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
 
   expect(summary).not.toBeNull();
   if (!summary) throw new Error("Expected the current report summary.");
-  expect(summary.payload).toMatchObject({ totalCalls: 6, showed: 2, canceled: 1, showUpRate: 2 / 3, resultsRecorded: 3, pastCalls: 5 });
+  expect(summary.payload).toMatchObject({
+    totalCalls: 6, showed: 2, canceled: 1, showUpRate: 2 / 3, resultsRecorded: 3, pastCalls: 5,
+    closeRate: 0.5, cohortDeals: 2, wonDeals: 1,
+  });
   expect(summaryMoney.map((row) => row.payload)).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ currency: "EUR", paymentSalesCount: 1, cashCollectedMinor: 20_000, closeRate: 0.5 }),
-      expect.objectContaining({ currency: "USD", paymentSalesCount: 1, cashCollectedMinor: 10_000, closeRate: 0.5 }),
+      expect.objectContaining({ currency: "EUR", paymentSalesCount: 1, cashCollectedMinor: 20_000 }),
+      expect.objectContaining({ currency: "USD", paymentSalesCount: 1, cashCollectedMinor: 10_000 }),
     ]),
   );
+  expect(summaryMoney.every((row) => !("closeRate" in row.payload))).toBe(true);
   expect(closerRows).toContainEqual(expect.objectContaining({
     rowKey: fixture.historicalCloserId,
-    payload: expect.objectContaining({ label: "Historical Closer", booked: 6, identityName: "Historical Closer" }),
+    payload: expect.objectContaining({
+      label: "Historical Closer", booked: 6, identityName: "Historical Closer",
+      closeRate: 0.5, cohortDeals: 2, wonDeals: 1,
+    }),
+  }));
+  expect(programRows).toContainEqual(expect.objectContaining({
+    rowKey: fixture.callsProgramId,
+    payload: expect.objectContaining({ closeRate: 0.5, cohortDeals: 2, wonDeals: 1 }),
   }));
   expect(closerMoney).toHaveLength(2);
   expect(closerMoney.every((row) => row.groupKey === fixture.historicalCloserId)).toBe(true);

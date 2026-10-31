@@ -267,7 +267,7 @@ components:
         | cancellations | Meetings canceled | scheduled | closer, program |
         | show_rate | calls_held ÷ (calls_held + no_shows) | scheduled | closer, program |
         | deals_won | Deals won, on the day their first payment arrived | first payment | closer, program (sold) |
-        | close_rate | deals_won ÷ calls_held | as above | closer, program |
+        | close_rate | Of the deals whose first held call was in the period, the share won now (a cohort, see below) | first held call | closer, program |
         | cash_collected | Payments, not disputed, deposits included, per currency | recorded | closer, program |
         | deposits | Deposit payments, per currency | recorded | closer, program |
         | average_deal_size | Non-deposit payment total ÷ count, per currency | recorded | closer, program |
@@ -275,6 +275,15 @@ components:
         `closer` is the meeting's assigned closer, the deal's closer, or the
         payment's attributed closer. `program` is the meeting's booking
         program, the deal's sold program, or the payment's program.
+
+        `close_rate` is a cohort metric. A deal joins the period of its
+        first held call (the earliest held meeting) once; later calls never
+        count it again, and a deal whose first held call came before the
+        range stays out. It is credited to that call's closer and booking
+        program. Won is the deal's outcome now, not when it was paid, so a
+        past period's value can rise later as its open deals close, and it is
+        not deals_won ÷ calls_held. Payments play no part. A period, closer
+        or program with no such deal has no close_rate row.
       enum:
         - leads_captured
         - unique_prospects

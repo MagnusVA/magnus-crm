@@ -396,6 +396,7 @@ footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--border
       <p class="sub">Sixteen metrics. Each counts on a specific day, and each supports the groupings marked below. Asking for a grouping a metric doesn't support returns <code>400</code>.</p>
       <div class="card" style="padding:8px 12px"><table class="t" id="catalog-table"></table></div>
       <div class="callout"><strong>Units.</strong> Counts are whole numbers. Money is in minor units (cents) with a <code>currency</code> on every row. Rates run from 0 to 1, and are <code>null</code> when there is nothing to divide by.</div>
+      <div class="callout"><strong><code>close_rate</code> is a cohort.</strong> A deal counts once, in the period of its first held call, for that call's closer and booking program; later calls never count it again, and a deal first held before the range stays out. Won is the deal's outcome now, so a past period's close rate can rise later as its open deals close. It isn't <code>deals_won</code> ÷ <code>calls_held</code>, and payments play no part.</div>
     </section>
 
     <section class="doc" id="freshness">
@@ -1029,7 +1030,7 @@ $("#first-call").append(codeBlock(`curl "${BASE}/api/v1/funnel?from=2026-10-01&t
     ["cancellations", "Meetings canceled", "Scheduled", "closer, program"],
     ["show_rate", "Held ÷ (held + no-shows)", "Scheduled", "closer, program"],
     ["deals_won", "Deals won, on their first payment's day", "First payment", "closer, program"],
-    ["close_rate", "Deals won ÷ calls held", "As above", "closer, program"],
+    ["close_rate", "Of the deals whose first held call was in the period, the share won now", "First held call", "closer, program"],
     ["cash_collected", "Payments, not disputed, deposits included", "Recorded", "closer, program"],
     ["deposits", "Deposit payments", "Recorded", "closer, program"],
     ["average_deal_size", "Non-deposit total ÷ count", "Recorded", "closer, program"],
@@ -1244,7 +1245,7 @@ $("#req-closers").append(requestCard("closers_oct"));
     other: body(id).data.filter((r) => r.metric === "cash_collected" && r.group_id === g && r.currency !== "USD").map((r) => money(r.value, r.currency)).join(", "),
   })).sort((a, b) => b.usd - a.usd || b.won - a.won);
   const fig = $("#fig-closers");
-  figure(fig, { title: "Closer leaderboard, October 1 to 27", sub: "Six metrics from one call, sorted by USD cash collected", note: "A null rate means the closer had no held calls or no-shows to divide by." });
+  figure(fig, { title: "Closer leaderboard, October 1 to 27", sub: "Six metrics from one call, sorted by USD cash collected", note: "A null show rate means the closer had no held calls or no-shows; a null close rate, that no deal had its first held call with them in the range. The close rate counts the deals whose first held call was the closer's, won so far." });
   const maxHeld = Math.max(...rows.map((r) => r.held), 1), maxWon = Math.max(...rows.map((r) => r.won), 1), maxUsd = Math.max(...rows.map((r) => r.usd), 1);
   const bar = (v, max) => (v > 0 ? h("div", { style: `height:10px;width:${Math.max(2, (v / max) * 90)}px;border-radius:0 3px 3px 0;background:var(--s1)`, title: String(v) }) : null);
   const t = h("table", { class: "t" });
@@ -1518,7 +1519,8 @@ const money = (row) =>
   const items = [
     ["A missing row is a zero", "Rows exist only where something was counted. /today asked for 8 metrics and returned 6. Fill the gaps with 0 when you chart."],
     ["Money is in cents, per currency", "cash_collected, deposits and average_deal_size come back in minor units with a currency. September had USD, CAD and GBP rows. Never sum across currencies."],
-    ["Rates can be null", "show_rate and close_rate are null when there is nothing to divide by, such as a closer with no held calls. Show a dash, not 0%."],
+    ["Rates can be null or missing", "show_rate is null when there is nothing to divide by, such as a closer with no held calls or no-shows. close_rate has no row for a closer or period with no deal first held in it. Show a dash, not 0%."],
+    ["close_rate moves after the fact", "It's a cohort: deals join the period of their first held call, and count as won once they're won, whenever that is. A past week's close rate can rise at the next refresh. Store it with the date you read it, or read it again."],
     ["The funnel isn't a cohort", "Each step counts on its own day. A call held in October may come from a lead captured in September."],
     ["History stops at as_of", "A range that ends today includes today only up to as_of. Use /today for the live part, and /metrics for days that have ended."],
     ["Days are business days", "Without tz, days follow the workspace's business day: Honduras time, starting at 1:00 am. Pass tz for midnight-to-midnight days in another zone."],

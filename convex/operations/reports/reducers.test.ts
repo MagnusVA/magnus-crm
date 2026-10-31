@@ -278,16 +278,54 @@ describe("operations report reducers", () => {
         section: "sales_summary_money",
         rowKey: "USD",
         fields: records.get("sales_summary_money/USD") ?? {},
-        relatedFields: { showed: 2 },
         range: { ...range, boundary: "utc_day" },
       })?.payload,
-    ).toMatchObject({
+    ).toEqual({
       currency: "USD",
       paymentSalesCount: 1,
       cashCollectedMinor: 10_000,
-      closeRate: 0.5,
       avgCashPerSaleMinor: 10_000,
     });
+    expect(
+      finalizeAggregateRecord({
+        section: "sales_closer_money",
+        rowKey: "closer:EUR",
+        fields: records.get("sales_closer_money/closer:EUR") ?? {},
+        range,
+      })?.payload,
+    ).not.toHaveProperty("paymentCloseRate");
+  });
+
+  it("sums the close rate cohort across pages into the summary, closers and programs", () => {
+    const deal = (
+      opportunityId: string,
+      closerId: string,
+      bookingProgramId: string | null,
+      won: boolean,
+    ): ReportSourceRow => ({ kind: "sales_close_rate_deal", opportunityId, closerId, bookingProgramId, won });
+    const records = applyContributions([
+      reduceReportSourcePage({
+        sourceKey: "sales_close_rate_cohort",
+        range,
+        rows: [deal("a", "carla", "program", true), deal("b", "beto", null, false)],
+      }),
+      reduceReportSourcePage({
+        sourceKey: "sales_close_rate_cohort",
+        range,
+        rows: [deal("c", "carla", "program", false), deal("d", "carla", null, true)],
+      }),
+    ]);
+    const finalized = (section: string, rowKey: string) =>
+      finalizeAggregateRecord({ section, rowKey, fields: records.get(`${section}/${rowKey}`) ?? {}, range })?.payload;
+
+    expect(finalized("sales_calls_summary", "main")).toMatchObject({ cohortDeals: 4, wonDeals: 2, closeRate: 0.5 });
+    expect(finalized("sales_closer", "carla")).toMatchObject({ closerId: "carla", cohortDeals: 3, wonDeals: 2, closeRate: 2 / 3 });
+    expect(finalized("sales_closer", "beto")).toMatchObject({ closerId: "beto", cohortDeals: 1, wonDeals: 0, closeRate: 0 });
+    expect(finalized("sales_program", "program")).toMatchObject({ cohortDeals: 2, wonDeals: 1, closeRate: 0.5 });
+    expect(finalized("sales_program", "none")).toMatchObject({ cohortDeals: 2, wonDeals: 1, closeRate: 0.5 });
+    // A closer with calls and no cohort deals has no rate.
+    expect(finalizeAggregateRecord({ section: "sales_closer", rowKey: "zed", fields: { booked: 2 }, range })?.payload)
+      .toMatchObject({ cohortDeals: 0, wonDeals: 0, closeRate: null });
   });
 
   it("ranks origin rows by unique prospects", () => {

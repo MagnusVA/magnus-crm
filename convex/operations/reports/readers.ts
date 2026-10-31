@@ -14,6 +14,7 @@ import {
   type MemberAvatarIdentity,
 } from "../../lib/memberIdentity";
 import { dealStageOf } from "../../opportunities/stages";
+import { closeRateCohortDealAt } from "../../reporting/lib/closeRateCohort";
 import {
   resolveLegacyCompatibleAttributedCloserId,
   resolvePaymentType,
@@ -123,6 +124,7 @@ function assertSource(reportKind: ReportSourcePageRequest["reportKind"], sourceK
       "users",
       "programs",
       "sales_meeting_stats",
+      "sales_close_rate_cohort",
       "sales_calls",
       "sales_payments",
     ]),
@@ -374,6 +376,20 @@ async function readSalesMeetingStats(ctx: QueryCtx, args: ReportSourcePageReques
   return { ...projectedPage(result, counts.map((row): ReportSourceRow => ({ kind: "sales_meeting_stat", attendanceCountsPartial, notRecorded: row.notRecorded, assignedCloserId: row.assignedCloserId, bookingProgramId: row.bookingProgramId ?? null, meetingStatus: row.meetingStatus, count: row.count }))), attendanceCountsPartial };
 }
 
+// The close rate cohort, one row per deal: the range's held meetings, kept
+// when the meeting is its deal's first held call. Up to two more reads per
+// meeting (its deal's first held call, the deal), so pages are smaller.
+async function readSalesCloseRateCohort(ctx: QueryCtx, args: ReportSourcePageRequest) {
+  const result = await ctx.db.query("meetings").withIndex("by_tenantId_and_status_and_scheduledAt", (q) => q.eq("tenantId", args.tenantId).eq("status", "held").gte("scheduledAt", args.startTimestamp).lt("scheduledAt", args.endTimestampExclusive)).paginate(pagination(args.cursor, 25));
+  const page: ReportSourceRow[] = [];
+  for (const meeting of result.page) {
+    const deal = await closeRateCohortDealAt(ctx, args.tenantId, meeting);
+    if (!deal) continue;
+    page.push({ kind: "sales_close_rate_deal", opportunityId: deal.opportunityId, closerId: deal.closerId, bookingProgramId: deal.bookingProgramId, won: deal.won });
+  }
+  return projectedPage(result, page);
+}
+
 async function readSalesCalls(ctx: QueryCtx, args: ReportSourcePageRequest) {
   const result = await ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", (q) => q.eq("tenantId", args.tenantId).gte("scheduledAt", args.startTimestamp).lt("scheduledAt", args.endTimestampExclusive)).paginate(pagination(args.cursor, 4));
   const page = await Promise.all(result.page.map(async (meeting): Promise<ReportSourceRow> => {
@@ -409,6 +425,7 @@ export async function readSourcePage(ctx: QueryCtx, args: ReportSourcePageReques
     case "qualification_events": return await readQualificationEvents(ctx, args);
     case "booked_meetings": return await readBookedMeetings(ctx, args);
     case "sales_meeting_stats": return await readSalesMeetingStats(ctx, args);
+    case "sales_close_rate_cohort": return await readSalesCloseRateCohort(ctx, args);
     case "sales_calls": return await readSalesCalls(ctx, args);
     case "sales_payments": return await readSalesPayments(ctx, args);
     default: throw new Error(`Unknown report source: ${args.sourceKey}`);

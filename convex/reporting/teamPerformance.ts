@@ -18,6 +18,15 @@ import { memberAvatarIdentityValidator } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 import { meetingsByStatus } from "./aggregates";
 import {
+  closeRateOf,
+  countCloseRateCohort,
+  emptyCloseRateTally,
+  readCloseRateCohort,
+  tallyCloseRate,
+  totalCloseRateTally,
+  type CloseRateCohortCount,
+} from "./lib/closeRateCohort";
+import {
   assertValidDateRange,
   getActiveClosers,
   getNonDisputedPaymentsInRange,
@@ -69,14 +78,36 @@ export type TeamMeetingCounter = (
 ) => Promise<number[]>;
 
 /**
- * Per-closer attendance and revenue for a range. Shared by the Convex reader
- * and the ClickHouse report (convex/analytics/definitions/team.ts).
+ * The range's close rate cohort (reporting/lib/closeRateCohort.ts) by closer
+ * and booked program. `capped` when the live read hit its bound.
+ */
+export type TeamCloseRateCohort = {
+  counts: CloseRateCohortCount[];
+  capped: boolean;
+};
+
+/**
+ * Per-closer attendance, revenue and close rate for a range. Shared by the
+ * Convex reader and the ClickHouse report
+ * (convex/analytics/definitions/team.ts).
+ *
+ * The close rate is the cohort close rate: of the deals whose first held call
+ * is in the range, the share won now, each credited to that call's closer.
+ * Payments play no part in it; sales and cash still come from payments.
  */
 export async function buildTeamPerformanceMetrics(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   { startDate, endDate }: { startDate: number; endDate: number },
-  { countMeetings, paymentScan }: { countMeetings: TeamMeetingCounter; paymentScan: PaymentScan },
+  {
+    countMeetings,
+    paymentScan,
+    closeRateCohort,
+  }: {
+    countMeetings: TeamMeetingCounter;
+    paymentScan: PaymentScan;
+    closeRateCohort: TeamCloseRateCohort;
+  },
 ) {
   const closers = await getActiveClosers(ctx, tenantId);
 
@@ -175,6 +206,12 @@ export async function buildTeamPerformanceMetrics(
         payment.amountMinor,
     );
   }
+  // A capped cohort would give a wrong rate, so the rates and their counts
+  // are unknown rather than partial.
+  const cohortCapped = closeRateCohort.capped;
+  const cohortByCloser = tallyCloseRate(closeRateCohort.counts, (count) => count.closerId);
+  const cohortTotal = totalCloseRateTally(closeRateCohort.counts);
+
   const closerResults = await Promise.all(closers.map(async (closer) => {
     const closerCounts = statusCountsByCloser.get(closer._id) ?? {
       new: emptyStatusCountMap(),
@@ -214,7 +251,7 @@ export async function buildTeamPerformanceMetrics(
 
     const newCalls = buildClassificationMetrics("new");
     const followUpCalls = buildClassificationMetrics("follow_up");
-    const totalShowed = newCalls.callsShowed + followUpCalls.callsShowed;
+    const cohort = cohortByCloser.get(closer._id) ?? emptyCloseRateTally();
 
     return {
       closerId: closer._id,
@@ -226,7 +263,9 @@ export async function buildTeamPerformanceMetrics(
       cashCollectedMinor: paymentStats.revenueMinor,
       adminLoggedRevenueMinor:
         adminLoggedRevenueByCloser.get(closer._id) ?? 0,
-      closeRate: toRate(paymentStats.dealCount, totalShowed),
+      closeRate: cohortCapped ? null : closeRateOf(cohort),
+      cohortDeals: cohortCapped ? null : cohort.cohortDeals,
+      wonDeals: cohortCapped ? null : cohort.wonDeals,
       avgCashCollectedMinor:
         paymentStats.dealCount > 0
           ? paymentStats.revenueMinor / paymentStats.dealCount
@@ -296,7 +335,10 @@ export async function buildTeamPerformanceMetrics(
       pastCalls: teamTotals.newPastCalls + teamTotals.followUpPastCalls,
       overallConfirmedDenominator,
       overallShowUpRate: toRate(totalShowedCalls, overallConfirmedDenominator),
-      overallCloseRate: toRate(teamTotals.totalSales, totalShowedCalls),
+      // Every cohort deal, a former closer's included.
+      overallCloseRate: cohortCapped ? null : closeRateOf(cohortTotal),
+      cohortDeals: cohortCapped ? null : cohortTotal.cohortDeals,
+      wonDeals: cohortCapped ? null : cohortTotal.wonDeals,
       totalAdminLoggedRevenueMinor: teamTotals.totalAdminLoggedRevenueMinor,
       avgCashCollectedMinor:
         teamTotals.totalSales > 0
@@ -308,6 +350,7 @@ export async function buildTeamPerformanceMetrics(
     },
     attendanceCountsPartial: currentScheduled.attendanceCountsPartial,
     isPaymentDataTruncated: paymentScan.isTruncated,
+    isCloseRateCohortTruncated: cohortCapped,
   };
 }
 
@@ -341,9 +384,23 @@ export const getTeamPerformanceMetrics = query({
           ),
         }))),
       paymentScan,
+      closeRateCohort: await readTeamCloseRateCohort(ctx, tenantId, startDate, endDate),
     });
   },
 });
+
+async function readTeamCloseRateCohort(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  startDate: number,
+  endDate: number,
+): Promise<TeamCloseRateCohort> {
+  const { deals, capped } = await readCloseRateCohort(ctx, tenantId, {
+    start: startDate,
+    end: endDate,
+  });
+  return { counts: countCloseRateCohort(deals), capped };
+}
 
 /**
  * Booked-call outcomes by phone closer from a range's meeting counts.

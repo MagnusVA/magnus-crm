@@ -68,7 +68,7 @@ describe("getPipelineSummary", () => {
     expect(summary).not.toHaveProperty("noShowCount");
   });
 
-  it("leaves the system's losses out of the close rate", async () => {
+  it("leaves the system's losses out of the win rate", async () => {
     const { harness } = await seededCloserPipeline();
 
     const strip = await harness.closer.query(api.closer.dashboard.getPipelineSummary, MEETING_RANGE);

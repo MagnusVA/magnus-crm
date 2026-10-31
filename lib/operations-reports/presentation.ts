@@ -17,7 +17,10 @@ const storedMoney = (key: string, label: string) =>
 const hours = col("scheduledHours", "Scheduled Hours", "decimal");
 const leads = [col("submissions", "Submissions", "number"), hours, col("leadsPerHour", "Leads/Hr", "decimal")];
 const callPerformance = [col("booked", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent"), col("resultsRecorded", "Results recorded", "number"), col("pastCalls", "Past calls", "number")];
-const paymentPerformance = [col("currency", "Currency"), col("paymentSales", "Sales", "number"), storedMoney("paymentRevenueMinor", "Revenue"), col("paymentCloseRate", "Close Rate", "percent"), storedMoney("avgPaymentDealMinor", "Avg Sale")];
+// The cohort close rate (convex/reporting/lib/closeRateCohort.ts): deals whose
+// first held call is in the range, and how many of them are won now.
+const closeRate = [col("closeRate", "Close Rate", "percent"), col("wonDeals", "Won deals", "number"), col("cohortDeals", "First-held deals", "number")];
+const paymentPerformance = [col("currency", "Currency"), col("paymentSales", "Sales", "number"), storedMoney("paymentRevenueMinor", "Revenue"), storedMoney("avgPaymentDealMinor", "Avg Sale")];
 
 export const reportTitles: Record<ReportKind, string> = {
   "lead-gen": "Lead Gen Performance", qualifications: "Qualifications Performance",
@@ -37,11 +40,11 @@ export const sectionDefinitions: Record<string, { title: string; columns: Report
   booked_closer: { title: "DM Closer Performance", columns: [col("label", "DM Closer"), col("teamLabel", "Team"), col("booked", "Bookings", "number"), hours, col("bookedPerHour", "Bookings/Hr", "decimal")] },
   booking_team: { title: "Team Goals", columns: [col("label", "Team"), col("progress", "Bookings", "number"), col("dailyQuota", "Daily Quota", "number"), col("target", "Team Goal", "number")] },
   booked_calls_summary: { title: "Overall", columns: [col("totalBooked", "Bookings", "number"), col("totalTarget", "Team Goals", "number"), col("businessDayCount", "Days", "number")] },
-  sales_calls_summary: { title: "Overall calls", columns: [col("totalCalls", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent"), col("resultsRecorded", "Results recorded", "number"), col("pastCalls", "Past calls", "number")] },
-  sales_summary_money: { title: "Overall payments by currency", columns: [col("currency", "Currency"), col("paymentSalesCount", "Sales", "number"), storedMoney("cashCollectedMinor", "Cash Collected"), col("closeRate", "Close Rate", "percent"), storedMoney("avgCashPerSaleMinor", "Avg Sale")] },
-  sales_closer: { title: "Closer call performance", columns: [col("label", "Closer"), ...callPerformance] },
+  sales_calls_summary: { title: "Overall calls", columns: [col("totalCalls", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent"), col("resultsRecorded", "Results recorded", "number"), col("pastCalls", "Past calls", "number"), ...closeRate] },
+  sales_summary_money: { title: "Overall payments by currency", columns: [col("currency", "Currency"), col("paymentSalesCount", "Sales", "number"), storedMoney("cashCollectedMinor", "Cash Collected"), storedMoney("avgCashPerSaleMinor", "Avg Sale")] },
+  sales_closer: { title: "Closer call performance", columns: [col("label", "Closer"), ...callPerformance, ...closeRate] },
   sales_closer_money: { title: "Closer payment performance by currency", columns: [col("label", "Closer"), ...paymentPerformance] },
-  sales_program: { title: "Program call performance", columns: [col("label", "Program"), ...callPerformance] },
+  sales_program: { title: "Program call performance", columns: [col("label", "Program"), ...callPerformance, ...closeRate] },
   sales_program_money: { title: "Program payment performance by currency", columns: [col("label", "Program"), ...paymentPerformance.slice(0, 3)] },
   sales_reconciliation: { title: "Payment Attribution", columns: [col("currency", "Currency"), col("paymentSales", "Payments", "number"), storedMoney("paymentRevenueMinor", "Total"), col("attributedSales", "Attributed Payments", "number"), storedMoney("attributedRevenueMinor", "Attributed"), col("unattributedSales", "Unattributed Payments", "number"), storedMoney("unattributedRevenueMinor", "Unattributed")] },
   raw_submission: { title: "Raw Submissions", columns: [col("submittedAt", "SubmittedAt", "timestamp"), col("workerLabel", "Specialist"), col("workerEmail", "Email"), col("teamLabel", "Team"), col("normalizedHandle", "ProspectHandle"), col("rawHandle", "RawHandle"), col("profileUrl", "ProfileURL"), col("source", "Source"), col("originKind", "OriginKind"), col("originValue", "OriginValue"), col("voidedAt", "VoidedAt", "timestamp"), col("voidReason", "VoidReason"), col("submissionId", "SubmissionId"), col("prospectId", "ProspectId"), col("workerId", "WorkerId"), col("teamId", "TeamId")] },

@@ -39,6 +39,7 @@ export async function readLiveDocuments<K, T>(
   keys: readonly K[],
   load: (key: K) => Promise<T | null>,
   state = createLiveReadState(),
+  byteBudget = LIVE_QUERY_BYTE_BUDGET,
 ): Promise<{ rows: T[]; capped: boolean }> {
   const rows: T[] = [];
 
@@ -47,7 +48,7 @@ export async function readLiveDocuments<K, T>(
     const row = await load(key);
     if (row === null) continue;
     state.bytesRead += getConvexSize(row as unknown as Value);
-    if (state.bytesRead > LIVE_QUERY_BYTE_BUDGET) {
+    if (state.bytesRead > byteBudget) {
       state.capped = true;
       return { rows, capped: true };
     }

@@ -5,7 +5,6 @@ export type SalesSummaryMoney = {
   currency: string;
   paymentSalesCount: number;
   cashCollectedMinor: number;
-  closeRate: number | null;
   avgCashPerSaleMinor: number | null;
 };
 
@@ -13,11 +12,21 @@ export type SalesPerformanceMoney = {
   currency: string;
   paymentSales: number;
   paymentRevenueMinor: number;
-  paymentCloseRate: number | null;
   avgPaymentDealMinor: number | null;
 };
 
-export type SalesCallsStats = {
+/**
+ * The cohort close rate: of the deals whose first held call is in the range,
+ * the share won now. Optional because a ClickHouse answer cached before these
+ * fields existed lacks them; read it through `closeRateOfRow`.
+ */
+export type SalesCloseRate = {
+  closeRate?: number | null;
+  cohortDeals?: number;
+  wonDeals?: number;
+};
+
+export type SalesCallsStats = SalesCloseRate & {
   totalCalls: number;
   showed: number;
   canceled: number;
@@ -28,7 +37,7 @@ export type SalesCallsStats = {
   moneyByCurrency: SalesSummaryMoney[];
 };
 
-export type SalesProgramRow = {
+export type SalesProgramRow = SalesCloseRate & {
   programId: string | null;
   label: string;
   calls: number;
@@ -41,7 +50,7 @@ export type SalesProgramRow = {
   moneyByCurrency: SalesPerformanceMoney[];
 };
 
-export type SalesCloserRow = {
+export type SalesCloserRow = SalesCloseRate & {
   closerId: string;
   label: string;
   avatar: MemberAvatarIdentity;
@@ -107,7 +116,6 @@ function performanceMoney(row: ReportResultRow): SalesPerformanceMoney {
     currency: currencyValue(row.payload),
     paymentSales: numberValue(row.payload, "paymentSales"),
     paymentRevenueMinor: numberValue(row.payload, "paymentRevenueMinor"),
-    paymentCloseRate: nullableNumber(row.payload, "paymentCloseRate"),
     avgPaymentDealMinor: nullableNumber(row.payload, "avgPaymentDealMinor"),
   };
 }
@@ -131,6 +139,34 @@ function rate(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : null;
 }
 
+/** A snapshot row's cohort sums, with the rate recomputed from them. */
+function closeRateFromPayload(payload: ReportResultRow["payload"]) {
+  const cohortDeals = numberValue(payload, "cohortDeals");
+  const wonDeals = numberValue(payload, "wonDeals");
+  return { closeRate: rate(wonDeals, cohortDeals), cohortDeals, wonDeals };
+}
+
+/**
+ * A row's close rate and its counts, or null when the answer predates the
+ * cohort fields (show "—" then, never 0%).
+ */
+export function closeRateOfRow(row: SalesCloseRate) {
+  if (
+    typeof row.cohortDeals !== "number" ||
+    typeof row.wonDeals !== "number"
+  ) {
+    return null;
+  }
+  return {
+    closeRate:
+      typeof row.closeRate === "number" && Number.isFinite(row.closeRate)
+        ? row.closeRate
+        : null,
+    cohortDeals: row.cohortDeals,
+    wonDeals: row.wonDeals,
+  };
+}
+
 function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
   const totals = closers.reduce(
     (result, closer) => ({
@@ -140,8 +176,10 @@ function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
       showed: result.showed + closer.showed,
       resultsRecorded: result.resultsRecorded + closer.resultsRecorded,
       pastCalls: result.pastCalls + closer.pastCalls,
+      cohortDeals: result.cohortDeals + (closer.cohortDeals ?? 0),
+      wonDeals: result.wonDeals + (closer.wonDeals ?? 0),
     }),
-    { booked: 0, canceled: 0, noShows: 0, showed: 0, resultsRecorded: 0, pastCalls: 0 },
+    { booked: 0, canceled: 0, noShows: 0, showed: 0, resultsRecorded: 0, pastCalls: 0, cohortDeals: 0, wonDeals: 0 },
   );
   const byCurrency = new Map<
     string,
@@ -162,12 +200,12 @@ function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
   return {
     ...totals,
     showUpRate: rate(totals.showed, totals.showed + totals.noShows),
+    closeRate: rate(totals.wonDeals, totals.cohortDeals),
     moneyByCurrency: [...byCurrency.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([currency, money]) => ({
         currency,
         ...money,
-        paymentCloseRate: rate(money.paymentSales, totals.showed),
         avgPaymentDealMinor: rate(
           money.paymentRevenueMinor,
           money.paymentSales,
@@ -200,6 +238,7 @@ export function buildHistoricalSalesDashboard(args: {
       resultsRecorded: numberValue(row.payload, "resultsRecorded"),
       pastCalls: numberValue(row.payload, "pastCalls"),
       showUpRate: rate(numberValue(row.payload, "showed"), numberValue(row.payload, "showed") + numberValue(row.payload, "noShows")),
+      ...closeRateFromPayload(row.payload),
       moneyByCurrency: closerMoney.get(closerId) ?? [],
     };
   });
@@ -217,6 +256,7 @@ export function buildHistoricalSalesDashboard(args: {
       resultsRecorded: numberValue(row.payload, "resultsRecorded"),
       pastCalls: numberValue(row.payload, "pastCalls"),
       showUpRate: rate(numberValue(row.payload, "showed"), numberValue(row.payload, "showed") + numberValue(row.payload, "noShows")),
+      ...closeRateFromPayload(row.payload),
       moneyByCurrency: programMoney.get(programId ?? "none") ?? [],
     };
   });
@@ -231,12 +271,12 @@ export function buildHistoricalSalesDashboard(args: {
       resultsRecorded: numberValue(args.summary, "resultsRecorded"),
       pastCalls: numberValue(args.summary, "pastCalls"),
       showUpRate: rate(numberValue(args.summary, "showed"), numberValue(args.summary, "showed") + numberValue(args.summary, "noShows")),
+      ...closeRateFromPayload(args.summary),
       moneyByCurrency: args.summaryMoneyRows
         .map((row) => ({
           currency: currencyValue(row.payload),
           paymentSalesCount: numberValue(row.payload, "paymentSalesCount"),
           cashCollectedMinor: numberValue(row.payload, "cashCollectedMinor"),
-          closeRate: nullableNumber(row.payload, "closeRate"),
           avgCashPerSaleMinor: nullableNumber(
             row.payload,
             "avgCashPerSaleMinor",
@@ -279,7 +319,7 @@ export function defaultSalesCurrency(currencies: string[]) {
 }
 
 export function performanceMoneyForCurrency(
-  row: { showed: number; moneyByCurrency: SalesPerformanceMoney[] },
+  row: { moneyByCurrency: SalesPerformanceMoney[] },
   currency: string,
 ): SalesPerformanceMoney {
   return row.moneyByCurrency.find(
@@ -288,7 +328,6 @@ export function performanceMoneyForCurrency(
     currency: currency.toUpperCase(),
     paymentSales: 0,
     paymentRevenueMinor: 0,
-    paymentCloseRate: row.showed > 0 ? 0 : null,
     avgPaymentDealMinor: null,
   };
 }
@@ -303,7 +342,6 @@ export function summaryMoneyForCurrency(
     currency: currency.toUpperCase(),
     paymentSalesCount: 0,
     cashCollectedMinor: 0,
-    closeRate: stats.showed > 0 ? 0 : null,
     avgCashPerSaleMinor: null,
   };
 }

@@ -70,6 +70,9 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
         showUpRate: 0.75,
         resultsRecorded: 4,
         pastCalls: 6,
+        cohortDeals: 4,
+        wonDeals: 1,
+        closeRate: 0.25,
         start: 100,
         end: 200,
       },
@@ -83,7 +86,6 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
             currency: "HNL",
             paymentSalesCount: 1,
             cashCollectedMinor: 250000,
-            closeRate: 1 / 3,
             avgCashPerSaleMinor: 250000,
           },
         }]
@@ -91,6 +93,7 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
         ? [{ rowKey: "closer", payload: {
             label: "Closer", booked: 6, showed: 3, noShows: 1,
             resultsRecorded: 4, pastCalls: 6, attendanceCountsPartial: fixture.partial,
+            cohortDeals: 4, wonDeals: 1, closeRate: 0.25,
           } }]
         : [],
     isLoading: false,
@@ -99,6 +102,9 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
 }));
 
 import { SalesCallsPageClient } from "@/app/workspace/operations/sales-calls/_components/sales-calls-page-client";
+import { PerProgramStatCard } from "@/app/workspace/operations/sales-calls/_components/per-program-stat-card";
+import { PhoneCloserTable } from "@/app/workspace/operations/sales-calls/_components/phone-closer-table";
+import { SalesCallsStatCards } from "@/app/workspace/operations/sales-calls/_components/sales-calls-stat-cards";
 
 describe("Sales Calls historical UI", () => {
   it.each([
@@ -170,5 +176,40 @@ describe("Sales Calls historical UI", () => {
     expect(html).toContain("Meetings");
     expect(html).toContain("Money values: HNL");
     expect(html).not.toContain("Historical sales-call summary");
+  });
+
+  it("shows one currency-independent close rate with its deal counts", () => {
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(SalesCallsPageClient)));
+    expect(html).toContain("Close Rate");
+    expect(html).not.toContain("Payment Close Rate");
+    // The stat card, the closer row and the team total.
+    expect(html.match(/1 of 4 deals won/g)).toHaveLength(3);
+    expect(html.match(/25%/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("renders — for close rates an answer cached before them lacks", () => {
+    const stats = {
+      totalCalls: 4, showed: 3, canceled: 0, noShows: 1, resultsRecorded: 4, pastCalls: 6,
+      showUpRate: 0.75, moneyByCurrency: [],
+    };
+    const closer = {
+      closerId: "closer", label: "Closer",
+      avatar: { id: "closer", name: "Closer", source: "crm_user" as const },
+      booked: 6, canceled: 0, noShows: 1, showed: 3, resultsRecorded: 4, pastCalls: 6, showUpRate: 0.75,
+      moneyByCurrency: [],
+    };
+    const program = {
+      programId: null, label: "No program", calls: 4, showed: 3, canceled: 0, noShows: 1,
+      resultsRecorded: 4, pastCalls: 6, showUpRate: 0.75, moneyByCurrency: [],
+    };
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+      createElement(SalesCallsStatCards, { stats, currency: "USD" }),
+      createElement(PhoneCloserTable, { rows: [closer], teamTotal: closer, currency: "USD" }),
+      createElement(PerProgramStatCard, { data: [program], rangeLabel: "Today", currency: "USD" }),
+    ));
+    expect(html).toContain("Close Rate");
+    expect(html).not.toMatch(/(^|[^\d.])0(\.0)?%/);
+    expect(html).not.toContain("deals won");
+    expect(html).not.toContain("NaN");
   });
 });

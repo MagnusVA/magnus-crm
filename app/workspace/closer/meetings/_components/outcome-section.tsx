@@ -393,7 +393,7 @@ function OutcomeQuestion({
             Did {who} show up?
           </OutcomeHeading>
           <p className="px-4 text-muted-foreground @md:px-5">
-            Recording the outcome updates this deal, {whose} close rate and the
+            Recording the outcome updates this deal, {whose} win rate and the
             team&rsquo;s reports.
           </p>
           <div className="grid gap-3 p-4 @md:px-5 @xl:grid-cols-2">

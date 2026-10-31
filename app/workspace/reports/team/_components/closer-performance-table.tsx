@@ -19,8 +19,12 @@ import {
 import { InfoIcon } from "lucide-react";
 import type { CallMetrics, CloserData, TeamTotals } from "./team-report-types";
 import {
+  CLOSER_CLOSE_RATE_HELP,
+  cohortCloseRate,
+  formatCohortCounts,
   formatCompactCurrency,
   formatRate,
+  TEAM_CLOSE_RATE_HELP,
 } from "./team-report-formatters";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
@@ -84,12 +88,18 @@ export function CloserPerformanceTable({
     sales: teamTotals.totalSales,
     cashCollectedMinor: teamTotals.totalRevenueMinor,
     adminLoggedRevenueMinor: teamTotals.totalAdminLoggedRevenueMinor,
-    closeRate: teamTotals.overallCloseRate,
+    closeRate: cohortCloseRate({
+      closeRate: teamTotals.overallCloseRate,
+      cohortDeals: teamTotals.cohortDeals,
+      wonDeals: teamTotals.wonDeals,
+    }),
     avgDealMinor:
       teamTotals.totalSales > 0
         ? teamTotals.totalRevenueMinor / teamTotals.totalSales
         : null,
   };
+
+  const teamCloseRateCounts = formatCohortCounts(commercialTotals.closeRate);
 
   return (
     <Table className="min-w-[76rem]">
@@ -130,13 +140,20 @@ export function CloserPerformanceTable({
               </TooltipContent>
             </Tooltip>
           </TableHead>
-          <TableHead className="text-right">Payment close rate</TableHead>
+          <TableHead className="text-right">
+            <Tooltip>
+              <TooltipTrigger>Close rate</TooltipTrigger>
+              <TooltipContent>{CLOSER_CLOSE_RATE_HELP}</TooltipContent>
+            </Tooltip>
+          </TableHead>
           <TableHead className="text-right">Avg payment deal</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {closers.map((closer) => {
           const calls = getCallMetrics(closer, callType);
+          const closeRate = cohortCloseRate(closer);
+          const closeRateCounts = formatCohortCounts(closeRate);
           return (
             <TableRow key={closer.closerId}>
               <TableCell>
@@ -172,8 +189,15 @@ export function CloserPerformanceTable({
               <TableCell className="text-right tabular-nums">
                 {formatCompactCurrency(closer.adminLoggedRevenueMinor)}
               </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {formatRate(closer.closeRate)}
+              <TableCell className="text-right">
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className="tabular-nums">{formatRate(closeRate.rate)}</span>
+                  {closeRateCounts !== null ? (
+                    <span className="text-[11px] text-muted-foreground">
+                      {closeRateCounts}
+                    </span>
+                  ) : null}
+                </div>
               </TableCell>
               <TableCell className="text-right tabular-nums">
                 {closer.avgCashCollectedMinor !== null
@@ -213,7 +237,14 @@ export function CloserPerformanceTable({
             {formatCompactCurrency(commercialTotals.adminLoggedRevenueMinor)}
           </TableCell>
           <TableCell className="text-right font-bold tabular-nums">
-            {formatRate(commercialTotals.closeRate)}
+            <span title={TEAM_CLOSE_RATE_HELP}>
+              {formatRate(commercialTotals.closeRate.rate)}
+            </span>
+            {teamCloseRateCounts !== null ? (
+              <p className="mt-1 text-xs font-normal text-muted-foreground">
+                {teamCloseRateCounts}
+              </p>
+            ) : null}
           </TableCell>
           <TableCell className="text-right font-bold tabular-nums">
             {commercialTotals.avgDealMinor !== null

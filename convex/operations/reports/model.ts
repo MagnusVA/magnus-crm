@@ -213,6 +213,15 @@ export type ReportSourceRow =
       count: number;
     }
   | {
+      // A deal in the close rate cohort, at its first held call
+      // (convex/reporting/lib/closeRateCohort.ts).
+      kind: "sales_close_rate_deal";
+      opportunityId: string;
+      closerId: string;
+      bookingProgramId: string | null;
+      won: boolean;
+    }
+  | {
       kind: "sales_call";
       meetingId: string;
       opportunityId: string;

@@ -12,6 +12,7 @@ import { expectSameAnswer, rowFromDoc } from "../../../tests/analyticsParity";
 import { bookingHarness, qualifiedLifecycle } from "../../../tests/bookingHarness";
 import { recordBookingAttribution } from "../../lib/attribution/dealAttributions";
 import { insertMeetingAggregate } from "../../reporting/writeHooks";
+import { buildTeamPerformanceMetrics } from "../../reporting/teamPerformance";
 
 // The fixture's tenant keeps the default business day.
 const day = DEFAULT_BUSINESS_DAY;
@@ -223,6 +224,52 @@ function paymentRows(fixture: Fixture, range: ResolvedAnalyticsRange) {
     .map((doc) => rowFromDoc("paymentRecords", doc));
 }
 
+/**
+ * What `closeRateCohortSql` returns: each deal's first held call by
+ * scheduled time then creation time; the deals whose first held call is in
+ * the range, counted by that call's closer and booked program.
+ */
+function closeRateCohortRows(fixture: Fixture, range: ResolvedAnalyticsRange) {
+  const deals = new Map(fixture.deals.map((doc) => [doc._id, doc]));
+  const firstHeld = new Map<Id<"opportunities">, Doc<"meetings">>();
+  for (const meeting of fixture.meetings) {
+    if (meeting.status !== "held") continue;
+    const first = firstHeld.get(meeting.opportunityId);
+    if (
+      !first ||
+      meeting.scheduledAt < first.scheduledAt ||
+      (meeting.scheduledAt === first.scheduledAt && meeting._creationTime < first._creationTime)
+    ) {
+      firstHeld.set(meeting.opportunityId, meeting);
+    }
+  }
+  const groups = new Map<string, { closer_id: string; booking_program_id: string | null; cohort_deals: number; won_deals: number }>();
+  for (const [opportunityId, meeting] of firstHeld) {
+    const deal = deals.get(opportunityId);
+    if (!deal || !inRange(meeting.scheduledAt, range)) continue;
+    const key = JSON.stringify([meeting.assignedCloserId, meeting.bookingProgramId ?? null]);
+    const group = groups.get(key) ?? {
+      closer_id: meeting.assignedCloserId,
+      booking_program_id: meeting.bookingProgramId ?? null,
+      cohort_deals: 0,
+      won_deals: 0,
+    };
+    group.cohort_deals += 1;
+    if (deal.outcome === "won") group.won_deals += 1;
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+/** Every row the `team.metrics` SQL returns for the range. */
+function metricsRows(fixture: Fixture, range: ResolvedAnalyticsRange) {
+  return {
+    meetings: meetingCountRows(fixture, range),
+    payments: paymentRows(fixture, range),
+    closeRate: closeRateCohortRows(fixture, range),
+  };
+}
+
 type OperationsFilters = {
   bookingProgramId?: Id<"tenantPrograms">;
   attributionTeamId?: Id<"attributionTeams">;
@@ -345,7 +392,7 @@ describe("Team Performance from ClickHouse rows", () => {
       reportId: "team.metrics",
       live: api.reporting.teamPerformance.getTeamPerformanceMetrics,
       liveArgs: window,
-      rows: { meetings: meetingCountRows(fixture, range), payments: paymentRows(fixture, range) },
+      rows: metricsRows(fixture, range),
     });
     expect(metrics.teamTotals).toMatchObject({
       newBookedCalls: 9,
@@ -353,6 +400,11 @@ describe("Team Performance from ClickHouse rows", () => {
       newPastCalls: 7,
       followUpPastCalls: 3,
       totalSales: 2,
+      // Paid, lost by a person, and the two follow-ups; the booked deal's
+      // first held call was before the range, and payments play no part.
+      cohortDeals: 4,
+      wonDeals: 0,
+      overallCloseRate: 0,
     });
 
     const outcomes = await expectSameAnswer({
@@ -379,6 +431,100 @@ describe("Team Performance from ClickHouse rows", () => {
     ]);
   });
 
+  it("counts each deal once in the close rate, at its first held call, whatever was paid", async () => {
+    const base = await createFixture();
+    const { t, tenantId } = base;
+    await t.run(async (ctx) => {
+      const user = async (workosUserId: string) =>
+        (await ctx.db.query("users").withIndex("by_workosUserId", (q) => q.eq("workosUserId", workosUserId)).unique())!._id;
+      const adminId = await user("user_admin");
+      const closerA = await user("user_closer");
+      const closerB = await user("user_Closer B");
+      const leadId = base.deals[0].leadId;
+      const deal = (fields: Partial<Doc<"opportunities">>) =>
+        ctx.db.insert("opportunities", {
+          tenantId, leadId, stage: "closed", outcome: "won", source: "calendly",
+          assignedCloserId: closerA, createdAt: 0, updatedAt: 0, ...fields,
+        });
+      let index = 100;
+      const meeting = async (
+        opportunityId: Id<"opportunities">,
+        assignedCloserId: Id<"users">,
+        scheduledAt: number,
+        status: Doc<"meetings">["status"],
+      ) => {
+        index += 1;
+        const meetingId = await ctx.db.insert("meetings", {
+          tenantId, opportunityId, assignedCloserId,
+          calendlyEventUri: `https://api.calendly.com/scheduled_events/m${index}`,
+          calendlyInviteeUri: `https://api.calendly.com/scheduled_events/m${index}/invitees/person`,
+          scheduledAt, durationMinutes: 30, status, callClassification: "new", createdAt: scheduledAt - DAY,
+          ...(status === "held" ? { heldMarkedAt: scheduledAt } : {}),
+        });
+        await insertMeetingAggregate(ctx, meetingId);
+      };
+      // Won, two held calls in the range: counted once, for A's first call.
+      const twoHeld = await deal({});
+      await meeting(twoHeld, closerA, at("2026-09-29", 14), "held");
+      await meeting(twoHeld, closerB, at("2026-10-01", 14), "held");
+      // Won, now assigned to B, but A held its first call: A's.
+      const reassigned = await deal({ assignedCloserId: closerB });
+      await meeting(reassigned, closerA, at("2026-09-30", 14), "held");
+      // Won and paid in the range with no held call: out of the cohort.
+      const paidNoHeld = await deal({});
+      await meeting(paidNoHeld, closerA, at("2026-10-02", 14), "no_show");
+      await ctx.db.insert("paymentRecords", {
+        tenantId, opportunityId: paidNoHeld, attributedCloserId: closerA, amountMinor: 50_000, currency: "USD",
+        recordedByUserId: adminId, programId: base.programs[0]._id, programName: "Program", paymentType: "pif", status: "verified",
+        recordedAt: at("2026-10-02", 15), origin: "closer_meeting",
+      });
+      // Open, two held calls at the same time: the first created, B's, counts.
+      const tied = await deal({ stage: "call_held", outcome: "open" });
+      await meeting(tied, closerB, at("2026-10-03", 14), "held");
+      await meeting(tied, closerA, at("2026-10-03", 14), "held");
+    });
+    const fixture = {
+      ...base,
+      meetings: await t.run(async (ctx) => await ctx.db.query("meetings").take(100)),
+      deals: await t.run(async (ctx) => await ctx.db.query("opportunities").take(100)),
+      payments: await t.run(async (ctx) => await ctx.db.query("paymentRecords").take(100)),
+    };
+    const range = businessRange("2026-09-28", "2026-10-04");
+    const metrics = await expectSameAnswer({
+      t, identity, tenantId, range, filters: {},
+      reportId: "team.metrics",
+      live: api.reporting.teamPerformance.getTeamPerformanceMetrics,
+      liveArgs: { startDate: range.fromMs, endDate: range.toMs },
+      rows: metricsRows(fixture, range),
+    });
+    const closer = (name: string) =>
+      metrics.closers.find((row: { closerName: string }) => row.closerName === name);
+    // A: paid, lost by a person, the follow-up with a link, two held, reassigned.
+    expect(closer("Closer A")).toMatchObject({ cohortDeals: 5, wonDeals: 2, closeRate: 0.4 });
+    // B: the follow-up without a link, and the tie.
+    expect(closer("Closer B")).toMatchObject({ cohortDeals: 2, wonDeals: 0, closeRate: 0 });
+    expect(metrics.teamTotals).toMatchObject({ cohortDeals: 7, wonDeals: 2, overallCloseRate: 2 / 7 });
+    expect(metrics.isCloseRateCohortTruncated).toBe(false);
+  });
+
+  it("leaves the close rate unknown when the cohort read is capped", async () => {
+    const { t, tenantId } = await createFixture();
+    const range = businessRange("2026-09-28", "2026-10-04");
+    const answer = await t.run(async (ctx) => {
+      const closerId = (await ctx.db.query("users").withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer")).unique())!._id;
+      return await buildTeamPerformanceMetrics(ctx, tenantId, { startDate: range.fromMs, endDate: range.toMs }, {
+        countMeetings: async (keys) => keys.map(() => 0),
+        paymentScan: { payments: [], isTruncated: false },
+        closeRateCohort: { counts: [{ closerId, bookingProgramId: null, cohortDeals: 3, wonDeals: 1 }], capped: true },
+      });
+    });
+    expect(answer.isCloseRateCohortTruncated).toBe(true);
+    expect(answer.teamTotals).toMatchObject({ overallCloseRate: null, cohortDeals: null, wonDeals: null });
+    for (const closer of answer.closers) {
+      expect(closer).toMatchObject({ closeRate: null, cohortDeals: null, wonDeals: null });
+    }
+  });
+
   it("matches the metrics and outcome mix readers for a past range, every day folded", async () => {
     const fixture = await createFixture();
     const range = businessRange("2026-09-28", "2026-09-30");
@@ -389,7 +535,7 @@ describe("Team Performance from ClickHouse rows", () => {
       reportId: "team.metrics",
       live: api.reporting.teamPerformance.getTeamPerformanceMetrics,
       liveArgs: window,
-      rows: { meetings: meetingCountRows(fixture, range), payments: paymentRows(fixture, range) },
+      rows: metricsRows(fixture, range),
     });
     await expectSameAnswer({
       ...base,

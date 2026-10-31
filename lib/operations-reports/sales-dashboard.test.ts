@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { formatCloseRate } from "@/app/workspace/operations/sales-calls/_components/close-rate";
 import {
   buildHistoricalSalesDashboard,
+  closeRateOfRow,
   defaultSalesCurrency,
   listSalesCurrencies,
   performanceMoneyForCurrency,
@@ -23,6 +25,9 @@ describe("historical Sales Calls dashboard adapter", () => {
         showUpRate: 0.5,
           resultsRecorded: 4,
           pastCalls: 6,
+        cohortDeals: 4,
+        wonDeals: 1,
+        closeRate: 0.25,
         start: 100,
         end: 200,
       },
@@ -31,14 +36,12 @@ describe("historical Sales Calls dashboard adapter", () => {
           currency: "eur",
           paymentSalesCount: 2,
           cashCollectedMinor: 80000,
-          closeRate: 2 / 3,
           avgCashPerSaleMinor: 40000,
         }),
         row("USD", {
           currency: "usd",
           paymentSalesCount: 1,
           cashCollectedMinor: 50000,
-          closeRate: 1 / 3,
           avgCashPerSaleMinor: 50000,
         }),
       ],
@@ -53,6 +56,9 @@ describe("historical Sales Calls dashboard adapter", () => {
           showUpRate: 0.5,
           resultsRecorded: 4,
           pastCalls: 6,
+          cohortDeals: 4,
+          wonDeals: 1,
+          closeRate: 0.25,
           identityId: "user-1",
           identityName: "Ana",
           identitySource: "crm_user",
@@ -63,14 +69,12 @@ describe("historical Sales Calls dashboard adapter", () => {
           currency: "EUR",
           paymentSales: 2,
           paymentRevenueMinor: 80000,
-          paymentCloseRate: 2 / 3,
           avgPaymentDealMinor: 40000,
         }, "closer-1"),
         row("closer-1:USD", {
           currency: "USD",
           paymentSales: 1,
           paymentRevenueMinor: 50000,
-          paymentCloseRate: 1 / 3,
           avgPaymentDealMinor: 50000,
         }, "closer-1"),
       ],
@@ -85,6 +89,9 @@ describe("historical Sales Calls dashboard adapter", () => {
           showUpRate: 0.5,
           resultsRecorded: 4,
           pastCalls: 6,
+          cohortDeals: 4,
+          wonDeals: 1,
+          closeRate: 0.25,
         }),
       ],
       programMoneyRows: [
@@ -92,14 +99,12 @@ describe("historical Sales Calls dashboard adapter", () => {
           currency: "EUR",
           paymentSales: 2,
           paymentRevenueMinor: 80000,
-          paymentCloseRate: 2 / 3,
           avgPaymentDealMinor: 40000,
         }, "program-1"),
         row("program-1:USD", {
           currency: "USD",
           paymentSales: 1,
           paymentRevenueMinor: 50000,
-          paymentCloseRate: 1 / 3,
           avgPaymentDealMinor: 50000,
         }, "program-1"),
       ],
@@ -118,7 +123,21 @@ describe("historical Sales Calls dashboard adapter", () => {
     expect(dashboard.stats.totalCalls).toBe(7);
     for (const result of [dashboard.stats, dashboard.closers[0], dashboard.perProgram[0], dashboard.teamTotal]) {
       expect(result).toMatchObject({ showUpRate: 0.75, resultsRecorded: 4, pastCalls: 6 });
+      // One currency-independent close rate from the cohort sums.
+      expect(result).toMatchObject({ closeRate: 0.25, cohortDeals: 4, wonDeals: 1 });
     }
+    expect(dashboard.stats.moneyByCurrency[0]).not.toHaveProperty("closeRate");
+    expect(dashboard.closers[0].moneyByCurrency[0]).not.toHaveProperty("paymentCloseRate");
+  });
+
+  it("reads an answer cached before the close rate fields as unknown, not 0%", () => {
+    // Shapes a ClickHouse answer cached before the cohort fields can have.
+    expect(closeRateOfRow({})).toBeNull();
+    expect(closeRateOfRow({ closeRate: undefined })).toBeNull();
+    expect(formatCloseRate({})).toBe("—");
+    expect(formatCloseRate({ closeRate: null, cohortDeals: 0, wonDeals: 0 })).toBe("—");
+    expect(closeRateOfRow({ closeRate: 0, cohortDeals: 3, wonDeals: 0 }))
+      .toEqual({ closeRate: 0, cohortDeals: 3, wonDeals: 0 });
   });
 
   it("defaults to the only available non-USD currency", () => {

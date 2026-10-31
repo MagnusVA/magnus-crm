@@ -19,6 +19,7 @@ import {
   type getSalesCallsDashboard,
 } from "../../operations/salesCallsDashboard";
 import type { SqlRow } from "../clickhouse";
+import { closeRateCohortCounts, closeRateCohortSql } from "./closeRateCohort";
 import {
   defineReport,
   noFilters,
@@ -200,12 +201,15 @@ export const operationsReports = [
     sql: (input) => ({
       buckets: { sql: meetingBucketsSql, params: meetingBucketParams(input.range, Date.now()) },
       payments: { sql: paymentsSql, params: rangeParams(input.range) },
+      closeRateCohort: { sql: closeRateCohortSql, params: rangeParams(input.range) },
     }),
     finalize: async (ctx, input) =>
       await buildSalesCallsDashboard(ctx, input.tenantId, dashboardRange(input.range), {
         statsRows: meetingBuckets(input.rows.buckets),
         statsCapped: false,
         paymentScan: { payments: docsFromRows<"paymentRecords">(input.rows.payments), isTruncated: false },
+        closeRateCohort: closeRateCohortCounts(input.rows.closeRateCohort),
+        closeRateCohortCapped: false,
       }),
     live: { name: "operations/salesCallsDashboard:getSalesCallsDashboard", args: liveArgs },
   }),
