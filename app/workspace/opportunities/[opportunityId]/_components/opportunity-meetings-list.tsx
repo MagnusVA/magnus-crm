@@ -1,28 +1,17 @@
 "use client";
 
-import { useNow } from "@/hooks/use-now";
 import Link from "next/link";
-import { ExternalLinkIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { meetingStatusConfig, meetingAttendanceDisplay, type MeetingStatus } from "@/lib/status-config";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  meetingAttendanceDisplay,
+  meetingStatusConfig,
+  type MeetingAttendanceStatus,
+  type MeetingStatus,
+} from "@/lib/status-config";
+import { cn } from "@/lib/utils";
+import { formatDealDateTime } from "./deal-format";
 
-type Meeting = {
+export type DealMeeting = {
   _id: Id<"meetings">;
   status: MeetingStatus;
   scheduledAt: number;
@@ -30,91 +19,70 @@ type Meeting = {
   callClassification?: "new" | "follow_up";
 };
 
-const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+/** The attendance word's ink, as the board and the strip colour it. */
+const ATTENDANCE_INK: Record<MeetingAttendanceStatus, string> = {
+  scheduled: "text-foreground",
+  held: "text-stage-held-ink",
+  no_show: "text-danger-ink",
+  canceled: "text-muted-foreground",
+  not_recorded: "text-warning-ink",
+};
 
-function formatMeetingType(value: Meeting["callClassification"]) {
-  if (value === "follow_up") {
-    return "Follow-up";
-  }
-  if (value === "new") {
-    return "New";
-  }
-  return "Unclassified";
-}
-
+/**
+ * The deal's calls as ruled rows, newest first: when (condensed), the
+ * attendance word in its ink, and how long. Each row opens its meeting
+ * page. A scheduled call that has ended reads "Not recorded"
+ * (`meetingAttendanceDisplay`).
+ */
 export function OpportunityMeetingsList({
   meetings,
   meetingBasePath,
-  compact = false,
+  now,
+  timeZone,
 }: {
-  meetings: Meeting[];
+  meetings: DealMeeting[];
+  /** `/workspace/closer/meetings` or the admin's `/workspace/pipeline/meetings`. */
   meetingBasePath: string;
-  compact?: boolean;
+  now: number;
+  timeZone: string;
 }) {
-  const now = useNow();
-  if (meetings.length === 0) {
-    return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ExternalLinkIcon aria-hidden="true" />
-          </EmptyMedia>
-          <EmptyTitle>No meetings found</EmptyTitle>
-          <EmptyDescription>
-            There are no Calendly meetings linked to this opportunity yet.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
   return (
-    <div className="overflow-x-auto">
-      <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Scheduled</TableHead>
-          <TableHead>Status</TableHead>
-          {compact ? null : <TableHead>Type</TableHead>}
-          {compact ? null : <TableHead>Duration</TableHead>}
-          <TableHead className="text-right">Action</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {meetings.map((meeting) => (
-          <TableRow key={meeting._id}>
-            <TableCell>
-              {dateTimeFormatter.format(new Date(meeting.scheduledAt))}
-            </TableCell>
-            <TableCell>{meetingStatusConfig[meetingAttendanceDisplay(meeting, now)].label}</TableCell>
-            {compact ? null : (
-              <TableCell>{formatMeetingType(meeting.callClassification)}</TableCell>
-            )}
-            {compact ? null : <TableCell>{meeting.durationMinutes} min</TableCell>}
-            <TableCell className="text-right">
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                aria-label="View meeting detail"
-              >
-                <Link
-                  href={`${meetingBasePath}/${meeting._id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View
-                  <ExternalLinkIcon aria-hidden="true" data-icon="inline-end" />
-                </Link>
-              </Button>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-      </Table>
-    </div>
+    <ul>
+      {meetings.map((meeting) => {
+        const attendance = meetingAttendanceDisplay(meeting, now);
+        const label = meetingStatusConfig[attendance].label;
+        return (
+          <li
+            key={meeting._id}
+            className="relative grid min-h-11 grid-cols-[minmax(0,1fr)_auto_3.75rem] items-center gap-x-3 border-t px-4 py-2 first:border-t-0 hover:bg-muted/60 sm:px-5"
+          >
+            <Link
+              href={`${meetingBasePath}/${meeting._id}`}
+              className="truncate font-condensed text-[0.9375rem] font-semibold tracking-[0.02em] tabular-nums outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+            >
+              {formatDealDateTime(meeting.scheduledAt, timeZone, now)}
+              {meeting.callClassification === "follow_up" ? (
+                <span className="ml-2 font-sans text-[0.8125rem] font-normal tracking-normal text-muted-foreground">
+                  Follow-up call
+                </span>
+              ) : null}
+              <span className="sr-only">, {label}. Open the meeting</span>
+            </Link>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "font-condensed text-[0.8125rem] leading-none font-bold tracking-[0.08em] whitespace-nowrap uppercase",
+                ATTENDANCE_INK[attendance],
+              )}
+            >
+              {label}
+            </span>
+            <span className="text-right font-condensed text-sm text-muted-foreground tabular-nums">
+              {meeting.durationMinutes} min
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

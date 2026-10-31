@@ -91,8 +91,14 @@ type PaymentValues = z.infer<typeof paymentSchema>;
 
 export function SideDealPaymentDialog({
   opportunityId,
+  variant = "default",
 }: {
   opportunityId: Id<"opportunities">;
+  /**
+   * Lime ("default") when recording the payment is the deal's one next
+   * action; "outline" when another lime button sits beside it.
+   */
+  variant?: "default" | "outline";
 }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -182,7 +188,7 @@ export function SideDealPaymentDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button size="sm" variant={variant}>
           <BanknoteIcon aria-hidden="true" data-icon="inline-start" />
           Record payment
         </Button>
@@ -190,9 +196,9 @@ export function SideDealPaymentDialog({
       {open ? (
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Record Side-Deal Payment</DialogTitle>
+            <DialogTitle>Record the side-deal payment</DialogTitle>
             <DialogDescription>
-              Log a payment and close this manual opportunity as won.
+              The payment is logged and the side deal closes as won.
             </DialogDescription>
           </DialogHeader>
 
@@ -286,7 +292,7 @@ export function SideDealPaymentDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        Payment Type{" "}
+                        Payment type{" "}
                         <span className="text-destructive">*</span>
                       </FormLabel>
                       <Select
@@ -322,7 +328,7 @@ export function SideDealPaymentDialog({
                   name="proofFile"
                   render={({ field: { value, onChange, ...fieldProps } }) => (
                     <FormItem>
-                      <FormLabel>Proof File</FormLabel>
+                      <FormLabel>Proof file</FormLabel>
                       <FormControl>
                         <Input
                           type="file"

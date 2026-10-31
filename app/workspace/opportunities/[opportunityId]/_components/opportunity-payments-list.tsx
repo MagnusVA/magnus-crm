@@ -1,37 +1,14 @@
-import {
-  ArrowUpRightIcon,
-  CreditCardIcon,
-  PaperclipIcon,
-  ReceiptTextIcon,
-  VideoIcon,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import type { Id } from "@/convex/_generated/dataModel";
-import { formatAmountMinor } from "@/lib/format-currency";
+"use client";
 
-type Payment = {
+import { ArrowUpRightIcon } from "lucide-react";
+import type { Id } from "@/convex/_generated/dataModel";
+import { formatCash, leadingWith, mainCurrency, type CurrencyAmount } from "@/lib/closer-pipeline";
+import type { BusinessDaySetting } from "@/lib/businessDay";
+import { cn } from "@/lib/utils";
+import { formatDealDate } from "./deal-format";
+import { VoidPaymentDialog } from "./void-payment-dialog";
+
+export type DealPayment = {
   _id: Id<"paymentRecords">;
   amountMinor: number;
   currency: string;
@@ -44,163 +21,129 @@ type Payment = {
   hasProofFile?: boolean;
 };
 
-const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-const PAYMENT_TYPE_LABELS: Record<Payment["paymentType"], string> = {
+const PAYMENT_TYPE_LABELS: Record<DealPayment["paymentType"], string> = {
   monthly: "Monthly",
   split: "Split",
-  pif: "Paid in Full",
+  pif: "Paid in full",
   deposit: "Deposit",
 };
 
-const PAYMENT_STATUS_LABELS: Record<Payment["status"], string> = {
-  recorded: "Recorded",
-  verified: "Verified",
-  disputed: "Disputed",
+const PAYMENT_STATUS: Record<DealPayment["status"], { label: string; ink: string }> = {
+  recorded: { label: "Recorded", ink: "text-muted-foreground" },
+  verified: { label: "Verified", ink: "text-stage-won-ink" },
+  disputed: { label: "Disputed", ink: "text-danger-ink" },
 };
 
-const ORIGIN_LABELS: Record<string, string> = {
-  closer_meeting: "Closer meeting",
-  closer_reminder: "Closer reminder",
-  admin_meeting: "Admin meeting",
-  admin_reminder: "Admin reminder",
-  admin_review_resolution: "Admin review",
-  closer_side_deal: "Closer side deal",
-  admin_side_deal: "Admin side deal",
-  closer_additional: "Additional (closer)",
-  admin_additional: "Additional (admin)",
-};
-
-function formatOrigin(origin: string) {
-  return ORIGIN_LABELS[origin] ?? origin.replaceAll("_", " ");
+/**
+ * What the deal has been paid, one sum per currency, the currency with the
+ * most payments first. A disputed (voided) payment doesn't count, and
+ * currencies are never added together.
+ */
+export function dealPaidTotals(payments: DealPayment[]): CurrencyAmount[] {
+  const byCurrency = new Map<string, CurrencyAmount>();
+  for (const payment of payments) {
+    if (payment.status === "disputed") continue;
+    const currency = payment.currency.toUpperCase();
+    const entry = byCurrency.get(currency) ?? { currency, amountMinor: 0, paymentCount: 0 };
+    entry.amountMinor += payment.amountMinor;
+    entry.paymentCount = (entry.paymentCount ?? 0) + 1;
+    byCurrency.set(currency, entry);
+  }
+  const totals = [...byCurrency.values()];
+  return leadingWith(totals, mainCurrency(totals));
 }
 
+/**
+ * The deal's payments as ruled two-line rows, newest first: the amount in
+ * condensed figures with its status word, then program, type and date.
+ * An admin voids the side-deal payment from its row.
+ */
 export function OpportunityPaymentsList({
   payments,
-  compact = false,
+  setting,
+  now,
+  voidablePaymentId,
 }: {
-  payments: Payment[];
-  compact?: boolean;
+  payments: DealPayment[];
+  setting: BusinessDaySetting;
+  now: number;
+  /** The one payment an admin may void (an active side-deal payment on a won side deal). */
+  voidablePaymentId?: Id<"paymentRecords"> | null;
 }) {
-  const content =
-    payments.length === 0 ? (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ReceiptTextIcon aria-hidden="true" />
-          </EmptyMedia>
-          <EmptyTitle>No payments recorded</EmptyTitle>
-          <EmptyDescription>
-            Payments will appear here after a closer or admin records one.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    ) : (
-      <div className="overflow-x-auto">
-        <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Amount</TableHead>
-            <TableHead>Program</TableHead>
-            {compact ? null : <TableHead>Payment type</TableHead>}
-            {compact ? null : <TableHead>Origin</TableHead>}
-            <TableHead>Status</TableHead>
-            {compact ? null : <TableHead>Evidence</TableHead>}
-            {compact ? null : <TableHead>Recorded</TableHead>}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {payments.map((payment) => (
-            <TableRow key={payment._id}>
-              <TableCell className="font-medium">
-                <span className="inline-flex items-center gap-2">
-                  <CreditCardIcon
-                    aria-hidden="true"
-                    className="size-4 text-muted-foreground"
-                  />
-                  {formatAmountMinor(payment.amountMinor, payment.currency)}
-                </span>
-              </TableCell>
-              <TableCell className="whitespace-normal">
-                {payment.programName}
-              </TableCell>
-              {compact ? null : (
-                <TableCell>{PAYMENT_TYPE_LABELS[payment.paymentType]}</TableCell>
-              )}
-              {compact ? null : <TableCell>{formatOrigin(payment.origin)}</TableCell>}
-              <TableCell>
-                <Badge variant="secondary">
-                  {PAYMENT_STATUS_LABELS[payment.status]}
-                </Badge>
-              </TableCell>
-              {compact ? null : (
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    {payment.fathomLink ? (
-                      <a
-                        href={payment.fathomLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-sm underline decoration-muted-foreground/30 underline-offset-2 hover:decoration-foreground"
-                      >
-                        <VideoIcon aria-hidden="true" className="size-3.5" />
-                        Fathom
-                        <ArrowUpRightIcon
-                          aria-hidden="true"
-                          className="size-3 text-muted-foreground"
-                        />
-                      </a>
-                    ) : null}
-                    {payment.hasProofFile ? (
-                      <span
-                        className="inline-flex items-center gap-1 text-sm text-muted-foreground"
-                        title="Proof file attached"
-                      >
-                        <PaperclipIcon aria-hidden="true" className="size-3.5" />
-                        Proof
-                      </span>
-                    ) : null}
-                    {!payment.fathomLink && !payment.hasProofFile ? (
-                      <span className="text-sm text-muted-foreground">—</span>
-                    ) : null}
-                  </div>
-                </TableCell>
-              )}
-              {compact ? null : (
-                <TableCell>
-                  {dateTimeFormatter.format(new Date(payment.recordedAt))}
-                </TableCell>
-              )}
-            </TableRow>
-          ))}
-        </TableBody>
-        </Table>
-      </div>
-    );
-
-  if (compact) {
-    return (
-      <section className="rounded-md border">
-        <div className="border-b p-3">
-          <h3 className="text-sm font-semibold">Payments</h3>
-        </div>
-        <div className="p-3">{content}</div>
-      </section>
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Payments</CardTitle>
-        <CardDescription>
-          Payments recorded against this opportunity.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>{content}</CardContent>
-    </Card>
+    <ul>
+      {payments.map((payment) => {
+        const status = PAYMENT_STATUS[payment.status];
+        const disputed = payment.status === "disputed";
+        return (
+          <li
+            key={payment._id}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-t px-4 py-2 first:border-t-0 sm:px-5"
+          >
+            <span
+              className={cn(
+                "font-condensed text-[1.0625rem] leading-tight font-semibold tabular-nums",
+                disputed && "text-muted-foreground line-through",
+              )}
+            >
+              {formatCash(payment.amountMinor, payment.currency)}
+            </span>
+            <span
+              className={cn(
+                "justify-self-end font-condensed text-[0.8125rem] leading-none font-bold tracking-[0.08em] uppercase",
+                status.ink,
+              )}
+            >
+              {status.label}
+            </span>
+            <span className="min-w-0 truncate text-[0.8125rem] text-muted-foreground">
+              <span translate="no">{payment.programName}</span>
+              {" · "}
+              {PAYMENT_TYPE_LABELS[payment.paymentType]}
+              {" · "}
+              <span className="font-condensed text-sm tabular-nums">
+                {formatDealDate(payment.recordedAt, setting, now)}
+              </span>
+              {payment.fathomLink ? (
+                <>
+                  {" · "}
+                  <a
+                    href={payment.fathomLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 rounded-sm text-foreground underline decoration-foreground/40 underline-offset-[3px] hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    Fathom
+                    <ArrowUpRightIcon aria-hidden="true" className="size-3" />
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                </>
+              ) : null}
+            </span>
+            <span className="justify-self-end">
+              {voidablePaymentId === payment._id && !disputed ? (
+                <VoidPaymentDialog paymentId={payment._id} />
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** "$1,500 · €200": the deal's paid totals, each currency on its own. */
+export function DealPaidTotals({ totals }: { totals: CurrencyAmount[] }) {
+  if (totals.length === 0) return null;
+  return (
+    <span className="font-condensed text-[0.9375rem] font-semibold text-foreground tabular-nums">
+      {totals.map((total, index) => (
+        <span key={total.currency}>
+          {index > 0 ? <span className="px-1 font-sans font-normal text-muted-foreground">·</span> : null}
+          {formatCash(total.amountMinor, total.currency)}
+        </span>
+      ))}
+      <span className="sr-only"> paid</span>
+    </span>
   );
 }

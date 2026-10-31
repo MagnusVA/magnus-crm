@@ -50,7 +50,7 @@ export function StageWord({
 }
 
 /** "today 3:00 PM", "tomorrow 11:00 AM", "Thu 4:30 PM", "Nov 12, 4:30 PM". */
-function whenLabel(at: number, now: number, setting: BusinessDaySetting) {
+export function whenLabel(at: number, now: number, setting: BusinessDaySetting) {
   const today = businessDateForInstant(now, setting);
   const day = businessDateForInstant(at, setting);
   const clock = formatClock(at, setting.timeZone);
@@ -108,15 +108,19 @@ export function NextStep({
   );
 }
 
-function StepWords({
+export function StepWords({
   step,
   now,
   setting,
+  verbClassName,
 }: {
   step: Exclude<ShownStep, null>;
   now: number;
   setting: BusinessDaySetting;
+  /** Sets the lead word of a call or task ("Call", "Call back") apart, as the person page's deal footer does. */
+  verbClassName?: string;
 }) {
+  const lead = (words: string) => (verbClassName ? <span className={verbClassName}>{words}</span> : words);
   if (step.kind === "link") {
     return (
       <>
@@ -131,16 +135,16 @@ function StepWords({
   if (step.kind === "call") {
     return (
       <>
-        Call <Time>{whenLabel(step.at, now, setting)}</Time>
+        {lead("Call")} <Time>{whenLabel(step.at, now, setting)}</Time>
       </>
     );
   }
   const verb = step.method === "text" ? "Text back" : "Call back";
-  if (step.dueAt === null) return <>{verb}</>;
+  if (step.dueAt === null) return <>{lead(verb)}</>;
   const overdue = step.dueAt < now;
   return (
     <>
-      {verb}{" "}
+      {lead(verb)}{" "}
       <Time className={overdue ? "text-danger-ink" : undefined}>{whenLabel(step.dueAt, now, setting)}</Time>
     </>
   );

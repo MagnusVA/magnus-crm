@@ -9,9 +9,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const STATUS_CLASS: Record<EnrollmentStatus, string> = {
-	active: "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/25",
-	paused: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/25",
-	churned: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/25",
+	active: "border-stage-won/25 bg-stage-won/15 text-stage-won-ink",
+	paused: "border-warning/30 bg-warning-surface text-warning-ink",
+	churned: "border-stage-lost/25 bg-stage-lost/12 text-danger-ink",
 };
 
 // Passes other props through, so it can be a tooltip trigger.

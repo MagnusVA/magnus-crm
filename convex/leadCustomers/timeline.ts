@@ -31,7 +31,77 @@ export type TimelineEntry = {
   fromStatus: string | null;
   toStatus: string | null;
   detail: string | null;
+} & EventSubject;
+
+/**
+ * What the event is about, so the page can write "fact · deal": the deal it
+ * belongs to, and for a payment its amount, for a call when it was, for a
+ * task what kind it is. Null where the event has none, or its record is gone.
+ */
+type EventSubject = {
+  opportunityId: Id<"opportunities"> | null;
+  amount: { amountMinor: number; currency: string } | null;
+  callAt: number | null;
+  task: { type: "scheduling_link" | "manual_reminder"; reschedule: boolean; method: "call" | "text" | null } | null;
 };
+
+const NO_SUBJECT: EventSubject = { opportunityId: null, amount: null, callAt: null, task: null };
+
+/** Reads the event's record once per request; a person's events repeat them. */
+async function eventSubject(
+  ctx: QueryCtx,
+  event: Doc<"domainEvents">,
+  cache: Map<string, Promise<EventSubject>>,
+): Promise<EventSubject> {
+  const key = `${event.entityType}:${event.entityId}`;
+  let subject = cache.get(key);
+  if (!subject) {
+    subject = readSubject(ctx, event);
+    cache.set(key, subject);
+  }
+  return await subject;
+}
+
+async function readSubject(ctx: QueryCtx, event: Doc<"domainEvents">): Promise<EventSubject> {
+  switch (event.entityType) {
+    case "opportunity": {
+      const id = ctx.db.normalizeId("opportunities", event.entityId);
+      return { ...NO_SUBJECT, opportunityId: id };
+    }
+    case "meeting": {
+      const id = ctx.db.normalizeId("meetings", event.entityId);
+      const meeting = id ? await ctx.db.get("meetings", id) : null;
+      if (!meeting || meeting.tenantId !== event.tenantId) return NO_SUBJECT;
+      return { ...NO_SUBJECT, opportunityId: meeting.opportunityId, callAt: meeting.scheduledAt };
+    }
+    case "payment": {
+      const id = ctx.db.normalizeId("paymentRecords", event.entityId);
+      const payment = id ? await ctx.db.get("paymentRecords", id) : null;
+      if (!payment || payment.tenantId !== event.tenantId) return NO_SUBJECT;
+      return {
+        ...NO_SUBJECT,
+        opportunityId: payment.opportunityId ?? null,
+        amount: { amountMinor: payment.amountMinor, currency: payment.currency },
+      };
+    }
+    case "followUp": {
+      const id = ctx.db.normalizeId("followUps", event.entityId);
+      const followUp = id ? await ctx.db.get("followUps", id) : null;
+      if (!followUp || followUp.tenantId !== event.tenantId) return NO_SUBJECT;
+      return {
+        ...NO_SUBJECT,
+        opportunityId: followUp.opportunityId,
+        task: {
+          type: followUp.type,
+          reschedule: followUp.reason === "no_show_follow_up",
+          method: followUp.contactMethod ?? null,
+        },
+      };
+    }
+    default:
+      return NO_SUBJECT;
+  }
+}
 
 function parseMetadata(metadata: string | undefined): Record<string, unknown> {
   if (!metadata) {
@@ -63,7 +133,7 @@ function isEnrollmentEvent(event: Doc<"domainEvents">): boolean {
   return event.entityType === "enrollment";
 }
 
-const TOUCH_LABELS: Record<string, string> = {
+const TIMELINE_LABELS: Record<string, string> = {
   "lead.captured": "Captured by lead gen",
   "lead.capture_voided": "Lead gen capture voided",
   "lead.portal_link_copied": "Booking link sent from the DM portal",
@@ -74,12 +144,51 @@ const TOUCH_LABELS: Record<string, string> = {
   "lead.disposition_changed": "Disposition changed",
   "lead.resparked": "Resparked",
   "lead.marked_not_a_fit": "Marked not a fit in a respark",
+  "lead.created": "Added to the CRM",
+  "lead.status_changed": "Lead status changed",
+  "lead.merged": "Merged with another record",
+  "customer.converted": "Became a customer",
+  "customer.conversion_rolled_back": "Customer conversion rolled back",
+  "customer.status_changed": "Customer status changed",
+  "enrollment.created": "Enrolled in a program",
+  "enrollment.removed": "Program enrollment removed",
+  "enrollment.status_changed": "Program status changed",
+  "invitee.created": "Booked through Calendly",
+  "invitee.canceled": "Canceled through Calendly",
+  slack_qualified_lead_booked: "Booked after qualifying in Slack",
+  "meeting.created": "Call booked",
+  "meeting.started": "Call started",
+  "meeting.held": "Call held",
+  "meeting.completed": "Call held",
+  "meeting.canceled": "Call canceled",
+  "meeting.no_show": "Marked a no-show",
+  "meeting.no_show_reverted": "No-show undone",
+  "meeting.status_changed": "Call attendance changed",
+  "followUp.created": "Task created",
+  "followUp.booked": "Follow-up call booked",
+  "followUp.completed": "Task done",
+  "followUp.expired": "Task expired",
+  "opportunity.created": "Deal created",
+  "opportunity.stage_changed": "Deal stage changed",
+  "opportunity.status_changed": "Deal stage changed",
+  "opportunity.marked_lost": "Deal marked lost",
+  "opportunity.stale_flagged": "Deal flagged as expired",
+  "opportunity.deleted": "Deal deleted",
+  "payment.recorded": "Payment recorded",
+  "payment.verified": "Payment reviewed",
+  "payment.corrected": "Payment corrected",
+  "payment.disputed": "Payment disputed",
+  "payment.voided": "Payment voided",
 };
 
-/** The timeline's label for an event type. Unknown types show their name. */
+/**
+ * The timeline's label for an event type, in the product's words (person,
+ * deal, call, task; CONTEXT.md). Other known types fall back to the
+ * activity feed's verb; unknown types show their name.
+ */
 export function timelineEventLabel(eventType: string): string {
   return (
-    TOUCH_LABELS[eventType] ??
+    TIMELINE_LABELS[eventType] ??
     (EVENT_LABELS[eventType] ? capitalize(EVENT_LABELS[eventType].verb) : eventType)
   );
 }
@@ -206,6 +315,17 @@ const timelineEntryValidator = v.object({
   fromStatus: v.union(v.string(), v.null()),
   toStatus: v.union(v.string(), v.null()),
   detail: v.union(v.string(), v.null()),
+  opportunityId: v.union(v.id("opportunities"), v.null()),
+  amount: v.union(v.object({ amountMinor: v.number(), currency: v.string() }), v.null()),
+  callAt: v.union(v.number(), v.null()),
+  task: v.union(
+    v.object({
+      type: v.union(v.literal("scheduling_link"), v.literal("manual_reminder")),
+      reschedule: v.boolean(),
+      method: v.union(v.literal("call"), v.literal("text"), v.null()),
+    }),
+    v.null(),
+  ),
 });
 
 export const getLeadTimeline = query({
@@ -271,6 +391,7 @@ export const getLeadTimeline = query({
 
     const names = new Map<string, string | null>();
     const programNames = new Map<string, string | null>();
+    const subjects = new Map<string, Promise<EventSubject>>();
     const entries: TimelineEntry[] = [];
     for (const event of merged.slice(0, pageLimit)) {
       if (!(await canSeeEvent(ctx, event, { userId, role }))) {
@@ -282,6 +403,7 @@ export const getLeadTimeline = query({
         occurredAt: event.occurredAt,
         actorName: await actorName(ctx, event, names),
         ...describe(event, await eventProgramName(ctx, event, programNames)),
+        ...(await eventSubject(ctx, event, subjects)),
       });
     }
     return {

@@ -6,6 +6,7 @@ import { usePreloadedQuery } from "convex/react";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
+import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { EntityDetailProvider } from "./entity-detail-context";
 import { EntityDetailNotFound } from "./entity-detail-empty-states";
@@ -27,9 +28,17 @@ export function EntityDetailPageClient({
 		| undefined;
 	const title =
 		detail?.kind === "detail"
-			? (detail.lead.fullName ?? detail.lead.email ?? "Lead")
-			: "Lead";
+			? (detail.lead.fullName ?? detail.lead.email ?? "Unknown person")
+			: "Person";
 	usePageTitle(title);
+	useBreadcrumbTrail(
+		detail?.kind === "detail"
+			? [
+					{ label: "Leads & Customers", href: "/workspace/leads-customers" },
+					{ label: title, href: `/workspace/leads-customers/${detail.lead._id}` },
+				]
+			: null,
+	);
 
 	useEffect(() => {
 		if (detail?.kind === "redirect") {
