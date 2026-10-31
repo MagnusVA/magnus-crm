@@ -7,6 +7,7 @@ import { meetingAttendanceDisplay } from "@/lib/status-config";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionEmpty } from "./section-state";
+import { ScrollMoreHint } from "./scroll-more-hint";
 import { useExpandInPlace } from "./use-expand-in-place";
 import { formatDateTime, formatShortDate } from "./today-time";
 
@@ -30,7 +31,7 @@ export function NeedsOutcomeCard({
   timeZone: string;
 }) {
   const meetings = endedCalls(result, now);
-  const { expanded, toggle, listProps } = useExpandInPlace<HTMLUListElement>(
+  const { expanded, toggle, listProps, hintProps } = useExpandInPlace<HTMLUListElement>(
     meetings.length > SHOWN,
   );
   const visible = expanded ? meetings : meetings.slice(0, SHOWN);
@@ -71,36 +72,39 @@ export function NeedsOutcomeCard({
         <SectionEmpty title="Every past call has an outcome." />
       ) : (
         <>
-          <ul {...listProps}>
-            {visible.map((meeting) => (
-              <li
-                key={meeting.meetingId}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 border-t px-4 py-2.5 first:border-t-0"
-              >
-                <div className="min-w-0">
-                  <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 @sm:flex-nowrap">
-                    <span className="min-w-0 truncate font-semibold">{meeting.leadName}</span>
-                    <span className="shrink-0 rounded-[4px] bg-warning-surface px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-warning-ink uppercase">
-                      Not recorded
-                    </span>
-                  </p>
-                  <p className="truncate text-[13px] text-muted-foreground">
-                    {[meeting.programName, formatDateTime(meeting.scheduledAt, timeZone)]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                </div>
-                <Button asChild className="h-8 px-3 font-semibold">
-                  <Link
-                    href={`/workspace/closer/meetings/${meeting.meetingId}`}
-                    aria-label={`Record outcome for ${meeting.leadName}`}
-                  >
-                    Record outcome
-                  </Link>
-                </Button>
-              </li>
-            ))}
-          </ul>
+          <div className="relative">
+            <ul {...listProps}>
+              {visible.map((meeting) => (
+                <li
+                  key={meeting.meetingId}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 border-t px-4 py-2.5 first:border-t-0"
+                >
+                  <div className="min-w-0">
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 @sm:flex-nowrap">
+                      <span className="min-w-0 truncate font-semibold">{meeting.leadName}</span>
+                      <span className="shrink-0 rounded-[4px] bg-warning-surface px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-warning-ink uppercase">
+                        Not recorded
+                      </span>
+                    </p>
+                    <p className="truncate text-[13px] text-muted-foreground">
+                      {[meeting.programName, formatDateTime(meeting.scheduledAt, timeZone)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </div>
+                  <Button asChild className="h-8 px-3 font-semibold">
+                    <Link
+                      href={`/workspace/closer/meetings/${meeting.meetingId}`}
+                      aria-label={`Record outcome for ${meeting.leadName}`}
+                    >
+                      Record outcome
+                    </Link>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <ScrollMoreHint {...hintProps} />
+          </div>
           {meetings.length > SHOWN ? (
             <div className="flex min-h-[38px] items-center border-t px-4">
               <Button
