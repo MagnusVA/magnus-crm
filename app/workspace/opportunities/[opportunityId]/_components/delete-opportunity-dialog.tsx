@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { FieldGroup } from "@/components/ui/field";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -18,7 +19,6 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
@@ -49,8 +49,11 @@ type DeleteOpportunityValues = z.infer<typeof deleteOpportunitySchema>;
 
 export function DeleteOpportunityDialog({
   opportunityId,
+  onDeleted,
 }: {
   opportunityId: Id<"opportunities">;
+  /** Runs after the delete, such as closing the deal modal; else the page leaves for the deals list. */
+  onDeleted?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -76,12 +79,18 @@ export function DeleteOpportunityDialog({
         opportunity_id: opportunityId,
         has_reason: Boolean(reason),
       });
-      toast.success("Opportunity deleted");
-      router.push("/workspace/opportunities");
+      toast.success("Side deal deleted");
+      if (onDeleted) {
+        setIsSubmitting(false);
+        setOpen(false);
+        onDeleted();
+      } else {
+        router.push("/workspace/opportunities");
+      }
     } catch (error) {
       reportClientError(error, { flow: "opportunity_delete" });
       const message =
-        getErrorMessage(error, "Failed to delete opportunity");
+        getErrorMessage(error, "Couldn't delete the side deal");
       setSubmitError(message);
       toast.error(message);
       setIsSubmitting(false);
@@ -107,20 +116,25 @@ export function DeleteOpportunityDialog({
           Delete
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogMedia>
-            <Trash2Icon aria-hidden="true" />
-          </AlertDialogMedia>
-          <AlertDialogTitle>Delete this opportunity?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This permanently removes an empty side-deal opportunity. If payment,
-            meeting, or real follow-up work exists, mark it lost instead.
-          </AlertDialogDescription>
+          <div className="flex items-start gap-3">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
+              <Trash2Icon className="size-4 text-danger-ink" aria-hidden="true" />
+            </div>
+            <div className="flex-1">
+              <AlertDialogTitle>Delete this side deal?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The empty side deal is removed for good. Once it has a payment,
+                a call or a task, mark it lost instead.
+              </AlertDialogDescription>
+            </div>
+          </div>
         </AlertDialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
+            <FieldGroup>
             <FormField
               control={form.control}
               name="reason"
@@ -141,6 +155,7 @@ export function DeleteOpportunityDialog({
                 </FormItem>
               )}
             />
+            </FieldGroup>
 
             {submitError ? (
               <Alert variant="destructive" className="mt-4">
@@ -148,13 +163,14 @@ export function DeleteOpportunityDialog({
               </Alert>
             ) : null}
 
-            <AlertDialogFooter className="mt-5">
+            <AlertDialogFooter className="mt-4">
               <AlertDialogCancel disabled={isSubmitting}>
                 Cancel
               </AlertDialogCancel>
               <Button
                 type="submit"
                 variant="destructive"
+                className="text-danger-ink"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
@@ -163,7 +179,7 @@ export function DeleteOpportunityDialog({
                     Deleting…
                   </>
                 ) : (
-                  "Delete opportunity"
+                  "Delete side deal"
                 )}
               </Button>
             </AlertDialogFooter>

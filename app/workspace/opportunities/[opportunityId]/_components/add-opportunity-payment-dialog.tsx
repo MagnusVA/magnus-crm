@@ -112,8 +112,11 @@ type PaymentValues = z.infer<typeof paymentSchema>;
 export function AddOpportunityPaymentDialog({
   opportunityId,
   programName,
+  variant = "outline",
 }: {
   opportunityId: Id<"opportunities">;
+  /** Outline by default: a won deal has no next action to mark in lime. */
+  variant?: "default" | "outline";
   /**
    * The program the payment inherits (read-only): the sold program, or the
    * earliest payment's on a deal won without one.
@@ -216,7 +219,7 @@ export function AddOpportunityPaymentDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm">
+        <Button size="sm" variant={variant}>
           <BanknoteIcon aria-hidden="true" data-icon="inline-start" />
           Add payment
         </Button>
@@ -224,10 +227,10 @@ export function AddOpportunityPaymentDialog({
       {open ? (
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Payment</DialogTitle>
+            <DialogTitle>Add a payment</DialogTitle>
             <DialogDescription>
-              Record an additional payment on this won opportunity. It is
-              credited to the closer and included in revenue reporting.
+              Records another payment on this won deal. It is credited to the
+              deal&apos;s closer and counts in revenue reports.
             </DialogDescription>
           </DialogHeader>
 
@@ -298,7 +301,7 @@ export function AddOpportunityPaymentDialog({
                     {programName ?? "—"}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Payments inherit the program this opportunity was won under.
+                    A payment takes the program the deal was won under.
                   </p>
                 </div>
 
@@ -308,7 +311,7 @@ export function AddOpportunityPaymentDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        Payment Type{" "}
+                        Payment type{" "}
                         <span className="text-destructive">*</span>
                       </FormLabel>
                       <Select
@@ -344,7 +347,7 @@ export function AddOpportunityPaymentDialog({
                   name="proofFile"
                   render={({ field: { value, onChange, ...fieldProps } }) => (
                     <FormItem>
-                      <FormLabel>Proof File</FormLabel>
+                      <FormLabel>Proof file</FormLabel>
                       <FormControl>
                         <Input
                           type="file"
@@ -380,7 +383,7 @@ export function AddOpportunityPaymentDialog({
                   name="fathomLink"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Fathom Link</FormLabel>
+                      <FormLabel>Fathom link</FormLabel>
                       <FormControl>
                         <Input
                           type="url"

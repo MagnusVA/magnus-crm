@@ -38,15 +38,18 @@ function syncOpportunityIdInUrl(opportunityId: Id<"opportunities"> | null) {
 
 export function OpportunitySheetProvider({ children }: { children: ReactNode }) {
 	const searchParams = useSearchParams();
-	// A `?opportunityId=` link opens the sheet on arrival.
+	// A `?opportunityId=` link opens the deal modal on arrival.
 	const [opportunityId, setOpportunityId] = useState<Id<"opportunities"> | null>(
 		() =>
 			(searchParams.get("opportunityId") as Id<"opportunities"> | null) ||
 			null,
 	);
 
+	// Opening writes the deal into the URL so the open modal can be shared or
+	// reloaded; closing removes it.
 	const openOpportunity = useCallback((id: Id<"opportunities">) => {
 		setOpportunityId(id);
+		syncOpportunityIdInUrl(id);
 	}, []);
 
 	const closeOpportunity = useCallback(() => {

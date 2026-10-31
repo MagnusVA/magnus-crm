@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { FieldGroup } from "@/components/ui/field";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -17,7 +18,6 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
@@ -76,7 +76,7 @@ export function VoidPaymentDialog({
     } catch (error) {
       reportClientError(error, { flow: "payment_void" });
       const message =
-        getErrorMessage(error, "Failed to void payment");
+        getErrorMessage(error, "Couldn't void the payment");
       setSubmitError(message);
       toast.error(message);
     } finally {
@@ -98,32 +98,40 @@ export function VoidPaymentDialog({
       }}
     >
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" size="sm">
-          Void payment
+        <Button
+          variant="ghost"
+          size="xs"
+          className="text-danger-ink hover:text-danger-ink"
+          aria-label="Void this payment"
+        >
+          Void
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogMedia>
-            <AlertTriangleIcon aria-hidden="true" />
-          </AlertDialogMedia>
-          <AlertDialogTitle>Void this side-deal payment?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This marks the payment as disputed, reverses side-deal revenue, and
-            moves the opportunity to lost.
-          </AlertDialogDescription>
+          <div className="flex items-start gap-3">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
+              <AlertTriangleIcon className="size-4 text-danger-ink" aria-hidden="true" />
+            </div>
+            <div className="flex-1">
+              <AlertDialogTitle>Void this side-deal payment?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The payment is marked disputed, its revenue comes off the
+                reports, and the side deal closes as lost.
+              </AlertDialogDescription>
+            </div>
+          </div>
         </AlertDialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
+            <FieldGroup>
             <FormField
               control={form.control}
               name="reason"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>
-                    Reason <span className="text-destructive">*</span>
-                  </FormLabel>
+                  <FormLabel>Reason</FormLabel>
                   <FormControl>
                     <Textarea
                       rows={3}
@@ -138,6 +146,7 @@ export function VoidPaymentDialog({
                 </FormItem>
               )}
             />
+            </FieldGroup>
 
             {submitError ? (
               <Alert variant="destructive" className="mt-4">
@@ -145,13 +154,14 @@ export function VoidPaymentDialog({
               </Alert>
             ) : null}
 
-            <AlertDialogFooter className="mt-5">
+            <AlertDialogFooter className="mt-4">
               <AlertDialogCancel disabled={isSubmitting}>
                 Cancel
               </AlertDialogCancel>
               <Button
                 type="submit"
                 variant="destructive"
+                className="text-danger-ink"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (

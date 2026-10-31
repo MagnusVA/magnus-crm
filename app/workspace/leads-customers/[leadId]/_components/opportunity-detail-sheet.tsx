@@ -1,93 +1,95 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "convex/react";
-import { CalendarXIcon } from "lucide-react";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
-import {
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/ui/empty";
-import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@/components/ui/sheet";
+import { SectionEmpty, SectionError } from "@/app/workspace/closer/_components/section-state";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { DealModalBody } from "./deal-modal-body";
+import { DealModalHeaderFrame } from "./deal-modal-header";
+import { DealModalSkeleton } from "./deal-modal-skeleton";
 import { useOpportunitySheet } from "./opportunity-sheet-context";
-import { OpportunitySheetBody } from "./opportunity-sheet-body";
 
-const sheetClassName =
-	"w-full overflow-y-auto overscroll-contain p-0 data-[side=right]:sm:max-w-3xl";
+// Centred, up to 42rem wide, the header fixed and the sections scrolling
+// under it. On a phone it fills the screen but for a thin margin.
+const dealModalClassName =
+	"flex max-h-[calc(100dvh-1rem)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-h-[min(88dvh,56rem)] sm:max-w-2xl";
 
-function OpportunityUnavailableState() {
+/** The header and one quiet line, for a deal that is gone or not the viewer's. */
+function DealModalMessage({ children }: { children: React.ReactNode }) {
 	return (
-		<div className="p-4">
-			<Empty>
-				<EmptyHeader>
-					<EmptyMedia variant="icon">
-						<CalendarXIcon aria-hidden="true" />
-					</EmptyMedia>
-					<EmptyTitle>Opportunity unavailable</EmptyTitle>
-					<EmptyDescription>
-						It may have been reassigned, removed, or outside your access.
-					</EmptyDescription>
-				</EmptyHeader>
-			</Empty>
-		</div>
+		<>
+			<DealModalHeaderFrame>
+				<DialogTitle className="text-lg leading-tight font-semibold">Deal</DialogTitle>
+				<DialogDescription className="sr-only">This deal can&apos;t be shown.</DialogDescription>
+			</DealModalHeaderFrame>
+			{children}
+		</>
 	);
 }
 
-function OpportunityDetailSheetContent({
+function DealModalContent({
 	opportunityId,
+	onDeleted,
 }: {
 	opportunityId: Id<"opportunities">;
+	onDeleted: () => void;
 }) {
 	const detail = useQuery(api.opportunities.detailQuery.getOpportunityDetail, {
 		opportunityId,
 	});
 
-	return <OpportunitySheetBody detail={detail} />;
+	if (detail === undefined) return <DealModalSkeleton />;
+	if (detail === null) {
+		return (
+			<DealModalMessage>
+				<SectionEmpty className="py-5 sm:px-5" title="This deal isn't available.">
+					It may have been deleted, or it belongs to another closer.
+				</SectionEmpty>
+			</DealModalMessage>
+		);
+	}
+	return <DealModalBody detail={detail} onDeleted={onDeleted} />;
 }
 
+/**
+ * The deal modal on the person page, opened from a deal card or a
+ * `?opportunityId=` link (`OpportunitySheetProvider`). Closing it removes
+ * the deal from the URL.
+ */
 export function OpportunityDetailSheet() {
 	const {
 		opportunityId,
 		actions: { closeOpportunity },
 	} = useOpportunitySheet();
-	const isOpen = Boolean(opportunityId);
+	// The last deal shown stays in the modal while it fades out on close.
+	const [shownId, setShownId] = useState(opportunityId);
+	if (opportunityId && opportunityId !== shownId) setShownId(opportunityId);
 
 	return (
-		<Sheet
-			open={isOpen}
+		<Dialog
+			open={Boolean(opportunityId)}
 			onOpenChange={(open) => {
 				if (!open) closeOpportunity();
 			}}
 		>
-			<SheetContent side="right" className={sheetClassName}>
-				<SheetHeader className="border-b border-border/60 bg-muted/20 px-4 py-3 pr-12 text-left">
-					<SheetTitle className="font-heading text-base tracking-tight">
-						Opportunity Detail
-					</SheetTitle>
-					<SheetDescription>
-						Meetings, payments, attribution &amp; activity for the selected deal.
-					</SheetDescription>
-				</SheetHeader>
-				{opportunityId ? (
+			<DialogContent showCloseButton={false} className={dealModalClassName}>
+				{shownId ? (
 					<SectionErrorBoundary
-						key={opportunityId}
-						sectionName="opportunity detail"
-						fallback={<OpportunityUnavailableState />}
+						key={shownId}
+						sectionName="deal modal"
+						fallback={
+							<DealModalMessage>
+								<SectionError what="this deal" className="py-5 sm:px-5" />
+							</DealModalMessage>
+						}
 					>
-						<OpportunityDetailSheetContent opportunityId={opportunityId} />
+						<DealModalContent opportunityId={shownId} onDeleted={closeOpportunity} />
 					</SectionErrorBoundary>
 				) : null}
-			</SheetContent>
-		</Sheet>
+			</DialogContent>
+		</Dialog>
 	);
 }

@@ -9,6 +9,7 @@
  */
 
 import type * as admin_billingOps from "../admin/billingOps.js";
+import type * as admin_dealActions from "../admin/dealActions.js";
 import type * as admin_inviteCleanup from "../admin/inviteCleanup.js";
 import type * as admin_inviteCleanupMutations from "../admin/inviteCleanupMutations.js";
 import type * as admin_meetingActions from "../admin/meetingActions.js";
@@ -176,6 +177,7 @@ import type * as lib_attribution_teamInput from "../lib/attribution/teamInput.js
 import type * as lib_attribution_validators from "../lib/attribution/validators.js";
 import type * as lib_businessDayRebuildState from "../lib/businessDayRebuildState.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_dealNextStep from "../lib/dealNextStep.js";
 import type * as lib_domainEventLinks from "../lib/domainEventLinks.js";
 import type * as lib_domainEvents from "../lib/domainEvents.js";
 import type * as lib_domainEventsAction from "../lib/domainEventsAction.js";
@@ -183,6 +185,7 @@ import type * as lib_domainEventsInternal from "../lib/domainEventsInternal.js";
 import type * as lib_enrollments from "../lib/enrollments.js";
 import type * as lib_eventTypeBookability from "../lib/eventTypeBookability.js";
 import type * as lib_eventTypeFields from "../lib/eventTypeFields.js";
+import type * as lib_followUpStart from "../lib/followUpStart.js";
 import type * as lib_followedMeeting from "../lib/followedMeeting.js";
 import type * as lib_formatMoney from "../lib/formatMoney.js";
 import type * as lib_identity from "../lib/identity.js";
@@ -444,6 +447,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "admin/billingOps": typeof admin_billingOps;
+  "admin/dealActions": typeof admin_dealActions;
   "admin/inviteCleanup": typeof admin_inviteCleanup;
   "admin/inviteCleanupMutations": typeof admin_inviteCleanupMutations;
   "admin/meetingActions": typeof admin_meetingActions;
@@ -611,6 +615,7 @@ declare const fullApi: ApiFromModules<{
   "lib/attribution/validators": typeof lib_attribution_validators;
   "lib/businessDayRebuildState": typeof lib_businessDayRebuildState;
   "lib/constants": typeof lib_constants;
+  "lib/dealNextStep": typeof lib_dealNextStep;
   "lib/domainEventLinks": typeof lib_domainEventLinks;
   "lib/domainEvents": typeof lib_domainEvents;
   "lib/domainEventsAction": typeof lib_domainEventsAction;
@@ -618,6 +623,7 @@ declare const fullApi: ApiFromModules<{
   "lib/enrollments": typeof lib_enrollments;
   "lib/eventTypeBookability": typeof lib_eventTypeBookability;
   "lib/eventTypeFields": typeof lib_eventTypeFields;
+  "lib/followUpStart": typeof lib_followUpStart;
   "lib/followedMeeting": typeof lib_followedMeeting;
   "lib/formatMoney": typeof lib_formatMoney;
   "lib/identity": typeof lib_identity;

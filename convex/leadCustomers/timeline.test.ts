@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
-import { insertDealEvent, insertPerson, insertPersonDeal } from "../../tests/stageLabelFixtures";
+import {
+  insertDealEvent,
+  insertPerson,
+  insertPersonDeal,
+  insertReminder,
+  insertSideDealPayment,
+} from "../../tests/stageLabelFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -145,7 +151,7 @@ describe("enrollment events", () => {
     const entries = await timeline(h, seeded.leadId);
 
     expect(entries.find((entry) => entry.eventType === "enrollment.status_changed")).toMatchObject({
-      label: "Changed a program enrollment status",
+      label: "Program status changed",
       fromStatus: "Active",
       toStatus: "Paused",
       detail: "Program A · Moving abroad",
@@ -192,9 +198,46 @@ describe("deal events", () => {
     });
     const timeline = await h.admin.query(api.leadCustomers.timeline.getLeadTimeline, { leadId });
     expect(timeline?.entries.map(({ label, fromStatus, toStatus }) => ({ label, fromStatus, toStatus }))).toEqual([
-      { label: "Marked an opportunity as lost", fromStatus: "Follow-up", toStatus: "Closed (lost)" },
-      { label: "Changed a deal stage", fromStatus: "Booked", toStatus: "Follow-up" },
-      { label: "Changed an opportunity status", fromStatus: "Qualified, not booked", toStatus: "Scheduled" },
+      { label: "Deal marked lost", fromStatus: "Follow-up", toStatus: "Closed (lost)" },
+      { label: "Deal stage changed", fromStatus: "Booked", toStatus: "Follow-up" },
+      { label: "Deal stage changed", fromStatus: "Qualified, not booked", toStatus: "Scheduled" },
     ]);
+  });
+});
+
+// The page writes each event as "fact · deal" (the person page's timeline).
+describe("event subjects", () => {
+  it("names each event's deal, a payment's amount and a task's kind", async () => {
+    const h = await bookingHarness();
+    const ids = await h.t.run(async (ctx) => {
+      const leadId = await insertPerson(ctx, h.tenantId);
+      const opportunityId = await insertPersonDeal(ctx, { tenantId: h.tenantId, leadId, status: "follow_up_scheduled" });
+      const followUpId = await insertReminder(ctx, opportunityId);
+      const paymentId = await insertSideDealPayment(ctx, opportunityId);
+      const payment = (await ctx.db.get("paymentRecords", paymentId))!;
+      const base = { tenantId: h.tenantId, leadId, source: "closer" as const };
+      await insertDealEvent(ctx, opportunityId, { eventType: "opportunity.created", occurredAt: 1_000 });
+      await ctx.db.insert("domainEvents", {
+        ...base, entityType: "followUp", entityId: followUpId, eventType: "followUp.created", occurredAt: 2_000,
+      });
+      await ctx.db.insert("domainEvents", {
+        ...base, entityType: "payment", entityId: paymentId, eventType: "payment.recorded", occurredAt: 3_000,
+      });
+      return { leadId, opportunityId, payment };
+    });
+
+    const entries =
+      (await h.admin.query(api.leadCustomers.timeline.getLeadTimeline, { leadId: ids.leadId }))?.entries ?? [];
+    const byType = new Map(entries.map((entry) => [entry.eventType, entry]));
+
+    expect(byType.get("opportunity.created")).toMatchObject({ opportunityId: ids.opportunityId, amount: null, task: null });
+    expect(byType.get("followUp.created")).toMatchObject({
+      opportunityId: ids.opportunityId,
+      task: { type: "manual_reminder", reschedule: false },
+    });
+    expect(byType.get("payment.recorded")).toMatchObject({
+      opportunityId: ids.opportunityId,
+      amount: { amountMinor: ids.payment.amountMinor, currency: ids.payment.currency },
+    });
   });
 });

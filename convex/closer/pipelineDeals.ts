@@ -125,6 +125,20 @@ export async function loadDealNextStep(
 
 /** The open task the deal's pending tasks give: the soonest call-back or text-back, else a link. */
 export function nextStepFromTasks(pending: Array<Doc<"followUps">>): DealTaskStep {
+  const task = pickOpenTask(pending);
+  if (!task) return null;
+  if (task.type === "manual_reminder") {
+    return {
+      kind: "task",
+      method: task.contactMethod === "text" ? "text" : "call",
+      dueAt: task.reminderScheduledAt ?? null,
+    };
+  }
+  return { kind: "link", reschedule: task.reason === "no_show_follow_up", sentAt: task.createdAt };
+}
+
+/** The pending task that is the deal's next step (see `nextStepFromTasks`), or null. */
+export function pickOpenTask(pending: Array<Doc<"followUps">>): Doc<"followUps"> | null {
   let task: Doc<"followUps"> | null = null;
   let link: Doc<"followUps"> | null = null;
   for (const followUp of pending) {
@@ -148,17 +162,7 @@ export function nextStepFromTasks(pending: Array<Doc<"followUps">>): DealTaskSte
       }
     }
   }
-  if (task) {
-    return {
-      kind: "task",
-      method: task.contactMethod === "text" ? "text" : "call",
-      dueAt: task.reminderScheduledAt ?? null,
-    };
-  }
-  if (link) {
-    return { kind: "link", reschedule: link.reason === "no_show_follow_up", sentAt: link.createdAt };
-  }
-  return null;
+  return task ?? link;
 }
 
 /** When something last happened on the deal, for the lookup's sort and column. */

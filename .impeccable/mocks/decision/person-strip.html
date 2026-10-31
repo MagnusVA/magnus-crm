@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnus · Person · Strip and deal cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#141A28;--navy2:#1D2536;--bline:rgba(242,244,247,.08);--lime:#84B135;--lime-ink:#1F2E0A;--paper:#F5F6F8;--card:#FFFFFF;--ink:#141A28;--ink2:#4F596B;--rule:#E3E7ED;--dim:#9AA4B6;--amber:#F5B700;--amber-ink:#7A5200;--amber-bg:#FFF4CC;--red:#D93A40;--red-bg:#FDE2E3;
+--st-booked:#4C6FD0;--st-held:#8E99AC;--st-fu:#2A9D95;--st-won:#84B135;--st-lost:#D93A40}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/1.45 Barlow,sans-serif;color:var(--ink);background:var(--paper);display:grid;grid-template-columns:232px 1fr;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0}svg{flex:none}
+.rail{background:var(--navy);color:#E6EAF1;display:flex;flex-direction:column;padding:16px 12px}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 20px}.brand b{font:600 22px/1 "Barlow Condensed";letter-spacing:.01em}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:7px;color:#AEB8CA;text-decoration:none;font-weight:500}
+.nav a.on{background:rgba(132,177,53,.16);color:#fff}.nav a.on svg{color:var(--lime)}
+.nav a em{margin-left:auto;font:600 12px/18px "Barlow Condensed";font-style:normal;background:var(--amber);color:var(--navy);border-radius:9px;padding:0 6px}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px 8px 4px;border-top:1px solid var(--bline);font-weight:500}
+.av{width:30px;height:30px;border-radius:50%;background:var(--lime);color:var(--navy);display:grid;place-items:center;font:700 13px "Barlow Condensed"}.me small{display:block;color:#98A3B6;font-size:12px;font-weight:400}
+.app{display:grid;grid-template-rows:52px 1fr;min-width:0}
+.bar{display:flex;align-items:center;gap:8px;padding:0 24px;background:#fff;border-bottom:1px solid var(--rule);color:var(--ink2)}.bar b{color:var(--ink);font-weight:600}.bar .sep{color:var(--dim)}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;width:280px;height:34px;padding:0 10px;border:1px solid var(--rule);border-radius:8px;background:var(--paper)}.search span{flex:1}
+kbd{font:500 11px Barlow;border:1px solid var(--rule);border-radius:4px;padding:0 5px;background:#fff}
+main{padding:20px 24px;display:grid;grid-template-columns:minmax(0,1fr) 20rem;grid-template-rows:auto 1fr;gap:18px;min-height:0;overflow:hidden}
+
+/* signature: the person as one board row */
+.strip{grid-column:1/-1;background:var(--navy);color:#EEF1F6;border-radius:9.8px;overflow:hidden}
+.sh,.sr{display:grid;grid-template-columns:1.35fr 130px 120px 1.25fr 290px;column-gap:16px;align-items:center;padding:0 18px}
+.sh{height:28px;font:600 11px "Barlow Condensed";letter-spacing:.14em;color:var(--dim);border-bottom:1px solid var(--bline)}
+.sr{height:64px}
+.t{font:600 26px/1 "Barlow Condensed"}.t small{display:block;font:500 13px Barlow;color:var(--dim);margin-top:3px}
+h1{font:600 18px/1.25 Barlow}.p small{display:block;font-weight:400;font-size:13px;color:var(--dim);margin-top:3px}
+.gate{display:flex;gap:6px}
+.gbtn{height:30px;padding:0 10px;border-radius:7px;background:var(--navy2);color:#fff;border:1px solid rgba(242,244,247,.15);font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}.gbtn b{font:600 15px "Barlow Condensed";letter-spacing:.02em}
+.s{font:700 17px/1 "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase;color:var(--amber);display:flex;align-items:center;gap:7px}.s:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.sd{font:500 13px Barlow;color:var(--dim);margin-top:4px}
+.stg{font:700 17px/1 "Barlow Condensed";letter-spacing:.08em;color:var(--lime)}
+/* cards */
+.card{background:#fff;border:1px solid var(--rule);border-radius:9.8px}
+.ch{display:flex;align-items:center;gap:8px;height:44px;padding:0 16px;border-bottom:1px solid var(--rule)}.ch h3{font:600 15px Barlow}.ch .meta{margin-left:auto;color:var(--ink2);font-size:13px}.ch .meta b{font:600 14px "Barlow Condensed";color:var(--ink)}
+.col{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+.chip{font:700 11px/20px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase;border-radius:4px;padding:0 6px;display:inline-block}
+.chip.hd{background:rgba(142,153,172,.15);color:#4F596B}.chip.bk{background:rgba(76,111,208,.15);color:#2B4AA8}.chip.won{background:rgba(132,177,53,.15);color:#3F6212}
+/* stage track: --c stage colour, --f filled fraction of the line */
+.track{display:grid;grid-template-columns:repeat(4,1fr);padding:14px 16px 6px;position:relative}
+.track:before{content:"";position:absolute;left:calc(12.5% - 4px);right:calc(12.5% - 4px);top:21px;height:2px;background:var(--rule)}
+.track:after{content:"";position:absolute;left:calc(12.5% - 4px);width:calc((75% + 8px)*var(--f));top:21px;height:2px;background:var(--c)}
+.track div{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;font:600 11px "Barlow Condensed";letter-spacing:.1em;color:var(--ink2);text-transform:uppercase}
+.track i{width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid rgba(142,153,172,.4)}
+.track .done i{background:var(--c);border-color:var(--c)}.track .cur i{background:#fff;border:3px solid var(--c);width:16px;height:16px;margin-top:-1px}.track .cur{color:var(--ink)}
+.t-held{--c:var(--st-held);--f:.6667}.t-bk{--c:var(--st-booked);--f:.3333}.t-won{--c:var(--st-won);--f:1}
+.credit{padding:6px 16px 12px;color:var(--ink2);font-size:13px}.credit b{color:var(--ink);font-weight:600}.credit i{font-style:normal;color:var(--dim);margin:0 4px}
+.foot{display:flex;align-items:center;gap:10px;height:40px;padding:0 16px;border-top:1px solid var(--rule);color:var(--ink2)}
+.foot .fact{font:600 15px "Barlow Condensed";letter-spacing:.02em;color:var(--ink)}.foot .fact span{color:var(--ink2);font-weight:500}
+.foot a{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:rgba(20,26,40,.4);text-underline-offset:3px;min-height:24px;display:inline-flex;align-items:center}
+.foot .r{margin-left:auto;display:flex;align-items:center;gap:14px}
+.flag{font:600 12px/20px Barlow;color:var(--amber-ink);background:var(--amber-bg);border-radius:4px;padding:0 7px}
+.b{height:28px;padding:0 12px;border-radius:5.6px;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.b.lime{background:var(--lime);color:var(--navy)}
+/* right rail */
+.qa{list-style:none}.qa li{padding:10px 16px;border-top:1px solid var(--rule)}.qa li:first-child{border-top:0}
+.qa .q{font-size:13px;color:var(--ink2)}.qa .a{font-size:14px;color:var(--ink);margin-top:1px}.qa .a.n{font:600 16px "Barlow Condensed"}
+.src{list-style:none}.src li{display:grid;grid-template-columns:92px 1fr;gap:0 10px;padding:10px 16px;border-top:1px solid var(--rule)}.src li:first-child{border-top:0}
+.src .k{color:var(--ink2);font-size:13px;padding-top:1px}.src .v{font-weight:500}.src .v small{display:block;font:600 13px "Barlow Condensed";letter-spacing:.02em;color:var(--ink2)}
+.tl{list-style:none;padding:6px 0}.tl li{display:grid;grid-template-columns:44px 6px 1fr;gap:10px;align-items:center;padding:5px 16px;font-size:13px}
+.tl .d{font:600 13px "Barlow Condensed";letter-spacing:.02em;color:var(--ink2)}.tl i{width:6px;height:6px;border-radius:50%;background:var(--st-held)}
+.tl b{font:600 13px "Barlow Condensed";letter-spacing:.02em}
+</style></head><body>
+<aside class="rail">
+ <div class="brand"><svg width="24" height="24" viewBox="200 255 390 340" aria-hidden="true"><path fill="#84B135" d="M394.1 566.9c0 13.9 19.1 18 24.7 5.2L473 449.8h-78.9V566.9zM370.4 320.2l-42.1 64.7c-5.6 8.6-18.2 8.5-23.6-.2L235.3 273c-6.8-11-23.9-6.2-23.9 6.8v154c0 8.8 7.2 16 16 16h140.1h26.5V327.2c0-12.8-16.7-17.8-23.6-7zM550.3 275.2L473 449.8h86c8.8 0 16-7.2 16-16V280.4c0-14-19.1-18-24.7-5.2z"/></svg><b>Magnus</b></div>
+ <nav class="nav">
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Today<em>2</em></a>
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Tasks</a>
+  <a href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7M12 7v4M16 7v10"/></svg>My Pipeline</a>
+  <a class="on" href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 12 0v1M16 4a4 4 0 0 1 0 8M22 21v-1a6 6 0 0 0-4-5.6"/></svg>Leads &amp; Customers</a>
+ </nav>
+ <div class="me"><div class="av">UR</div><div>Uros<small>Closer</small></div></div>
+</aside>
+<div class="app">
+ <header class="bar"><span>Leads &amp; Customers</span><span class="sep">›</span><b>Marco Reyes</b><div class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search people and deals</span><kbd>⌘K</kbd></div></header>
+ <main>
+  <section class="strip">
+   <div class="sh"><span>PERSON</span><span>STAGE</span><span>PAID</span><span>NEXT STEP</span><span>REACH BY</span></div>
+   <div class="sr">
+    <div class="p"><h1>Marco Reyes</h1><small>Customer since Oct 25 · 3 deals</small></div>
+    <div class="stg">CUSTOMER</div>
+    <div class="t">$100<small>1 payment</small></div>
+    <div><div class="s">No next step</div><div class="sd">25K Accelerator · call held Oct 18</div></div>
+    <div class="gate"><button class="gbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>Call <b>+1 555-010-4477</b></button><button class="gbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Text</button></div>
+   </div>
+  </section>
+
+  <div class="col">
+   <section class="card"><div class="ch"><h3>25K Accelerator</h3><span class="chip hd">Held</span><span class="meta">Uros</span></div>
+    <div class="track t-held"><div class="done"><i></i>Qualified</div><div class="done"><i></i>Booked</div><div class="cur"><i></i>Held</div><div><i></i>Won</div></div>
+    <p class="credit">Qualifier <b>Ana Melissa Alonzo</b><i>·</i>Closer <b>Uros</b></p>
+    <div class="foot"><span class="flag">No next step</span><div class="r"><button class="b lime">Set next step</button><a href="#">Open deal</a></div></div>
+   </section>
+   <section class="card"><div class="ch"><h3>Elite Mentorship</h3><span class="chip bk">Booked</span><span class="meta">Uros</span></div>
+    <div class="track t-bk"><div class="done"><i></i>Qualified</div><div class="cur"><i></i>Booked</div><div><i></i>Held</div><div><i></i>Won</div></div>
+    <p class="credit">Qualifier <b>Ana Melissa Alonzo</b><i>·</i>Closer <b>Uros</b></p>
+    <div class="foot"><span class="fact"><span>Call</span> Thu Nov 7, 12:00 PM</span><div class="r"><a href="#">Open deal</a></div></div>
+   </section>
+   <section class="card"><div class="ch"><h3>5K accelerator</h3><span class="chip won">Won</span><span class="meta">Uros · <b>$100</b></span></div>
+    <div class="track t-won"><div class="done"><i></i>Qualified</div><div class="done"><i></i>Booked</div><div class="done"><i></i>Held</div><div class="done cur"><i style="background:var(--c)"></i>Won</div></div>
+    <p class="credit">Lead gen <b>Maria Acosta</b><i>·</i>Closer <b>Uros</b></p>
+    <div class="foot"><span class="fact"><span>Deposit</span> $100 · Oct 25</span><div class="r"><a href="#">Open deal</a></div></div>
+   </section>
+  </div>
+
+  <div class="col">
+   <section class="card"><div class="ch"><h3>Booking answers</h3></div>
+    <ul class="qa">
+     <li><div class="q">Certified, or 2+ years in fitness?</div><div class="a">Yes I am certified</div></li>
+     <li><div class="q">Finances to invest?</div><div class="a">Yes I am, and I'm willing to invest, but I need to be sure it fits the budget.</div></li>
+     <li><div class="q">Online clients now</div><div class="a n">0</div></li>
+    </ul>
+   </section>
+   <section class="card"><div class="ch"><h3>Source</h3></div>
+    <ul class="src">
+     <li><span class="k">First touch</span><span class="v">Lead gen · Maria Acosta<small>Jun 30</small></span></li>
+     <li><span class="k">Latest touch</span><span class="v">Calendly<small>Oct 24</small></span></li>
+    </ul>
+   </section>
+   <section class="card"><div class="ch"><h3>Timeline</h3><span class="meta"><b>16</b> events</span></div>
+    <ul class="tl">
+     <li><span class="d">Oct 25</span><i style="background:var(--st-won)"></i><span>Payment recorded · <b>$100</b></span></li>
+     <li><span class="d">Oct 25</span><i style="background:var(--st-won)"></i><span>Won 5K accelerator</span></li>
+     <li><span class="d">Oct 24</span><i></i><span>Call held · 5K accelerator</span></li>
+     <li><span class="d">Oct 21</span><i style="background:var(--st-booked)"></i><span>Booked Elite Mentorship</span></li>
+     <li><span class="d">Oct 18</span><i style="background:var(--st-held)"></i><span>Call held · 25K Accelerator</span></li>
+    </ul>
+   </section>
+  </div>
+ </main>
+</div></body></html>

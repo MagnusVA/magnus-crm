@@ -1,0 +1,171 @@
+{
+ "title": "What the person page becomes",
+ "question": "Three structures for one person and their deals, for closers and admins alike. Each deal opens in a modal; the page keeps the person's whole history. Lock one, steer it, or ask for another hand.",
+ "options": [
+  {
+   "id": "assigned",
+   "kind": "assigned",
+   "label": "Next step first",
+   "kicker": "THE ROLL",
+   "lineage": "The outcome panel, turned to the person: what to do with them now",
+   "thesis": "The page opens on what to do with this person now: an open deal with no next step gets the lime panel; everything else is the record under it.",
+   "palette": [
+    "#141A28",
+    "#F5F6F8",
+    "#84B135",
+    "#F5B700"
+   ],
+   "materials": [
+    "lime next-step panel",
+    "ruled deal rows",
+    "record rail"
+   ],
+   "viewport": "White header: Marco Reyes, Customer, phone, email, Instagram, with Call, Text and Copy email on the right. Under it the lime-bordered panel: '25K Accelerator has no next step' with two choices, Call back (pick a time) and Send booking link. Then Deals as ruled rows (program, stage, next step, paid), each opening the deal modal, and the person's timeline. A right rail holds booking answers, source and credit, contact details and lifecycle.",
+   "risk": "When every deal has a step, the panel shrinks to one line and the page is a plain record.",
+   "raised": [
+    {
+     "from": "vernacular-ephemera-jet-age-ticket-wallet",
+     "raise": "Won and lost deals stay in the list, marked, never removed: nothing disappears, it closes."
+    }
+   ],
+   "html": ".impeccable/mocks/decision/person-nextstep.html"
+  },
+  {
+   "id": "dealt-programs",
+   "kind": "dealt",
+   "label": "By program",
+   "lineage": "How a high-ticket floor talks: by program",
+   "thesis": "The person read program by program: what they bought, what they're still deciding on, and each deal's next step inside its program.",
+   "palette": [
+    "#141A28",
+    "#F5F6F8",
+    "#84B135",
+    "#2A9D95"
+   ],
+   "materials": [
+    "program cards",
+    "enrollment status",
+    "inline next-step buttons"
+   ],
+   "viewport": "Header with name, contact and Call / Text. Then one card per program: 5K accelerator (enrolled, Active, $100 paid, its won deal), 25K Accelerator (call held Oct 18, amber 'No next step' with Call back and Send link buttons in the row), Elite Mentorship (booked, call Thu Nov 7). Timeline under the cards; the record rail on the right.",
+   "risk": "A person with one deal gets one card, which is just a row.",
+   "html": ".impeccable/mocks/decision/person-programs.html"
+  },
+  {
+   "id": "dealt-strip",
+   "kind": "dealt",
+   "label": "Strip and deal cards",
+   "lineage": "The meeting and task pages' board strip, for a person",
+   "thesis": "The person as one board row, like the meeting and task pages, then each deal as its own card with its stage track and next step.",
+   "palette": [
+    "#141A28",
+    "#F5F6F8",
+    "#84B135",
+    "#4C6FD0"
+   ],
+   "materials": [
+    "navy person strip",
+    "deal cards with stage tracks",
+    "record rail"
+   ],
+   "viewport": "Navy strip: PERSON (Marco Reyes, Customer since Oct 25), PAID ($100), NEXT STEP (amber 'No next step on 25K Accelerator'), REACH BY (Call, Text). Under it, deal cards stacked: each with its stage track, credit line and next step; the one without a step carries the lime Set next step button. Timeline below; the record rail on the right.",
+   "risk": "Three deal cards with tracks run long; older deals push the timeline down.",
+   "html": ".impeccable/mocks/decision/person-strip.html"
+  },
+  {
+   "id": "challenger-ticket-wallet",
+   "kind": "challenger",
+   "catalogId": "vernacular-ephemera-jet-age-ticket-wallet",
+   "verdict": "declined",
+   "label": "Jet-age ticket wallet",
+   "lineage": "airline coupon books",
+   "thesis": "One journey as tear-off coupons; the wallet shows what remains.",
+   "palette": ["#1B2A52", "#FFFFFF", "#C8302F", "#6B4E9B"],
+   "materials": ["coupon stock", "carbon numerals"],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Deals aren't legs of one trip; a person runs several in parallel.",
+   "kept": "Nothing disappears, it closes: won and lost deals stay, marked."
+  },
+  {
+   "id": "challenger-split-flap",
+   "kind": "challenger",
+   "catalogId": "signals-instruments-split-flap-concourse",
+   "verdict": "declined",
+   "label": "Split-flap concourse",
+   "lineage": "rail concourse departure board",
+   "thesis": "Rows ranked by time; columns never move.",
+   "palette": ["#121212", "#F2F2F2", "#F0A020", "#B03030"],
+   "materials": ["flap faces", "steel frame"],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Already Magnus's signature; a person's record isn't a departures list.",
+   "kept": "State restyles a cell in place."
+  },
+  {
+   "id": "challenger-video-feed",
+   "kind": "challenger",
+   "catalogId": "pop-culture-shelf-vertical-video-feed-surface",
+   "verdict": "declined",
+   "label": "Vertical media feed",
+   "lineage": "full-screen video feeds",
+   "thesis": "One item owns the viewport; actions stacked in a rail.",
+   "palette": ["#000000", "#FFFFFF"],
+   "materials": ["full-bleed media"],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "A record page needs several facts at once, not one item per screen.",
+   "kept": "Actions grouped in one rail."
+  },
+  {
+   "id": "challenger-labanotation",
+   "kind": "challenger",
+   "catalogId": "notation-diagram-systems-labanotation",
+   "verdict": "declined",
+   "label": "Labanotation score",
+   "lineage": "dance notation",
+   "thesis": "Parallel columns on a time staff.",
+   "palette": ["#FFFFFF", "#000000", "#D9D9D9"],
+   "materials": ["score paper", "shaded blocks"],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Notation a closer would have to learn to read.",
+   "kept": "Parallel deals as side-by-side lanes."
+  },
+  {
+   "id": "challenger-plate-section",
+   "kind": "challenger",
+   "catalogId": "design-annual-s-plate-section",
+   "verdict": "declined",
+   "label": "Design annual plates",
+   "lineage": "design annual plate pages",
+   "thesis": "Registration furniture around large plates.",
+   "palette": ["#F5F4F6", "#16181A", "#DCDDF3"],
+   "materials": ["uncoated stock", "crosshairs"],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "An editorial look on a dense working screen.",
+   "kept": "Hairlines carry the grid."
+  },
+  {
+   "id": "challenger-acetate-manual",
+   "kind": "challenger",
+   "catalogId": "rw-manual-acetate-tab-board",
+   "verdict": "declined",
+   "label": "Acetate tab manual",
+   "lineage": "boxed-software manuals",
+   "thesis": "A stepped tab rail down the fore edge.",
+   "palette": ["#E8742C", "#F2C230", "#2E7DC2"],
+   "materials": ["acetate leaves", "divider board"],
+   "viewport": "Its own world's first screen.",
+   "risk": "A costume on a working page.",
+   "case": "Tabs would hide the next step behind navigation.",
+   "kept": "Extent shown at a glance."
+  }
+ ],
+ "reroll": true,
+ "steer": true,
+ "buildPath": {
+  "value": "code"
+ }
+}

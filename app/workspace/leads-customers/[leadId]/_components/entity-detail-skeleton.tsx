@@ -1,42 +1,38 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
+/**
+ * The person page's shape while it loads, at its real heights and on the
+ * page's own container steps: the board strip; a deal card, then the
+ * booking answers beside the timeline; the person card on the right from
+ * @4xl, under the rest when narrower.
+ */
 export function EntityDetailSkeleton() {
-	return (
-		<div
-			className="mx-auto flex w-full max-w-352 flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8"
-			role="status"
-			aria-label="Loading lead or customer detail"
-		>
-			<div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5">
-				<Skeleton className="h-5 w-40 skeleton-shimmer" />
-				<Skeleton className="mt-4 h-9 w-72 max-w-full skeleton-shimmer" />
-				<Skeleton className="mt-3 h-4 w-96 max-w-full skeleton-shimmer" />
-				<Skeleton className="mt-4 h-16 w-full skeleton-shimmer" />
-			</div>
-			<div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
-				<div className="flex min-w-0 flex-col gap-5">
-					{Array.from({ length: 4 }).map((_, index) => (
-						<div
-							key={index}
-							className="rounded-xl bg-card ring-1 ring-foreground/10"
-						>
-							<Skeleton className="m-3 h-5 w-32 skeleton-shimmer" />
-							<Skeleton className="mx-3 mb-3 h-20 w-[calc(100%-1.5rem)] skeleton-shimmer" />
-						</div>
-					))}
-				</div>
-				<div className="flex flex-col gap-5">
-					{Array.from({ length: 3 }).map((_, index) => (
-						<div
-							key={index}
-							className="rounded-xl bg-card ring-1 ring-foreground/10"
-						>
-							<Skeleton className="m-3 h-5 w-28 skeleton-shimmer" />
-							<Skeleton className="mx-3 mb-3 h-14 w-[calc(100%-1.5rem)] skeleton-shimmer" />
-						</div>
-					))}
-				</div>
-			</div>
-		</div>
-	);
+  return (
+    <div
+      className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3"
+      role="status"
+      aria-label="Loading the person"
+    >
+      <div className="h-[12.5rem] rounded-xl bg-board @5xl:h-[5.75rem]">
+        <div className="flex h-full flex-col gap-4 p-4 @5xl:flex-row @5xl:items-center @5xl:gap-6 @5xl:pt-9">
+          <Skeleton className="h-9 w-60 bg-board-raised" />
+          <Skeleton className="h-6 w-28 bg-board-raised" />
+          <Skeleton className="h-8 w-24 bg-board-raised" />
+          <Skeleton className="h-9 flex-1 bg-board-raised" />
+          <Skeleton className="h-8 w-72 max-w-full bg-board-raised" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3.5 short:gap-3 @4xl:grid-cols-[minmax(0,1fr)_360px] @4xl:gap-x-[1.125rem]">
+        <div className="flex flex-col gap-3.5 short:gap-3">
+          <Skeleton className="h-[15.5rem] rounded-xl" />
+          <div className="grid grid-cols-1 gap-3.5 short:gap-3 @4xl:grid-cols-2">
+            <Skeleton className="h-36 rounded-xl" />
+            <Skeleton className="h-36 rounded-xl" />
+          </div>
+        </div>
+        <Skeleton className="h-72 rounded-xl" />
+      </div>
+    </div>
+  );
 }

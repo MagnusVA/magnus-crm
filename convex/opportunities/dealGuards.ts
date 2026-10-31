@@ -111,6 +111,40 @@ export function canStartFollowUp(deal: DealStateFields): boolean {
   return awaitsCallResult(deal) || isMissedMeetingLoss(deal) !== null;
 }
 
+/** Whether the deal has an open task: a pending call-back, text-back or link. */
+export type DealOpenTasks = { hasOpenTask: boolean };
+
+// Far above the open tasks one deal has.
+const OPEN_TASK_SCAN = 20;
+
+/**
+ * The deal's open tasks, with one indexed read. A stale-deal nudge is the
+ * CRM's reminder, not a step anyone planned, so it doesn't count.
+ */
+export async function loadDealOpenTasks(
+  ctx: QueryCtx | MutationCtx,
+  dealId: Id<"opportunities">,
+): Promise<DealOpenTasks> {
+  const pending = await ctx.db
+    .query("followUps")
+    .withIndex("by_opportunityId_and_status_and_reason", (q) =>
+      q.eq("opportunityId", dealId).eq("status", "pending"),
+    )
+    .take(OPEN_TASK_SCAN);
+  return {
+    hasOpenTask: pending.some((followUp) => followUp.reason !== "stale_opportunity_nudge"),
+  };
+}
+
+/**
+ * A new next step on a deal already at Follow-up whose tasks all closed (a
+ * canceled link, a call-back marked done): it stays at Follow-up and gets a
+ * new task. One open task at a time, so a second click is refused.
+ */
+export function canRestartFollowUp(deal: DealStateFields, tasks: DealOpenTasks): boolean {
+  return isOpenAt(deal, ["follow_up"]) && !tasks.hasOpenTask;
+}
+
 /** A reschedule link: only on a deal a no-show closed. */
 export function canSendRescheduleLink(deal: DealStateFields): boolean {
   return isMissedMeetingLoss(deal) === "no_show";
