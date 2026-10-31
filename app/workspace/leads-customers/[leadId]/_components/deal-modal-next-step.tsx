@@ -80,9 +80,11 @@ export function DealModalNextStep({
               variant={showSetNextStep ? "outline" : "default"}
             />
           ) : null}
-          {showSetNextStep ? (
-            <SetNextStepButton opportunityId={opportunity._id} leadName={leadName} />
-          ) : null}
+          <SetNextStepButton
+            canSet={showSetNextStep}
+            opportunityId={opportunity._id}
+            leadName={leadName}
+          />
         </div>
       </div>
 

@@ -13,15 +13,19 @@ import type { Id } from "@/convex/_generated/dataModel";
  * set from the deal itself rather than a call. A closer sets it on their own
  * deal; an admin sets it for the deal's closer. The server decides whether
  * the deal takes one (`resolveFollowUpStart`); the page shows the button only
- * where the payload's `nextStep.canSet` says so.
+ * where the payload's `nextStep.canSet` says so. Pass that as `canSet` rather
+ * than unmounting this: a booking link makes `canSet` false while its dialog
+ * still shows the link to copy.
  *
  * Lime: it is the deal's one next action (DESIGN.md, The Next Action Rule).
  */
 export function SetNextStepButton({
+  canSet,
   opportunityId,
   leadName,
   size = "sm",
 }: {
+  canSet: boolean;
   opportunityId: Id<"opportunities">;
   leadName?: string | null;
   size?: "xs" | "sm" | "default";
@@ -31,10 +35,12 @@ export function SetNextStepButton({
 
   return (
     <>
-      <Button size={size} onClick={() => setOpen(true)}>
-        <CalendarPlusIcon data-icon="inline-start" aria-hidden="true" />
-        Set next step
-      </Button>
+      {canSet ? (
+        <Button size={size} onClick={() => setOpen(true)}>
+          <CalendarPlusIcon data-icon="inline-start" aria-hidden="true" />
+          Set next step
+        </Button>
+      ) : null}
       {open ? (
         isAdmin ? (
           <AdminFollowUpDialog

@@ -127,9 +127,11 @@ function PersonDealCard({ deal }: { deal: PersonDealEntry }) {
         )}
         {deal.canAct || ownView ? (
           <div className="ml-auto flex flex-wrap items-center gap-x-3.5 gap-y-1">
-            {deal.canAct && nextStep?.canSet && deal.state?.kind !== "step" && owed === null ? (
-              <SetNextStepButton opportunityId={opportunity._id} leadName={lead.fullName ?? null} />
-            ) : null}
+            <SetNextStepButton
+              canSet={deal.canAct && !!nextStep?.canSet && deal.state?.kind !== "step" && owed === null}
+              opportunityId={opportunity._id}
+              leadName={lead.fullName ?? null}
+            />
             {taskHref ? (
               <Link href={taskHref} className={detailLinkClass}>
                 Open task
