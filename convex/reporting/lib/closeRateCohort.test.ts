@@ -200,6 +200,12 @@ describe("readCloseRateCohort", () => {
         .toEqual({ deals: [], capped: true });
       expect(await readCloseRateCohort(ctx, fixture.tenantId, range, { byteBudget: 1 }))
         .toEqual({ deals: [], capped: true });
+      // One index range for the held meetings and two per deal looked up.
+      expect(await readCloseRateCohort(ctx, fixture.tenantId, range, { maxIndexRanges: 2 }))
+        .toEqual({ deals: [], capped: true });
+      expect(
+        (await readCloseRateCohort(ctx, fixture.tenantId, range, { maxIndexRanges: 1000 })).capped,
+      ).toBe(false);
     });
   });
 

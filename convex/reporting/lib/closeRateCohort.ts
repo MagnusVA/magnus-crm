@@ -97,6 +97,10 @@ const DEFAULT_MAX_HELD_MEETINGS = 2000;
 // Three reads per held meeting at most (the meeting, its deal's first held
 // meeting, the deal), so the budget is larger than the 512 KB default.
 const DEFAULT_BYTE_BUDGET = 4 * 1024 * 1024;
+// A transaction may read 4,096 index ranges, and every query and `db.get`
+// is one. The cohort takes one for the held meetings and up to two per deal,
+// so at most 1,500 of them, leaving the rest for the caller's other reads.
+const DEFAULT_MAX_INDEX_RANGES = 1500;
 
 async function firstHeldMeeting(
   ctx: QueryCtx,
@@ -124,6 +128,7 @@ export async function readCloseRateCohort(
     closerId?: Id<"users">;
     maxHeldMeetings?: number;
     byteBudget?: number;
+    maxIndexRanges?: number;
   } = {},
 ): Promise<{ deals: CloseRateCohortDeal[]; capped: boolean }> {
   const { start, end } = range;
@@ -166,6 +171,12 @@ export async function readCloseRateCohort(
   const opportunityIds = [
     ...new Set(held.rows.map((meeting) => meeting.opportunityId)),
   ];
+  // Each deal's first held call and the deal itself: checked before reading,
+  // so a cohort too large for the transaction is unknown, not a failure.
+  const maxIndexRanges = options.maxIndexRanges ?? DEFAULT_MAX_INDEX_RANGES;
+  if (1 + 2 * opportunityIds.length > maxIndexRanges) {
+    return { deals: [], capped: true };
+  }
   const firsts = await readLiveDocuments(
     opportunityIds,
     async (opportunityId) => await firstHeldMeeting(ctx, opportunityId),
