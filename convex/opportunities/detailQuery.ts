@@ -4,6 +4,8 @@ import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPay
 import { earliestCountingPayment } from "../lib/enrollments";
 import { isSideDealOrigin, normalizeOpportunitySource } from "../lib/sideDeals";
 import { requireTenantUser } from "../requireTenantUser";
+import { loadDealNextStepFor } from "../lib/dealNextStep";
+import { canMarkLost, loadDealTasks } from "./dealGuards";
 import { dealLabelOf, parseDealEventOutcomes } from "./stageLabels";
 
 export const getOpportunityDetail = query({
@@ -80,6 +82,11 @@ export const getOpportunityDetail = query({
         )
         .take(50),
       buildOpportunityAttributionPayload(ctx, opportunity),
+    ]);
+    // The viewer is the deal's closer or an admin (checked above).
+    const [nextStep, dealTasks] = await Promise.all([
+      loadDealNextStepFor(ctx, opportunity, true),
+      loadDealTasks(ctx, opportunity._id),
     ]);
 
     const payments = paymentRows.filter(
@@ -226,12 +233,17 @@ export const getOpportunityDetail = query({
           isWon &&
           activeSideDealPayment !== undefined,
         voidablePaymentId: activeSideDealPayment?._id,
+        // An admin fixes any deal from the person page (user decision,
+        // 2026-10-31): closes it as lost, or cancels its open task.
+        canAdminMarkLost: isAdmin && canMarkLost(opportunity, dealTasks),
+        canAdminCancelTask: isAdmin && nextStep?.taskId != null,
         canDeleteOpportunity:
           isOpenSideDeal &&
           payments.length === 0 &&
           meetings.length === 0 &&
           hasOnlyStaleNudgeFollowUps,
       },
+      nextStep,
       attribution,
     };
   },

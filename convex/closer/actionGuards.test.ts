@@ -19,6 +19,11 @@ import { namedStatus } from "../../tests/stopStatusFixtures";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const calendlyStates = guardStates("calendly");
+// A follow-up starts where today's guard allowed it, and also restarts on a
+// deal at Follow-up whose tasks all closed (the person page's next step).
+const startsOrRestartsFollowUp = (state: GuardState) =>
+  today.startFollowUp(state.status) ||
+  (state.status === "follow_up_scheduled" && state.task === undefined);
 // The side deal a booking joined is `scheduled` with a meeting, and Call held.
 const meetingStates: GuardState[] = [
   ...calendlyStates,
@@ -108,7 +113,7 @@ describe("follow-ups", () => {
   it.each(calendlyStates)("createSchedulingLinkFollowUp: $label", async (state) => {
     const harness = await guardHarness();
     const { opportunityId } = await guardDealIn(harness, state);
-    const allowed = today.startFollowUp(state.status);
+    const allowed = startsOrRestartsFollowUp(state);
     await expectGuard(
       harness,
       opportunityId,
@@ -176,7 +181,7 @@ describe("follow-ups", () => {
           contactMethod: "call",
           reminderScheduledAt: Date.now() + DAY_MS,
         }),
-      today.startFollowUp(state.status),
+      startsOrRestartsFollowUp(state),
     );
   });
 });

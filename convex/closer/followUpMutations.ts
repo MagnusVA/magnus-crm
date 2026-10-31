@@ -8,6 +8,7 @@ import { canStartFollowUp, describeDealState } from "../opportunities/dealGuards
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
+import { landFollowUp, resolveFollowUpStart } from "../lib/followUpStart";
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -160,13 +161,9 @@ export const createSchedulingLinkFollowUp = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
     // A second Generate (a double click, another tab) finds the deal at
-    // Follow-up already and is refused here, so a deal never holds two
-    // pending links from one dialog.
-    if (!canStartFollowUp(opportunity)) {
-      throw new Error(
-        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
-      );
-    }
+    // Follow-up with this link open and is refused here, so a deal never
+    // holds two pending links from one dialog.
+    const start = await resolveFollowUpStart(ctx, opportunity, meeting, "Cannot schedule follow-up");
     if (meeting) {
       assertCanRecordMeetingOutcome({
         meeting,
@@ -222,14 +219,10 @@ export const createSchedulingLinkFollowUp = mutation({
       occurredAt: now,
     });
 
-    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
-    // Follow-up, which only the exception allows. The meeting page keeps the
-    // dialog mounted while the deal moves underneath it (outcome-section.tsx),
-    // so the closer still sees and copies the link.
-    await transitionOpportunity(ctx, opportunityId, {
-      to: { stage: "follow_up" },
-      fields: { updatedAt: now },
-      exception: "missed_meeting_next_step",
+    // The meeting page keeps the dialog mounted while the deal moves
+    // underneath it (outcome-section.tsx), so the closer still sees and
+    // copies the link.
+    await landFollowUp(ctx, opportunityId, start, {
       source: "closer",
       actorUserId: userId,
       occurredAt: now,
@@ -311,11 +304,7 @@ export const createManualReminderFollowUpPublic = mutation({
     ) {
       throw new Error("Meeting does not belong to this opportunity");
     }
-    if (!canStartFollowUp(opportunity)) {
-      throw new Error(
-        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
-      );
-    }
+    const start = await resolveFollowUpStart(ctx, opportunity, meeting, "Cannot schedule follow-up");
 
     const now = Date.now();
     if (args.reminderScheduledAt <= now) {
@@ -363,12 +352,7 @@ export const createManualReminderFollowUpPublic = mutation({
       occurredAt: now,
     });
 
-    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
-    // Follow-up, which only the exception allows.
-    await transitionOpportunity(ctx, args.opportunityId, {
-      to: { stage: "follow_up" },
-      fields: { updatedAt: now },
-      exception: "missed_meeting_next_step",
+    await landFollowUp(ctx, args.opportunityId, start, {
       source: "closer",
       actorUserId: userId,
       occurredAt: now,

@@ -11,6 +11,7 @@ import type { CrmRole } from "../lib/roleMapping";
 import { ENROLLMENT_DEAL_LIMIT, ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
 import { dealLabelOf, meetingDealLabelOf } from "../opportunities/stageLabels";
+import { loadDealNextStepFor } from "../lib/dealNextStep";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import {
   canOpenMeetingDetail,
@@ -50,6 +51,9 @@ function compactOpportunity(opportunity: Doc<"opportunities">) {
     firstMeetingId: opportunity.firstMeetingId,
     firstMeetingAt: opportunity.firstMeetingAt,
     paymentReceivedAt: opportunity.paymentReceivedAt,
+    // The person page's lost deal card says why and when.
+    lostReason: opportunity.lostReason,
+    lostAt: opportunity.lostAt,
     latestActivityAt: opportunity.latestActivityAt,
     createdAt: opportunity.createdAt,
     updatedAt: opportunity.updatedAt,
@@ -360,14 +364,19 @@ export async function buildEntityDetailPayload(
           dealLabelOf(opportunity).position === "call_held",
       });
 
+      const [attribution, nextStep] = await Promise.all([
+        canOpenOpportunity
+          ? buildOpportunityAttributionPayload(ctx, opportunity, { teamMembers })
+          : Promise.resolve(null),
+        loadDealNextStepFor(ctx, opportunity, canOpenOpportunity),
+      ]);
       return {
         opportunity: compactOpportunity(opportunity),
         closer: opportunity.assignedCloserId
           ? closerById.get(opportunity.assignedCloserId) ?? null
           : null,
-        attribution: canOpenOpportunity
-          ? await buildOpportunityAttributionPayload(ctx, opportunity, { teamMembers })
-          : null,
+        attribution,
+        nextStep,
         permissions,
       };
     }),
