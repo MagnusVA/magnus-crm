@@ -196,6 +196,9 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   if (skipped) return { data: undefined, source, freshness: { source: "live" } };
   let shownState: WarehouseState = answerState === undefined || answerState === "missing" ? "loading" : answerState;
   if (shownState === "ready" && payloadJson === null) shownState = "loading";
+  // A split can't show anything until today's part can be read, such as
+  // while the business day is rebuilding.
+  if (shownState === "ready" && split && options.todayArgs === "skip") shownState = "loading";
   return {
     data: split ? mergedData : warehouseData,
     source,

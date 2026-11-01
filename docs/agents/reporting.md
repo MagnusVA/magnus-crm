@@ -1,6 +1,6 @@
 # Reporting from ClickHouse
 
-Every report page reads today live from Convex, on its own or as part of a longer range. Once a page is switched for the tenant, the days before today read ClickHouse. Fivetran copies Convex to ClickHouse every 6 hours, and answers are cached in Convex, so ClickHouse only runs while a sync already woke it. The design and its decisions are in `docs/plans/clickhouse-reporting.md`.
+Every report page reads today live from Convex, on its own or as part of a longer range. Once a page is switched for the tenant, the days before today read ClickHouse. The exception is a report whose days can't be split, Team's outcome mix: a range that includes today reads it whole from ClickHouse, as of the last sync. Fivetran copies Convex to ClickHouse every 6 hours, and answers are cached in Convex, so ClickHouse only runs while a sync already woke it. The design and its decisions are in `docs/plans/clickhouse-reporting.md`.
 
 ## How a range is answered
 
@@ -8,7 +8,7 @@ Every report page reads today live from Convex, on its own or as part of a longe
 | --- | --- | --- |
 | Today, or any range that starts today | The page's Convex reader | The page's Convex reader |
 | Ended before today | The page's Convex reader (Operations: snapshot job over 7 days) | `analyticsResults`, filled from ClickHouse |
-| Days before today and today (This week, This month, Last 90 days, custom) | The page's Convex reader (Operations: snapshot job over 7 days) | ClickHouse for the days before today, the Convex reader from the start of today, merged in the page |
+| Days before today and today (This week, This month, Last 90 days, custom) | The page's Convex reader (Operations: snapshot job over 7 days) | ClickHouse for the days before today, the Convex reader from the start of today, merged in the page (Team's outcome mix: the whole range from ClickHouse) |
 
 - `tenants.analyticsReports` lists the switched pages, and `getCurrentTenant` returns it.
 - `reportRangePlan` (Reports pages, browser days) and `dashboardRangePlan` (Overview, Operations, lead gen, business days) in `lib/analyticsRange.ts` plan a range as `live`, `warehouse` or `split`. A split's history is the preset with `throughYesterday: true` ("this month through yesterday"), or custom dates ending yesterday.
@@ -23,7 +23,7 @@ Every report page reads today live from Convex, on its own or as part of a longe
 | --- | --- |
 | `definition.ts` | `defineReport` and the report contract: filters, SQL, finalize, and the Convex reader it replaces |
 | `definitions/*.ts` | One file per page, each with a parity test |
-| `merge/*.ts` | One file per page: joins ClickHouse's answer for the days before today with the reader's answer from today. Pages import them, so they import server code as types only |
+| `merge/*.ts` | One file per page: joins ClickHouse's answer for the days before today with the reader's answer from today. Pages import the merge functions at runtime, so a merge module imports server modules as types only |
 | `registry.ts` | Every report; add a page's definitions here |
 | `reports.ts` | `get` (the query pages subscribe to) and `request` (registers a key and runs it on a miss) |
 | `results.ts` | The `analyticsResults` lifecycle (answers live in `analyticsPayloads`, so bookkeeping reads small rows), the optional daily budget, and finalize |
