@@ -35,7 +35,11 @@ export function PersonRow({ row, now, setting }: { row: LeadCustomerListRowDto }
 		<li className={cn(ROW_GRID, "relative border-t first:border-t-0 hover:bg-accent/60")}>
 			<div className={CELL.person}>
 				<Link
-					href={`/workspace/leads-customers/${row.leadId}`}
+					href={
+						row.selectedOpportunityId
+							? `/workspace/leads-customers/${row.leadId}?opportunityId=${row.selectedOpportunityId}`
+							: `/workspace/leads-customers/${row.leadId}`
+					}
 					className={cn(ROW_LINK, "block truncate text-[15px] leading-5 font-semibold")}
 					translate="no"
 				>
@@ -48,7 +52,7 @@ export function PersonRow({ row, now, setting }: { row: LeadCustomerListRowDto }
 				<LifecycleWord row={row} now={now} setting={setting} />
 			</div>
 			<div className={CELL.deal}>
-				<DealCell deal={row.deal} />
+				<DealCell deal={row.deal ?? null} />
 			</div>
 			<div className={CELL.next}>
 				{row.deal ? <NextStepLine deal={row.deal} now={now} setting={setting} /> : null}
