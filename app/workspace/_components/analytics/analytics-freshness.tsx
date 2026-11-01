@@ -20,9 +20,11 @@ function formatAsOf(timestamp: number, now: number) {
 type WarehouseFreshness = Extract<AnalyticsFreshness, { source: "warehouse" }>;
 
 /**
- * One line for a page's panels: "Live" on Today, "Data as of 2:31 PM"
- * otherwise, and the loading, waiting, delayed and failed states of the
- * reporting database. Pass every panel's freshness; the page shows one line.
+ * One line for a page's panels: "Live" on Today, "Data as of 2:31 PM" for a
+ * range that ended before today, "Today live · earlier days as of 2:31 PM"
+ * for one that includes today, and the loading, waiting, delayed and failed
+ * states of the reporting database. Pass every panel's freshness; the page
+ * shows one line.
  */
 export function AnalyticsFreshnessLine({ items }: { items: readonly AnalyticsFreshness[] }) {
   const now = useNow();
@@ -79,7 +81,14 @@ export function AnalyticsFreshnessLine({ items }: { items: readonly AnalyticsFre
 
   const asOf = Math.min(...warehouse.map((item) => item.asOf ?? Number.POSITIVE_INFINITY));
   const refreshing = warehouse.some((item) => item.refreshing);
-  const label = Number.isFinite(asOf) ? `Data as of ${formatAsOf(asOf, now)}` : "Data from the last sync";
+  const liveToday = warehouse.some((item) => item.liveToday);
+  const label = liveToday
+    ? Number.isFinite(asOf)
+      ? `Today live · earlier days as of ${formatAsOf(asOf, now)}`
+      : "Today live · earlier days from the last sync"
+    : Number.isFinite(asOf)
+      ? `Data as of ${formatAsOf(asOf, now)}`
+      : "Data from the last sync";
   return (
     <div className="flex flex-col gap-2">
       {Number.isFinite(asOf) && now - asOf > DELAYED_AFTER_MS ? (
@@ -91,9 +100,12 @@ export function AnalyticsFreshnessLine({ items }: { items: readonly AnalyticsFre
           </AlertDescription>
         </Alert>
       ) : null}
-      <p className="text-xs text-muted-foreground" role="status">
-        {label}
-        {refreshing ? " · Refreshing" : ""}
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+        {liveToday ? <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-500" /> : null}
+        <span>
+          {label}
+          {refreshing ? " · Refreshing" : ""}
+        </span>
       </p>
     </div>
   );

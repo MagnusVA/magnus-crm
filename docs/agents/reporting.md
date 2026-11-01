@@ -1,18 +1,21 @@
 # Reporting from ClickHouse
 
-Every report page reads Today live from Convex. Any other range reads ClickHouse once the page is switched for the tenant. Fivetran copies Convex to ClickHouse every 6 hours, and answers are cached in Convex, so ClickHouse only runs while a sync already woke it. The design and its decisions are in `docs/plans/clickhouse-reporting.md`.
+Every report page reads today live from Convex, on its own or as part of a longer range. Once a page is switched for the tenant, the days before today read ClickHouse. The exception is a report whose days can't be split, Team's outcome mix: a range that includes today reads it whole from ClickHouse, as of the last sync. Fivetran copies Convex to ClickHouse every 6 hours, and answers are cached in Convex, so ClickHouse only runs while a sync already woke it. The design and its decisions are in `docs/plans/clickhouse-reporting.md`.
 
 ## How a range is answered
 
 | Range | Page not switched | Page switched (or `?analytics=preview`) |
 | --- | --- | --- |
-| Today | The page's Convex reader | The page's Convex reader |
-| Anything else | The page's Convex reader (Operations: snapshot job over 7 days) | `analyticsResults`, filled from ClickHouse |
+| Today, or any range that starts today | The page's Convex reader | The page's Convex reader |
+| Ended before today | The page's Convex reader (Operations: snapshot job over 7 days) | `analyticsResults`, filled from ClickHouse |
+| Days before today and today (This week, This month, Last 90 days, custom) | The page's Convex reader (Operations: snapshot job over 7 days) | ClickHouse for the days before today, the Convex reader from the start of today, merged in the page (Team's outcome mix: the whole range from ClickHouse) |
 
 - `tenants.analyticsReports` lists the switched pages, and `getCurrentTenant` returns it.
-- `useAnalyticsReport` (`app/workspace/_components/analytics/`) picks the source for each panel. `AnalyticsFreshnessLine` shows "Live", "Data as of …", or the loading, waiting, delayed and failed states.
-- A Reports page range maps to a preset or custom dates with `reportRangeToAnalyticsRange`, a dashboard range with `dashboardRangeToAnalyticsRange` (`lib/analyticsRange.ts`).
-- A preset ("this month") is one cache key all month. It's resolved when its answer is computed.
+- `reportRangePlan` (Reports pages, browser days) and `dashboardRangePlan` (Overview, Operations, lead gen, business days) in `lib/analyticsRange.ts` plan a range as `live`, `warehouse` or `split`. A split's history is the preset with `throughYesterday: true` ("this month through yesterday"), or custom dates ending yesterday.
+- `useAnalyticsReport` (`app/workspace/_components/analytics/`) reads each panel. It takes the reader's arguments for the whole range (`liveArgs`), for the part from the start of today (`todayArgs`, from `reportWindowFromToday` or `dashboardRangeFromToday`), and the report's `merge`. It merges only an answer that covers exactly the days before today. A report whose days can't be split passes `merge: null` and reads the whole range from ClickHouse as of the last sync: Team's outcome mix, where a payment or reschedule today changes an earlier call's outcome.
+- `AnalyticsFreshnessLine` shows "Live", "Data as of …", "Today live · earlier days as of …", or the loading, waiting, delayed and failed states.
+- A preset ("this month") is one cache key all month. It's resolved when its answer is computed. A preset through yesterday ends on a fixed day, so the first request after midnight runs it again, and on its first day (this week, on Monday) it has nothing to run.
+- Between the evening sync and the first sync after midnight, the hours from that evening sync to midnight are in neither source. A late change to an earlier day, such as last Tuesday's call marked held today, shows after the next sync.
 
 ## The engine (`convex/analytics/`)
 
@@ -20,6 +23,7 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
 | --- | --- |
 | `definition.ts` | `defineReport` and the report contract: filters, SQL, finalize, and the Convex reader it replaces |
 | `definitions/*.ts` | One file per page, each with a parity test |
+| `merge/*.ts` | One file per page: joins ClickHouse's answer for the days before today with the reader's answer from today. Pages import the merge functions at runtime, so a merge module imports server modules as types only |
 | `registry.ts` | Every report; add a page's definitions here |
 | `reports.ts` | `get` (the query pages subscribe to) and `request` (registers a key and runs it on a miss) |
 | `results.ts` | The `analyticsResults` lifecycle (answers live in `analyticsPayloads`, so bookkeeping reads small rows), the optional daily budget, and finalize |
@@ -42,7 +46,8 @@ Every report page reads Today live from Convex. Any other range reads ClickHouse
    - The SQL returns the rows the reader would load. `finalize` maps them with `docsFromRows` and calls the same builder.
    - For high-volume sources (captures, domain events) or a reader that reads an aggregate or bucket table, aggregate in SQL to the grain the builder needs.
 3. Add a parity test with `expectSameAnswer` and `rowFromDoc` (`tests/analyticsParity.ts`).
-4. Wire the page with `useAnalyticsReport` and `AnalyticsFreshnessLine`.
+4. Write the report's merge in `merge/<page>.ts` with the helpers in `merge/helpers.ts`: counts and sums add, rates are worked out again from their parts, lists keyed by an id combine, and current people and labels come from today's answer. Test it with `expectMergedAnswer` (`tests/analyticsMerge.ts`): merging the reader's answers for two adjacent windows must equal its answer for both.
+5. Wire the page with `useAnalyticsReport` and `AnalyticsFreshnessLine`.
 
 ## SQL rules
 

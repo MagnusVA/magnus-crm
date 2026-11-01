@@ -6,7 +6,13 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import {
+  mergeBookedVsSold,
+  mergeRevenueDetails,
+  mergeRevenueMetrics,
+  mergeRevenueTrend,
+} from "@/convex/analytics/merge/revenue";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import {
@@ -72,52 +78,60 @@ export function RevenueReportPageClient() {
     [captureFiltersChanged, paymentType, programId],
   );
 
-  const queryFilters = {
-    ...dateRange,
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
+  const now = useNow();
+  const plan = reportRangePlan(dateRange, now);
+  const todayWindow = reportWindowFromToday(dateRange, now);
+  const filters = { programId, paymentType };
+  const readerFilters = {
     ...(programId ? { programId } : {}),
     ...(paymentType ? { paymentType } : {}),
   };
-
-  // Today reads Convex live; any other range reads ClickHouse once the page
-  // is switched (docs/plans/clickhouse-reporting.md §4).
-  const now = useNow();
-  const range = reportRangeToAnalyticsRange(dateRange, now);
-  const filters = { programId, paymentType };
+  const matrixFilters = {
+    ...(programId ? { paymentProgramId: programId } : {}),
+    ...(paymentType ? { paymentType } : {}),
+  };
   const metricsReport = useAnalyticsReport({
     page: "revenue",
     reportId: "revenue.metrics",
-    range,
+    plan,
     filters,
     live: api.reporting.revenue.getRevenueMetrics,
-    liveArgs: queryFilters,
+    liveArgs: { ...dateRange, ...readerFilters },
+    todayArgs: { ...todayWindow, ...readerFilters },
+    merge: mergeRevenueMetrics,
   });
   const detailsReport = useAnalyticsReport({
     page: "revenue",
     reportId: "revenue.details",
-    range,
+    plan,
     filters,
     live: api.reporting.revenue.getRevenueDetails,
-    liveArgs: queryFilters,
+    liveArgs: { ...dateRange, ...readerFilters },
+    todayArgs: { ...todayWindow, ...readerFilters },
+    merge: mergeRevenueDetails,
   });
   const trendReport = useAnalyticsReport({
     page: "revenue",
     reportId: "revenue.trend",
-    range,
+    plan,
     filters: { ...filters, granularity },
     live: api.reporting.revenueTrend.getRevenueTrend,
-    liveArgs: { ...queryFilters, granularity },
+    liveArgs: { ...dateRange, ...readerFilters, granularity },
+    todayArgs: { ...todayWindow, ...readerFilters, granularity },
+    merge: mergeRevenueTrend,
   });
   const bookedVsSoldReport = useAnalyticsReport({
     page: "revenue",
     reportId: "revenue.booked_vs_sold",
-    range,
+    plan,
     filters,
     live: api.reporting.bookedVsSold.getBookedVsSoldMatrix,
-    liveArgs: {
-      ...dateRange,
-      ...(programId ? { paymentProgramId: programId } : {}),
-      ...(paymentType ? { paymentType } : {}),
-    },
+    liveArgs: { ...dateRange, ...matrixFilters },
+    todayArgs: { ...todayWindow, ...matrixFilters },
+    merge: mergeBookedVsSold,
   });
   const metrics = metricsReport.data;
   const details = detailsReport.data;

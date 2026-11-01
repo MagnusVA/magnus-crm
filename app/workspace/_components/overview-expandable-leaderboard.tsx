@@ -4,7 +4,8 @@ import { BusinessDayRebuildingState } from "./day-definition";
 import type { FunctionReturnType } from "convex/server";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { mergeOverviewLeaderboard } from "@/convex/analytics/merge/overview";
+import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
 import { businessDateForInstant } from "@/lib/businessDay";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
@@ -67,16 +68,22 @@ function ExpandedLeaderboardQuery({
 }) {
 	const { setting } = useBusinessDay();
 	const now = useNow();
+	// Today reads Convex live, and so does today's part of a longer range; the
+	// days before today read ClickHouse once the page is switched
+	// (docs/agents/reporting.md).
+	const todayBusinessDate = businessDateForInstant(now, setting);
 	const report = useAnalyticsReport({
 		page: "overview",
 		reportId: "overview.leaderboard",
-		range: dashboardRangeToAnalyticsRange(
+		plan: dashboardRangePlan(
 			range,
-			businessDateForInstant(now, setting),
+			todayBusinessDate,
 		),
 		filters: { kind },
 		live: api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
 		liveArgs: { kind, range },
+		todayArgs: { kind, range: dashboardRangeFromToday(range, todayBusinessDate) },
+		merge: mergeOverviewLeaderboard,
 	});
 	const data = report.data;
 

@@ -3,7 +3,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { env, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { businessDateForInstant, type BusinessDaySetting } from "../../lib/businessDay";
-import { analyticsRangeDates, type ResolvedAnalyticsRange } from "../../lib/analyticsRange";
+import {
+  analyticsRangeDates,
+  analyticsRangeIsEmpty,
+  type ResolvedAnalyticsRange,
+} from "../../lib/analyticsRange";
 import { isClickHouseConfigured } from "./clickhouse";
 import { analyticsPool } from "./pool";
 import { getReportDefinition } from "./registry";
@@ -78,22 +82,38 @@ export async function findResult(
     .unique();
 }
 
+function rowToday(row: Doc<"analyticsResults">, now: number) {
+  return businessDateForInstant(now, {
+    timeZone: row.timeZone,
+    dayStartHour: row.dayStartHour,
+  });
+}
+
 /**
  * Whether a saved answer still covers the period its preset means at `now`.
  * "This month" computed last night still starts on the 1st; "yesterday"
- * computed yesterday doesn't.
+ * computed yesterday doesn't, and neither does "this month through
+ * yesterday".
  */
 export function answerCoversPeriod(row: Doc<"analyticsResults">, now: number) {
   if (!row.answer) return false;
   if (row.range.kind === "custom") return true;
-  const today = businessDateForInstant(now, {
-    timeZone: row.timeZone,
-    dayStartHour: row.dayStartHour,
-  });
-  const expected = analyticsRangeDates(row.range, today);
+  const expected = analyticsRangeDates(row.range, rowToday(row, now));
   if (expected.startDate !== row.answer.startDate) return false;
-  const fixedEnd = row.range.preset === "yesterday" || row.range.preset === "last_month";
+  const fixedEnd =
+    row.range.throughYesterday === true ||
+    row.range.preset === "yesterday" ||
+    row.range.preset === "last_month";
   return !fixedEnd || expected.endDateInclusive === row.answer.endDateInclusive;
+}
+
+/**
+ * A preset ended yesterday, on its first day ("this week through yesterday"
+ * on Monday). It has nothing to run until tomorrow; pages read today live.
+ */
+export function rangeHasNoDays(row: Doc<"analyticsResults">, now: number) {
+  if (row.range.kind === "custom" || row.range.throughYesterday !== true) return false;
+  return analyticsRangeIsEmpty(row.range, rowToday(row, now));
 }
 
 export function runIsInFlight(row: Doc<"analyticsResults">, now: number) {
@@ -210,7 +230,7 @@ export async function registerRequest(
     }
     return idle;
   }
-  if (runIsInFlight(row, now)) return idle;
+  if (runIsInFlight(row, now) || rangeHasNoDays(row, now)) return idle;
   const current =
     row.answer !== undefined && row.answer.watermark >= watermark && answerCoversPeriod(row, now);
   if (row.status === "ready" && current) return idle;

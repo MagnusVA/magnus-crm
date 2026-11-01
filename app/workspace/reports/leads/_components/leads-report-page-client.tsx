@@ -5,7 +5,12 @@ import { addDays, startOfDay } from "date-fns";
 import { api } from "@/convex/_generated/api";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import {
+  mergeAnswerDistribution,
+  mergeFormResponseKpis,
+  mergeLeadConversionMetrics,
+} from "@/convex/analytics/merge/leads";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import {
@@ -35,10 +40,12 @@ export function LeadsReportPageClient() {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
 
-  // Today reads Convex live; any other range reads ClickHouse once the page
-  // is switched (docs/plans/clickhouse-reporting.md §4).
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
   const now = useNow();
-  const range = reportRangeToAnalyticsRange(dateRange, now);
+  const plan = reportRangePlan(dateRange, now);
+  const todayWindow = reportWindowFromToday(dateRange, now);
   const rangeArgs = {
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
@@ -46,26 +53,34 @@ export function LeadsReportPageClient() {
   const metricsReport = useAnalyticsReport({
     page: "leads",
     reportId: "leads.conversion_metrics",
-    range,
+    plan,
     live: api.reporting.leadConversion.getLeadConversionMetrics,
     liveArgs: rangeArgs,
+    todayArgs: todayWindow,
+    merge: mergeLeadConversionMetrics,
   });
   const formKpisReport = useAnalyticsReport({
     page: "leads",
     reportId: "leads.form_kpis",
-    range,
+    plan,
     live: api.reporting.formResponseAnalytics.getFormResponseKpis,
     liveArgs: rangeArgs,
+    todayArgs: todayWindow,
+    merge: mergeFormResponseKpis,
   });
   const distributionReport = useAnalyticsReport({
     page: "leads",
     reportId: "leads.answer_distribution",
-    range,
+    plan,
     filters: { fieldKey: selectedFieldKey },
     live: api.reporting.formResponseAnalytics.getAnswerDistribution,
     liveArgs: selectedFieldKey
       ? { fieldKey: selectedFieldKey, ...rangeArgs }
       : "skip",
+    todayArgs: selectedFieldKey
+      ? { fieldKey: selectedFieldKey, ...todayWindow }
+      : "skip",
+    merge: mergeAnswerDistribution,
   });
   const metrics = metricsReport.data;
   const formKpis = formKpisReport.data;

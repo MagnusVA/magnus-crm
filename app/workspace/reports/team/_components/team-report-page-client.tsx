@@ -12,7 +12,8 @@ import { api } from "@/convex/_generated/api";
 import { addDays, startOfDay } from "date-fns";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { mergeTeamActions, mergeTeamMetrics, mergeTeamOperations } from "@/convex/analytics/merge/team";
+import { dashboardRangePlan } from "@/lib/analyticsRange";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -96,44 +97,65 @@ export function TeamReportPageClient() {
     endDate: businessDayStart(dayKeys.endDayKeyExclusive, setting),
   };
 
-  // The page reads tenant business days, so Today is the tenant's. Today
-  // reads Convex live; any other range reads ClickHouse once the page is
-  // switched (docs/plans/clickhouse-reporting.md §4).
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
   const now = useNow();
-  const range = dashboardRangeToAnalyticsRange(
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const todayStartDayKey = dayKeys.startDayKey > todayBusinessDate ? dayKeys.startDayKey : todayBusinessDate;
+  const todayArgs = queryRange === "skip" ? "skip" : {
+    startDate: businessDayStart(todayStartDayKey, setting),
+    endDate: queryRange.endDate,
+  };
+  const plan = dashboardRangePlan(
     {
       kind: "custom",
       startBusinessDate: dayKeys.startDayKey,
       endBusinessDateInclusive: addBusinessDays(dayKeys.endDayKeyExclusive, -1),
     },
-    businessDateForInstant(now, setting),
+    todayBusinessDate,
   );
   const metricsReport = useAnalyticsReport({
     page: "team",
     reportId: "team.metrics",
-    range,
+    plan,
     live: api.reporting.teamPerformance.getTeamPerformanceMetrics,
     liveArgs: queryRange,
+    todayArgs,
+    merge: mergeTeamMetrics,
   });
+  // A payment or a reschedule today can change the outcome of an earlier
+  // call, which neither half of a split would see, so the outcome mix reads
+  // the whole range from ClickHouse, as of the last sync.
   const outcomeMixReport = useAnalyticsReport({
     page: "team",
     reportId: "team.outcomes",
-    range,
+    plan,
     live: api.reporting.teamOutcomes.getTeamOutcomeMix,
     liveArgs: queryRange,
+    todayArgs: "skip",
+    merge: null,
   });
   const actionsReport = useAnalyticsReport({
     page: "team",
     reportId: "team.actions",
-    range,
+    plan,
     live: api.reporting.teamActions.getActionsPerCloserPerDay,
     liveArgs: queryRange,
+    todayArgs,
+    merge: mergeTeamActions,
   });
   const operationsReport = useAnalyticsReport({
     page: "team",
     reportId: "team.operations",
-    range,
+    plan,
     filters: operationsFilters,
+    todayArgs: !loaded || rebuilding ? "skip" : {
+      ...dayKeys,
+      startDayKey: todayStartDayKey,
+      ...operationsFilters,
+    },
+    merge: mergeTeamOperations,
     live: api.reporting.teamPerformance.getTeamOperationsDimensions,
     liveArgs: !loaded || rebuilding ? "skip" : {
       ...dayKeys,
@@ -170,6 +192,15 @@ export function TeamReportPageClient() {
     title: string;
     description: string;
   }> = [];
+
+  if (plan.kind === "split" && outcomeMixReport.source === "warehouse") {
+    notices.push({
+      id: "outcome-as-of-sync",
+      title: "Outcome mix as of the last sync",
+      description:
+        "A payment or reschedule today can change an earlier call's outcome, so the outcome mix updates with each sync instead of live.",
+    });
+  }
 
   if (outcomeMix?.isTruncated) {
     notices.push({

@@ -7,7 +7,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangleIcon, ListChecksIcon, TargetIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { businessDateForInstant } from "@/lib/businessDay";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { mergeSlackQualifications } from "@/convex/analytics/merge/slackQualifications";
+import { dashboardRangePlan } from "@/lib/analyticsRange";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import {
@@ -61,23 +62,30 @@ export function SlackQualificationReportPageClient() {
       : base;
   }, [filters, rangeError]);
 
-  // Today reads Convex live; any other range of business days reads
-  // ClickHouse once the page is switched (docs/plans/clickhouse-reporting.md §4).
-  const range = dashboardRangeToAnalyticsRange(
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const plan = dashboardRangePlan(
     {
       kind: "custom",
       startBusinessDate: filters.startBusinessDate,
       endBusinessDateInclusive: getInclusiveEndBusinessDate(filters.endBusinessDateExclusive),
     },
-    businessDateForInstant(now, setting),
+    todayBusinessDate,
   );
   const reportResult = useAnalyticsReport({
     page: "slack_qualifications",
     reportId: "slack_qualifications.report",
-    range,
+    plan,
     filters: { granularity: filters.granularity, slackUserId: filters.slackUserId },
     live: api.reporting.slackQualifications.getQualificationReport,
     liveArgs: queryArgs,
+    todayArgs: queryArgs === "skip" ? "skip" : {
+      ...queryArgs,
+      startBusinessDate: queryArgs.startBusinessDate > todayBusinessDate ? queryArgs.startBusinessDate : todayBusinessDate,
+    },
+    merge: mergeSlackQualifications,
   });
   const report = reportResult.data;
 

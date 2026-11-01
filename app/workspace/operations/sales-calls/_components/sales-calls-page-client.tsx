@@ -5,7 +5,8 @@ import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { dashboardRangePlan, dashboardRangeFromToday } from "@/lib/analyticsRange";
+import { mergeSalesCallsDashboard } from "@/convex/analytics/merge/operations";
 import { businessDateForInstant } from "@/lib/businessDay";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import {
@@ -59,19 +60,22 @@ export function SalesCallsPageClient() {
     () => requiresOperationsReportSnapshot(queryRange, setting, now),
     [queryRange, now, setting],
   );
-  // Today reads Convex live. Any other range reads ClickHouse once the page
-  // is switched, and then needs no snapshot job; until then ranges over 7
-  // days use the snapshot (docs/plans/clickhouse-reporting.md §4).
-  const analyticsRange = dashboardRangeToAnalyticsRange(
-    queryRange,
-    businessDateForInstant(now, setting),
-  );
-  const source = useAnalyticsSource("sales_calls", analyticsRange);
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched, and then
+  // need no snapshot job. Until then ranges over 7 days use the snapshot
+  // (docs/agents/reporting.md).
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const plan = dashboardRangePlan(queryRange, todayBusinessDate);
+  const source = useAnalyticsSource("sales_calls", plan);
   const report = useAnalyticsReport({
     page: "sales_calls",
     reportId: "sales_calls.dashboard",
-    range: analyticsRange,
+    plan,
     live: api.operations.salesCallsDashboard.getSalesCallsDashboard,
+    merge: mergeSalesCallsDashboard,
+    todayArgs: rebuilding || !loaded
+      ? "skip"
+      : { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
     liveArgs:
       rebuilding || !loaded || (source !== "warehouse" && requiresSnapshot)
         ? "skip"

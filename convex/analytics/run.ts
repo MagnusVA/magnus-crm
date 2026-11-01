@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { reportError } from "../lib/observability/log";
-import { resolveAnalyticsRange } from "../../lib/analyticsRange";
+import { EmptyAnalyticsRangeError, resolveAnalyticsRange } from "../../lib/analyticsRange";
 import {
   ClickHouseNotConfiguredError,
   queryTenantClickHouse,
@@ -37,7 +37,8 @@ function userMessage(error: unknown) {
   if (
     error instanceof ClickHouseNotConfiguredError ||
     error instanceof WaitingForFirstSyncError ||
-    error instanceof RowsTooLargeError
+    error instanceof RowsTooLargeError ||
+    error instanceof EmptyAnalyticsRangeError
   ) {
     return error.message;
   }
@@ -90,7 +91,15 @@ async function executeRun(
       rowsJson,
     });
   } catch (error) {
-    if (!(error instanceof WaitingForFirstSyncError || error instanceof ClickHouseNotConfiguredError)) {
+    // A run queued before midnight for "this week through yesterday" can
+    // start on Monday, when the range has no days; that isn't a failure.
+    if (
+      !(
+        error instanceof WaitingForFirstSyncError ||
+        error instanceof ClickHouseNotConfiguredError ||
+        error instanceof EmptyAnalyticsRangeError
+      )
+    ) {
       reportError("analytics.report_failed", error, {
         reportId: job.reportId,
         tenantId: job.tenantId,

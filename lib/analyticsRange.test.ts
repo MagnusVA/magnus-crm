@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  dashboardRangeToAnalyticsRange,
-  reportRangeToAnalyticsRange,
+  analyticsRangeIsEmpty,
+  dashboardRangeFromToday,
+  dashboardRangePlan,
+  EmptyAnalyticsRangeError,
+  reportRangePlan,
+  reportWindowFromToday,
   resolveAnalyticsRange,
 } from "./analyticsRange";
 
@@ -42,41 +46,139 @@ describe("resolveAnalyticsRange", () => {
   });
 });
 
-describe("reportRangeToAnalyticsRange", () => {
+describe("presets through yesterday", () => {
+  it("end the day before today and keep the preset's start", () => {
+    expect(resolveAnalyticsRange({ kind: "preset", preset: "this_month", throughYesterday: true }, tegucigalpa, now)).toMatchObject({
+      startDate: "2026-10-01",
+      endDateInclusive: "2026-10-26",
+      fromMs: Date.UTC(2026, 9, 1, 7),
+      toMs: Date.UTC(2026, 9, 27, 7),
+    });
+    expect(resolveAnalyticsRange({ kind: "preset", preset: "last_90_days", throughYesterday: true }, tegucigalpa, now)).toMatchObject({
+      startDate: "2026-07-30",
+      endDateInclusive: "2026-10-26",
+    });
+  });
+
+  it("have no days on the preset's first day", () => {
+    // Monday 2026-10-26, 15:00 in Tegucigalpa.
+    const monday = Date.UTC(2026, 9, 26, 21, 0);
+    const thisWeek = { kind: "preset", preset: "this_week", throughYesterday: true } as const;
+    expect(analyticsRangeIsEmpty(thisWeek, "2026-10-26")).toBe(true);
+    expect(analyticsRangeIsEmpty(thisWeek, "2026-10-27")).toBe(false);
+    expect(() => resolveAnalyticsRange(thisWeek, tegucigalpa, monday)).toThrow(EmptyAnalyticsRangeError);
+  });
+});
+
+describe("reportRangePlan", () => {
   const local = (y: number, m: number, d: number) => new Date(y, m - 1, d).getTime();
   const at = new Date(2026, 9, 27, 15).getTime();
 
-  it("keeps Today on the live reader", () => {
-    expect(reportRangeToAnalyticsRange({ startDate: local(2026, 10, 27), endDate: local(2026, 10, 28) }, at)).toBeNull();
+  it("reads Today, and ranges from today on, live", () => {
+    expect(reportRangePlan({ startDate: local(2026, 10, 27), endDate: local(2026, 10, 28) }, at)).toEqual({ kind: "live" });
+    expect(reportRangePlan({ startDate: local(2026, 10, 27), endDate: local(2026, 11, 3) }, at)).toEqual({ kind: "live" });
   });
 
-  it("recognises the quick picks as presets", () => {
-    expect(reportRangeToAnalyticsRange({ startDate: local(2026, 10, 1), endDate: local(2026, 10, 28) }, at)).toEqual({ kind: "preset", preset: "this_month" });
-    expect(reportRangeToAnalyticsRange({ startDate: local(2026, 9, 1), endDate: local(2026, 10, 1) }, at)).toEqual({ kind: "preset", preset: "last_month" });
-    expect(reportRangeToAnalyticsRange({ startDate: local(2026, 10, 26), endDate: local(2026, 10, 28) }, at)).toEqual({ kind: "preset", preset: "this_week" });
+  it("reads a range that ended before today from ClickHouse, presets kept", () => {
+    expect(reportRangePlan({ startDate: local(2026, 9, 1), endDate: local(2026, 10, 1) }, at)).toEqual({
+      kind: "warehouse",
+      range: { kind: "preset", preset: "last_month" },
+    });
+    expect(reportRangePlan({ startDate: local(2026, 10, 3), endDate: local(2026, 10, 11) }, at)).toEqual({
+      kind: "warehouse",
+      range: { kind: "custom", startDate: "2026-10-03", endDateInclusive: "2026-10-10" },
+    });
   });
 
-  it("turns any other range into inclusive local dates", () => {
-    expect(reportRangeToAnalyticsRange({ startDate: local(2026, 10, 3), endDate: local(2026, 10, 11) }, at)).toEqual({
-      kind: "custom",
-      startDate: "2026-10-03",
-      endDateInclusive: "2026-10-10",
+  it("splits a range that includes today at the start of today", () => {
+    expect(reportRangePlan({ startDate: local(2026, 10, 1), endDate: local(2026, 10, 28) }, at)).toEqual({
+      kind: "split",
+      range: { kind: "preset", preset: "this_month" },
+      history: { kind: "preset", preset: "this_month", throughYesterday: true },
+      historyStartDate: "2026-10-01",
+      historyEndDate: "2026-10-26",
+    });
+    expect(reportRangePlan({ startDate: local(2026, 10, 26), endDate: local(2026, 10, 28) }, at)).toMatchObject({
+      kind: "split",
+      history: { kind: "preset", preset: "this_week", throughYesterday: true },
+    });
+    // Dates that match no preset, here ending after today.
+    expect(reportRangePlan({ startDate: local(2026, 10, 20), endDate: local(2026, 11, 3) }, at)).toEqual({
+      kind: "split",
+      range: { kind: "custom", startDate: "2026-10-20", endDateInclusive: "2026-11-02" },
+      history: { kind: "custom", startDate: "2026-10-20", endDateInclusive: "2026-10-26" },
+      historyStartDate: "2026-10-20",
+      historyEndDate: "2026-10-26",
+    });
+  });
+
+  it("reads today's part of a range from the start of today to its end", () => {
+    expect(reportWindowFromToday({ startDate: local(2026, 10, 1), endDate: local(2026, 10, 28) }, at)).toEqual({
+      startDate: local(2026, 10, 27),
+      endDate: local(2026, 10, 28),
+    });
+    expect(reportWindowFromToday({ startDate: local(2026, 10, 20), endDate: local(2026, 11, 3) }, at)).toEqual({
+      startDate: local(2026, 10, 27),
+      endDate: local(2026, 11, 3),
     });
   });
 });
 
-describe("dashboardRangeToAnalyticsRange", () => {
-  it("keeps Today live and passes the other ranges through", () => {
-    expect(dashboardRangeToAnalyticsRange({ kind: "preset", preset: "today" }, "2026-10-27")).toBeNull();
-    expect(dashboardRangeToAnalyticsRange({ kind: "custom", startBusinessDate: "2026-10-27", endBusinessDateInclusive: "2026-10-27" }, "2026-10-27")).toBeNull();
-    expect(dashboardRangeToAnalyticsRange({ kind: "preset", preset: "this_week" }, "2026-10-27")).toEqual({ kind: "preset", preset: "this_week" });
-    expect(dashboardRangeToAnalyticsRange({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-26" }, "2026-10-27")).toEqual({
-      kind: "custom",
-      startDate: "2026-10-01",
-      endDateInclusive: "2026-10-26",
+describe("dashboardRangePlan", () => {
+  it("reads Today live, and this week on its first day", () => {
+    expect(dashboardRangePlan({ kind: "preset", preset: "today" }, "2026-10-27")).toEqual({ kind: "live" });
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-27", endBusinessDateInclusive: "2026-10-27" }, "2026-10-27")).toEqual({ kind: "live" });
+    expect(dashboardRangePlan({ kind: "preset", preset: "this_week" }, "2026-10-26")).toEqual({ kind: "live" });
+  });
+
+  it("splits the presets, and dates that match one, before today", () => {
+    expect(dashboardRangePlan({ kind: "preset", preset: "this_week" }, "2026-10-27")).toEqual({
+      kind: "split",
+      range: { kind: "preset", preset: "this_week" },
+      history: { kind: "preset", preset: "this_week", throughYesterday: true },
+      historyStartDate: "2026-10-26",
+      historyEndDate: "2026-10-26",
     });
     // Dates that match a preset share the preset's cached answer.
-    expect(dashboardRangeToAnalyticsRange({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-27" }, "2026-10-27")).toEqual({ kind: "preset", preset: "this_month" });
-    expect(dashboardRangeToAnalyticsRange({ kind: "custom", startBusinessDate: "2026-09-01", endBusinessDateInclusive: "2026-09-30" }, "2026-10-27")).toEqual({ kind: "preset", preset: "last_month" });
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-27" }, "2026-10-27")).toMatchObject({
+      kind: "split",
+      history: { kind: "preset", preset: "this_month", throughYesterday: true },
+    });
+  });
+
+  it("plans browser dates in business days when the business day hasn't started", () => {
+    // 00:30 on the 28th in the browser is still the 27th's business day when
+    // days start at 01:00. This month's browser dates run to the 28th.
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-28" }, "2026-10-27")).toEqual({
+      kind: "split",
+      range: { kind: "custom", startDate: "2026-10-01", endDateInclusive: "2026-10-28" },
+      history: { kind: "custom", startDate: "2026-10-01", endDateInclusive: "2026-10-26" },
+      historyStartDate: "2026-10-01",
+      historyEndDate: "2026-10-26",
+    });
+  });
+
+  it("reads a range that ended before today from ClickHouse", () => {
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-26" }, "2026-10-27")).toEqual({
+      kind: "warehouse",
+      range: { kind: "custom", startDate: "2026-10-01", endDateInclusive: "2026-10-26" },
+    });
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-09-01", endBusinessDateInclusive: "2026-09-30" }, "2026-10-27")).toEqual({
+      kind: "warehouse",
+      range: { kind: "preset", preset: "last_month" },
+    });
+  });
+
+  it("names today's dates, so the live read moves to the next day at midnight", () => {
+    expect(dashboardRangeFromToday({ kind: "preset", preset: "this_month" }, "2026-10-27")).toEqual({
+      kind: "custom",
+      startBusinessDate: "2026-10-27",
+      endBusinessDateInclusive: "2026-10-27",
+    });
+    expect(dashboardRangeFromToday({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-11-02" }, "2026-10-27")).toEqual({
+      kind: "custom",
+      startBusinessDate: "2026-10-27",
+      endBusinessDateInclusive: "2026-11-02",
+    });
   });
 });

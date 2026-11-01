@@ -13,6 +13,8 @@ export const analyticsRangeValidator = v.union(
       v.literal("last_month"),
       v.literal("last_90_days"),
     ),
+    // The preset's days before today, for a page that reads today live.
+    throughYesterday: v.optional(v.literal(true)),
   }),
   v.object({
     kind: v.literal("custom"),
