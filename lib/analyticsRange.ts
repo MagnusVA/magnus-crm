@@ -178,13 +178,16 @@ export function localDateKey(ms: number): string {
  * - `warehouse`: the range ended before today, so ClickHouse answers all of it.
  * - `split`: ClickHouse answers the days before today (`history`, which
  *   covers `historyStartDate` to `historyEndDate`), Convex answers the rest
- *   live, and the page merges the two answers.
+ *   live, and the page merges the two answers. `range` is the whole range,
+ *   for a report that can't be split and reads it from ClickHouse as of the
+ *   last sync.
  */
 export type AnalyticsRangePlan =
   | { kind: "live" }
   | { kind: "warehouse"; range: AnalyticsRange }
   | {
       kind: "split";
+      range: AnalyticsRange;
       history: AnalyticsRange;
       historyStartDate: string;
       historyEndDate: string;
@@ -216,6 +219,7 @@ export function planAnalyticsRange(
   const yesterday = addBusinessDays(today, -1);
   return {
     kind: "split",
+    range: whole,
     history:
       whole.kind === "preset"
         ? { ...whole, throughYesterday: true }
@@ -256,13 +260,16 @@ export function dashboardRangePlan(range: DashboardRange, todayBusinessDate: str
 }
 
 /**
- * The part of a dashboard range from today, for its live reader. A range
- * that ends today becomes the Today preset, the same arguments as the Today
- * view, so both share Convex's cached result.
+ * The part of a dashboard range from today, for its live reader. It names the
+ * dates rather than the Today preset: a query resolves a preset from the
+ * clock, and Convex doesn't run it again when the day changes, so after
+ * midnight the preset could still answer for yesterday.
  */
 export function dashboardRangeFromToday(range: DashboardRange, todayBusinessDate: string): DashboardRange {
   const end = range.kind === "custom" ? range.endBusinessDateInclusive : todayBusinessDate;
-  return end <= todayBusinessDate
-    ? { kind: "preset", preset: "today" }
-    : { kind: "custom", startBusinessDate: todayBusinessDate, endBusinessDateInclusive: end };
+  return {
+    kind: "custom",
+    startBusinessDate: todayBusinessDate,
+    endBusinessDateInclusive: end > todayBusinessDate ? end : todayBusinessDate,
+  };
 }

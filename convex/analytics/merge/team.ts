@@ -1,11 +1,12 @@
 import type { getActionsPerCloserPerDay } from "../../reporting/teamActions";
-import type { getTeamOutcomeMix } from "../../reporting/teamOutcomes";
 import type { getTeamOperationsDimensions, getTeamPerformanceMetrics } from "../../reporting/teamPerformance";
 import type { ReaderOutput } from "../definition";
-import { addCounts, joinOntoToday, mergeRows, rate } from "./helpers";
+import { joinOntoToday, mergeRows, rate } from "./helpers";
+
+// The outcome mix has no merge: an earlier call's outcome depends on payments
+// and reschedules later in the range, so it reads the whole range instead.
 
 type Metrics = ReaderOutput<typeof getTeamPerformanceMetrics>;
-type Outcomes = ReaderOutput<typeof getTeamOutcomeMix>;
 type Actions = ReaderOutput<typeof getActionsPerCloserPerDay>;
 type Operations = ReaderOutput<typeof getTeamOperationsDimensions>;
 
@@ -61,27 +62,6 @@ export function mergeTeamMetrics(history: Metrics, today: Metrics): Metrics {
     attendanceCountsPartial: history.attendanceCountsPartial || today.attendanceCountsPartial,
     isPaymentDataTruncated: history.isPaymentDataTruncated || today.isPaymentDataTruncated,
     isCloseRateCohortTruncated: capped,
-  };
-}
-
-export function mergeTeamOutcomes(history: Outcomes, today: Outcomes): Outcomes {
-  // Payment and reschedule evidence can cross the split. The aggregate answer
-  // has no meeting/deal ids to reclassify those historical outcomes.
-  const teamOutcome = addCounts(history.teamOutcome, today.teamOutcome);
-  const rebookDenominator = teamOutcome.canceled + teamOutcome.no_show;
-  return {
-    teamOutcome,
-    displayOutcome: addCounts(history.displayOutcome, today.displayOutcome),
-    closerOutcomes: joinOntoToday(history.closerOutcomes, today.closerOutcomes, (row) => row.closerId, (past, current) => ({
-      ...current, outcomes: addCounts(past.outcomes, current.outcomes),
-    })),
-    derived: {
-      lostDeals: teamOutcome.lost,
-      rebookNumerator: teamOutcome.rescheduled,
-      rebookDenominator,
-      rebookRate: rate(teamOutcome.rescheduled, rebookDenominator),
-    },
-    isTruncated: history.isTruncated || today.isTruncated,
   };
 }
 

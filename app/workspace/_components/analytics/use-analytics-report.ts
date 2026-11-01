@@ -69,8 +69,9 @@ const RESEND_AFTER_MS = 60 * 1000;
  * doesn't change. A range that covers days before today and today itself is
  * split: ClickHouse answers the days before today, the reader answers the rest
  * live (`todayArgs`), and `merge` joins the two into what the reader would
- * return for the whole range. Pass `liveArgs: "skip"` when the panel has
- * nothing to load.
+ * return for the whole range. With `merge: null`, a report whose days can't
+ * be split reads the whole range from ClickHouse, as of the last sync. Pass
+ * `liveArgs: "skip"` when the panel has nothing to load.
  */
 export function useAnalyticsReport<Query extends FunctionReference<"query">>(options: {
   page: AnalyticsPage;
@@ -82,15 +83,15 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   liveArgs: FunctionArgs<Query> | "skip";
   /** The reader's arguments from the start of today to the end of the range. */
   todayArgs: FunctionArgs<Query> | "skip";
-  merge: (
-    history: FunctionReturnType<Query>,
-    today: FunctionReturnType<Query>,
-  ) => FunctionReturnType<Query>;
+  merge:
+    | ((history: FunctionReturnType<Query>, today: FunctionReturnType<Query>) => FunctionReturnType<Query>)
+    | null;
 }): { data: FunctionReturnType<Query> | undefined; source: AnalyticsSource; freshness: AnalyticsFreshness } {
   const { plan } = options;
   const source = useAnalyticsSource(options.page, plan);
   const skipped = options.liveArgs === "skip";
-  const split = source === "warehouse" && plan.kind === "split";
+  const splits = plan.kind === "split" && options.merge !== null;
+  const split = source === "warehouse" && splits;
   const liveArgs = source === "live" ? options.liveArgs : split && !skipped ? options.todayArgs : "skip";
   const liveData = useQuery(options.live, ...([liveArgs] as [FunctionArgs<Query> | "skip"]));
 
@@ -98,7 +99,9 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
     source !== "warehouse" || skipped
       ? null
       : plan.kind === "split"
-        ? plan.history
+        ? splits
+          ? plan.history
+          : plan.range
         : plan.kind === "warehouse"
           ? plan.range
           : null;
@@ -122,7 +125,7 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   // A split's history keeps its preset key from day to day, so the key a
   // panel requests includes the days it needs: the request goes out again
   // when today moves on, and runs if the answer no longer covers them.
-  const historyDays = plan.kind === "split" ? `${plan.historyStartDate}/${plan.historyEndDate}` : "";
+  const historyDays = splits && plan.kind === "split" ? `${plan.historyStartDate}/${plan.historyEndDate}` : "";
   const argsKey = warehouseArgs ? `${JSON.stringify(warehouseArgs)}${historyDays}` : null;
 
   const send = useCallback(() => {
@@ -167,6 +170,7 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   // it waits for the run the request above starts.
   const answer = state?.answer ?? null;
   const answerFits =
+    !splits ||
     plan.kind !== "split" ||
     (answer !== null &&
       answer.startDate === plan.historyStartDate &&
@@ -179,7 +183,7 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   const { merge } = options;
   const mergedData = useMemo(
     () =>
-      split && warehouseData !== undefined && liveData !== undefined
+      split && merge !== null && warehouseData !== undefined && liveData !== undefined
         ? merge(warehouseData, liveData)
         : undefined,
     [split, warehouseData, liveData, merge],

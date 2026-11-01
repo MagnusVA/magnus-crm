@@ -12,7 +12,7 @@ import { api } from "@/convex/_generated/api";
 import { addDays, startOfDay } from "date-fns";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { mergeTeamActions, mergeTeamMetrics, mergeTeamOperations, mergeTeamOutcomes } from "@/convex/analytics/merge/team";
+import { mergeTeamActions, mergeTeamMetrics, mergeTeamOperations } from "@/convex/analytics/merge/team";
 import { dashboardRangePlan } from "@/lib/analyticsRange";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
@@ -124,14 +124,17 @@ export function TeamReportPageClient() {
     todayArgs,
     merge: mergeTeamMetrics,
   });
+  // A payment or a reschedule today can change the outcome of an earlier
+  // call, which neither half of a split would see, so the outcome mix reads
+  // the whole range from ClickHouse, as of the last sync.
   const outcomeMixReport = useAnalyticsReport({
     page: "team",
     reportId: "team.outcomes",
     plan,
     live: api.reporting.teamOutcomes.getTeamOutcomeMix,
     liveArgs: queryRange,
-    todayArgs,
-    merge: mergeTeamOutcomes,
+    todayArgs: "skip",
+    merge: null,
   });
   const actionsReport = useAnalyticsReport({
     page: "team",
@@ -189,6 +192,15 @@ export function TeamReportPageClient() {
     title: string;
     description: string;
   }> = [];
+
+  if (plan.kind === "split" && outcomeMixReport.source === "warehouse") {
+    notices.push({
+      id: "outcome-as-of-sync",
+      title: "Outcome mix as of the last sync",
+      description:
+        "A payment or reschedule today can change an earlier call's outcome, so the outcome mix updates with each sync instead of live.",
+    });
+  }
 
   if (outcomeMix?.isTruncated) {
     notices.push({

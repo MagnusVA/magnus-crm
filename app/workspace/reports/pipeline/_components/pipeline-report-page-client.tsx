@@ -10,7 +10,8 @@ import { addDays, startOfDay } from "date-fns";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useNow } from "@/hooks/use-now";
-import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import { dashboardRangePlan, reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import { addBusinessDays, businessDateForInstant } from "@/lib/businessDay";
 import {
   mergePipelineBacklogAndLoss,
   mergeSchedulingShowRate,
@@ -55,7 +56,7 @@ function getTodayRange(nowMs = Date.now()): DateRange {
 
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
-  const { loaded, rebuilding } = useBusinessDay();
+  const { loaded, rebuilding, setting } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("pipeline_health");
 
@@ -102,10 +103,23 @@ export function PipelineReportPageClient() {
     todayArgs: todayWindow,
     merge: mergePipelineBacklogAndLoss,
   });
+  // The show rate counts the tenant's business days, so its range is planned
+  // in them: between midnight and the business day's start, the browser's
+  // today is a business day ahead.
+  const showRateDays = reportRangeDayKeys(dateRange);
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const showRatePlan = dashboardRangePlan(
+    {
+      kind: "custom",
+      startBusinessDate: showRateDays.startDayKey,
+      endBusinessDateInclusive: addBusinessDays(showRateDays.endDayKeyExclusive, -1),
+    },
+    todayBusinessDate,
+  );
   const operationsShowRateReport = useAnalyticsReport({
     page: "pipeline",
     reportId: "pipeline.show_rate",
-    plan,
+    plan: showRatePlan,
     filters: {
       bookingProgramId: attributionFilters.bookingProgramId,
       attributionTeamId: attributionFilters.attributionTeamId,
@@ -113,11 +127,13 @@ export function PipelineReportPageClient() {
     },
     live: api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
     liveArgs: !loaded || rebuilding ? "skip" : {
-      ...reportRangeDayKeys(dateRange),
+      ...showRateDays,
       ...attributionFilters,
     },
     todayArgs: !loaded || rebuilding ? "skip" : {
-      ...reportRangeDayKeys(todayWindow),
+      startDayKey:
+        showRateDays.startDayKey > todayBusinessDate ? showRateDays.startDayKey : todayBusinessDate,
+      endDayKeyExclusive: showRateDays.endDayKeyExclusive,
       ...attributionFilters,
     },
     merge: mergeSchedulingShowRate,

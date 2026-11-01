@@ -6,7 +6,7 @@ import { expectMergedAnswer } from "../../../tests/analyticsMerge";
 import { bookingHarness, qualifiedLifecycle } from "../../../tests/bookingHarness";
 import { recordBookingAttribution } from "../../lib/attribution/dealAttributions";
 import { insertMeetingAggregate } from "../../reporting/writeHooks";
-import { mergeTeamActions, mergeTeamMetrics, mergeTeamOperations, mergeTeamOutcomes } from "./team";
+import { mergeTeamActions, mergeTeamMetrics, mergeTeamOperations } from "./team";
 
 const day = DEFAULT_BUSINESS_DAY;
 const HOUR = 3_600_000;
@@ -184,16 +184,13 @@ const windows = {
 };
 
 describe("Team across the split", () => {
-  it("merges metrics and cohort counts, outcomes, and filtered operations", async () => {
+  it("merges metrics and cohort counts, and filtered operations", async () => {
     const fixture = await createFixture();
     const { t } = fixture;
     const metrics = await expectMergedAnswer({ t, identity, live: api.reporting.teamPerformance.getTeamPerformanceMetrics, ...windows, merge: mergeTeamMetrics });
     expect(metrics.history.teamTotals.cohortDeals).toBeGreaterThan(0);
     expect(metrics.today.teamTotals.cohortDeals).toBeGreaterThan(0);
     expect(metrics.whole.teamTotals.overallCloseRate).toBeCloseTo(metrics.whole.teamTotals.wonDeals! / metrics.whole.teamTotals.cohortDeals!);
-    const outcomes = await expectMergedAnswer({ t, identity, live: api.reporting.teamOutcomes.getTeamOutcomeMix, ...windows, merge: mergeTeamOutcomes });
-    expect(outcomes.history.teamOutcome.sold).toBeGreaterThan(0);
-    expect(outcomes.today.teamOutcome.sold).toBeGreaterThan(0);
     const history = { ...metrics.history, isCloseRateCohortTruncated: true };
     const capped = mergeTeamMetrics(history, metrics.today);
     expect(capped.teamTotals.overallCloseRate).toBeNull();
@@ -233,23 +230,6 @@ describe("Team across the split", () => {
     expect(answers.whole.distinctCloserActors).toBeLessThan(
       answers.history.distinctCloserActors + answers.today.distinctCloserActors,
     );
-  });
-  it("keeps the available outcome counts when today's payment reclassifies historical calls", async () => {
-    const { t, tenantId, payments, meetings } = await createFixture();
-    await t.run(async (ctx) => {
-      const unpaidMeeting = meetings.find((meeting) => meeting.status === "no_show" && meeting.scheduledAt < windows.today.startDate)!;
-      const { _id: _id, _creationTime: _time, ...payment } = payments[0];
-      await ctx.db.insert("paymentRecords", { ...payment, tenantId, opportunityId: unpaidMeeting.opportunityId, recordedAt: at("2026-10-04", 6) });
-    });
-    const reader = t.withIdentity(identity);
-    const history = await reader.query(api.reporting.teamOutcomes.getTeamOutcomeMix, windows.history);
-    const today = await reader.query(api.reporting.teamOutcomes.getTeamOutcomeMix, windows.today);
-    const whole = await reader.query(api.reporting.teamOutcomes.getTeamOutcomeMix, windows.whole);
-    const merged = mergeTeamOutcomes(history, today);
-    expect(merged.teamOutcome.sold).toBe(history.teamOutcome.sold + today.teamOutcome.sold);
-    expect(merged.teamOutcome.sold).toBeLessThan(whole.teamOutcome.sold);
-    expect(merged.displayOutcome.sold).toBe(history.displayOutcome.sold + today.displayOutcome.sold);
-    expect(merged.derived.rebookRate).toBeCloseTo(merged.derived.rebookNumerator / merged.derived.rebookDenominator);
   });
 
 });
