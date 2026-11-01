@@ -352,6 +352,64 @@ describe("analytics reports", () => {
   });
 });
 
+describe("ranges through yesterday", () => {
+  const thisWeekArgs = {
+    ...metricsArgs,
+    range: { kind: "preset" as const, preset: "this_week" as const, throughYesterday: true as const },
+  };
+  const thisWeekKey =
+    '{"f":{"paymentType":null,"programId":null},"h":0,"r":{"kind":"preset","preset":"this_week","throughYesterday":true},"tz":"America/Tegucigalpa"}';
+
+  it("answers the days before today and runs again when today moves on", async () => {
+    // Wednesday 2026-10-28, 15:00 in Tegucigalpa.
+    vi.setSystemTime(Date.UTC(2026, 9, 28, 21));
+    const fixture = await createFixture();
+    const calls = stubClickHouse(watermarkOr(5_000, []));
+    await setWatermark(fixture, 5_000);
+
+    await fixture.adminA.mutation(api.analytics.reports.request, thisWeekArgs);
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const wednesday = await fixture.adminA.query(api.analytics.reports.get, thisWeekArgs);
+    expect(wednesday.state).toBe("ready");
+    expect(wednesday.answer).toMatchObject({ startDate: "2026-10-26", endDateInclusive: "2026-10-27" });
+    const reportCall = calls.find((call) => call.sql.includes("analytics.payments"))!;
+    expect(reportCall.url.searchParams.get("param_to_ms")).toBe(String(Date.UTC(2026, 9, 28, 6)));
+
+    // Thursday, before the next sync: the answer misses Wednesday.
+    vi.setSystemTime(Date.UTC(2026, 9, 29, 21));
+    const again = await fixture.adminA.mutation(api.analytics.reports.request, thisWeekArgs);
+    expect(again.started).toBe(true);
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const thursday = await fixture.adminA.query(api.analytics.reports.get, thisWeekArgs);
+    expect(thursday.answer).toMatchObject({ startDate: "2026-10-26", endDateInclusive: "2026-10-28" });
+  });
+
+  it("runs nothing on the week's first day, for a page or the batch", async () => {
+    // Monday 2026-10-26, 15:00 in Tegucigalpa: this week has no days before today.
+    vi.setSystemTime(Date.UTC(2026, 9, 26, 21));
+    const fixture = await createFixture();
+    const calls = stubClickHouse(watermarkOr(7_000, []));
+    await setWatermark(fixture, 1_000);
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      argsKey: thisWeekKey,
+      range: thisWeekArgs.range,
+      payload: '{"lastWeek":true}',
+      answer: { watermark: 1_000, startDate: "2026-10-19", endDateInclusive: "2026-10-25", completedAt: Date.now() - DAY_MS },
+    });
+
+    const result = await fixture.adminA.mutation(api.analytics.reports.request, thisWeekArgs);
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, {});
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(result.started).toBe(false);
+    expect(calls.filter((call) => !call.sql.includes("analytics.watermark"))).toHaveLength(0);
+    const row = await fixture.t.run(async (ctx) => await ctx.db.get("analyticsResults", resultId));
+    expect(row?.status).toBe("ready");
+    expect(row?.answer?.endDateInclusive).toBe("2026-10-25");
+  });
+});
+
 describe("analytics budget and batch", () => {
   it("drops a stale run when the budget turns its key away", async () => {
     const fixture = await createFixture();

@@ -10,6 +10,7 @@ import {
   deleteResult,
   HOUR_MS,
   KEY_TTL_MS,
+  rangeHasNoDays,
   readSyncRow,
   runIsInFlight,
   startRun,
@@ -145,6 +146,7 @@ export const startBatchRun = internalMutation({
     const row = await ctx.db.get("analyticsResults", resultId);
     if (!row) return null;
     const now = Date.now();
+    if (rangeHasNoDays(row, now)) return null;
     if (runIsInFlight(row, now) && row.run!.watermark >= watermark) return null;
     if (
       row.status === "ready" &&
