@@ -17,6 +17,7 @@ import { whenLabel } from "@/app/workspace/closer/pipeline/_components/deal-cell
 import { useEntityDetail } from "./entity-detail-context";
 import { personDate, plural } from "./person-format";
 import { usePersonDeals, type PersonDealEntry } from "./person-deals";
+import { formatPhone } from "@/lib/phone";
 
 // The full row from @5xl (the sketch's widths); from @xl a fold: person,
 // stage and paid on one row, the next step and reach by under them.
@@ -320,10 +321,10 @@ function ReachButtons({
       {phone ? (
         <>
           <Button asChild size="sm" className={BOARD_BUTTON}>
-            <a href={`tel:${phone}`} aria-label={`Call ${name} at ${phone}`}>
+            <a href={`tel:${phone}`} aria-label={`Call ${name} at ${formatPhone(phone)}`}>
               Call
               <span className="font-condensed text-[0.9375rem] tracking-[0.02em] tabular-nums" translate="no">
-                {phone}
+                {formatPhone(phone)}
               </span>
             </a>
           </Button>

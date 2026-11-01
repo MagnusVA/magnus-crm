@@ -1,38 +1,61 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { CELL, ROW_GRID } from "./person-row-grid";
 
+/** The page root: a container, so rows and skeletons fold by the page's width. */
+export const PAGE_ROOT =
+	"@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3";
+
+/** The band and ten rows at their real sizes, while the route first loads. */
 export function LeadsCustomersSkeleton() {
 	return (
-		<div
-			className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8"
-			role="status"
-			aria-label="Loading leads and customers workspace"
-		>
-			<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-				<div className="flex min-w-0 flex-col gap-2">
-					<Skeleton className="h-7 w-56 max-w-full" />
-					<Skeleton className="h-4 w-80 max-w-full" />
-				</div>
-				<Skeleton className="h-7 w-32" />
-			</div>
-			<div className="rounded-md border p-3">
-				<div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-					<Skeleton className="h-9 min-w-0 flex-1" />
-					<Skeleton className="h-8 w-56 max-w-full" />
-				</div>
-			</div>
-			<div className="rounded-md border">
-				{Array.from({ length: 8 }).map((_, index) => (
-					<div
-						key={index}
-						className="grid grid-cols-[minmax(0,1.6fr)_8rem_minmax(0,1fr)_8rem] gap-4 border-b p-3 last:border-b-0"
-					>
-						<Skeleton className="h-5 min-w-0" />
-						<Skeleton className="h-5 w-20" />
-						<Skeleton className="h-5 min-w-0" />
-						<Skeleton className="h-5 w-24 justify-self-end" />
+		<div className={PAGE_ROOT} role="status" aria-label="Loading leads and customers">
+			<div className="flex flex-col gap-3 rounded-xl bg-board px-4 pt-4 @xl:px-[18px] dark:ring-1 dark:ring-board-foreground/10">
+				<div className="flex items-center justify-between gap-3.5">
+					<div className="flex flex-col gap-2">
+						<Skeleton className="h-6 w-56 max-w-full bg-board-raised" />
+						<Skeleton className="h-3.5 w-72 max-w-full bg-board-raised" />
 					</div>
-				))}
+					<Skeleton className="h-8 w-32 shrink-0 bg-board-raised" />
+				</div>
+				<div className="h-11 rounded-[7px] border border-board-foreground/15 bg-board-raised" />
+				<div className="-mx-4 flex h-10 items-center gap-5 border-t border-board-line px-4 @xl:-mx-[18px] @xl:px-[18px]">
+					{["w-8", "w-12", "w-20", "w-[72px]"].map((width) => (
+						<Skeleton key={width} className={cn("h-3 bg-board-raised", width)} />
+					))}
+				</div>
 			</div>
+			<div className="overflow-hidden rounded-xl border bg-card">
+				<PeopleRowsSkeleton />
+			</div>
+		</div>
+	);
+}
+
+/** Rows at the real row heights for each container step; labelled only when it stands alone. */
+export function PeopleRowsSkeleton({ label }: { label?: string }) {
+	return (
+		<div role={label ? "status" : undefined} aria-label={label}>
+			{Array.from({ length: 10 }).map((_, index) => (
+				<div key={index} className={cn(ROW_GRID, "border-t first:border-t-0")}>
+					<div className={cn(CELL.person, "flex flex-col gap-1.5")}>
+						<Skeleton className="h-4 w-40 max-w-full" />
+						<Skeleton className="h-3 w-52 max-w-full" />
+					</div>
+					<div className={cn(CELL.money, "flex flex-col items-end gap-1.5")}>
+						<Skeleton className="h-4 w-14" />
+						<Skeleton className="h-2.5 w-10" />
+					</div>
+					<div className={cn(CELL.deal, "flex flex-col gap-1.5")}>
+						<Skeleton className="h-4 w-36 max-w-full" />
+						<Skeleton className="h-3 w-24" />
+					</div>
+					<div className={cn(CELL.next, "flex flex-col gap-1.5")}>
+						<Skeleton className="h-4 w-32 max-w-full" />
+						<Skeleton className="h-3 w-28" />
+					</div>
+				</div>
+			))}
 		</div>
 	);
 }

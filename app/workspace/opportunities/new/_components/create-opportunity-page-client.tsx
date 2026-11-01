@@ -1,14 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
-import { ChevronLeftIcon } from "lucide-react";
 import posthog from "posthog-js";
-import { reportClientError } from "@/lib/observability/report-client-error";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { useRole } from "@/components/auth/role-context";
 import {
@@ -21,25 +19,15 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
-import { FieldGroup } from "@/components/ui/field";
-import {
-	Form,
-	FormControl,
-	FormDescription,
-	FormField,
-	FormItem,
-	FormLabel,
-	FormMessage,
-} from "@/components/ui/form";
+	Field,
+	FieldDescription,
+	FieldError,
+	FieldGroup,
+	FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
 	Select,
 	SelectContent,
@@ -50,9 +38,14 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { cn } from "@/lib/utils";
+import { PageBand } from "@/app/workspace/_components/page-band";
 import { CloserSelect } from "./closer-select";
 import {
 	createOpportunitySchema,
@@ -60,15 +53,8 @@ import {
 	type SocialPlatform,
 } from "./create-opportunity-schema";
 import { LeadCombobox } from "./lead-combobox";
-import { getErrorMessage } from "@/lib/errors";
 
-type CreateOpportunityResult = {
-	opportunityId: Id<"opportunities">;
-	leadId: Id<"leads">;
-	leadWasCreated: boolean;
-};
-
-type SuccessRedirectTarget = "opportunity" | "leadCustomer";
+const LIST_HREF = "/workspace/leads-customers";
 
 const SOCIAL_PLATFORM_OPTIONS: Array<{
 	value: SocialPlatform;
@@ -82,13 +68,30 @@ const SOCIAL_PLATFORM_OPTIONS: Array<{
 	{ value: "other_social", label: "Other" },
 ];
 
+/**
+ * A ruled form row: a 13px slate label in a 7.5rem column beside the
+ * control, the person card's dense rows grown to a control's height. In a
+ * narrow container the label sits over the control.
+ */
+const ROW =
+	"grid gap-1.5 px-4 py-3 data-[invalid=true]:text-foreground @lg:grid-cols-[7.5rem_minmax(0,1fr)] @lg:items-start @lg:gap-x-3";
+const ROW_LABEL =
+	"text-[13px] font-normal text-muted-foreground @lg:min-h-8 @lg:items-center";
+/** One side of the segmented toggle; the chosen side lifts (DESIGN.md, Segment lift). */
+const SEGMENT =
+	"h-6 rounded-[5px]! px-2.5 text-[13px] text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgb(20_26_40/0.12)]";
+/** A row whose section title already names it: the control takes the width. */
+const FULL_ROW = "gap-1.5 px-4 py-3 data-[invalid=true]:text-foreground";
+/** Field errors in danger ink, which reads at 4.5:1 where the fill red doesn't. */
+const ERROR = "text-[13px] text-danger-ink";
+
 function normalizeOptional(value?: string) {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : undefined;
 }
 
 function extractSubmitErrorMessage(error: unknown) {
-	const fallback = "Failed to create opportunity";
+	const fallback = "The deal wasn't created. Try again.";
 	const message = getErrorMessage(error, fallback).trim();
 	if (!message) {
 		return fallback;
@@ -111,30 +114,11 @@ function extractSubmitErrorMessage(error: unknown) {
 	return sanitized || fallback;
 }
 
-function getSuccessHref(
-	result: CreateOpportunityResult,
-	target: SuccessRedirectTarget,
-) {
-	if (target === "leadCustomer") {
-		return `/workspace/leads-customers/${result.leadId}?opportunityId=${result.opportunityId}`;
-	}
-
-	return `/workspace/opportunities/${result.opportunityId}`;
-}
-
-export function CreateOpportunityPageClient({
-	backHref = "/workspace/opportunities",
-	backLabel = "Back to opportunities",
-	cancelHref = "/workspace/opportunities",
-	successRedirectTarget = "opportunity",
-	title = "New opportunity",
-}: {
-	backHref?: string;
-	backLabel?: string;
-	cancelHref?: string;
-	successRedirectTarget?: SuccessRedirectTarget;
-	title?: string;
-}) {
+/**
+ * New side deal: a deal logged outside Calendly, for an existing person or a
+ * new one. On success it opens the person page with the new deal's modal.
+ */
+export function CreateOpportunityPageClient() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { isAdmin } = useRole();
@@ -146,8 +130,10 @@ export function CreateOpportunityPageClient({
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const prefilledLeadId = searchParams.get("leadId") as Id<"leads"> | null;
+	const ids = useId();
+	const personTitleId = `${ids}-person`;
 
-	usePageTitle("New Opportunity");
+	usePageTitle("New side deal");
 
 	const schema = useMemo(
 		() => createOpportunitySchema({ requireAssignedCloser: isAdmin }),
@@ -169,7 +155,7 @@ export function CreateOpportunityPageClient({
 		},
 	});
 
-	const leadMode = form.watch("leadMode");
+	const leadMode = useWatch({ control: form.control, name: "leadMode" });
 
 	const onSubmit = async (values: CreateOpportunityFormValues) => {
 		if (isSubmittingRef.current) {
@@ -216,9 +202,11 @@ export function CreateOpportunityPageClient({
 				created_by_admin: isAdmin,
 				assigned_closer_id: values.assignedCloserId ?? null,
 			});
-			toast.success("Opportunity created");
+			toast.success("Side deal created");
 			requestIdRef.current = crypto.randomUUID();
-			router.push(getSuccessHref(result, successRedirectTarget));
+			router.push(
+				`/workspace/leads-customers/${result.leadId}?opportunityId=${result.opportunityId}`,
+			);
 		} catch (error) {
 			reportClientError(error, { flow: "opportunity_create" });
 			const message = extractSubmitErrorMessage(error);
@@ -229,319 +217,244 @@ export function CreateOpportunityPageClient({
 	};
 
 	return (
-		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-			<div className="flex flex-col gap-2">
-				<div>
-					<Button asChild variant="ghost" size="sm" className="-ml-2">
-						<Link href={backHref}>
-							<ChevronLeftIcon data-icon="inline-start" />
-							{backLabel}
-						</Link>
-					</Button>
-				</div>
-				<div className="flex flex-col gap-1">
-					<h1 className="text-2xl font-semibold tracking-tight">
-						{title}
-					</h1>
-					<p className="text-sm text-muted-foreground">
-						Create a side-deal opportunity, then record payment from its
-						detail page.
-					</p>
-				</div>
-			</div>
+		<div className="@container mx-auto flex w-full max-w-[640px] flex-col gap-3.5 pb-6 short:gap-3">
+			<PageBand
+				title="New side deal"
+				description="A deal logged outside Calendly. Record its payment from the deal once it's created."
+				back={{ href: LIST_HREF, label: "Leads & Customers" }}
+			/>
 
-			<Form {...form}>
-				<form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-					<Card>
-						<CardHeader>
-							<CardTitle className="text-base">Lead</CardTitle>
-							<CardDescription>
-								Pick an existing lead or create a new MVP lead.
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<FieldGroup>
-								<FormField
-									control={form.control}
-									name="leadMode"
-									render={({ field }) => (
-										<FormItem>
-											<FormControl>
-												<RadioGroup
-													value={field.value}
-													onValueChange={(value) => {
-														field.onChange(value);
-														setSubmitError(null);
-													}}
-													className="grid grid-cols-1 gap-2 sm:grid-cols-2"
-													disabled={isSubmitting}
-												>
-													<label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-														<RadioGroupItem value="existing" />
-														<span className="flex min-w-0 flex-col gap-1">
-															<span className="font-medium">Existing lead</span>
-															<span className="text-muted-foreground">
-																Search your tenant leads.
-															</span>
-														</span>
-													</label>
-													<label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-														<RadioGroupItem value="new" />
-														<span className="flex min-w-0 flex-col gap-1">
-															<span className="font-medium">New lead</span>
-															<span className="text-muted-foreground">
-																Create a minimal record.
-															</span>
-														</span>
-													</label>
-												</RadioGroup>
-											</FormControl>
-											<FormMessage />
-										</FormItem>
-									)}
-								/>
-
-								{leadMode === "existing" ? (
-									<FormField
-										control={form.control}
-										name="existingLeadId"
-										render={({ field }) => (
-											<FormItem>
-												<FormLabel>
-													Lead <span className="text-destructive">*</span>
-												</FormLabel>
-												<FormControl>
-													<LeadCombobox
-														value={field.value as Id<"leads"> | undefined}
-														onChange={(value) => {
-															field.onChange(value);
-															setSubmitError(null);
-														}}
-														disabled={isSubmitting}
-													/>
-												</FormControl>
-												<FormDescription>
-													Search starts after two characters.
-												</FormDescription>
-												<FormMessage />
-											</FormItem>
-										)}
-									/>
-								) : (
-									<div className="flex flex-col gap-5">
-										<div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-											<FormField
-												control={form.control}
-												name="newFullName"
-												render={({ field }) => (
-													<FormItem>
-														<FormLabel>
-															Full name{" "}
-															<span className="text-destructive">*</span>
-														</FormLabel>
-														<FormControl>
-															<Input
-																autoComplete="name"
-																placeholder="Jane Smith"
-																disabled={isSubmitting}
-																{...field}
-															/>
-														</FormControl>
-														<FormMessage />
-													</FormItem>
-												)}
-											/>
-											<FormField
-												control={form.control}
-												name="newEmail"
-												render={({ field }) => (
-													<FormItem>
-														<FormLabel>Email</FormLabel>
-														<FormControl>
-															<Input
-																type="email"
-																autoComplete="email"
-																spellCheck={false}
-																placeholder="jane@example.com"
-																disabled={isSubmitting}
-																{...field}
-															/>
-														</FormControl>
-														<FormDescription>
-															Enter an email, a phone or a social handle, at least
-															one.
-														</FormDescription>
-														<FormMessage />
-													</FormItem>
-												)}
-											/>
-										</div>
-										<div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-											<FormField
-												control={form.control}
-												name="newPhone"
-												render={({ field }) => (
-													<FormItem>
-														<FormLabel>Phone</FormLabel>
-														<FormControl>
-															<Input
-																type="tel"
-																autoComplete="tel"
-																placeholder="+1 555 0100"
-																disabled={isSubmitting}
-																{...field}
-															/>
-														</FormControl>
-														<FormMessage />
-													</FormItem>
-												)}
-											/>
-											<FormField
-												control={form.control}
-												name="newSocialPlatform"
-												render={({ field }) => (
-													<FormItem>
-														<FormLabel>Social platform</FormLabel>
-														<div className="flex flex-col gap-2 sm:flex-row">
-															<Select
-																value={field.value}
-																onValueChange={(value) => {
-																	field.onChange(value);
-																	setSubmitError(null);
-																}}
-																disabled={isSubmitting}
-															>
-																<FormControl>
-																	<SelectTrigger className="w-full">
-																		<SelectValue placeholder="Select platform" />
-																	</SelectTrigger>
-																</FormControl>
-																<SelectContent>
-																	<SelectGroup>
-																		{SOCIAL_PLATFORM_OPTIONS.map((option) => (
-																			<SelectItem
-																				key={option.value}
-																				value={option.value}
-																			>
-																				{option.label}
-																			</SelectItem>
-																		))}
-																	</SelectGroup>
-																</SelectContent>
-															</Select>
-															{field.value ? (
-																<Button
-																	type="button"
-																	variant="outline"
-																	disabled={isSubmitting}
-																	onClick={() => field.onChange(undefined)}
-																	className="sm:w-auto"
-																>
-																	Clear
-																</Button>
-															) : null}
-														</div>
-														<FormMessage />
-													</FormItem>
-												)}
-											/>
-										</div>
-										<FormField
-											control={form.control}
-											name="newSocialHandle"
-											render={({ field }) => (
-												<FormItem>
-													<FormLabel>Social handle</FormLabel>
-													<FormControl>
-														<Input
-															autoComplete="off"
-															spellCheck={false}
-															placeholder="@janesmith"
-															disabled={isSubmitting}
-															{...field}
-														/>
-													</FormControl>
-													<FormDescription>
-														Platform and handle must be provided together.
-													</FormDescription>
-													<FormMessage />
-												</FormItem>
-											)}
-										/>
-									</div>
+			<form
+				onSubmit={(event) => void form.handleSubmit(onSubmit)(event)}
+				noValidate
+				className="w-full"
+			>
+				<Card className="gap-0 py-0">
+					<section aria-labelledby={personTitleId}>
+						<SectionTitle id={personTitleId} title="Person">
+							<Controller
+								control={form.control}
+								name="leadMode"
+								render={({ field }) => (
+									<ToggleGroup
+										type="single"
+										value={field.value}
+										onValueChange={(value) => {
+											// A segmented toggle always keeps one side on.
+											if (value !== "existing" && value !== "new") return;
+											field.onChange(value);
+											setSubmitError(null);
+										}}
+										disabled={isSubmitting}
+										aria-label="Existing or new person"
+										className="ml-auto rounded-[7px] border bg-background p-0.5"
+									>
+										<ToggleGroupItem
+											value="existing"
+											className={SEGMENT}
+										>
+											Existing
+										</ToggleGroupItem>
+										<ToggleGroupItem
+											value="new"
+											className={SEGMENT}
+										>
+											New
+										</ToggleGroupItem>
+									</ToggleGroup>
 								)}
-							</FieldGroup>
-						</CardContent>
-					</Card>
+							/>
+						</SectionTitle>
 
-					<Card>
-						<CardHeader>
-							<CardTitle className="text-base">Opportunity</CardTitle>
-							<CardDescription>
-								{isAdmin
-									? "Assign this side deal to an active closer."
-									: "Add context for the deal."}
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<FieldGroup>
-								{isAdmin ? (
-									<FormField
-										control={form.control}
-										name="assignedCloserId"
-										render={({ field }) => (
-											<FormItem>
-												<FormLabel>
-													Closer <span className="text-destructive">*</span>
-												</FormLabel>
-												<FormControl>
-													<CloserSelect
-														value={field.value as Id<"users"> | undefined}
-														onChange={(value) => {
-															field.onChange(value);
-															setSubmitError(null);
-														}}
-														disabled={isSubmitting}
-													/>
-												</FormControl>
-												<FormMessage />
-											</FormItem>
-										)}
-									/>
-								) : null}
-								<FormField
+						{leadMode === "existing" ? (
+							<Controller
+								control={form.control}
+								name="existingLeadId"
+								render={({ field, fieldState }) => (
+									<Field data-invalid={fieldState.invalid} className={FULL_ROW}>
+										<FieldLabel htmlFor={`${ids}-person-search`} className="sr-only">
+											Person
+										</FieldLabel>
+										<LeadCombobox
+											id={`${ids}-person-search`}
+											invalid={fieldState.invalid}
+											value={field.value as Id<"leads"> | undefined}
+											onChange={(value) => {
+												field.onChange(value);
+												setSubmitError(null);
+											}}
+											disabled={isSubmitting}
+										/>
+										<FieldDescription className="text-[13px]">
+											Type two or more letters of a name, an email or a phone.
+										</FieldDescription>
+										<FieldError className={ERROR} errors={[fieldState.error]} />
+									</Field>
+								)}
+							/>
+						) : (
+							<FieldGroup className="gap-0 divide-y">
+								<Controller
 									control={form.control}
-									name="notes"
-									render={({ field }) => (
-										<FormItem>
-											<FormLabel>Notes</FormLabel>
-											<FormControl>
-												<Textarea
-													rows={4}
-													placeholder="How did this opportunity come about?"
-													disabled={isSubmitting}
+									name="newFullName"
+									render={({ field, fieldState }) => (
+										<Field data-invalid={fieldState.invalid} className={ROW}>
+											<FieldLabel htmlFor={`${ids}-name`} className={ROW_LABEL}>
+												Name
+											</FieldLabel>
+											<RowControl>
+												<Input
 													{...field}
+													id={`${ids}-name`}
+													autoComplete="name"
+													placeholder="Jane Smith"
+													aria-required
+													aria-invalid={fieldState.invalid}
+													disabled={isSubmitting}
 												/>
-											</FormControl>
-											<FormMessage />
-										</FormItem>
+												<FieldError className={ERROR} errors={[fieldState.error]} />
+											</RowControl>
+										</Field>
 									)}
 								/>
+								<Controller
+									control={form.control}
+									name="newEmail"
+									render={({ field, fieldState }) => (
+										<Field data-invalid={fieldState.invalid} className={ROW}>
+											<FieldLabel htmlFor={`${ids}-email`} className={ROW_LABEL}>
+												Email
+											</FieldLabel>
+											<RowControl>
+												<Input
+													{...field}
+													id={`${ids}-email`}
+													type="email"
+													autoComplete="email"
+													spellCheck={false}
+													placeholder="jane@example.com"
+													aria-invalid={fieldState.invalid}
+													disabled={isSubmitting}
+												/>
+												<FieldError className={ERROR} errors={[fieldState.error]} />
+											</RowControl>
+										</Field>
+									)}
+								/>
+								<Controller
+									control={form.control}
+									name="newPhone"
+									render={({ field, fieldState }) => (
+										<Field data-invalid={fieldState.invalid} className={ROW}>
+											<FieldLabel htmlFor={`${ids}-phone`} className={ROW_LABEL}>
+												Phone
+											</FieldLabel>
+											<RowControl>
+												<Input
+													{...field}
+													id={`${ids}-phone`}
+													type="tel"
+													autoComplete="tel"
+													placeholder="+1 555 0100"
+													aria-invalid={fieldState.invalid}
+													disabled={isSubmitting}
+													className="font-condensed text-[15px] tracking-[0.02em] tabular-nums md:text-[15px]"
+												/>
+												<FieldError className={ERROR} errors={[fieldState.error]} />
+											</RowControl>
+										</Field>
+									)}
+								/>
+								<SocialRow
+									ids={ids}
+									control={form.control}
+									disabled={isSubmitting}
+									onPlatformChange={() => setSubmitError(null)}
+								/>
+								<p className="px-4 py-2.5 text-[13px] text-muted-foreground">
+									Give a name and at least one way to reach the person: an
+									email, a phone or a social handle.
+								</p>
 							</FieldGroup>
-						</CardContent>
-					</Card>
+						)}
+					</section>
 
-					<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<Button asChild variant="outline" type="button" disabled={isSubmitting}>
-							<Link href={cancelHref}>Cancel</Link>
+					{isAdmin ? (
+						<section aria-labelledby={`${ids}-closer-title`} className="border-t">
+							<SectionTitle id={`${ids}-closer-title`} title="Closer" />
+							<Controller
+								control={form.control}
+								name="assignedCloserId"
+								render={({ field, fieldState }) => (
+									<Field data-invalid={fieldState.invalid} className={FULL_ROW}>
+										<FieldLabel htmlFor={`${ids}-closer`} className="sr-only">
+											Closer
+										</FieldLabel>
+										<CloserSelect
+											id={`${ids}-closer`}
+											invalid={fieldState.invalid}
+											value={field.value as Id<"users"> | undefined}
+											onChange={(value) => {
+												field.onChange(value);
+												setSubmitError(null);
+											}}
+											disabled={isSubmitting}
+										/>
+										<FieldDescription className="text-[13px]">
+											The deal and its payment are credited to this closer.
+										</FieldDescription>
+										<FieldError className={ERROR} errors={[fieldState.error]} />
+									</Field>
+								)}
+							/>
+						</section>
+					) : null}
+
+					<section aria-labelledby={`${ids}-notes-title`} className="border-t">
+						<SectionTitle id={`${ids}-notes-title`} title="Notes">
+							<span className="ml-auto text-[13px] text-muted-foreground">
+								Optional
+							</span>
+						</SectionTitle>
+						<Controller
+							control={form.control}
+							name="notes"
+							render={({ field, fieldState }) => (
+								<Field data-invalid={fieldState.invalid} className={FULL_ROW}>
+									<FieldLabel htmlFor={`${ids}-notes`} className="sr-only">
+										Notes
+									</FieldLabel>
+									<Textarea
+										{...field}
+										id={`${ids}-notes`}
+										rows={4}
+										placeholder="How did this deal come about?"
+										aria-invalid={fieldState.invalid}
+										disabled={isSubmitting}
+									/>
+									<FieldError className={ERROR} errors={[fieldState.error]} />
+								</Field>
+							)}
+						/>
+					</section>
+
+					<div className="flex flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-3">
+						<Button
+							asChild
+							variant="outline"
+							className={cn(isSubmitting && "pointer-events-none opacity-50")}
+						>
+							<Link href={LIST_HREF} aria-disabled={isSubmitting || undefined}>
+								Cancel
+							</Link>
 						</Button>
-						<Button type="submit" disabled={isSubmitting}>
+						<Button type="submit" disabled={isSubmitting} className="font-semibold">
 							{isSubmitting ? <Spinner data-icon="inline-start" /> : null}
-							{isSubmitting ? "Creating…" : "Create opportunity"}
+							{isSubmitting ? "Creating…" : "Create side deal"}
 						</Button>
 					</div>
-				</form>
-			</Form>
+				</Card>
+			</form>
 
 			<AlertDialog
 				open={submitError !== null}
@@ -553,7 +466,7 @@ export function CreateOpportunityPageClient({
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Could not create opportunity</AlertDialogTitle>
+						<AlertDialogTitle>Couldn&apos;t create the side deal</AlertDialogTitle>
 						<AlertDialogDescription>{submitError}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -562,5 +475,117 @@ export function CreateOpportunityPageClient({
 				</AlertDialogContent>
 			</AlertDialog>
 		</div>
+	);
+}
+
+/** A section's 44px title row, with room on the right for a control or meta. */
+function SectionTitle({
+	id,
+	title,
+	children,
+}: {
+	id: string;
+	title: string;
+	children?: React.ReactNode;
+}) {
+	return (
+		<div className="flex min-h-11 items-center gap-2 border-b px-4 py-2">
+			<h2 id={id} className="text-[15px] font-semibold">
+				{title}
+			</h2>
+			{children}
+		</div>
+	);
+}
+
+function RowControl({ children }: { children: React.ReactNode }) {
+	return <div className="flex min-w-0 flex-col gap-1.5">{children}</div>;
+}
+
+/** Platform and handle on one row: they're given together or not at all. */
+function SocialRow({
+	ids,
+	control,
+	disabled,
+	onPlatformChange,
+}: {
+	ids: string;
+	control: ReturnType<typeof useForm<CreateOpportunityFormValues>>["control"];
+	disabled: boolean;
+	onPlatformChange: () => void;
+}) {
+	return (
+		<Controller
+			control={control}
+			name="newSocialPlatform"
+			render={({ field: platform, fieldState: platformState }) => (
+				<Controller
+					control={control}
+					name="newSocialHandle"
+					render={({ field: handle, fieldState: handleState }) => (
+						<Field
+							data-invalid={platformState.invalid || handleState.invalid}
+							className={ROW}
+						>
+							<FieldLabel htmlFor={`${ids}-platform`} className={ROW_LABEL}>
+								Social
+							</FieldLabel>
+							<RowControl>
+								<div className="flex min-w-0 flex-wrap gap-2">
+									<Select
+										value={platform.value ?? ""}
+										onValueChange={(value) => {
+											platform.onChange(value);
+											onPlatformChange();
+										}}
+										disabled={disabled}
+									>
+										<SelectTrigger
+											id={`${ids}-platform`}
+											aria-label="Social platform"
+											aria-invalid={platformState.invalid}
+											className="w-[9.5rem]"
+										>
+											<SelectValue placeholder="Platform" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectGroup>
+												{SOCIAL_PLATFORM_OPTIONS.map((option) => (
+													<SelectItem key={option.value} value={option.value}>
+														{option.label}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										</SelectContent>
+									</Select>
+									<Input
+										{...handle}
+										aria-label="Social handle"
+										autoComplete="off"
+										spellCheck={false}
+										placeholder="@janesmith"
+										aria-invalid={handleState.invalid}
+										disabled={disabled}
+										className="min-w-40 flex-1"
+									/>
+									{platform.value ? (
+										<Button
+											type="button"
+											variant="ghost"
+											disabled={disabled}
+											onClick={() => platform.onChange(undefined)}
+											className="text-muted-foreground"
+										>
+											Clear
+										</Button>
+									) : null}
+								</div>
+								<FieldError className={ERROR} errors={[platformState.error, handleState.error]} />
+							</RowControl>
+						</Field>
+					)}
+				/>
+			)}
+		/>
 	);
 }

@@ -136,6 +136,7 @@ import type * as http from "../http.js";
 import type * as leadCustomers_detail from "../leadCustomers/detail.js";
 import type * as leadCustomers_detailPayload from "../leadCustomers/detailPayload.js";
 import type * as leadCustomers_identifierResolution from "../leadCustomers/identifierResolution.js";
+import type * as leadCustomers_listDeal from "../leadCustomers/listDeal.js";
 import type * as leadCustomers_permissions from "../leadCustomers/permissions.js";
 import type * as leadCustomers_projection from "../leadCustomers/projection.js";
 import type * as leadCustomers_queries from "../leadCustomers/queries.js";
@@ -585,6 +586,7 @@ declare const fullApi: ApiFromModules<{
   "leadCustomers/detail": typeof leadCustomers_detail;
   "leadCustomers/detailPayload": typeof leadCustomers_detailPayload;
   "leadCustomers/identifierResolution": typeof leadCustomers_identifierResolution;
+  "leadCustomers/listDeal": typeof leadCustomers_listDeal;
   "leadCustomers/permissions": typeof leadCustomers_permissions;
   "leadCustomers/projection": typeof leadCustomers_projection;
   "leadCustomers/queries": typeof leadCustomers_queries;

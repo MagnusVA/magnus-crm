@@ -10,13 +10,7 @@ export default async function NewLeadCustomerOpportunityPage() {
 
 	return (
 		<Suspense fallback={<CreateOpportunitySkeleton />}>
-			<CreateOpportunityPageClient
-				backHref="/workspace/leads-customers"
-				backLabel="Back to Leads & Customers"
-				cancelHref="/workspace/leads-customers"
-				successRedirectTarget="leadCustomer"
-				title="New Side Deal"
-			/>
+			<CreateOpportunityPageClient />
 		</Suspense>
 	);
 }

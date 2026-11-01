@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnus · Leads &amp; Customers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--shell:#141a28;--paper:#f5f6f8;--card:#fff;--ink:#141a28;--ink2:#4f596b;--rule:#e3e7ed;--input:#d5dbe3;--muted:#eef1f5;--lime:#84b135;--lime-ink:#4a7212;
+--amber-bg:#fff4cc;--amber-ink:#7a5200;--danger-ink:#b42328;
+--booked:#4c6fd0;--booked-ink:#2b4aa8;--held:#8e99ac;--held-ink:#4f596b;--fu:#2a9d95;--fu-ink:#1d756f;--won:#84b135;--won-ink:#4a7212;--lost:#d93a40;--lost-ink:#b42328}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/1.43 Barlow,sans-serif;color:var(--ink);background:var(--paper);display:grid;grid-template-columns:232px 1fr;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.c{font-family:"Barlow Condensed",sans-serif}
+.lbl{font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
+.rail{background:var(--shell);padding:16px 12px;display:flex;flex-direction:column;color:#eef1f6}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 22px;font:600 22px "Barlow Condensed"}
+.brand i{width:20px;height:16px;background:var(--lime);clip-path:polygon(0 100%,0 20%,30% 55%,50% 0,70% 55%,100% 20%,100% 100%,75% 100%,70% 75%,50% 100%,30% 75%,25% 100%)}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:7px;color:#aeb8ca;font-weight:500;text-decoration:none}
+.nav a.on{background:rgba(132,177,53,.16);color:#fff}
+.nav em{margin-left:auto;font:600 12px/18px Barlow;font-style:normal;background:#f5b700;color:var(--shell);border-radius:9px;padding:0 6px}
+.me{margin-top:auto;border-top:1px solid rgba(242,244,247,.08);padding:12px 8px 0;font-weight:500}.me small{display:block;color:#9aa4b6;font-weight:400;font-size:12px}
+.app{display:grid;grid-template-rows:52px 1fr;min-width:0}
+.bar{display:flex;align-items:center;gap:8px;padding:0 24px;border-bottom:1px solid var(--rule);background:var(--card);color:var(--ink2)}.bar b{color:var(--ink);font-weight:500}
+.search{margin-left:auto;width:256px;height:32px;border:1px solid var(--input);border-radius:7px;display:flex;align-items:center;padding:0 10px;color:var(--ink2);font-size:13px}
+.page{padding:20px 24px;display:flex;flex-direction:column;gap:14px;min-height:0}
+.head{display:flex;align-items:center;gap:14px}
+.head h1{font:600 26px/1.1 Barlow;letter-spacing:-.01em}
+.head p{color:var(--ink2);font-size:13px;margin-top:3px}
+.btn{height:32px;border-radius:7px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;font-weight:500;border:1px solid var(--rule);background:var(--paper)}
+.btn.p{background:var(--lime);border-color:var(--lime);color:var(--shell);font-weight:600}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:9.8px;overflow:hidden;min-height:0;display:flex;flex-direction:column}
+.tools{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--rule)}
+.q{flex:1;max-width:560px;height:34px;border:1px solid var(--lime-ink);box-shadow:0 0 0 3px rgba(74,114,18,.25);border-radius:7px;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--ink2);font-size:14px}
+.q kbd{margin-left:auto;font:600 11px Barlow;border:1px solid var(--rule);border-radius:4px;padding:1px 5px;color:var(--ink2)}
+.seg{display:flex;background:var(--muted);border-radius:7px;padding:2px;height:30px}
+.seg span{padding:0 10px;display:flex;align-items:center;gap:5px;border-radius:5.6px;font-size:13px;font-weight:500;color:var(--ink2)}
+.seg span.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgb(20 26 40/.12)}
+.meta{margin-left:auto;font-size:13px;color:var(--ink2)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:32px;text-align:left;padding:0 12px;border-bottom:1px solid var(--rule);font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:var(--ink2);font-weight:600}
+th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padding-right:16px;text-align:right}
+td{height:50px;padding:0 12px;border-bottom:1px solid var(--rule);vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr:hover td{background:rgba(238,241,245,.6)}
+.nm{font-weight:600}.sub{font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
+.ph{font:500 14px "Barlow Condensed";letter-spacing:.02em}
+.lw{font:700 13px "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase}
+.lw.cust{color:var(--ink)}.lw.lead{color:var(--ink2)}
+.lw small{display:block;font:400 12px Barlow;letter-spacing:0;text-transform:none;color:var(--ink2)}
+.chip{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:4px;font:700 11px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase;margin-left:6px;vertical-align:1px}
+.ch-booked{color:var(--booked-ink);background:rgb(76 111 208/.15)}.ch-held{color:var(--held-ink);background:rgb(142 153 172/.15)}.ch-fu{color:var(--fu-ink);background:rgb(42 157 149/.15)}
+.ch-won{color:var(--won-ink);background:rgb(132 177 53/.15)}.ch-lost{color:var(--lost-ink);background:rgb(217 58 64/.12)}
+.more{font-size:12px;color:var(--ink2);margin-left:6px}
+.step b{font-weight:600}.late{color:var(--danger-ink)}
+.flag{display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:4px;background:var(--amber-bg);color:var(--amber-ink);font:600 13px Barlow}
+.quiet{color:var(--ink2)}
+.due{font:600 14px "Barlow Condensed";letter-spacing:.02em}
+.paid{font:600 15px "Barlow Condensed";letter-spacing:.02em}
+.foot{display:flex;align-items:center;height:40px;padding:0 16px;font-size:13px;color:var(--ink2);margin-top:auto;border-top:1px solid var(--rule)}
+.foot a{margin-left:auto;color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:rgba(20,26,40,.4);text-underline-offset:3px}
+.note{position:absolute;right:24px;bottom:16px;width:330px;background:#fffbe6;border:1px dashed #c9a400;border-radius:8px;padding:10px 12px;font-size:12px;color:#5a4500;line-height:1.45}
+
+.band{background:var(--shell);color:#eef1f6;border-radius:9.8px;padding:16px 18px 0;display:flex;flex-direction:column;gap:12px}
+.band .top{display:flex;align-items:center;gap:14px}
+.band h1{font:600 26px/1.1 Barlow;letter-spacing:-.01em}
+.band .sum{font:500 13px Barlow;color:#9aa4b6;margin-top:3px}
+.bq{height:44px;background:#1d2536;border:1px solid rgba(242,244,247,.15);border-radius:7px;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:16px;color:#9aa4b6}
+.bq kbd{margin-left:auto;font:600 11px Barlow;border:1px solid rgba(242,244,247,.2);border-radius:4px;padding:1px 6px}
+.tabs{display:flex;gap:22px;border-top:1px solid rgba(242,244,247,.08);margin:0 -18px;padding:0 18px}
+.tabs span{height:40px;display:flex;align-items:center;font:600 13px "Barlow Condensed";letter-spacing:.12em;text-transform:uppercase;color:#9aa4b6;border-bottom:2px solid transparent}
+.tabs span.on{color:#eef1f6;border-color:var(--lime)}
+.tabs .r{margin-left:auto;text-transform:none;letter-spacing:0;font:400 13px Barlow}
+.rows{background:#fff;border:1px solid var(--rule);border-radius:9.8px;overflow:hidden}
+.row{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1.2fr) minmax(0,1.1fr) 150px;align-items:center;gap:20px;height:60px;padding:0 18px;border-bottom:1px solid var(--rule)}
+.row:hover{background:rgba(238,241,245,.6)}
+.row .n{font:600 15px Barlow}.row .s{font-size:13px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sw{font:700 13px "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase}
+.fact{font:600 15px "Barlow Condensed";letter-spacing:.02em}.fact i{font-style:normal;font-weight:500;color:var(--ink2);font-family:Barlow;font-size:14px;letter-spacing:0;margin-right:4px}
+.money{text-align:right}.money .f{font:600 20px "Barlow Condensed"}
+.money .lc{font:700 11px "Barlow Condensed";letter-spacing:.12em;text-transform:uppercase;color:var(--ink2)}
+.money .lc.cu{color:var(--lime-ink)}
+</style></head><body>
+<aside class="rail"><div class="brand"><i></i>MAGNUS</div><nav class="nav"><a>Today <em>2</em></a><a>My Pipeline</a><a class="on">Leads &amp; Customers</a></nav><div class="me">Claudio Closer<small>Closer</small></div></aside>
+<div class="app"><div class="bar"><span>Leads &amp; Customers</span><div class="search">Search people and deals <span style="margin-left:auto">⌘K</span></div></div>
+<main class="page">
+<section class="band">
+ <div class="top"><div><h1>Leads &amp; Customers</h1><div class="sum">Find anyone by name, phone, email, handle or ID</div></div><span style="margin-left:auto" class="btn p">＋ New side deal</span></div>
+ <div class="bq">⌕ <span>Search people…</span><kbd>/</kbd></div>
+ <div class="tabs"><span class="on">All</span><span>Leads</span><span>Customers</span><span>Prospects</span><span class="r">Newest activity first</span></div>
+</section>
+<section class="rows"><div class="row"><div><div class="n">Daniela Rivas</div><div class="s"><span class="c" style="font-size:14px">+1 504 9876 2210</span> · daniela.rivas@gmail.com</div></div>
+<div><div>Mentoría 1:1 <span class="sw" style="color:var(--booked-ink)">Booked</span></div><div class="s">Your deal</div></div>
+<div><div><span class="fact"><i>Call</i>Mon 10:00 AM</span></div><div class="s">Last activity Oct 31</div></div>
+<div class="money"><div class="f"><span class="quiet" style="font-size:15px">Nothing paid</span></div><div class="lc">Lead</div></div></div><div class="row"><div><div class="n">Marco Paz</div><div class="s">@marcopaz.fit · Instagram</div></div>
+<div><div>Mentoría 1:1 <span class="sw" style="color:var(--held-ink)">Held</span></div><div class="s">Your deal</div></div>
+<div><div><span class="flag">No next step</span></div><div class="s">Last activity Oct 30</div></div>
+<div class="money"><div class="f"><span class="quiet" style="font-size:15px">Nothing paid</span></div><div class="lc">Lead</div></div></div><div class="row"><div><div class="n">Jane Smith</div><div class="s">jane.smith@email.com</div></div>
+<div><div>Programa Élite <span class="sw" style="color:var(--fu-ink)">Follow-up</span></div><div class="s">Deal of Bo Herrera · 1 won before</div></div>
+<div><div><span class="fact"><i>Call back</i><span class="late">today 3:00 PM</span></span></div><div class="s">Last activity Oct 30</div></div>
+<div class="money"><div class="f">$3,000</div><div class="lc cu">Customer since Sep 9</div></div></div><div class="row"><div><div class="n">Luis Andrés Mejía</div><div class="s"><span class="c" style="font-size:14px">+1 305 555 0147</span> · luis@mejia.co</div></div>
+<div><div>Mentoría 1:1 <span class="sw" style="color:var(--fu-ink)">Follow-up</span></div><div class="s">Your deal</div></div>
+<div><div><span class="fact"><i>Link sent</i>Oct 27</span></div><div class="s">Last activity Oct 27</div></div>
+<div class="money"><div class="f"><span class="quiet" style="font-size:15px">Nothing paid</span></div><div class="lc">Lead</div></div></div><div class="row"><div><div class="n">Claudio Rafael Vasquez Lopez</div><div class="s">vas.claudio15@icloud.com</div></div>
+<div><div>Mentoría 1:1 <span class="sw" style="color:var(--won-ink)">Won</span></div><div class="s">Your deal</div></div>
+<div><div><span class="quiet">No open deal</span></div><div class="s">Last activity Sep 9</div></div>
+<div class="money"><div class="f">$3,000</div><div class="lc cu">Customer since Sep 9</div></div></div><div class="row"><div><div class="n">Team Route A Test</div><div class="s">teamroute-a@icloud.com</div></div>
+<div><div>Mentoría 1:1 <span class="sw" style="color:var(--held-ink)">Held</span></div><div class="s">Deal of Ana Castro</div></div>
+<div><div><span class="quiet">No next step</span></div><div class="s">Last activity Oct 9</div></div>
+<div class="money"><div class="f"><span class="quiet" style="font-size:15px">Nothing paid</span></div><div class="lc">Lead</div></div></div><div class="row"><div><div class="n">Rocío Fernández</div><div class="s"><span class="c" style="font-size:14px">+52 55 1234 9876</span></div></div>
+<div><div>Programa Élite <span class="sw" style="color:var(--lost-ink)">Lost: no-show</span></div><div class="s">Deal of Ana Castro</div></div>
+<div><div><span class="quiet">No open deal</span></div><div class="s">Last activity Oct 8</div></div>
+<div class="money"><div class="f"><span class="quiet" style="font-size:15px">Nothing paid</span></div><div class="lc">Lead</div></div></div><div class="row"><div><div class="n">Test Lead New</div><div class="s">newleadtest123@email.com</div></div>
+<div><div>Programa Élite <span class="sw" style="color:var(--won-ink)">Won</span></div><div class="s">Deal of Bo Herrera</div></div>
+<div><div><span class="quiet">No open deal</span></div><div class="s">Last activity Jul 7</div></div>
+<div class="money"><div class="f">$22,000</div><div class="lc cu">Customer since Jul 7</div></div></div><div class="row"><div><div class="n">Agent E2E Closest 07</div><div class="s">agent-e2e-closest-07@icloud.com</div></div>
+<div><div>Mentoría 1:1 <span class="sw" style="color:var(--booked-ink)">Booked</span></div><div class="s">Your deal</div></div>
+<div><div><span class="flag">Not recorded</span> <span class="s">· Jun 18 call</span></div><div class="s">Last activity Jun 18</div></div>
+<div class="money"><div class="f"><span class="quiet" style="font-size:15px">Nothing paid</span></div><div class="lc">Lead</div></div></div></section>
+</main></div></body></html>

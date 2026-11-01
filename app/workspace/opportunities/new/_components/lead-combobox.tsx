@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-type LeadPickerValue = {
+type PersonPickerValue = {
 	_id: Id<"leads">;
 	fullName?: string;
 	email?: string;
@@ -29,18 +29,23 @@ type LeadPickerValue = {
 	status: string;
 };
 
-function getLeadLabel(lead: LeadPickerValue) {
-	return lead.fullName?.trim() || lead.email || lead.phone || "Unnamed lead";
+function personLabel(person: PersonPickerValue) {
+	return person.fullName?.trim() || person.email || person.phone || "Unnamed person";
 }
 
+/** Search the tenant's people and pick one; the field's value is its id. */
 export function LeadCombobox({
+	id,
 	value,
 	onChange,
 	disabled,
+	invalid,
 }: {
+	id?: string;
 	value?: Id<"leads">;
 	onChange: (value: Id<"leads"> | undefined) => void;
 	disabled?: boolean;
+	invalid?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const [draft, setDraft] = useState("");
@@ -51,7 +56,7 @@ export function LeadCombobox({
 		return () => window.clearTimeout(timeout);
 	}, [draft]);
 
-	const selectedLead = useQuery(
+	const selected = useQuery(
 		api.leads.queries.getLeadForPicker,
 		value ? { leadId: value } : "skip",
 	);
@@ -62,49 +67,53 @@ export function LeadCombobox({
 	);
 
 	useEffect(() => {
-		if (value && selectedLead === null) {
+		if (value && selected === null) {
 			onChange(undefined);
 		}
-	}, [onChange, selectedLead, value]);
+	}, [onChange, selected, value]);
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<Button
+					id={id}
 					variant="outline"
 					role="combobox"
 					aria-expanded={open}
-					className="w-full min-w-0 justify-between"
+					aria-invalid={invalid || undefined}
+					className="w-full min-w-0 justify-between border-input bg-transparent font-normal dark:bg-input/30"
 					disabled={disabled}
 				>
 					<span className="min-w-0 truncate text-left">
-						{selectedLead ? (
+						{selected ? (
 							<>
-								{getLeadLabel(selectedLead)}
-								{selectedLead.email ? (
-									<span className="ml-2 text-muted-foreground">
-										{selectedLead.email}
+								<span className="font-medium" translate="no">
+									{personLabel(selected)}
+								</span>
+								{selected.email ? (
+									<span className="ml-2 text-[13px] text-muted-foreground" translate="no">
+										{selected.email}
 									</span>
 								) : null}
 							</>
 						) : value ? (
-							<span className="text-muted-foreground">Loading selected lead…</span>
+							<span className="text-muted-foreground">Loading the person…</span>
 						) : (
 							<span className="text-muted-foreground">
-								Search leads by name, email, or phone…
+								Search people by name, email or phone…
 							</span>
 						)}
 					</span>
-					<ChevronsUpDownIcon data-icon="inline-end" />
+					<ChevronsUpDownIcon data-icon="inline-end" className="text-muted-foreground" />
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				className="w-[--radix-popover-trigger-width] p-0"
+				className="w-(--radix-popover-trigger-width) p-0"
 			>
 				<Command shouldFilter={false}>
 					<CommandInput
-						placeholder="Search leads…"
+						placeholder="Search people…"
 						value={draft}
 						onValueChange={setDraft}
 					/>
@@ -113,35 +122,41 @@ export function LeadCombobox({
 							<CommandEmpty>Type at least 2 characters.</CommandEmpty>
 						) : null}
 						{trimmedSearch.length >= 2 && results === undefined ? (
-							<CommandEmpty>Searching leads…</CommandEmpty>
+							<CommandEmpty>Searching…</CommandEmpty>
 						) : null}
 						{trimmedSearch.length >= 2 && results?.length === 0 ? (
-							<CommandEmpty>No leads found. Switch to New lead.</CommandEmpty>
+							<CommandEmpty>
+								Nobody matches. Switch to New to add the person.
+							</CommandEmpty>
 						) : null}
 						{results && results.length > 0 ? (
 							<CommandGroup>
-								{results.map((lead) => (
+								{results.map((person) => (
 									<CommandItem
-										key={lead._id}
-										value={lead._id}
+										key={person._id}
+										value={person._id}
 										onSelect={() => {
-											onChange(lead._id);
+											onChange(person._id);
 											setOpen(false);
 										}}
 									>
 										<CheckIcon
 											className={cn(
-												value === lead._id ? "opacity-100" : "opacity-0",
+												value === person._id ? "opacity-100" : "opacity-0",
 											)}
 										/>
 										<div className="flex min-w-0 flex-col">
-											<span className="truncate font-medium">
-												{getLeadLabel(lead)}
+											<span className="truncate font-medium" translate="no">
+												{personLabel(person)}
 											</span>
-											<span className="truncate text-xs text-muted-foreground">
-												{[lead.email, lead.phone, lead.status]
+											<span className="truncate text-xs text-muted-foreground" translate="no">
+												{[
+													person.email,
+													person.phone,
+													person.status === "converted" ? "Customer" : null,
+												]
 													.filter(Boolean)
-													.join(" - ")}
+													.join(" · ")}
 											</span>
 										</div>
 									</CommandItem>

@@ -171,9 +171,11 @@ spacing:
   board-row: "44px"
   title-row: "44px"
   boarding-row: "56px"
+  person-row: "60px"
   strip-row: "64px"
   queue-width: "340px"
   today-rail: "384px"
+  form-measure: "640px"
 components:
   button-primary:
     backgroundColor: "{colors.lime}"
@@ -299,6 +301,22 @@ components:
     typography: "{typography.title}"
     height: "{spacing.title-row}"
     padding: "8px 20px"
+  page-band:
+    backgroundColor: "{colors.board}"
+    textColor: "{colors.board-foreground}"
+    rounded: "{rounded.surface}"
+    padding: "16px 18px"
+  page-band-search:
+    backgroundColor: "{colors.board-raised}"
+    textColor: "{colors.board-foreground}"
+    rounded: "{rounded.control}"
+    height: "44px"
+    padding: "0 14px"
+  person-row:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.ink}"
+    height: "{spacing.person-row}"
+    padding: "0 18px"
   input:
     backgroundColor: "{colors.card}"
     textColor: "{colors.ink}"
@@ -317,10 +335,10 @@ The closer's day reads like an airport departures board set inside a calm, ordin
 
 Density is that of a second screen beside a live video call. Rows are 44px, card title rows 44 to 46px, text 14px with 13px meta lines, and every number sits in Barlow Condensed with tabular figures so times and amounts line up down a column. The navy shell and lime are the brand speaking loudly, as PRODUCT.md commits. On the paper, lime is not decoration; it is the button.
 
-The world was built and reviewed on five closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page, the task page, My Pipeline, and the person page with its deal modal. The rest of the app has not migrated yet (see Migration Status at the end).
+The world was built and reviewed on five closer surfaces: Today (`app/workspace/closer/page.tsx`), the meeting page, the task page, My Pipeline, and the person page with its deal modal. Leads & Customers, New side deal and Profile followed, shared by closers and admins. The rest of the app has not migrated yet (see Migration Status at the end).
 
 **Key Characteristics:**
-- Navy is a surface, not an accent: the sidebar shell, the Today board and the page strips.
+- Navy is a surface, not an accent: the sidebar shell, the Today board, the page strips and the page band.
 - One status word per row, condensed, uppercase and coloured by meaning. It changes in place and never moves to a badge somewhere else.
 - Lime is reserved for the next action and primary buttons, always with navy text on it.
 - White cards with 1px rules and a 44px title row; rows ruled, never zebra-striped.
@@ -332,7 +350,7 @@ The world was built and reviewed on five closer surfaces: Today (`app/workspace/
 A navy and lime brand pair on a cool grey paper, with a five-colour stage scale and two urgency colours (amber for owed, red for lost or overdue).
 
 ### Primary
-- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the money strip's cash figure and the person strip's CUSTOMER word; nothing else on a board is lime text. Primary buttons, Set next step on a deal with none, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
+- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the money strip's cash figure and the person strip's CUSTOMER word; nothing else on a board is lime text. The page band's primary button is lime, and the active directory tab carries a 2px lime underline. Primary buttons, Set next step on a deal with none, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
 - **Navy on Lime** (on-lime): the only text colour on a lime fill (6.9:1).
 - **Lime Ink** (lime-ink): lime as text on light surfaces (5.7:1 on white): link buttons, the caret, the light-theme focus ring. In dark it lifts to lime-ink-dark.
 
@@ -397,6 +415,8 @@ Dark is not an inversion. The ground drops to near-black (paper-dark), cards sit
 ### Named Rules
 **The Condensed Figures Rule.** Every time, count, amount, phone number and status word is set in Barlow Condensed with tabular numerals. Tables get tabular numerals from the base layer; elsewhere, add them.
 
+**The Phone As Written Rule.** A phone number is shown through `formatPhone` (`lib/phone.ts`) wherever it appears (the directory row, the person strip, the person card): a North American number stored as bare digits reads "+1 500 555 9610"; a number already grouped keeps its grouping, and anything else shows as stored. Never regroup other countries' numbers by guess.
+
 **The Labels Name Columns Rule.** The 11px condensed uppercase label names a column, a day or a group of rows, and it sits on the rule above the rows it heads. It never floats above a heading to restate what the heading says.
 
 ## Layout
@@ -409,6 +429,8 @@ The workspace is the navy sidebar plus a white 52px top bar holding the sidebar 
 - **Task queue:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
 - **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the money strip, the program cards, then All deals. With two or more programs the cards sit two up from `xl`; a single program takes the full width.
 - **Person page:** up to 1500px wide, laid out so a person with one or two deals fits one screen. The person strip spans the column; under it, from `@4xl`, a main column (open deal cards, then Closed deals, then Booking answers and Timeline side by side) and a 360px right column holding the one person card, 18px apart, 14px between cards. Narrower, it is one column: strip, deals, booking answers, timeline, person card.
+- **Leads & Customers:** up to 1500px wide, one column with 14px gaps (12px on short screens): the page band, then the results card. The page root is the container the rows fold by.
+- **New side deal and Profile:** a 640px measure centred in the page inset: the page band, then one ruled card, 14px apart.
 - **Deal modal:** centred, up to 672px wide and 88% of the viewport tall (56rem at most). The header stays fixed and the sections scroll under it. On a phone it fills the screen but for an 8px margin.
 - **The board** answers to its own width (`@container/board`): the full table from `@3xl` (48rem), the table without Gate from `@xl` (36rem), with narrower Time and Program columns and Join beside the person on the Boarding row (in place of the call's length), and below that two-line rows with the time on the left and the status word on the right.
 - **The meeting strip** is one row from `@4xl`, two rows from `@lg` (time, person and status; then the program under the person and the gate under the status), and below that stacked cells that each carry a condensed label. The task strip and the person strip still go straight from one row to stacked cells in narrow containers.
@@ -465,7 +487,8 @@ Gently rounded, never pill-shaped except for counts and dots. Surfaces (cards, t
 
 ### Navigation
 - **Shell:** navy sidebar (navy-shell; navy-shell-dark in dark) with the Magnus mark in lime and the Aceh wordmark. Items in light board-style text; the active item takes a 16% lime tint and a lime icon. The owed count sits beside its item as an amber pill with navy figures. The Reports group label uses the condensed label style at 60% opacity. The footer carries the signed-in identity.
-- **Top bar:** white, 52px, a bottom rule, breadcrumbs, and the search field on the right.
+- **Top bar:** white, 52px, a bottom rule, breadcrumbs, and the search field on the right. Breadcrumbs stay on one line at every width: on phones only the parent and the page show, and the page truncates.
+- **Command palette:** a closer's pages carry the sidebar's names and order (Today, My Pipeline, Leads & Customers).
 
 ### The Board Row (signature)
 The departures board on Today: a navy surface with a 19px condensed title, a summary ("5 calls · 1 held · 4 to go"), and Today / Tomorrow / This week tabs. Columns are TIME, PERSON, PROGRAM, GATE, STATUS under 28px condensed labels; rows are 44px with board-line rules. The time is 20px condensed. Held and canceled rows dim to board-muted, and canceled times are struck through. The next or live call becomes the **Boarding row**: 56px, lime fill, navy text, a 26px time, the navy Join button in the Gate column and a 22px countdown ("12 min", "Live") after the status word. The whole row is the link to its meeting; its buttons sit above that link.
@@ -551,8 +574,31 @@ A deal opens in a centred modal, never a side sheet, and a `?opportunityId=` lin
 ### The Lookup Table
 "All deals" on a ruled card. The header row holds the title, a segmented toggle of All / Open / Won / Lost with counts, a program select and a person search (all 30px, 7px radius, 13px). The table has 32px condensed column heads (PERSON, PROGRAM, STAGE, LAST ACTIVITY, NEXT STEP, PAID) and 44px ruled rows. Last activity is in the due style, and Paid is right-aligned in 15px condensed. Below `md` it becomes two-line rows. The footer says "N deals" or "Showing N of M", names partial reads in words, and offers "Show N more". An empty result says what was searched and offers "Clear filters".
 
+### `PageBand`
+A page's header as a navy band, the strips' sibling (`app/workspace/_components/page-band.tsx`), used where a page has no strip: Leads & Customers, New side deal and Profile. A 9.8px board surface, 16px by 18px inside (14px by 16px in a narrow container), with the 10% light ring in dark; it scopes `dark` like the board. It holds the 26px display title as the page's `h1`, a 13px board-muted line under it saying what the page does, and an optional back link above the title (13px medium board-muted with a chevron, "Leads & Customers"). The page's one primary action sits right of the title as a lime button and wraps under it on a phone. Anything the page searches or filters by sits inside the band under the title.
+
+**The directory band** fills that slot on Leads & Customers. The search field is the page's hero: 44px, board-raised fill, 7px radius, a 15% light border, a search icon and 16px text in board text, focused on load except on touch screens, `/` to return to it, Escape to clear; a `/` key hint shows until something is typed, then a clear button. Under a board-line rule that runs edge to edge, the lifecycle tabs (ALL, LEADS, CUSTOMERS, PROSPECTS) are 40px, 13px condensed semibold uppercase at 0.12em in board-muted; the active tab is board text over a 2px lime underline. Right of the tabs a 13px board-muted line says what the list shows: "Newest activity first" (hidden on phones), "Searching…", or "3 matches for “ana”".
+
+### The Directory Row
+Leads & Customers is one white ruled card of person rows (`person-row.tsx`), the tab's panel. A row reads left to right as who, their deal, what happens next and money, with no column heads:
+- **Person:** the 15px semibold name as the row link; a 13px slate line with the phone in 14px condensed, then the email, else the handle.
+- **Deal:** the person's current deal (the newest open deal, else the newest deal) as the program with its condensed stage word in stage ink; a 13px slate line "Your deal", "Deal of {closer}" or "No closer", plus "· +N open". "No deal yet" in slate when there is none.
+- **Next step:** My Pipeline's resolver set as the person deal card's footer fact (verb in medium slate, then the 15px condensed figure). The amber "No next step" or "Not recorded · {day} call" flag only on a deal the viewer can act on; the same words in slate otherwise; "No open deal" for a closed deal. Under it, "Last activity {day}" in 13px slate.
+- **Money:** right-aligned, the paid figure at 20px condensed, "Several currencies" in 13px slate when payments span currencies, or a slate dash when nothing is paid. Under it an 11px condensed lifecycle word: LEAD and PROSPECT in slate, CUSTOMER SINCE {DAY} in lime ink.
+
+**The folds** (`person-row-grid.ts`, shared with the skeleton), by the page's width: from `@4xl` four columns (1.25, 1.2 and 1.1 fractions, then 10rem for money) on a 60px row with 18px sides; from `@xl` the person and money share the first line, with the deal and the next step side by side under them; narrower, the deal and the next step stack under the person while money stays at the right of the name. Rows are 10px top and bottom with 16px sides below `@4xl`.
+
+A 40px footer counts what shows ("25 shown", "37 customers", "3 matches") with an outline "Show 25 more". No matches names what was searched, hints at a phone or email, and offers Clear search (and Search everyone on a narrower tab).
+
+### Form and Settings Cards
+New side deal and Profile each sit in one ruled card on the 640px measure, under a `PageBand` with a back link.
+- **Sections:** 44px title rows (15px semibold) with room on the right for a control or meta: the Existing / New segmented toggle (the segment lift), or "Optional" in slate.
+- **Rows:** `Field` rows ruled between, 12px by 16px, with a 13px slate label in a 120px column beside the control from `@lg`, over it narrower. A row whose section title already names it drops its label to screen readers and takes the full width. Descriptions are 13px slate; errors are 13px danger ink. The phone input sets its figures in 15px condensed.
+- **Footer:** a paper band, ruled above, with the outline Cancel and the lime submit on the right.
+- **Profile** uses the person card's dense rows instead: a 96px slate label column, about 32px each, in groups split by a rule. The picture row carries the avatar with outline Upload or Replace and a ghost Remove.
+
 ### Kept Data While Reloading
-When a month, tab, filter or search changes, the section keeps its previous data at 60% opacity (a 200ms fade, `aria-busy`) until the new data arrives, instead of flashing a skeleton. Skeletons appear only on first load. The money strip, program cards and lookup all follow this.
+When a month, tab, filter or search changes, the section keeps its previous data at 60% opacity (a 200ms fade, `aria-busy`) until the new data arrives, instead of flashing a skeleton. Skeletons appear only on first load. The money strip, program cards, lookup and the directory all follow this.
 
 ### `SectionEmpty` and `SectionError`
 Each section reports its own state in place, inside its card. **Empty:** one medium line saying what is absent ("No calls today."), with a slate hint when it helps ("Calls appear here as people book through Calendly."). **Error:** a red alert-circle icon and "Couldn't load {what}. Reload the page to try again." **Loading:** skeleton rows at the real row heights, labelled for screen readers.
@@ -575,6 +621,7 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 - **Do** keep targets at 24px or more and every text pair at 4.5:1 in both themes.
 - **Do** write dates as business days, with the year only outside this year.
 - **Do** use the shared `DealStageTrack`, `DealCreditLine` and `SetNextStepButton` wherever a deal shows its stage, credit or missing step.
+- **Do** head a page that has no strip with `PageBand`, and put its search and filters inside the band.
 
 ### Don't:
 - **Don't** put a small uppercase label above a heading to restate it. Condensed labels name columns, days and groups only.
@@ -589,10 +636,10 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 
 ## Migration Status
 
-The system above is complete on five closer surfaces (Today, the meeting page, the task page, My Pipeline, and the person page with its deal modal) and the shell. Admins use the same person page and deal modal, as they use the meeting and task pages. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. The person page replaced the old header metrics, the grid of Programs, Opportunities, Meetings, Portal Notes, Payments and Timeline cards and the six-card rail; the right-hand Opportunity Detail sheet became the deal modal, and the `entity-*` section components and the sheet's body were removed. A second pass (the at-a-glance layout) put each deal's calls in its card, folded Source and Record into one person card and collapsed closed deals. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
+The system above is complete on five closer surfaces (Today, the meeting page, the task page, My Pipeline, and the person page with its deal modal), on Leads & Customers, New side deal and Profile, and on the shell. Admins use the same person page and deal modal, as they use the meeting and task pages. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. The person page replaced the old header metrics, the grid of Programs, Opportunities, Meetings, Portal Notes, Payments and Timeline cards and the six-card rail; the right-hand Opportunity Detail sheet became the deal modal, and the `entity-*` section components and the sheet's body were removed. A second pass (the at-a-glance layout) put each deal's calls in its card, folded Source and Record into one person card and collapsed closed deals. Leads & Customers replaced the seven-column entity browser; its `entity-browser-results`, `entity-browser-results-loading`, `entity-browser-toolbar`, `entity-result-row`, `entity-result-mobile-card`, `entity-result-formatters` and `entity-ui-tooltips` components were removed. New side deal moved from `FormItem` to `Field` rows and Profile to the person card's dense rows, both under `PageBand`. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
 
 - **Legacy status colours.** `lib/status-config.ts` still maps deal positions and meeting attendance to raw Tailwind palettes (cyan, blue, indigo, violet, emerald, orange, amber), and about 365 palette utilities in 42 files bypass the tokens. The `--status-*` aliases in `app/globals.css` point at the stage tokens only until that file moves over. The new surfaces read `status-config` for attendance logic and labels only, not colours.
-- **Type scale.** About 50 page headers range from `text-base` to `text-5xl`, with 96 arbitrary text sizes and KPI figures in mono.
+- **Type scale.** About 50 page headers range from `text-base` to `text-5xl`, with 96 arbitrary text sizes and KPI figures in mono. `PageBand` is the header they move to.
 - **Layout.** 216 arbitrary layout values, nested page padding and 59 card padding overrides.
 - **Forms.** 21 form files still use `FormItem` instead of `Field`/`FieldGroup`. Seven of them open from the person page and deal modal: the lifecycle, enrolment-status, mark-lost, delete, side-deal payment, add payment and void payment dialogs.
 - **Charts.** The chart tokens are now categorical (blue, teal, lime, amber, slate); chart modules have not been reviewed against them.

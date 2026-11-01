@@ -13,10 +13,14 @@ import {
 } from "@/components/ui/select";
 
 export function CloserSelect({
+	id,
 	value,
 	onChange,
 	disabled,
+	invalid,
 }: {
+	id?: string;
+	invalid?: boolean;
 	value?: Id<"users">;
 	onChange: (value: Id<"users"> | undefined) => void;
 	disabled?: boolean;
@@ -25,14 +29,14 @@ export function CloserSelect({
 
 	return (
 		<Select
-			value={value}
+			value={value ?? ""}
 			onValueChange={(next) => onChange(next as Id<"users">)}
 			disabled={disabled || closers === undefined}
 		>
-			<SelectTrigger className="w-full">
+			<SelectTrigger id={id} aria-invalid={invalid || undefined} className="w-full">
 				<SelectValue
 					placeholder={
-						closers === undefined ? "Loading closers" : "Select closer"
+						closers === undefined ? "Loading closers…" : "Pick a closer"
 					}
 				/>
 			</SelectTrigger>

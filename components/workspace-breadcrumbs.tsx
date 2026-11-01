@@ -44,16 +44,21 @@ export function WorkspaceBreadcrumbs({ overrides }: WorkspaceBreadcrumbsProps) {
   }));
 
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0">
+      {/* One line at every width: on phones only the parent and the page show. */}
+      <BreadcrumbList className="flex-nowrap">
         {resolvedSegments.map((segment, idx) => {
-          const isLast = idx === resolvedSegments.length - 1;
+          const count = resolvedSegments.length;
+          const isLast = idx === count - 1;
+          const phoneHidden = idx < count - 2;
           return (
             <Fragment key={segment.href}>
-              {idx > 0 && <BreadcrumbSeparator />}
-              <BreadcrumbItem>
+              {idx > 0 && (
+                <BreadcrumbSeparator className={idx < count - 1 ? "hidden sm:inline-flex" : undefined} />
+              )}
+              <BreadcrumbItem className={phoneHidden ? "hidden sm:inline-flex" : "min-w-0"}>
                 {isLast ? (
-                  <BreadcrumbPage>{segment.label}</BreadcrumbPage>
+                  <BreadcrumbPage className="truncate">{segment.label}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink asChild>
                     <Link href={segment.href}>{segment.label}</Link>

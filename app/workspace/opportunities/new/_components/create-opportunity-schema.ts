@@ -42,7 +42,7 @@ export function createOpportunitySchema({
 			if (data.leadMode === "existing" && !data.existingLeadId) {
 				ctx.addIssue({
 					code: "custom",
-					message: "Select a lead",
+					message: "Pick a person",
 					path: ["existingLeadId"],
 				});
 			}
@@ -51,7 +51,7 @@ export function createOpportunitySchema({
 				if (!data.newFullName?.trim()) {
 					ctx.addIssue({
 						code: "custom",
-						message: "Full name is required",
+						message: "Enter the person's name",
 						path: ["newFullName"],
 					});
 				}
