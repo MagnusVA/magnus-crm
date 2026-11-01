@@ -22,7 +22,7 @@ import {
   UsersIcon,
   KanbanIcon,
   SettingsIcon,
-  CalendarIcon,
+  CalendarClockIcon,
   PlusIcon,
   RefreshCwIcon,
   TargetIcon,
@@ -55,11 +55,11 @@ const billingPage = {
   shortcut: "4",
 };
 
+// The same pages, names and order as the closer's sidebar.
 const closerPages = [
-  { label: "Dashboard", href: "/workspace/closer", icon: LayoutDashboardIcon, shortcut: "1" },
+  { label: "Today", href: "/workspace/closer", icon: CalendarClockIcon, shortcut: "1" },
   { label: "My Pipeline", href: "/workspace/closer/pipeline", icon: KanbanIcon, shortcut: "2" },
   { label: "Leads & Customers", href: "/workspace/leads-customers", icon: ContactIcon, shortcut: "3" },
-  { label: "My Schedule", href: "/workspace/closer", icon: CalendarIcon },
 ];
 
 const leadGenPages = [
@@ -115,8 +115,8 @@ export function CommandPalette({
   const pages = rolePages.filter(
     (page) => page.href !== RESPARK_HREF || hasPermission("lead-gen:respark"),
   );
-  const showCreateOpportunity = isAdmin || role === "closer";
-  const showQuickActions = isAdmin || showCreateOpportunity;
+  const showNewSideDeal = isAdmin || role === "closer";
+  const showQuickActions = isAdmin || showNewSideDeal;
 
   return (
     <CommandDialog
@@ -154,12 +154,12 @@ export function CommandPalette({
                   <span>Invite team member</span>
                 </CommandItem>
               ) : null}
-              {showCreateOpportunity ? (
+              {showNewSideDeal ? (
                 <CommandItem
                   onSelect={() => navigate("/workspace/leads-customers/new-opportunity")}
                 >
                   <PlusIcon />
-                  <span>Create opportunity</span>
+                  <span>New side deal</span>
                 </CommandItem>
               ) : null}
             </CommandGroup>

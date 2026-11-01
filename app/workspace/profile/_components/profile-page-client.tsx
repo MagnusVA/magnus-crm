@@ -1,46 +1,22 @@
 "use client";
 
-import type { ComponentType, ReactNode } from "react";
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import { AlertCircleIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MemberAvatar } from "@/app/workspace/_components/member-avatar";
-import {
-  Alert,
-  AlertDescription,
-} from "@/components/ui/alert";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { PageBand } from "@/app/workspace/_components/page-band";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportClientError } from "@/lib/observability/report-client-error";
-import {
-  CalendarIcon,
-  Loader2Icon,
-  MailIcon,
-  ShieldIcon,
-  Trash2Icon,
-  UploadIcon,
-  UserIcon,
-} from "lucide-react";
-import ProfileLoading from "../loading";
 import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { cn } from "@/lib/utils";
+import ProfileLoading from "../loading";
 
 const allowedProfilePictureTypes = new Set([
   "image/jpeg",
@@ -48,20 +24,29 @@ const allowedProfilePictureTypes = new Set([
   "image/webp",
   "image/gif",
 ]);
-const allowedProfilePictureAccept = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-].join(",");
+const allowedProfilePictureAccept = [...allowedProfilePictureTypes].join(",");
 const maxProfilePictureBytes = 2 * 1024 * 1024;
 
 type CurrentUser = NonNullable<
   FunctionReturnType<typeof api.users.queries.getCurrentUser>
 >;
 
+const ROLE_LABELS: Record<CurrentUser["role"], string> = {
+  tenant_master: "Owner",
+  tenant_admin: "Admin",
+  closer: "Closer",
+  lead_generator: "Lead generator",
+};
+
+const STATUS_WORD =
+  "font-condensed text-[15px] leading-none font-bold tracking-[0.08em] uppercase";
+
+/**
+ * The signed-in user's own record, in the person card's dense style: the
+ * picture they can change, then who they are and how they're connected.
+ */
 export function ProfilePageClient() {
-  usePageTitle("Profile");
+  usePageTitle("Your profile");
   const user = useQuery(api.users.queries.getCurrentUser);
 
   if (user === undefined) {
@@ -73,60 +58,68 @@ export function ProfilePageClient() {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">My Profile</h1>
-        <p className="text-sm text-muted-foreground">
-          Your account information and settings
-        </p>
-      </div>
+    <div className="@container mx-auto flex w-full max-w-[640px] flex-col gap-3.5 pb-6 short:gap-3">
+      <PageBand
+        title="Your profile"
+        description="Managed through your organization's sign-in."
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-          <CardDescription>
-            Your profile is managed through your organization&apos;s identity
-            provider.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-5">
-            <ProfilePictureControl user={user} />
-            <Separator />
-            <InfoRow
-              icon={UserIcon}
-              label="Name"
-              value={user.fullName ?? "Not set"}
-            />
-            <Separator />
-            <InfoRow icon={MailIcon} label="Email" value={user.email} />
-            <Separator />
-            <InfoRow
-              icon={ShieldIcon}
-              label="Role"
-              value={
-                <Badge variant="secondary" className="capitalize">
-                  {user.role.replace(/_/g, " ")}
-                </Badge>
-              }
-            />
-            <Separator />
-            <InfoRow
-              icon={CalendarIcon}
-              label="Calendly"
-              value={
-                user.calendlyUserUri ? (
-                  <Badge variant="default">Linked</Badge>
-                ) : (
-                  <Badge variant="outline">Not linked</Badge>
-                )
-              }
-            />
-          </div>
-        </CardContent>
+      <Card className="w-full gap-0 py-0">
+        <div className="divide-y [&>dl]:py-1">
+          <ProfilePictureControl user={user} />
+          <dl>
+            <Fact label="Name">
+              {user.fullName ? (
+                <span translate="no">{user.fullName}</span>
+              ) : (
+                <Muted>Not set</Muted>
+              )}
+            </Fact>
+            <Fact label="Email" title={user.email}>
+              <span translate="no">{user.email}</span>
+            </Fact>
+          </dl>
+          <dl>
+            <Fact label="Role">{ROLE_LABELS[user.role]}</Fact>
+            <Fact label="Calendly">
+              {user.calendlyUserUri ? (
+                <span className={cn(STATUS_WORD, "text-foreground")}>Linked</span>
+              ) : (
+                <>
+                  <span className={cn(STATUS_WORD, "text-muted-foreground")}>Not linked</span>{" "}
+                  <Muted>An admin links it from Team.</Muted>
+                </>
+              )}
+            </Fact>
+          </dl>
+        </div>
       </Card>
     </div>
   );
+}
+
+/** One fact: a 96px slate label beside a one-line value, about 32px tall. */
+function Fact({
+  label,
+  title,
+  children,
+}: {
+  label: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid min-h-8 grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-3 px-4 py-1.5">
+      <dt className="text-[13px] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate" title={title}>
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+function Muted({ children }: { children: React.ReactNode }) {
+  return <span className="text-[13px] text-muted-foreground">{children}</span>;
 }
 
 function ProfilePictureControl({ user }: { user: CurrentUser }) {
@@ -200,8 +193,7 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
       toast.success("Profile picture updated.");
     } catch (error) {
       reportClientError(error, { flow: "profile_picture_upload", httpStatus });
-      const message =
-        getErrorMessage(error, "Profile picture upload failed.");
+      const message = getErrorMessage(error, "Profile picture upload failed.");
       setProfilePictureError(message);
       toast.error(message);
     } finally {
@@ -218,8 +210,7 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
       await removeProfilePicture();
       toast.success("Profile picture removed.");
     } catch (error) {
-      const message =
-        getErrorMessage(error, "Profile picture removal failed.");
+      const message = getErrorMessage(error, "Profile picture removal failed.");
       setProfilePictureError(message);
       toast.error(message);
     } finally {
@@ -228,89 +219,73 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <MemberAvatar identity={user.avatar} size="lg" decorative={false} />
-        <input
-          ref={inputRef}
-          type="file"
-          accept={allowedProfilePictureAccept}
-          className="sr-only"
-          aria-label="Profile picture file"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) {
-              void uploadProfilePicture(file);
-            }
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isBusy}
-          onClick={() => inputRef.current?.click()}
-        >
-          {isUploading ? (
-            <Loader2Icon
-              data-icon="inline-start"
-              className="animate-spin"
-              aria-hidden="true"
-            />
-          ) : (
-            <UploadIcon data-icon="inline-start" aria-hidden="true" />
-          )}
-          {isUploading
-            ? "Uploading"
-            : hasCustomProfilePicture
-              ? "Replace"
-              : "Upload"}
-        </Button>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Remove profile picture"
-                disabled={isBusy || !hasCustomProfilePicture}
-                onClick={() => {
-                  void removeCurrentProfilePicture();
-                }}
-              >
-                <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Remove profile picture</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+    <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 px-4 py-3">
+      <span className="text-[13px] text-muted-foreground">Picture</span>
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <MemberAvatar
+            identity={user.avatar}
+            size="lg"
+            decorative={false}
+            className="mr-1"
+          />
+          <input
+            ref={inputRef}
+            type="file"
+            accept={allowedProfilePictureAccept}
+            className="sr-only"
+            tabIndex={-1}
+            aria-label="Profile picture file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                void uploadProfilePicture(file);
+              }
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isBusy}
+            onClick={() => inputRef.current?.click()}
+          >
+            {isUploading ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <UploadIcon data-icon="inline-start" aria-hidden="true" />
+            )}
+            {isUploading
+              ? "Uploading…"
+              : hasCustomProfilePicture
+                ? "Replace"
+                : "Upload"}
+          </Button>
+          {hasCustomProfilePicture ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isBusy}
+              onClick={() => {
+                void removeCurrentProfilePicture();
+              }}
+            >
+              {isRemoving ? <Spinner data-icon="inline-start" /> : null}
+              {isRemoving ? "Removing…" : "Remove"}
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-[13px] text-muted-foreground">
+          JPEG, PNG, WebP or GIF, up to 2 MB.
+        </p>
+        {profilePictureError ? (
+          <p role="alert" className="flex items-start gap-1.5 text-[13px] text-danger-ink">
+            <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            {profilePictureError}
+          </p>
+        ) : null}
       </div>
-      {profilePictureError ? (
-        <Alert variant="destructive">
-          <AlertDescription>{profilePictureError}</AlertDescription>
-        </Alert>
-      ) : null}
-    </div>
-  );
-}
-
-function InfoRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: ComponentType;
-  label: string;
-  value: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3 text-sm">
-        <Icon />
-        <span className="text-muted-foreground">{label}</span>
-      </div>
-      <div className="text-sm font-medium">{value}</div>
     </div>
   );
 }

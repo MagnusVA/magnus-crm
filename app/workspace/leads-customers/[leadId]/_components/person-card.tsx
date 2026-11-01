@@ -31,6 +31,7 @@ import { useEntityDetail, type EntityDetailEnrollment } from "./entity-detail-co
 import { EnrollmentStatusControl } from "./enrollment-status-control";
 import type { LifecycleChangeMode } from "./lifecycle-change-dialog";
 import { contactKey, personDate, plural } from "./person-format";
+import { formatPhone } from "@/lib/phone";
 
 const LifecycleChangeDialog = dynamic(() =>
   import("./lifecycle-change-dialog").then((module) => module.LifecycleChangeDialog),
@@ -109,7 +110,7 @@ export function PersonCard() {
               className="rounded-sm font-condensed text-[15px] font-semibold tracking-[0.02em] tabular-nums hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               translate="no"
             >
-              {lead.phone}
+              {formatPhone(lead.phone)}
             </a>
           ) : (
             <Muted>Not recorded</Muted>

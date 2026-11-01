@@ -1,42 +1,42 @@
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** The profile while it loads: the navy band, then the dense card's rows. */
 export default function ProfileLoading() {
 	return (
 		<div
-			className="mx-auto flex max-w-2xl flex-col gap-6"
+			className="@container mx-auto flex w-full max-w-[640px] flex-col gap-3.5 pb-6 short:gap-3"
 			role="status"
-			aria-label="Loading profile"
+			aria-label="Loading your profile"
 		>
-			{/* Page header */}
-			<div className="flex flex-col gap-2">
-				<Skeleton className="h-8 w-32" />
-				<Skeleton className="h-4 w-48" />
+			<div className="rounded-xl bg-board px-4 py-3.5 @lg:px-[18px] @lg:py-4 dark:ring-1 dark:ring-board-foreground/10">
+				<Skeleton className="h-7 w-40 bg-board-raised" />
+				<Skeleton className="mt-1.5 h-4 w-72 max-w-full bg-board-raised" />
 			</div>
-
-			{/* Account card */}
-			<Card>
-				<CardHeader>
-					<Skeleton className="h-6 w-24" />
-					<Skeleton className="h-4 w-72" />
-				</CardHeader>
-				<CardContent>
-					<div className="flex flex-col gap-5">
-						<div className="flex items-center gap-3">
-							<Skeleton className="size-10 rounded-full" />
+			<Card className="w-full gap-0 py-0">
+				<div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 px-4 py-3">
+					<Skeleton className="h-3.5 w-12" />
+					<div className="flex flex-col gap-1.5">
+						<div className="flex items-center gap-2">
+							<Skeleton className="mr-1 size-10 rounded-full" />
 							<Skeleton className="h-7 w-24" />
-							<Skeleton className="size-7 rounded-md" />
 						</div>
-						<Skeleton className="h-px w-full" />
-						<Skeleton className="h-10 w-full" />
-						<Skeleton className="h-px w-full" />
-						<Skeleton className="h-10 w-full" />
-						<Skeleton className="h-px w-full" />
-						<Skeleton className="h-10 w-2/3" />
-						<Skeleton className="h-px w-full" />
-						<Skeleton className="h-10 w-1/2" />
+						<Skeleton className="h-4 w-48" />
 					</div>
-				</CardContent>
+				</div>
+				{[2, 2].map((rows, group) => (
+					<div key={group} className="border-t py-1">
+						{Array.from({ length: rows }, (_, row) => (
+							<div
+								key={row}
+								className="grid min-h-8 grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 px-4 py-1.5"
+							>
+								<Skeleton className="h-3.5 w-14" />
+								<Skeleton className="h-4 w-40 max-w-full" />
+							</div>
+						))}
+					</div>
+				))}
 			</Card>
 		</div>
 	);

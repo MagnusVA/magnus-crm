@@ -1,13 +1,27 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
+import { isAdminRole } from "../lib/roleMapping";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   lifecycleMatchesFilter,
   resolveDirectEntityIdentifier,
   toLeadCustomerSearchRowDto,
 } from "./identifierResolution";
+import { loadListDeals, type ListViewer } from "./listDeal";
+import type { LeadCustomerListRowDto, LeadCustomerSearchRowDto } from "./types";
 import { leadCustomerLifecycleFilterValidator } from "./validators";
+
+/** Each row with the person's deal beside it (listDeal.ts). */
+async function withListDeals(
+  ctx: QueryCtx,
+  viewer: ListViewer,
+  rows: LeadCustomerSearchRowDto[],
+): Promise<LeadCustomerListRowDto[]> {
+  const deals = await loadListDeals(ctx, viewer, rows.map((row) => row.leadId));
+  return rows.map((row) => ({ ...row, deal: deals.get(row.leadId) ?? null }));
+}
 
 export const listEntities = query({
   args: {
@@ -15,11 +29,12 @@ export const listEntities = query({
     lifecycle: v.optional(leadCustomerLifecycleFilterValidator),
   },
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
+    const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
       "closer",
     ]);
+    const viewer: ListViewer = { tenantId, userId, isAdmin: isAdminRole(role) };
 
     const lifecycle = args.lifecycle ?? "all";
     const result =
@@ -48,7 +63,11 @@ export const listEntities = query({
 
     return {
       ...result,
-      page: result.page.map((row) => toLeadCustomerSearchRowDto({ row })),
+      page: await withListDeals(
+        ctx,
+        viewer,
+        result.page.map((row) => toLeadCustomerSearchRowDto({ row })),
+      ),
     };
   },
 });
@@ -59,11 +78,12 @@ export const searchEntities = query({
     lifecycle: v.optional(leadCustomerLifecycleFilterValidator),
   },
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
+    const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
       "closer",
     ]);
+    const viewer: ListViewer = { tenantId, userId, isAdmin: isAdminRole(role) };
 
     const lifecycle = args.lifecycle ?? "all";
     const term = args.searchTerm.trim();
@@ -74,7 +94,7 @@ export const searchEntities = query({
     const direct = await resolveDirectEntityIdentifier(ctx, tenantId, term);
     if (direct) {
       return lifecycleMatchesFilter(direct.row.lifecycle, lifecycle)
-        ? [toLeadCustomerSearchRowDto(direct)]
+        ? await withListDeals(ctx, viewer, [toLeadCustomerSearchRowDto(direct)])
         : [];
     }
     if (term.length < 2) {
@@ -103,6 +123,10 @@ export const searchEntities = query({
             )
             .take(50);
 
-    return rows.map((row) => toLeadCustomerSearchRowDto({ row }));
+    return await withListDeals(
+      ctx,
+      viewer,
+      rows.map((row) => toLeadCustomerSearchRowDto({ row })),
+    );
   },
 });

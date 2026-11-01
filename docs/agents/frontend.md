@@ -59,7 +59,7 @@ Page clients are `*-page-client.tsx`, loading states `*-skeleton.tsx`, modals `*
 ## Forms
 
 - Forms use React Hook Form with Zod 4: `standardSchemaResolver` from `@hookform/resolvers/standard-schema`, the schema defined in the same file, and `useForm` types inferred from the resolver.
-- Fields use `components/ui/form` (`Form`, `FormField`, `FormItem`, `FormLabel`, `FormControl`, `FormMessage`), laid out with `FieldGroup` from `components/ui/field.tsx`. Small forms without React Hook Form use `Field`, `FieldLabel`, and `FieldError` directly.
+- Fields use `Field`, `FieldLabel`, `FieldDescription`, and `FieldError` from `components/ui/field.tsx`, grouped with `FieldGroup`; with React Hook Form, wrap each in a `Controller`. Older forms still use `FormItem` from `components/ui/form` (see Migration Status in `DESIGN.md`); don't add new ones.
 - Submission errors go in a local `submitError` state or `toast.error`, apart from field validation errors.
 - File inputs wire `onChange` by hand and take no controlled `value`.
 

@@ -1,4 +1,5 @@
 import type { Id } from "../_generated/dataModel";
+import type { ListDeal } from "./listDeal";
 
 export type LeadCustomerLifecycle = "prospect" | "lead" | "customer" | "merged";
 export type LeadCustomerLifecycleFilter = "all" | "prospect" | "lead" | "customer";
@@ -25,3 +26,6 @@ export type LeadCustomerSearchRowDto = {
   selectedOpportunityId?: Id<"opportunities">;
   selectedMeetingId?: Id<"meetings">;
 };
+
+/** A Leads & Customers row: the search row and the person's deal (listDeal.ts). */
+export type LeadCustomerListRowDto = LeadCustomerSearchRowDto & { deal: ListDeal | null };
