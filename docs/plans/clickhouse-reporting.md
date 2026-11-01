@@ -8,7 +8,7 @@ Terms follow [`CONTEXT.md`](../../CONTEXT.md) and [ADR 0001](../adr/0001-lead-li
 
 Every report page keeps its current layout and opens on **Today**. Today is read live from Convex. Every other range (Yesterday, This week, This month, Last month, Last 90 days, custom) is read from ClickHouse, which Fivetran fills from Convex every 6 hours, and is labelled "Data as of 14:31".
 
-1. **Today in Convex, everything else in ClickHouse** (§4). There's no merging of the two. A range that includes today, such as This month, shows ClickHouse's data up to the last sync.
+1. **Today in Convex, everything else in ClickHouse** (§4). A range that includes today, such as This month, reads its days before today from ClickHouse and today from Convex, and the page merges the two (changed 2026-10-31; it first showed ClickHouse's data up to the last sync).
 2. **ClickHouse wakes only when a sync wakes it** (§5). Fivetran already wakes the service four times a day. Convex hears that a sync ended from Fivetran, never by querying ClickHouse. It then runs one batch while the service is awake: it reads the watermark and recomputes every report key someone asked for in the last 7 days. Between syncs, report pages read cached results from Convex. The only other wake is a range nobody has asked for before.
 3. **Today's queries are built to scale** (§6), after [Queries that scale](https://stack.convex.dev/queries-that-scale). Every read goes through an index over today's range, with the range passed as an argument so results are cached and shared. Low-volume tables use one query. Captures and domain events, the two high-volume ones, split into a closed-hours query that changes once an hour and a current-hour query that re-runs on each new row. No new counter tables.
 4. **Convex aggregates stay only for current-state counts** (§6.4): deals by stage, open deal aging, the respark pool, and the billing queue. Nine of the 18 aggregate instances go, along with the meeting projection system and its workpool, the lead gen bucket tables, the dashboard snapshot path, and every backfill and verification flag that guards them (§11).
@@ -76,10 +76,11 @@ These numbers decide how each Today query reads (§6).
 | Range | Source | Freshness shown |
 | --- | --- | --- |
 | Today (the default) | Convex, live | "Live" |
-| Yesterday, This week, This month, Last month, Last 90 days, custom | ClickHouse, through the `analyticsResults` cache | "Data as of 14:31" (the watermark, in the viewer's time zone) |
+| Yesterday, Last month, custom ranges that ended before today | ClickHouse, through the `analyticsResults` cache | "Data as of 14:31" (the watermark, in the viewer's time zone) |
+| This week, This month, Last 90 days, custom ranges that include today | ClickHouse for the days before today, Convex live for today, merged per report (`convex/analytics/merge/`) | "Today live · earlier days as of 14:31" |
 
 - **Today** is the viewer's local day, from browser midnight to the next. The client computes the bounds and passes them as arguments.
-- **Other ranges** run in the viewer's time zone and end at the earlier of the range end and the watermark. This month, opened at 16:00, shows data through the 14:31 sync. A late correction, such as last Tuesday's call marked held today, shows after the next sync.
+- **Other ranges** run in the viewer's time zone. ClickHouse answers their days before today as of the watermark: This month, opened at 16:00, shows the 1st to yesterday from the 14:31 sync, and today live. Until the first sync after midnight, yesterday's hours after the last evening sync are missing. A late correction, such as last Tuesday's call marked held today, shows after the next sync.
 - **Panels with no date range** keep their current source: stage distribution (Convex aggregate), open deal aging (Convex aggregate, so it agrees with the live stage counts beside it), stale deals list and reminder backlog (Convex work lists). Velocity, which covers deals from the last 90 days, reads ClickHouse as of the watermark.
 - **Operational screens don't change**: work lists, queues, search, respark, the capture page, missed meetings, health and recovery, the billing queue, and the closer dashboard. Features that run on the business day (respark holds, Slack quotas, My day) keep it. Only the reports move to the browser clock.
 
@@ -92,6 +93,7 @@ The service runs only while something uses it, so this plan creates no reason to
 | Fivetran sync | Every 6 hours, about 7 minutes | Yes, and it already does |
 | Post-sync batch (§8.3) | Straight after each sync | No: the sync left it awake |
 | A report or API range never requested before | On demand | Yes, rarely, and it shows a loading state |
+| A range that includes today, opened after midnight and before the first sync | Once per range that night | Yes, rarely: its days before today gained one |
 | Freshness checks | Never: Convex asks Fivetran, not ClickHouse | No |
 | Today views, cached ranges, crons | Never | No |
 
@@ -395,5 +397,5 @@ In this order. Production is `usable-guineapig-697`; its HTTP actions are at `ht
 
 1. **Export limits** (§10).
 2. **Half-hour time zones.** The hour split in §6.3 assumes whole-hour offsets. Every user today is in one. A viewer in a half-hour zone would get a correct but uncached closed-hours query. Fine unless that changes.
-3. **Ranges that include today.** They show ClickHouse data up to the last sync, as decided. Adding Convex's Today to them later is possible, because every metric that adds is already split into a `today` and a `sql` part.
+3. **Ranges that include today.** Done 2026-10-31: ClickHouse answers their days before today and Convex today, and each report's merge joins them (`docs/agents/reporting.md`). The external API's `/metrics` still shows ClickHouse's data up to the last sync for them.
 4. **Who starts syncs.** Keep Fivetran's 6-hour schedule, or let Convex trigger syncs at fixed local times (§5).

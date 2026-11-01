@@ -10,7 +10,11 @@ import { addDays, startOfDay } from "date-fns";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useNow } from "@/hooks/use-now";
-import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import {
+  mergePipelineBacklogAndLoss,
+  mergeSchedulingShowRate,
+} from "@/convex/analytics/merge/pipeline";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Badge } from "@/components/ui/badge";
@@ -80,24 +84,28 @@ export function PipelineReportPageClient() {
     api.reporting.pipelineHealth.getPipelineDistribution,
   );
   const aging = useQuery(api.reporting.pipelineHealth.getPipelineAging);
-  // Today reads Convex live; any other range reads ClickHouse once the page
-  // is switched (docs/plans/clickhouse-reporting.md §4).
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
   const now = useNow();
-  const range = reportRangeToAnalyticsRange(dateRange, now);
+  const plan = reportRangePlan(dateRange, now);
+  const todayWindow = reportWindowFromToday(dateRange, now);
   const backlogAndLossReport = useAnalyticsReport({
     page: "pipeline",
     reportId: "pipeline.backlog_and_loss",
-    range,
+    plan,
     live: api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
     liveArgs: {
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
     },
+    todayArgs: todayWindow,
+    merge: mergePipelineBacklogAndLoss,
   });
   const operationsShowRateReport = useAnalyticsReport({
     page: "pipeline",
     reportId: "pipeline.show_rate",
-    range,
+    plan,
     filters: {
       bookingProgramId: attributionFilters.bookingProgramId,
       attributionTeamId: attributionFilters.attributionTeamId,
@@ -108,17 +116,24 @@ export function PipelineReportPageClient() {
       ...reportRangeDayKeys(dateRange),
       ...attributionFilters,
     },
+    todayArgs: !loaded || rebuilding ? "skip" : {
+      ...reportRangeDayKeys(todayWindow),
+      ...attributionFilters,
+    },
+    merge: mergeSchedulingShowRate,
   });
   const backlogAndLoss = backlogAndLossReport.data;
   const operationsShowRate = operationsShowRateReport.data;
-  // The reminder backlog has no range, so it stays real time: a ClickHouse
-  // range takes it from today's live read.
+  // A split already includes the live backlog. Only a wholly historical
+  // warehouse range needs a separate live read for this current-state card.
+  const needsLiveBacklog =
+    backlogAndLossReport.source === "warehouse" && plan.kind === "warehouse";
   const liveBacklog = useQuery(
     api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
-    backlogAndLossReport.source === "warehouse" ? getTodayRange(now) : "skip",
+    needsLiveBacklog ? getTodayRange(now) : "skip",
   );
   const reminderBacklog =
-    backlogAndLossReport.source === "warehouse" ? liveBacklog : backlogAndLoss;
+    needsLiveBacklog ? liveBacklog : backlogAndLoss;
   const freshness = [
     backlogAndLossReport.freshness,
     operationsShowRateReport.freshness,

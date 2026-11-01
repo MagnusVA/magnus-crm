@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/empty";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import { mergeReminderOutcomeFunnel } from "@/convex/analytics/merge/reminders";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,16 +59,19 @@ export function RemindersReportPageClient() {
     ...(paymentType ? { paymentType } : {}),
   };
 
-  // Today reads Convex live; any other range reads ClickHouse once the page
-  // is switched (docs/plans/clickhouse-reporting.md §4).
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
   const now = useNow();
   const report = useAnalyticsReport({
     page: "reminders",
     reportId: "reminders.funnel",
-    range: reportRangeToAnalyticsRange(dateRange, now),
+    plan: reportRangePlan(dateRange, now),
     filters: { programId, paymentType },
     live: api.reporting.remindersReporting.getReminderOutcomeFunnel,
     liveArgs: queryArgs,
+    todayArgs: { ...queryArgs, ...reportWindowFromToday(dateRange, now) },
+    merge: mergeReminderOutcomeFunnel,
   });
   const data = report.data;
 

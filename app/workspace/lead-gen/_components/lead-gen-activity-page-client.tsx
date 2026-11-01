@@ -13,7 +13,8 @@ import {
   UserXIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { dashboardRangePlan, dashboardRangeFromToday } from "@/lib/analyticsRange";
+import { mergeMyActivitySummary } from "@/convex/analytics/merge/leadGen";
 import { businessDateForInstant } from "@/lib/businessDay";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import {
@@ -74,19 +75,21 @@ export function LeadGenActivityPageClient() {
           endBusinessDateInclusive: range.endBusinessDateInclusive,
         })
       : null;
-  // Today reads Convex live; any other range reads ClickHouse once the page
-  // is switched (docs/plans/clickhouse-reporting.md §4). The worker is the
-  // caller's own, taken from auth.
-  const analyticsRange = dashboardRangeToAnalyticsRange(
-    queryRange,
-    businessDateForInstant(now, setting),
-  );
-  const warehouse = useAnalyticsSource("my_activity", analyticsRange) === "warehouse";
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const plan = dashboardRangePlan(queryRange, todayBusinessDate);
+  const warehouse = useAnalyticsSource("my_activity", plan) === "warehouse";
   const summaryReport = useAnalyticsReport({
     page: "my_activity",
     reportId: "my_activity.summary",
-    range: analyticsRange,
+    plan,
     live: api.leadGen.activity.getMyActivitySummary,
+    merge: mergeMyActivitySummary,
+    todayArgs: !loaded || rebuilding
+      ? "skip"
+      : { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
     liveArgs: !loaded || (!warehouse && rebuilding)
       ? "skip"
       : {

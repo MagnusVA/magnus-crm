@@ -7,7 +7,14 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { SettingsIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { dashboardRangePlan, dashboardRangeFromToday } from "@/lib/analyticsRange";
+import {
+	mergeLeadGenOverview,
+	mergeLeadGenWorkers,
+	mergeLeadGenTopOriginsByTeam,
+	mergeLeadGenProspectConversions,
+	mergeLeadGenResparkPerformance,
+} from "@/convex/analytics/merge/leadGen";
 import { businessDateForInstant } from "@/lib/businessDay";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import {
@@ -71,23 +78,32 @@ export function LeadGenAdminPageClient() {
 		[queryRange, now, setting],
 	);
 
-	// Today reads Convex live; any other range reads ClickHouse once the page
-	// is switched (docs/plans/clickhouse-reporting.md §4), and then needs no
-	// snapshot job. Until then the readers and the snapshot path answer.
-	const analyticsRange = dashboardRangeToAnalyticsRange(
-		queryRange,
-		businessDateForInstant(now, setting),
-	);
-	const analyticsSource = useAnalyticsSource("lead_gen", analyticsRange);
+	// Today reads Convex live, and so does today's part of a longer range; the
+	// days before today read ClickHouse once the page is switched, and then
+	// need no snapshot job. Until then the readers and the snapshot path
+	// answer (docs/agents/reporting.md).
+	const todayBusinessDate = businessDateForInstant(now, setting);
+	const plan = dashboardRangePlan(queryRange, todayBusinessDate);
+	const analyticsSource = useAnalyticsSource("lead_gen", plan);
 	const warehouse = analyticsSource === "warehouse";
 	const analyticsFilters = { source: source ?? null };
+	const todayFilters = {
+		...dashboardRangeToDayKeys(
+			dashboardRangeFromToday(queryRange, todayBusinessDate),
+			now,
+			setting,
+		),
+		...(source ? { source } : {}),
+	};
 
 	const overviewReport = useAnalyticsReport({
 		page: "lead_gen",
 		reportId: "lead_gen.overview",
-		range: analyticsRange,
+		plan,
 		filters: analyticsFilters,
 		live: api.leadGen.reporting.getOverview,
+		merge: mergeLeadGenOverview,
+		todayArgs: !loaded || rebuilding ? "skip" : todayFilters,
 		liveArgs: !loaded || (!warehouse && (requiresSnapshot || rebuilding)) ? "skip" : filters,
 	});
 	const overview = overviewReport.data;
@@ -101,18 +117,24 @@ export function LeadGenAdminPageClient() {
 	const specialistReport = useAnalyticsReport({
 		page: "lead_gen",
 		reportId: "lead_gen.workers",
-		range: analyticsRange,
+		plan,
 		filters: analyticsFilters,
 		live: api.leadGen.reporting.listWorkerPerformance,
+		merge: mergeLeadGenWorkers,
+		todayArgs: !loaded || rebuilding || waitForOverview ? "skip" : todayFilters,
 		liveArgs: !loaded || waitForOverview ? "skip" : filters,
 	});
 	const specialistRows = specialistReport.data;
 	const originsReport = useAnalyticsReport({
 		page: "lead_gen",
 		reportId: "lead_gen.top_origins_by_team",
-		range: analyticsRange,
+		plan,
 		filters: { ...analyticsFilters, limitPerTeam: 10, sortBy: "submissions" },
 		live: api.leadGen.reporting.listTopOriginsByTeam,
+		merge: mergeLeadGenTopOriginsByTeam,
+		todayArgs: !loaded || rebuilding || waitForOverview
+			? "skip"
+			: { ...todayFilters, limitPerTeam: 10, sortBy: "submissions" },
 		liveArgs: !loaded || waitForOverview
 			? "skip"
 			: { ...filters, limitPerTeam: 10, sortBy: "submissions" },
@@ -121,8 +143,13 @@ export function LeadGenAdminPageClient() {
 	const conversionsReport = useAnalyticsReport({
 		page: "lead_gen",
 		reportId: "lead_gen.prospect_conversions",
-		range: analyticsRange,
+		plan,
 		live: api.leadGen.conversions.listProspectConversions,
+		merge: mergeLeadGenProspectConversions,
+		todayArgs: !loaded ? "skip" : {
+			startDayKey: todayFilters.startDayKey,
+			endDayKey: todayFilters.endDayKey,
+		},
 		liveArgs: !loaded ? "skip" : {
 			startDayKey: filters.startDayKey,
 			endDayKey: filters.endDayKey,
@@ -132,9 +159,11 @@ export function LeadGenAdminPageClient() {
 	const resparksReport = useAnalyticsReport({
 		page: "lead_gen",
 		reportId: "lead_gen.respark_performance",
-		range: analyticsRange,
+		plan,
 		filters: analyticsFilters,
 		live: api.leadGen.resparkReports.listResparkPerformance,
+		merge: mergeLeadGenResparkPerformance,
+		todayArgs: !loaded || rebuilding ? "skip" : todayFilters,
 		liveArgs: !loaded || (!warehouse && rebuilding) ? "skip" : filters,
 	});
 	const resparks = resparksReport.data;

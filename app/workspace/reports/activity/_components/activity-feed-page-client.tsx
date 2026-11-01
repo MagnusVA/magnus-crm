@@ -11,7 +11,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import { mergeActivitySummary } from "@/convex/analytics/merge/activity";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -64,16 +65,18 @@ export function ActivityFeedPageClient() {
     filters.programId ?? "",
     filters.paymentType ?? "",
   ].join("|");
-  // Today reads Convex live; any other range reads ClickHouse once the page
-  // is switched (docs/plans/clickhouse-reporting.md §4). The feed is paged
-  // and always reads Convex.
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md). The paged feed always reads Convex.
   const now = useNow();
   const summaryReport = useAnalyticsReport({
     page: "activity",
     reportId: "activity.summary",
-    range: reportRangeToAnalyticsRange(dateRange, now),
+    plan: reportRangePlan(dateRange, now),
     live: api.reporting.activityFeed.getActivitySummary,
     liveArgs: dateRange,
+    todayArgs: reportWindowFromToday(dateRange, now),
+    merge: mergeActivitySummary,
   });
   const summary = summaryReport.data;
 

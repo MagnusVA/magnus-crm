@@ -21,11 +21,10 @@ export async function buildActionsPerCloserPerDay(
   { startDate, endDate }: { startDate: number; endDate: number },
   { closerActions, isTruncated }: { closerActions: Map<Id<"users">, number>; isTruncated: boolean },
 ) {
-  const topEntries = Array.from(closerActions.entries())
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 3);
-  const topCloserActors = await Promise.all(
-    topEntries.map(async ([userId, count]) => {
+  // Every closer, in the order of their first action, so two adjacent
+  // ranges' answers join into one (convex/analytics/merge/team.ts).
+  const closerActors = await Promise.all(
+    Array.from(closerActions.entries()).map(async ([userId, count]) => {
       const user = await ctx.db.get("users", userId);
       return {
         userId,
@@ -35,6 +34,9 @@ export async function buildActionsPerCloserPerDay(
       };
     }),
   );
+  const topCloserActors = [...closerActors]
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 3);
 
   const totalCloserActions = Array.from(closerActions.values()).reduce(
     (sum, count) => sum + count,
@@ -51,6 +53,7 @@ export async function buildActionsPerCloserPerDay(
       distinctCloserActors > 0
         ? totalCloserActions / distinctCloserActors / daySpanDays
         : null,
+    closerActors,
     topCloserActors,
     isTruncated,
   };

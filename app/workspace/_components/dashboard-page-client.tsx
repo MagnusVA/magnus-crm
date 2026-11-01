@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
-import { dashboardRangeToAnalyticsRange } from "@/lib/analyticsRange";
+import { mergeOverviewDashboard } from "@/convex/analytics/merge/overview";
+import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
 import { businessDateForInstant } from "@/lib/businessDay";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
@@ -65,18 +66,22 @@ export function DashboardPageClient() {
 					endBusinessDateInclusive: range.endBusinessDateInclusive,
 				})
 			: null;
-	// Today reads Convex live; any other range reads ClickHouse once the page
-	// is switched (docs/plans/clickhouse-reporting.md §4).
-	const analyticsRange = dashboardRangeToAnalyticsRange(
+	// Today reads Convex live, and so does today's part of a longer range; the
+	// days before today read ClickHouse once the page is switched
+	// (docs/agents/reporting.md).
+	const todayBusinessDate = businessDateForInstant(now, setting);
+	const plan = dashboardRangePlan(
 		queryRange,
-		businessDateForInstant(now, setting),
+		todayBusinessDate,
 	);
 	const report = useAnalyticsReport({
 		page: "overview",
 		reportId: "overview.dashboard",
-		range: analyticsRange,
+		plan,
 		live: api.dashboard.overview.getOverviewDashboard,
 		liveArgs: isAdmin && loaded ? { range: queryRange } : "skip",
+		todayArgs: isAdmin && loaded ? { range: dashboardRangeFromToday(queryRange, todayBusinessDate) } : "skip",
+		merge: mergeOverviewDashboard,
 	});
 	const overview = report.data;
 	useReportOverviewSectionError("leadGen", overview?.leadGen);
