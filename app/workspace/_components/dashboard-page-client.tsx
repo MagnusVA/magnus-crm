@@ -81,10 +81,12 @@ export function DashboardPageClient() {
 
   // A new range keeps the last one's numbers on screen, dimmed, until it
   // arrives (DESIGN.md, Kept Data While Reloading).
-  const [kept, setKept] = useState(report.data);
-  if (report.data !== undefined && report.data !== kept) setKept(report.data);
-  const overview = report.data ?? kept;
+  // The kept numbers keep their own range, so their labels still match them.
+  const [kept, setKept] = useState(report.data && { data: report.data, range });
+  if (report.data !== undefined && report.data !== kept?.data) setKept({ data: report.data, range });
+  const overview = report.data ?? kept?.data;
   const reloading = report.data === undefined && kept !== undefined;
+  const shownInput = report.data === undefined && kept ? kept.range : range;
 
   useReportOverviewSectionError("leadGen", report.data?.leadGen);
   useReportOverviewSectionError("topQualifiers", report.data?.topQualifiers);
@@ -99,7 +101,7 @@ export function DashboardPageClient() {
   }
 
   const freshness = freshnessSummary([report.freshness], now);
-  const shownRange = report.data?.range;
+  const shownRange = overview?.range;
 
   return (
     <div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3">
@@ -107,7 +109,7 @@ export function DashboardPageClient() {
         title="Overview"
         description={
           <>
-            <span className="font-medium text-board-foreground">{rangeWords(range, shownRange, todayBusinessDate)}</span>
+            <span className="font-medium text-board-foreground">{rangeWords(shownInput, shownRange, todayBusinessDate)}</span>
             {freshness.kind === "line" ? (
               <>
                 {" · "}
@@ -137,13 +139,13 @@ export function DashboardPageClient() {
           className={cn("flex flex-col gap-3.5 transition-opacity duration-200 short:gap-3", reloading && "opacity-60")}
         >
           <section aria-label="Rankings" className="grid gap-3.5 @4xl:grid-cols-3 short:gap-3">
-            <LeadGenRanking section={overview.leadGen} range={range} />
-            <QualifiersRanking section={overview.topQualifiers} range={range} />
-            <DmClosersRanking section={overview.topDmClosers} range={range} />
+            <LeadGenRanking section={overview.leadGen} range={shownInput} />
+            <QualifiersRanking section={overview.topQualifiers} range={shownInput} />
+            <DmClosersRanking section={overview.topDmClosers} range={shownInput} />
           </section>
           <div className="grid items-start gap-3.5 @5xl:grid-cols-[1.35fr_1fr] short:gap-3">
-            <PhoneCloserOperationsSection section={overview.phoneCloserOperations} rangePhrase={rangePhrase(range)} />
-            <TopOriginsOverviewSection section={overview.topOrigins} rangePhrase={rangePhrase(range)} />
+            <PhoneCloserOperationsSection section={overview.phoneCloserOperations} rangePhrase={rangePhrase(shownInput)} />
+            <TopOriginsOverviewSection section={overview.topOrigins} rangePhrase={rangePhrase(shownInput)} />
           </div>
         </div>
       ) : (
