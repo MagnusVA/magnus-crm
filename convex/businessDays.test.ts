@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { businessDayFixture } from "../tests/businessDayFixtures";
 import { addBusinessDays, businessDayStart, BUSINESS_DAY_REBUILD_MESSAGE } from "../lib/businessDay";
@@ -9,6 +9,11 @@ import { assertBusinessDayReady, markLeadGenBusinessDayDirty } from "./lib/busin
 import { bucketKey, requestMeetingProjection } from "./operations/meetingStats";
 import { auditAggregateRange } from "./leadGen/reconciliation";
 import * as projectionChecks from "./operations/meetingProjectionChecks";
+
+// Captures enqueue link previews; draining jobs must never contact Instagram.
+beforeEach(() => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 503 }));
+});
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const changed = { timeZone: "UTC", dayStartHour: 0 };

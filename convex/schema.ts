@@ -362,6 +362,21 @@ export default defineSchema({
       "dayKey",
     ]),
 
+  leadGenOriginPreviews: defineTable({
+    tenantId: v.id("tenants"),
+    originKey: v.string(),
+    url: v.string(),
+    status: v.union(v.literal("pending"), v.literal("ready"), v.literal("unavailable")),
+    authorName: v.optional(v.string()),
+    handle: v.optional(v.string()),
+    caption: v.optional(v.string()),
+    postedOn: v.optional(v.string()),
+    thumbnailStorageId: v.optional(v.id("_storage")),
+    attempts: v.number(),
+    requestedAt: v.number(),
+    fetchedAt: v.optional(v.number()),
+  }).index("by_tenantId_and_originKey", ["tenantId", "originKey"]),
+
   leadGenOriginStats: defineTable({
     tenantId: v.id("tenants"),
     originKey: v.string(),

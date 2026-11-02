@@ -1,160 +1,48 @@
 "use client";
-import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
-import { useMemo, useState } from "react";
-import type { DateRange } from "react-day-picker";
-import { CalendarIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { useIsMobile } from "@/hooks/use-mobile";
-import {
-	businessDateToCalendarDate,
-	calendarDateToBusinessDate,
-	type DashboardRangeValidationOptions,
-	validateCustomDashboardRange,
-} from "./dashboard-date-utils";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
+import { businessDateForInstant } from "@/lib/businessDay";
+import type { DashboardRangeValidationOptions } from "./dashboard-date-utils";
+import { DateRangePicker, type DashboardRangeInput } from "./date-range-picker";
+import { DayDefinition } from "./day-definition";
 
-export type DashboardRangeInput =
-	| { kind: "preset"; preset: "today" | "this_week" | "this_month" }
-	| {
-			kind: "custom";
-			startBusinessDate: string;
-			endBusinessDateInclusive: string;
-	  };
+export type { DashboardRangeInput } from "./date-range-picker";
 
 type Props = {
- browser?: boolean;
- bucketKind?: "meetings" | "lead-gen";
-	value: DashboardRangeInput;
-	onChange: (value: DashboardRangeInput) => void;
-	validationMessage: string | null;
-	validationOptions?: DashboardRangeValidationOptions;
+  browser?: boolean;
+  bucketKind?: "meetings" | "lead-gen";
+  value: DashboardRangeInput;
+  onChange: (value: DashboardRangeInput) => void;
+  validationMessage: string | null;
+  validationOptions?: DashboardRangeValidationOptions;
 };
 
+/**
+ * The Operations pages' range control on the page ground: the shared
+ * `DateRangePicker`, the business-day line under it, and the range's
+ * validation message. Overview sets the picker in its band instead.
+ */
 export function DashboardDateRangeFilter({
- browser = false,
- bucketKind,
-	value,
-	onChange,
-	validationMessage,
-	validationOptions,
+  browser = false,
+  bucketKind,
+  value,
+  onChange,
+  validationMessage,
+  validationOptions,
 }: Props) {
-	const isMobile = useIsMobile();
-	const [open, setOpen] = useState(false);
-	const [draftRange, setDraftRange] = useState<DateRange | undefined>(() =>
-		value.kind === "custom"
-			? {
-					from: businessDateToCalendarDate(value.startBusinessDate),
-					to: businessDateToCalendarDate(value.endBusinessDateInclusive),
-				}
-			: undefined,
-	);
-	const presetValue = value.kind === "preset" ? value.preset : "custom";
-	const draftBusinessRange = useMemo(
-		() => ({
-			startBusinessDate: draftRange?.from
-				? calendarDateToBusinessDate(draftRange.from)
-				: undefined,
-			endBusinessDateInclusive: draftRange?.to
-				? calendarDateToBusinessDate(draftRange.to)
-				: undefined,
-		}),
-		[draftRange],
-	);
-	const draftError = validateCustomDashboardRange(
-		draftBusinessRange,
-		validationOptions,
-	);
-
-	return (
-		<div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
-			<div className="flex min-w-0 flex-wrap items-center gap-2">
-				<ToggleGroup
-					type="single"
-					value={presetValue}
-					onValueChange={(next) => {
-						if (
-							next === "today" ||
-							next === "this_week" ||
-							next === "this_month"
-						) {
-							onChange({ kind: "preset", preset: next });
-						}
-					}}
-					variant="outline"
-					size="sm"
-					aria-label="Dashboard range"
-				>
-					<ToggleGroupItem value="today" aria-label="Day">
-						Day
-					</ToggleGroupItem>
-					<ToggleGroupItem value="this_week" aria-label="Week">
-						Week
-					</ToggleGroupItem>
-					<ToggleGroupItem value="this_month" aria-label="Month">
-						Month
-					</ToggleGroupItem>
-				</ToggleGroup>
-
-				<Popover open={open} onOpenChange={setOpen}>
-					<PopoverTrigger asChild>
-						<Button
-							variant={presetValue === "custom" ? "default" : "outline"}
-							size="sm"
-						>
-							<CalendarIcon data-icon="inline-start" aria-hidden="true" />
-							Custom
-						</Button>
-					</PopoverTrigger>
-					<PopoverContent
-						align="end"
-						className="w-[calc(100vw-2rem)] max-w-fit p-2"
-					>
-						<Calendar
-							mode="range"
-							selected={draftRange}
-							onSelect={setDraftRange}
-							numberOfMonths={isMobile ? 1 : 2}
-						/>
-						<div className="flex items-center justify-between gap-3 border-t px-2 pt-2">
-							<p className="min-w-0 text-xs text-muted-foreground">
-								{draftError ?? "Range ready."}
-							</p>
-							<Button
-								size="sm"
-								disabled={draftError !== null}
-								onClick={() => {
-									if (
-										!draftBusinessRange.startBusinessDate ||
-										!draftBusinessRange.endBusinessDateInclusive
-									) {
-										return;
-									}
-									onChange({
-										kind: "custom",
-										startBusinessDate: draftBusinessRange.startBusinessDate,
-										endBusinessDateInclusive:
-											draftBusinessRange.endBusinessDateInclusive,
-									});
-									setOpen(false);
-								}}
-							>
-								Apply
-							</Button>
-						</div>
-					</PopoverContent>
-				</Popover>
-			</div>
-			<DayDefinition browser={browser} bucketKind={bucketKind} />
-			{validationMessage ? (
-				<p className="text-xs text-destructive">{validationMessage}</p>
-			) : null}
-		</div>
-	);
+  const { setting } = useBusinessDay(bucketKind);
+  const now = useNow();
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">
+      <DateRangePicker
+        value={value}
+        onChange={onChange}
+        validationOptions={validationOptions}
+        todayBusinessDate={businessDateForInstant(now, setting)}
+      />
+      <DayDefinition browser={browser} bucketKind={bucketKind} />
+      {validationMessage ? <p className="text-xs text-destructive">{validationMessage}</p> : null}
+    </div>
+  );
 }

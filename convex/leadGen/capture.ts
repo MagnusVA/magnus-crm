@@ -1,3 +1,4 @@
+import { ensureOriginPreview } from "./originPreviews";
 import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -253,6 +254,12 @@ export const submit = mutation({
         originValue: origin.originValue,
         prospectId: prospect._id,
         submittedAt: now,
+      });
+
+      await ensureOriginPreview(ctx, {
+        tenantId: access.tenantId,
+        originKey: origin.originKey,
+        url: origin.originValue,
       });
 
       await updateLeadGenTeamOriginStats(ctx, {

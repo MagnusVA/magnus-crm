@@ -29,7 +29,7 @@ vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => 
 
 import { TeamReportPageClient } from "@/app/workspace/reports/team/_components/team-report-page-client";
 import { PipelineReportPageClient } from "@/app/workspace/reports/pipeline/_components/pipeline-report-page-client";
-import { LeadGenOverviewCard } from "@/app/workspace/_components/lead-gen-overview-card";
+import { LeadGenRanking } from "@/app/workspace/_components/overview-rankings";
 import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origins-overview-section";
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -127,7 +127,7 @@ describe("meeting bucket page readiness", () => {
   it("renders rebuilding Overview sections without totals or generic errors", () => {
     const section = { status: "rebuilding" as const, data: null, truncated: false as const, message: BUSINESS_DAY_REBUILD_MESSAGE, errorCode: null };
     const sections = [
-      createElement(LeadGenOverviewCard, { section, range: { kind: "preset", preset: "today" }, expanded: true, onExpandedChange: () => {} }),
+      createElement(LeadGenRanking, { section, range: { kind: "preset", preset: "today" } }),
       createElement(TopOriginsOverviewSection, { section }),
       createElement(PhoneCloserOperationsSection, { section }),
     ];
