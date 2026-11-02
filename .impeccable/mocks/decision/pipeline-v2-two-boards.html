@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet"><style>*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:14px/1.4 Barlow,sans-serif;color:#141a28;background:#f3f5f8;display:flex}
+.c{font-family:"Barlow Condensed",sans-serif;font-variant-numeric:tabular-nums}
+.side{width:220px;background:#141a28;color:#eef1f6;padding:16px 12px;flex:none}
+.side .brand{font-size:22px;font-weight:600;margin-bottom:18px;display:flex;gap:8px;align-items:center}
+.side .brand i{width:22px;height:18px;background:#84b135;display:inline-block;border-radius:3px}
+.nav{padding:7px 10px;border-radius:6px;font-size:13px;margin-bottom:2px;color:#c9d0dc;display:flex;justify-content:space-between}
+.nav.on{background:rgb(132 177 53/.16);color:#eef1f6}
+.pill{background:#f0b429;color:#141a28;border-radius:99px;padding:0 7px;font-size:12px;font-weight:700}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:52px;background:#fff;border-bottom:1px solid #e3e7ee;display:flex;align-items:center;padding:0 20px;gap:10px;font-size:13px;color:#5b6577}
+.top .s{margin-left:auto;width:256px;height:32px;border:1px solid #d5dae3;border-radius:7px}
+.page{padding:20px 24px;display:flex;flex-direction:column;gap:14px;min-height:0;flex:1}
+.card{background:#fff;border:1px solid #e3e7ee;border-radius:9.8px;overflow:hidden}
+.ct{height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #e3e7ee;font-weight:600;font-size:15px}
+.ct .m{margin-left:auto;font-weight:400;font-size:13px;color:#5b6577}
+.lab{font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:#5b6577}
+.board{background:#141a28;color:#eef1f6;border-radius:9.8px}
+.board .lab{color:#9aa4b6}
+.amb{background:#fdf0d5;color:#8a4b00;font:600 13px Barlow;padding:1px 6px;border-radius:4px}
+.blue{color:#2f5bd3}.teal{color:#0f7c74}.red{color:#c2282d}
+.sw{font:700 13px "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase}
+.btn{height:24px;padding:0 9px;border:1px solid #d5dae3;border-radius:5.6px;font-size:12px;font-weight:500;display:inline-flex;align-items:center;background:#f3f5f8}
+.btn.lime{background:#84b135;border-color:#84b135;color:#141a28;font-weight:600}
+.btn.redt{color:#c2282d}
+.strip{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;padding:14px 18px;gap:18px}
+.fig{font:600 30px/1.1 "Barlow Condensed";font-variant-numeric:tabular-nums}
+.sub{font-size:13px;color:#c9d0dc}
+</style>
+<style>
+.lanes{display:grid;grid-template-columns:1fr 1.15fr;gap:14px;min-height:0}
+.row{display:grid;align-items:center;gap:12px;padding:0 16px;height:46px;border-top:1px solid #e3e7ee}
+.ahead .row{grid-template-columns:96px 1fr 120px 130px;border-color:rgb(242 244 247/.08);height:44px}
+.ahead .head,.rec .head{display:grid;gap:12px;padding:0 16px;height:28px;align-items:center}
+.ahead .head{grid-template-columns:96px 1fr 120px 130px}
+.rec .row,.rec .head{grid-template-columns:70px 1fr 120px 170px}
+.t{font:600 20px "Barlow Condensed";font-variant-numeric:tabular-nums}
+.mut{color:#9aa4b6;font-size:13px}.sl{color:#5b6577;font-size:13px}
+.done{background:#f7f8fa}.done .n{color:#5b6577}
+</style></head><body>
+<div class="side"><div class="brand"><i></i>Magnus</div><div class="nav">Today <span class="pill">29</span></div><div class="nav on">My Pipeline</div><div class="nav">Leads &amp; Customers</div></div>
+<div class="main"><div class="top">Today › My Pipeline<div class="s"></div></div>
+<div class="page">
+ <div style="display:flex;align-items:end;gap:12px"><div><div style="font-size:26px;font-weight:600;line-height:1.1">My Pipeline</div><div class="sl">Day 1 of 30 · Days run 1:00 am–1:00 am, America/Tegucigalpa</div></div><div style="margin-left:auto" class="c" >‹ &nbsp;<b style="font-size:18px">November</b>&nbsp; ›</div></div>
+ <div class="board strip"><div><div class="lab">Cash collected · November</div><div class="fig" style="color:#84b135">$0</div><div class="sub">No payments yet</div></div><div><div class="lab">Won</div><div class="fig">0</div><div class="sub">No deals decided yet</div></div><div><div class="lab">Ahead</div><div class="fig">14</div><div class="sub">3 calls · 11 tasks</div></div><div><div class="lab">Never recorded</div><div class="fig" style="color:#f0b429">298</div><div class="sub">Oldest Jul 13 · 12 cleared today</div></div></div>
+ <div class="lanes">
+  <div class="board ahead"><div class="ct" style="border-color:rgb(242 244 247/.08)"><span class="c" style="font-size:19px">Ahead</span><span class="m" style="color:#9aa4b6">Next steps in time order</span></div>
+   <div class="head lab"><span>When</span><span>Person</span><span>Program</span><span>Status</span></div>
+   <div class="row" style="background:#84b135;color:#141a28;height:52px"><span class="t">5:00 PM</span><b>Shannon Hottes</b><span>No program</span><span class="sw">Call today</span></div>
+   <div class="row"><span class="t">Nov 3</span><b>Ricky Hampton</b><span class="mut">Masterclass</span><span class="sw">Call</span></div>
+   <div class="row"><span class="t">Nov 4</span><b>Trish Dawn</b><span class="mut">Giveaways</span><span class="sw">Call back</span></div>
+   <div class="row"><span class="t">Oct 31</span><b>Angelo Black</b><span class="mut">Giveaways</span><span class="sw" style="color:#ff8a8e">Overdue</span></div>
+   <div class="row"><span class="t">Sep 18</span><b>Craig Cassidy</b><span class="mut">Cash Flow Content</span><span class="sw" style="color:#ff8a8e">Overdue</span></div>
+   <div class="row"><span class="t">Oct 28</span><b>Nelson Fuertes</b><span class="mut">Cash Flow Content</span><span class="sw" style="color:#9aa4b6">Link sent</span></div>
+   <div class="row"><span class="t">—</span><b>Kate Stanvick</b><span class="mut">Giveaways</span><span class="sw" style="color:#f0b429">No next step</span></div>
+   <div class="row"><span class="t">—</span><b>Morgan Kennedy</b><span class="mut">Giveaways</span><span class="sw" style="color:#f0b429">No next step</span></div>
+  </div>
+  <div class="card rec"><div class="ct">Never recorded<span class="amb c" style="font-size:13px">298</span><span class="m">Oldest first · calls that passed with no outcome</span></div>
+   <div class="head lab"><span>Call</span><span>Person</span><span>Program</span><span></span></div>
+   <div class="row done"><span class="c" style="font-weight:600">Jul 13</span><span class="n"><b>Coach Ian Slater</b></span><span class="sl">MDMM / VIP</span><span class="sw red">No-show · recorded</span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 14</span><b>Alice C</b><span class="sl">25K Accelerator</span><span style="display:flex;gap:6px"><span class="btn lime">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 14</span><b>Coach Tristan</b><span class="sl">5K accelerator</span><span style="display:flex;gap:6px"><span class="btn">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 18</span><b>Coach Chanico</b><span class="sl">5K accelerator</span><span style="display:flex;gap:6px"><span class="btn">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 21</span><b>Aziz Daly</b><span class="sl">Masterclass</span><span style="display:flex;gap:6px"><span class="btn">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 21</span><b>Christian Santana</b><span class="sl">Masterclass</span><span style="display:flex;gap:6px"><span class="btn">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 22</span><b>Hunter Bush</b><span class="sl">5K accelerator</span><span style="display:flex;gap:6px"><span class="btn">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+   <div class="row"><span class="c" style="font-weight:600">Jul 23</span><b>Coach Gabriel Valantino</b><span class="sl">MDMM / VIP</span><span style="display:flex;gap:6px"><span class="btn">No-show</span><span class="btn redt">Lost</span><span class="btn">Open</span></span></div>
+  </div>
+ </div>
+ <div class="card"><div class="ct">All deals<span class="m">1,000 deals · Open 473 · Won 75 · Lost 452 &nbsp; ▾</span></div></div>
+</div></div></body></html>

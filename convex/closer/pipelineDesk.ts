@@ -139,8 +139,12 @@ export const getMonthWins = query({
 // The open positions a closer's deals reach. Closers own no Qualified deals
 // (pipelineTabs.ts).
 const OPEN_STAGES = ["booked", "call_held", "follow_up"] as const;
-// Far above the open deals one closer works at once.
-const MAX_OPEN_DEALS = 300;
+// A closer who never recorded old calls carries hundreds of open Booked
+// deals (316 on a real closer in Nov 2026), and the page exists to clear
+// them, so the bound sits well above that. Each deal costs two more reads
+// (its person and its open tasks).
+const MAX_OPEN_DEALS = 750;
+const OPEN_DEAL_BYTES = 2 * 1024 * 1024;
 // The closed deals counted for each program's footer.
 const MAX_CLOSED_DEALS = 1000;
 const CLOSED_DEAL_BYTES = 3 * 1024 * 1024;
@@ -166,6 +170,8 @@ export const getOpenDeals = query({
         position: v.union(v.literal("booked"), v.literal("call_held"), v.literal("follow_up")),
         programKey: v.string(),
         nextStep: dealNextStepValidator,
+        /** The meeting behind `nextStep.callAt`: where a call that passed with no result is recorded. */
+        nextMeetingId: v.union(v.id("meetings"), v.null()),
         lastActivityAt: v.number(),
       }),
     ),
@@ -200,6 +206,7 @@ export const getOpenDeals = query({
           .order("desc"),
         MAX_OPEN_DEALS - open.length,
         openState,
+        OPEN_DEAL_BYTES,
       );
       open.push(...read.rows.map((deal) => ({ ...deal, position: stage })));
       if (read.capped) {
@@ -260,6 +267,7 @@ export const getOpenDeals = query({
           position: deal.position,
           programKey: dealProgramKey(deal),
           nextStep,
+          nextMeetingId: deal.nextMeetingId ?? null,
           lastActivityAt: dealLastActivityAt(deal),
         };
       }),

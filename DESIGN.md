@@ -260,19 +260,19 @@ components:
     rounded: "{rounded.pill}"
     height: "18px"
     padding: "0 7px"
-  money-strip:
+  book-panel:
     backgroundColor: "{colors.board}"
     textColor: "{colors.board-foreground}"
     rounded: "{rounded.surface}"
     padding: "14px 18px"
-  money-strip-cash:
+  book-panel-cash:
     textColor: "{colors.lime}"
     typography: "{typography.figure-money}"
-  program-card-row:
+  open-deal-row:
     backgroundColor: "{colors.card}"
     textColor: "{colors.ink}"
-    height: "40px"
-    padding: "6px 16px"
+    height: "48px"
+    padding: "8px 16px"
   no-next-step-flag:
     backgroundColor: "{colors.warning-surface}"
     textColor: "{colors.warning-ink}"
@@ -350,7 +350,7 @@ The world was built and reviewed on five closer surfaces: Today (`app/workspace/
 A navy and lime brand pair on a cool grey paper, with a five-colour stage scale and two urgency colours (amber for owed, red for lost or overdue).
 
 ### Primary
-- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the money strip's cash figure and the person strip's CUSTOMER word; nothing else on a board is lime text. The page band's primary button is lime, and the active directory tab carries a 2px lime underline. Primary buttons, Set next step on a deal with none, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
+- **Magnus Lime** (lime): the next action and nothing else on the paper. On navy it also sets the book panel's cash figure and the person strip's CUSTOMER word; nothing else on a board is lime text. The page band's primary button is lime, and the active directory tab carries a 2px lime underline. Primary buttons, Set next step on a deal with none, the one lime action in an opened deal row, the Boarding row, the Won choice, the outcome panel's 2px border and its step chip, the Call or Text button on an open task, the open task's inset marker in the queue. In the navy shell it is identity: the mark, the active nav item's tint and icon. It is also the text selection colour. Lime is a fill only; never set lime text on white.
 - **Navy on Lime** (on-lime): the only text colour on a lime fill (6.9:1).
 - **Lime Ink** (lime-ink): lime as text on light surfaces (5.7:1 on white): link buttons, the caret, the light-theme focus ring. In dark it lifts to lime-ink-dark.
 
@@ -363,7 +363,7 @@ A navy and lime brand pair on a cool grey paper, with a five-colour stage scale 
 Each deal stage has a fill colour (bars, dots, track rings, 15% chip tints, the person timeline's 6px event dots) and an ink colour (text on light surfaces). Booked is blue, Held slate, Follow-up teal, Won lime, Lost red. Qualified borrows the Held slate. The scale is the only way a stage is coloured; the Deal card's track, the stage chip, the Performance bar and the board's held-call result all read from it.
 
 ### Urgency
-- **Owed Amber** (warning, warning-ink, warning-surface): something the closer still owes. "Not recorded" on the board, "Due now" on the strip, the Needs outcome count, the sidebar's owed badge (amber fill, navy text). On My Pipeline amber is reserved for an open deal with no next step: the "No next step" flag (amber ink on the amber surface) and "N with no next step" on the money strip. On the person page it marks what the viewer owes on a deal: the strip's NO NEXT STEP and NOT RECORDED words, and the deal footer's "No next step" and "Not recorded" flags.
+- **Owed Amber** (warning, warning-ink, warning-surface): something the closer still owes. "Not recorded" on the board, "Due now" on the strip, the Needs outcome count, the sidebar's owed badge (amber fill, navy text). On My Pipeline amber covers two things the closer owes on an open deal: no next step, and a call that passed with no outcome recorded ("Not recorded"). On the book panel's bar, No next step is a hollow amber ring; Not recorded is solid amber under 30 days, dense amber hatching for 30–90 days and sparse hatching over 90 days, thinning as the calls go cold. The legend repeats those fills, and the panel's sentence and the programs table's Not recorded figures set their counts in amber. In the Open deals list, the "No next step" and "Not recorded" flags are amber ink on the amber surface, and a Not recorded row's age bar fills amber. On the person page it marks what the viewer owes on a deal: the strip's NO NEXT STEP and NOT RECORDED words, and the deal footer's "No next step" and "Not recorded" flags.
 - **Lost Red** (danger, danger-ink): lost deals, no-shows, overdue tasks, the Lost choice's title and mark, the reason chip on a task row, section errors.
 
 ### Neutral
@@ -402,12 +402,12 @@ Dark is not an inversion. The ground drops to near-black (paper-dark), cards sit
 - **Title** (600, 15px): card titles in the 44px title row.
 - **Body** (400, 14px): everything else. **Body Meta** (13px, slate ink or board-muted): the line under a name, card meta, captions, footers.
 - **Figure XL** (Condensed 600, 32px, tabular): the Performance figures.
-- **Figure Money** (Condensed 600, 30px, tabular): the money strip's figures; other currencies beside the cash sit at 17px.
+- **Figure Money** (Condensed 600, 30px, tabular): the book panel's figures (cash, won, the open count); other currencies beside the cash sit at 17px.
 - **Figure Large** (Condensed 600, 26px, tabular): the strip's time or due time, the person strip's paid figure in the main currency (other currencies at 17px), the Boarding row's time; the phone number on the reach card at 28px.
 - **Figure** (Condensed 600, 20px, tabular): a board row's time, with its AM/PM at 12px in board-muted.
 - **Board Title** (Condensed 600, 19px, 0.02em): the board's own heading.
 - **Status Word** (Condensed 700, 15px on the board, 17px in the strip, 0.08em, uppercase): one per row, coloured by meaning. The person strip sets two: the lifecycle stage and the next step.
-- **Stage Word** (Condensed 700, 13px, 0.08em, uppercase): a deal's stage as a word in its stage ink, in program card and lookup rows.
+- **Stage Word** (Condensed 700, 13px, 0.08em, uppercase): a deal's stage as a word in its stage ink, in open deal and lookup rows.
 - **Due** (Condensed 600, 14px, 0.02em): a task row's due label, red when overdue. At 15px it is the person deal card's footer fact, and at 13px the timeline's date column.
 - **Label** (Condensed 600, 11px, 0.14em, uppercase): column heads on the board and strip (TIME, PERSON, PROGRAM, GATE, STATUS; DUE, PERSON, DEAL, REACH BY, STATUS; PERSON, STAGE, PAID, NEXT STEP, REACH BY), day headings in the week board, task group headings ("OVERDUE · 2") and the sidebar's group label.
 - **Chip** (Condensed 700, 11px, 0.1em, uppercase): stage chips, the step chip, a task's reason chip.
@@ -427,7 +427,7 @@ The workspace is the navy sidebar plus a white 52px top bar holding the sidebar 
 - **Meeting page:** the strip spans the page; under it, from `@4xl`, a main column and a right rail of 20rem (24rem from `@6xl`), 20px apart, with 14px between cards. Narrower, the rail moves under the main column.
 - **Task page:** the strip spans the pane; under it, a main column and a right rail of 20rem (22rem at the widest container), 18px apart, with 14px between cards.
 - **Task queue:** from `lg` up, a 340px white queue runs the full height against the sidebar, with the task pane beside it. Below `lg` the queue moves into a left sheet opened from the pane.
-- **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the money strip, the program cards, then All deals. With two or more programs the cards sit two up from `xl`; a single program takes the full width.
+- **My Pipeline:** up to 1500px wide, one column with 14px gaps: the title row with the month switcher, the book panel, Open deals, then All deals folded into a one-line card (the "All deals" title, a 13px slate line and an outline "Find a deal") that opens the lookup in its place. The lookup opens on its own when the URL carries `tab=`, `program=`, `q=`, `stage=` or `status=`. The month (`month=`) and the list's filter (`show=`, `age=`, `in=`) live in the URL too, written in place with `history.replaceState` so a change never navigates.
 - **Person page:** up to 1500px wide, laid out so a person with one or two deals fits one screen. The person strip spans the column; under it, from `@4xl`, a main column (open deal cards, then Closed deals, then Booking answers and Timeline side by side) and a 360px right column holding the one person card, 18px apart, 14px between cards. Narrower, it is one column: strip, deals, booking answers, timeline, person card.
 - **Leads & Customers:** up to 1500px wide, one column with 14px gaps (12px on short screens): the page band, then the results card. The page root is the container the rows fold by.
 - **New side deal and Profile:** a 640px measure centred in the page inset: the page band, then one ruled card, 14px apart.
@@ -440,7 +440,7 @@ The workspace is the navy sidebar plus a white 52px top bar holding the sidebar 
 Pages and components respond to the space they get, not to the screen: a half-screen window, an open sidebar or a zoomed-in browser all shrink the space without changing the viewport the way `md`/`xl` expect.
 
 - **Make the page root a container** (`@container` on the page's outer element) and lay the page out with `@4xl:` and `@6xl:`. Viewport breakpoints (`sm:`, `lg:`) are for the shell only: the page inset, the sidebar, the task queue.
-- **Make any card whose inside changes shape a container too** (the board, the strip, the outcome panel, Performance, Needs outcome), so it reflows by its own width in either column. Name it (`@container/board`) when an inner container could catch the query by mistake.
+- **Make any card whose inside changes shape a container too** (the board, the strip, the outcome panel, Performance, Needs outcome, the book panel, Open deals), so it reflows by its own width in either column. Name it (`@container/board`) when an inner container could catch the query by mistake.
 - **Fold before you stack.** Between the full row and the phone stack, add a middle layout that drops the lowest-value column or puts two cells in one row. Stacked, labelled cells are for phones.
 - **`short:`** (viewport height under 54rem: laptops, zoomed browsers) tightens vertical rhythm only: the page inset, page gaps and board row heights (44px to 40px, the Boarding row 56px to 48px). It never hides content.
 - Skeletons use the same container steps as the page they stand in for.
@@ -525,19 +525,38 @@ Lists are rows inside a card, ruled by 1px lines, with no rule above the first. 
 
 The **task row** has two lines: "**Name** · note" with the due label right-aligned in 14px condensed (red when overdue), then a 12px context line (program · stage), with an optional red condensed reason chip (NO-SHOW, CANCELED), and a 24px Call, Text or Copy link button on the right: lime when the task is overdue, outline otherwise. Groups are headed by 26px condensed labels on the paper ("OVERDUE · 2" in red ink; "TODAY", "LATER", "WAITING ON THE PERSON"). The open task in the queue gets the lime inset marker, a 10% lime tint, and no button.
 
-### The Money Strip
-My Pipeline's month on navy, the board's sibling for figures. Four figures under 11px condensed labels: Cash collected, Won, Open deals, Programs. Each figure is 30px condensed with a 13px line under it at 75% board text.
-- **Cash:** the main currency's total in lime. Each other currency follows at 17px in board text with its own sum.
-- **Change line:** the change against the same elapsed part of last month in the main currency, signed with a true minus ("−$2,000"); a fall reads in board danger. Then the payment count, or "No payments yet".
-- **Open deals:** the count, then "Each has a next step" or, in amber, "N with no next step".
-- **Partial reads** add "(partial)" or a "+" to the figure. They are never hidden.
+### The Book Panel
+My Pipeline's month and its whole open book on one navy panel (`book-panel.tsx`), the board's sibling for figures, with the 10% light ring in dark. It is its own container (`@container/book`). Zones are 14px by 18px inside (16px sides on a phone), split by board-line rules. Labels are 11px condensed; figures are 30px condensed with a 13px line under them at 75% board text.
+- **Month:** Cash collected · {month} and Won · {month}. Cash is the main currency's total in lime; each other currency follows at 17px in board text with its own sum. The change line compares the same elapsed part of last month in the main currency, signed with a true minus ("−$2,000"); a fall reads in board danger. Then the payment count, or "No payments yet". Won is the count with "of N decided" under it.
+- **Open book:** "Open deals" ("Open deals now" on a past month), the count, and the stage counts in 13px board-muted ("Booked 12 · Call held 3 · Follow-up 1"). Under them the state bar: 14px tall, a 3px radius, 2px gaps, one segment per state sized by its count: Ahead in board text at 70%, No next step, then Not recorded by age (Owed Amber gives the fills). Under the bar the legend names each segment with its swatch and a condensed count; Ahead and No next step always show, an age band only when it holds deals. Then one 13px sentence naming the oldest call: "N calls passed with no outcome recorded, the oldest on {day}.", the count in amber. With none owed it reads "N deals have no next step." or "Every open deal has a next step."
+- **Programs:** a table headed Program, Open, Not recorded, Won, Cash, one ruled 28px row per program with its counts in 14px condensed (a zero in board-muted, Not recorded in amber above zero) and the month's cash in the program's own currency, "+N" for more currencies, a dash for none. Eight rows show, then "N more programs". Below `@md/book` the table drops Won and Cash, which the month zone already states.
+- **Partial reads** add "(partial)" or a "+" to the figure, and "Your oldest open deals aren't counted." to the sentence. They are never hidden.
 
-**The Separate Currencies Rule.** Money is never added across currencies. Every currency keeps its own sum, in the strip, in a program header and in the lookup.
+**Zones by width.** From `@5xl/book`, three zones side by side: month, open book, programs. From `@4xl/book`, the month and the open book side by side with the programs under both, at most 576px wide. Narrower, the zones stack, ruled between, and the month's two figures sit side by side.
+
+**Every count is a filter.** Each legend item and each program row is a button with `aria-pressed` that filters Open deals below; pressing it again clears it. The selected one takes the board-raised fill, and while a state is chosen the bar's other segments drop to 35%. The bar's segments take a click too but sit outside the tab order and the accessibility tree: the bar is a pointer shortcut, the legend the keyboard path. A legend item with no deals is disabled.
+
+**The Separate Currencies Rule.** Money is never added across currencies. Every currency keeps its own sum, on the book panel, in the programs table and in the lookup.
 
 **The Main Currency Rule.** The main currency is the one with the most payments, never the one with the larger amount. Amounts in different currencies are never compared. A tie goes to last month's main currency, then US dollars.
 
-### The Program Card
-A `DetailCard` per program. The title row carries the program name, then its cash in the month (16px condensed, each currency separately, the program's own main currency first) and "N won this month". Under it, 28px condensed column labels (PERSON, STAGE, NEXT STEP) and the open deals as ruled 40px rows: the person as the row link, the stage word, the next step. Deals with no next step sort first. Five rows show when two cards sit side by side and eight when a card is alone, then a "Show N more" row. The footer reads "N open · N closed" with "All {program} deals", which opens the lookup filtered to that program. A card with no open deals keeps one quiet `SectionEmpty` line ("No open deals in {program}.") and sits at its own height rather than stretching to its neighbour.
+### The Open Deal Row
+The open book as one list on a ruled card (`open-deals.tsx`), its own container (`@container/deals`). The book panel and the card's controls set the same filter.
+- **Header:** the 15px title "Open deals", a segmented toggle of All / Ahead / No next step / Not recorded with counts (the segment lift), the program select ("All programs" first), and, when the panel set an age, an outline chip naming it ("30–90 days") with a clear cross; all 30px, 7px radius, 13px. From `@2xl/deals` a 13px slate line on the right names the order: "By what's next", or "Oldest call first" on Not recorded.
+- **Columns:** 28px condensed heads PERSON, DEAL, LAST ACTIVITY, NEXT STEP, then a 28px column for the chevron. Rows are at least 48px, 8px by 16px, ruled.
+- **Person:** the 15px semibold name, a button stretched over the row that opens it, with the inset focus ring.
+- **Deal:** the program with its stage word.
+- **Last activity:** the business day in 15px condensed. A Not recorded deal shows the call's day instead ("Oct 9 call") with the amber "Not recorded" flag, and under them a 4px age bar, at most 144px wide, amber on muted and full at 120 days. Only Not recorded rows carry the bar.
+- **Next step:** the next-step cell. A Not recorded deal shows the navy underlined Record outcome link to the call's meeting page; while its row is open, or when no meeting is linked, a slate dash.
+- **Chevron:** slate, turning half a turn when the row opens.
+
+**The order rule.** By what's next: Ahead deals by the step's time (calls and tasks, an overdue one first, then sent links), then No next step by the latest activity, then Not recorded with the oldest call first. A filter keeps this order; ties go by name.
+
+**A row opens in place.** One row opens at a time and tints 40% accent. Its details grow on a 200ms `grid-template-rows` transition (none with reduced motion) and stay mounted until the close finishes; the rest of the list stays put. While the deal loads, a skeleton stands at the loaded height, footer included. On a 30% muted fill, three columns from `@4xl/deals`: **Calls · N** (up to three, newest first: the day in 15px condensed, the time and length in 13px slate, the attendance word in its ink), **Reach by** (the phone in 15px condensed, the email, then the credit line in 13px slate with each name in ink), and **Note** (up to four lines, or "No note on this deal."). A ruled footer holds Open deal and Open task as card links and one lime button: Record outcome when a call passed with no result, else Set next step. A deal that is no longer the closer's says so in one line.
+
+Twenty-five rows show, then a 40px footer reads "Showing N of M" with an outline "Show 25 more"; a new filter starts again at 25. A filter with no deals keeps one `SectionEmpty` line saying what is absent, with Clear filters.
+
+**The folds.** From `@4xl/deals`, the five columns (1.15, 1.15, 1 and 1.25 fractions, then the chevron). From `@xl/deals`, the name, the deal and the chevron on the first line, last activity and the next step under them. Narrower, one column: the name with the chevron, then the deal, last activity and the next step.
 
 ### The Next-Step Cell
 A deal's next step in plain 14px text (13px on narrow rows), in this order: an upcoming call ("Call Thu 4:30 PM"), else the open task ("Call back today 3:00 PM", with the time in red ink once past; "Reschedule link sent · Oct 27"), else the amber "No next step" flag, a 20px chip with amber ink on the amber surface. A call that passed with no result is never the step. It goes on its own 12px slate line under the step ("Oct 27 call, no result"), so it never truncates the step or the flag.
@@ -572,7 +591,7 @@ A deal opens in a centred modal, never a side sheet, and a `?opportunityId=` lin
 - **No activity feed.** History lives on the person page's timeline.
 
 ### The Lookup Table
-"All deals" on a ruled card. The header row holds the title, a segmented toggle of All / Open / Won / Lost with counts, a program select and a person search (all 30px, 7px radius, 13px). The table has 32px condensed column heads (PERSON, PROGRAM, STAGE, LAST ACTIVITY, NEXT STEP, PAID) and 44px ruled rows. Last activity is in the due style, and Paid is right-aligned in 15px condensed. Below `md` it becomes two-line rows. The footer says "N deals" or "Showing N of M", names partial reads in words, and offers "Show N more". An empty result says what was searched and offers "Clear filters".
+"All deals" on a ruled card. On My Pipeline it sits folded behind "Find a deal" under Open deals until it is wanted (see Layout). The header row holds the title, a segmented toggle of All / Open / Won / Lost with counts, a program select and a person search (all 30px, 7px radius, 13px). The table has 32px condensed column heads (PERSON, PROGRAM, STAGE, LAST ACTIVITY, NEXT STEP, PAID) and 44px ruled rows. Last activity is in the due style, and Paid is right-aligned in 15px condensed. Below `md` it becomes two-line rows. The footer says "N deals" or "Showing N of M", names partial reads in words, and offers "Show N more". An empty result says what was searched and offers "Clear filters".
 
 ### `PageBand`
 A page's header as a navy band, the strips' sibling (`app/workspace/_components/page-band.tsx`), used where a page has no strip: Leads & Customers, New side deal and Profile. A 9.8px board surface, 16px by 18px inside (14px by 16px in a narrow container), with the 10% light ring in dark; it scopes `dark` like the board. It holds the 26px display title as the page's `h1`, a 13px board-muted line under it saying what the page does, and an optional back link above the title (13px medium board-muted with a chevron, "Leads & Customers"). The page's one primary action sits right of the title as a lime button and wraps under it on a phone. Anything the page searches or filters by sits inside the band under the title.
@@ -598,7 +617,7 @@ New side deal and Profile each sit in one ruled card on the 640px measure, under
 - **Profile** uses the person card's dense rows instead: a 96px slate label column, about 32px each, in groups split by a rule. The picture row carries the avatar with outline Upload or Replace and a ghost Remove.
 
 ### Kept Data While Reloading
-When a month, tab, filter or search changes, the section keeps its previous data at 60% opacity (a 200ms fade, `aria-busy`) until the new data arrives, instead of flashing a skeleton. Skeletons appear only on first load. The money strip, program cards, lookup and the directory all follow this.
+When a month, tab, filter or search changes, the section keeps its previous data at 60% opacity (a 200ms fade, `aria-busy`) until the new data arrives, instead of flashing a skeleton. Skeletons appear only on first load. The book panel, the lookup and the directory all follow this.
 
 ### `SectionEmpty` and `SectionError`
 Each section reports its own state in place, inside its card. **Empty:** one medium line saying what is absent ("No calls today."), with a slate hint when it helps ("Calls appear here as people book through Calendly."). **Error:** a red alert-circle icon and "Couldn't load {what}. Reload the page to try again." **Loading:** skeleton rows at the real row heights, labelled for screen readers.
@@ -631,12 +650,12 @@ Each section reports its own state in place, inside its card. **Empty:** one med
 - **Don't** lift cards with drop shadows; separate surfaces by tone and rule.
 - **Don't** lay out a record page as a grid of equal-weight cards with a row of peer action buttons. The question leads.
 - **Don't** add, net or compare amounts across currencies, or choose the main currency by amount.
-- **Don't** use amber on My Pipeline for anything but an open deal with no next step.
+- **Don't** use amber on My Pipeline for anything but an open deal with no next step or a call that passed with no outcome recorded.
 - **Don't** write he, she, his or her for a person in UI copy.
 
 ## Migration Status
 
-The system above is complete on five closer surfaces (Today, the meeting page, the task page, My Pipeline, and the person page with its deal modal), on Leads & Customers, New side deal and Profile, and on the shell. Admins use the same person page and deal modal, as they use the meeting and task pages. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. The person page replaced the old header metrics, the grid of Programs, Opportunities, Meetings, Portal Notes, Payments and Timeline cards and the six-card rail; the right-hand Opportunity Detail sheet became the deal modal, and the `entity-*` section components and the sheet's body were removed. A second pass (the at-a-glance layout) put each deal's calls in its card, folded Source and Record into one person card and collapsed closed deals. Leads & Customers replaced the seven-column entity browser; its `entity-browser-results`, `entity-browser-results-loading`, `entity-browser-toolbar`, `entity-result-row`, `entity-result-mobile-card`, `entity-result-formatters` and `entity-ui-tooltips` components were removed. New side deal moved from `FormItem` to `Field` rows and Profile to the person card's dense rows, both under `PageBand`. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
+The system above is complete on five closer surfaces (Today, the meeting page, the task page, My Pipeline, and the person page with its deal modal), on Leads & Customers, New side deal and Profile, and on the shell. Admins use the same person page and deal modal, as they use the meeting and task pages. My Pipeline (commit 56ce0ae) replaced the old stage-tab table; its `opportunities-table`, `pipeline-filters`, `time-period-filter` and `closer-empty-state` components were removed. My Pipeline's second design (Nov 2026) replaced the program cards and the money strip with the book panel and one Open deals list, and removed `program-card.tsx` and `money-strip.tsx`, after a real closer's book showed 298 of its 316 open deals with calls never recorded, as identical amber rows across six cards. The person page replaced the old header metrics, the grid of Programs, Opportunities, Meetings, Portal Notes, Payments and Timeline cards and the six-card rail; the right-hand Opportunity Detail sheet became the deal modal, and the `entity-*` section components and the sheet's body were removed. A second pass (the at-a-glance layout) put each deal's calls in its card, folded Source and Record into one person card and collapsed closed deals. Leads & Customers replaced the seven-column entity browser; its `entity-browser-results`, `entity-browser-results-loading`, `entity-browser-toolbar`, `entity-result-row`, `entity-result-mobile-card`, `entity-result-formatters` and `entity-ui-tooltips` components were removed. New side deal moved from `FormItem` to `Field` rows and Profile to the person card's dense rows, both under `PageBand`. The rest of the app predates it and is not part of the system yet. `.impeccable/audit/drift.md` and `.impeccable/audit/backlog.md` map that work:
 
 - **Legacy status colours.** `lib/status-config.ts` still maps deal positions and meeting attendance to raw Tailwind palettes (cyan, blue, indigo, violet, emerald, orange, amber), and about 365 palette utilities in 42 files bypass the tokens. The `--status-*` aliases in `app/globals.css` point at the stage tokens only until that file moves over. The new surfaces read `status-config` for attendance logic and labels only, not colours.
 - **Type scale.** About 50 page headers range from `text-base` to `text-5xl`, with 96 arbitrary text sizes and KPI figures in mono. `PageBand` is the header they move to.

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { businessDayStart, DEFAULT_BUSINESS_DAY } from "@/lib/businessDay";
 import {
-  buildProgramSections,
-  countWithoutNextStep,
+  buildBookPrograms,
+  compareBookDeals,
+  dealStanding,
+  matchesBookFilter,
+  NO_BOOK_FILTER,
+  recordAgeOf,
+  summarizeBook,
+  visibleBookDeals,
   formatCash,
   isMonthKey,
   mainCurrency,
@@ -124,22 +130,130 @@ describe("resolveNextStep", () => {
   });
 });
 
-const NOW = 1_000;
+const DAY = 86_400_000;
+const NOW = 200 * DAY;
 type Step = { kind: "call"; at: number } | DeskDeal["nextStep"]["task"];
 /** A deal whose step is `step`: a call ahead, a task, a link, or none. */
-const deal = (id: string, programKey: string, step: Step, personName = id): DeskDeal => ({
+const deal = (
+  id: string,
+  programKey: string,
+  step: Step,
+  extra: Partial<DeskDeal> = {},
+): DeskDeal => ({
   opportunityId: id,
   leadId: `lead-${id}`,
-  personName,
-  position: "follow_up",
+  personName: id,
+  position: "booked",
   programKey,
   nextStep:
     step?.kind === "call" ? { callAt: NOW + step.at, task: null } : { callAt: null, task: step },
+  lastActivityAt: NOW - DAY,
+  ...extra,
 });
+/** A deal whose call `daysAgo` days back was never recorded, with `task` beside it. */
+const missed = (id: string, programKey: string, daysAgo: number, task: Step = null): DeskDeal =>
+  deal(id, programKey, null, {
+    nextStep: { callAt: NOW - daysAgo * DAY, task: task?.kind === "call" ? null : task },
+  });
 
 const usd = (amountMinor: number, paymentCount = 1) => [{ currency: "USD", amountMinor, paymentCount }];
 
-describe("buildProgramSections", () => {
+describe("dealStanding", () => {
+  it("is ahead with a step, even beside a call that was never recorded", () => {
+    const link = { kind: "link" as const, reschedule: false, sentAt: NOW - DAY };
+    expect(dealStanding(missed("a", "p", 5, link), NOW)).toEqual({
+      state: "ahead",
+      step: link,
+      missedCallAt: NOW - 5 * DAY,
+    });
+    expect(dealStanding(deal("b", "p", { kind: "call", at: 60 }), NOW).state).toBe("ahead");
+  });
+
+  it("is not recorded when the call passed and nothing follows it, else has no next step", () => {
+    expect(dealStanding(missed("a", "p", 5), NOW).state).toBe("not_recorded");
+    expect(dealStanding(deal("b", "p", null), NOW).state).toBe("no_step");
+  });
+
+  it("ages a call never recorded in three bands", () => {
+    expect(recordAgeOf(NOW - 29 * DAY, NOW)).toBe("under_30");
+    expect(recordAgeOf(NOW - 30 * DAY, NOW)).toBe("30_90");
+    expect(recordAgeOf(NOW - 90 * DAY, NOW)).toBe("30_90");
+    expect(recordAgeOf(NOW - 91 * DAY, NOW)).toBe("over_90");
+  });
+});
+
+describe("the book", () => {
+  const deals = [
+    deal("ahead-call", "acc", { kind: "call", at: 5_000 }, { position: "follow_up" }),
+    deal("ahead-task", "acc", { kind: "task", method: "call", dueAt: NOW - 1_000 }),
+    deal("ahead-link", "none", { kind: "link", reschedule: true, sentAt: NOW - 2 * DAY }),
+    deal("idle-old", "acc", null, { lastActivityAt: NOW - 9 * DAY, position: "call_held" }),
+    deal("idle-new", "disc", null, { lastActivityAt: NOW - 2 * DAY }),
+    missed("nr-10", "acc", 10),
+    missed("nr-120", "acc", 120),
+    missed("nr-45", "none", 45),
+  ];
+
+  it("counts the book by stage, state and age of the calls never recorded", () => {
+    expect(summarizeBook(deals, NOW)).toEqual({
+      total: 8,
+      positions: { booked: 6, call_held: 1, follow_up: 1 },
+      ahead: 3,
+      noStep: 2,
+      notRecorded: 3,
+      ages: { under_30: 1, "30_90": 1, over_90: 1 },
+      oldestMissedAt: NOW - 120 * DAY,
+    });
+  });
+
+  it("orders by what's next: steps by time with links after, idle deals by latest activity, then calls never recorded oldest first", () => {
+    expect([...deals].sort(compareBookDeals(NOW)).map((entry) => entry.opportunityId)).toEqual([
+      "ahead-task",
+      "ahead-call",
+      "ahead-link",
+      "idle-new",
+      "idle-old",
+      "nr-120",
+      "nr-45",
+      "nr-10",
+    ]);
+  });
+
+  it("keeps the open row's deal listed after it leaves the filter or the page", () => {
+    const ids = (openId: string | null) =>
+      visibleBookDeals(deals, { ...NO_BOOK_FILTER, state: "no_step" }, openId, NOW, 25).rows.map(
+        (entry) => entry.opportunityId,
+      );
+    expect(ids(null)).toEqual(["idle-new", "idle-old"]);
+    // A next step was just set from the open row: the deal is Ahead now.
+    expect(ids("ahead-call")).toEqual(["ahead-call", "idle-new", "idle-old"]);
+
+    // 30 Ahead deals due before the open one: it would sort past a 25-row page.
+    const busy = [
+      ...Array.from({ length: 30 }, (_, i) =>
+        deal(`due-${i}`, "acc", { kind: "task", method: "call", dueAt: NOW + i * 1_000 }),
+      ),
+      deal("open", "acc", { kind: "call", at: DAY }),
+    ];
+    const page = visibleBookDeals(busy, { ...NO_BOOK_FILTER, state: "ahead" }, "open", NOW, 25);
+    expect(page.rows).toHaveLength(26);
+    expect(page.rows.at(-1)?.opportunityId).toBe("open");
+    expect(page.matched).toBe(31);
+    expect(visibleBookDeals(busy, { ...NO_BOOK_FILTER, state: "ahead" }, null, NOW, 25).rows).toHaveLength(25);
+  });
+
+  it("filters by state, by age within calls never recorded, and by program", () => {
+    const ids = (filter: Parameters<typeof matchesBookFilter>[1]) =>
+      deals.filter((entry) => matchesBookFilter(entry, filter, NOW)).map((entry) => entry.opportunityId);
+    expect(ids(NO_BOOK_FILTER)).toHaveLength(8);
+    expect(ids({ ...NO_BOOK_FILTER, state: "no_step" })).toEqual(["idle-old", "idle-new"]);
+    expect(ids({ state: "not_recorded", age: "over_90", programKey: null })).toEqual(["nr-120"]);
+    expect(ids({ state: "not_recorded", age: null, programKey: "acc" })).toEqual(["nr-10", "nr-120"]);
+    expect(ids({ ...NO_BOOK_FILTER, programKey: "none" })).toEqual(["ahead-link", "nr-45"]);
+  });
+});
+
+describe("buildBookPrograms", () => {
   const input: DeskInput = {
     cash: {
       programs: [
@@ -147,126 +261,62 @@ describe("buildProgramSections", () => {
           programKey: "elite",
           programName: "Elite Mentorship",
           defaultCurrency: null,
-          currencies: [
-            { currency: "EUR", amountMinor: 90_000, paymentCount: 2 },
-            ...usd(580_000),
-          ],
+          currencies: [{ currency: "EUR", amountMinor: 90_000, paymentCount: 2 }, ...usd(580_000)],
           paymentCount: 3,
         },
         {
-          programKey: "accelerator",
+          programKey: "acc",
           programName: "Accelerator",
           // Its own currency is lempiras, whatever the page leads with.
           defaultCurrency: "HNL",
-          currencies: [
-            ...usd(1_260_000, 2),
-            { currency: "HNL", amountMinor: 9_000_000, paymentCount: 1 },
-          ],
+          currencies: [...usd(1_260_000, 2), { currency: "HNL", amountMinor: 9_000_000, paymentCount: 1 }],
           paymentCount: 3,
         },
       ],
     },
-    wins: { programs: [{ programKey: "accelerator", won: 3 }, { programKey: "retired", won: 1 }] },
+    wins: { programs: [{ programKey: "acc", won: 3 }, { programKey: "retired", won: 0 }] },
     open: {
       deals: [
-        deal("a1", "accelerator", { kind: "call", at: 500 }),
-        // A call that passed with no result, and no task: no next step.
-        {
-          ...deal("a5", "accelerator", null),
-          nextStep: { callAt: NOW - 100, task: null },
-        },
-        // A call that passed, with a waiting link: the link is the step.
-        {
-          ...deal("a6", "accelerator", null),
-          nextStep: { callAt: NOW - 100, task: { kind: "link", reschedule: false, sentAt: 50 } },
-        },
-        deal("a2", "accelerator", null),
-        deal("a3", "accelerator", { kind: "link", reschedule: true, sentAt: 100 }),
-        deal("a4", "accelerator", { kind: "task", method: "call", dueAt: 200 }),
-        deal("n1", "none", null),
-        deal("n2", "none", null),
-        deal("n3", "none", null),
-        deal("d1", "discovery", { kind: "call", at: 1 }),
+        deal("a1", "acc", { kind: "call", at: 500 }),
+        missed("a2", "acc", 40),
+        missed("n1", "none", 3),
+        deal("d1", "disc", null),
+        deal("d2", "disc", null),
       ],
       programs: [
-        { programKey: "accelerator", programName: "Accelerator", open: 4, closed: 9 },
-        { programKey: "none", programName: null, open: 3, closed: 2 },
-        { programKey: "discovery", programName: "Discovery", open: 1, closed: 0 },
-        // Closed deals only, no cash: no section.
+        { programKey: "acc", programName: "Accelerator", open: 2, closed: 9 },
+        { programKey: "none", programName: null, open: 1, closed: 2 },
+        { programKey: "disc", programName: "Discovery", open: 2, closed: 0 },
+        // Closed deals only, nothing this month: no row.
         { programKey: "retired", programName: "Retired", open: 0, closed: 4 },
       ],
     },
   };
 
-  it("orders programs by the month's cash in the main currency, then open-only programs, no program last", () => {
-    const sections = buildProgramSections(input, "USD", NOW);
-    expect(sections.map((section) => section.key)).toEqual(["accelerator", "elite", "discovery", "none"]);
-    expect(sections[0]).toMatchObject({ name: "Accelerator", won: 3, closed: 9, paymentCount: 3 });
-    expect(sections[1]).toMatchObject({ name: "Elite Mentorship", won: 0, closed: 0, deals: [] });
-    expect(sections[3]).toMatchObject({ name: null, closed: 2 });
+  it("lists programs by the month's cash in the main currency, then by open deals, no program last", () => {
+    const rows = buildBookPrograms(input, "USD", NOW);
+    expect(rows.map((row) => row.key)).toEqual(["acc", "elite", "disc", "none"]);
+    expect(rows[0]).toMatchObject({ name: "Accelerator", open: 2, notRecorded: 1, won: 3 });
+    expect(rows[2]).toMatchObject({ name: "Discovery", open: 2, notRecorded: 0, won: 0, cash: [] });
+    expect(rows[3]).toMatchObject({ name: null, open: 1, notRecorded: 1 });
   });
 
-  it("leads each header with the program's own currency, else its most-paid one", () => {
-    const [accelerator, elite, discovery] = buildProgramSections(input, "USD", NOW);
-    expect(accelerator.currency).toBe("HNL");
-    expect(accelerator.cash.map((entry) => entry.currency)).toEqual(["HNL", "USD"]);
+  it("leads each program's cash with its own currency, else its most-paid one", () => {
+    const [acc, elite, disc] = buildBookPrograms(input, "USD", NOW);
+    expect(acc.currency).toBe("HNL");
+    expect(acc.cash.map((entry) => entry.currency)).toEqual(["HNL", "USD"]);
     expect(elite.currency).toBe("EUR");
-    expect(elite.cash.map((entry) => entry.currency)).toEqual(["EUR", "USD"]);
-    // No cash: the page's currency.
-    expect(discovery.currency).toBe("USD");
+    expect(disc.currency).toBe("USD");
   });
 
-  it("orders programs by cash in the main currency only", () => {
+  it("orders by cash in the main currency only", () => {
     // In lempiras Elite has none, so Accelerator leads either way.
-    const sections = buildProgramSections(input, "HNL", NOW);
-    expect(sections.map((section) => section.key).slice(0, 2)).toEqual(["accelerator", "elite"]);
+    expect(buildBookPrograms(input, "HNL", NOW).map((row) => row.key).slice(0, 2)).toEqual(["acc", "elite"]);
   });
 
-  it("lists a program's open deals with no next step first, then the soonest step, links last", () => {
-    const [accelerator] = buildProgramSections(input, "USD", NOW);
-    // a5's call passed with no result and it has no task, so it has no step;
-    // a6's passed call gives way to its link.
-    expect(accelerator.deals.map((entry) => entry.opportunityId)).toEqual([
-      "a2",
-      "a5",
-      "a4",
-      "a1",
-      "a6",
-      "a3",
-    ]);
-    expect(countWithoutNextStep(accelerator.deals, NOW)).toBe(2);
-  });
-
-  it("leaves a single program as the only section", () => {
-    const sections = buildProgramSections(
-      {
-        cash: { programs: [] },
-        wins: { programs: [] },
-        open: {
-          deals: [deal("t1", "test", null)],
-          programs: [{ programKey: "test", programName: "TestProgram", open: 1, closed: 30 }],
-        },
-      },
-      "USD",
-      NOW,
-    );
-    expect(sections).toEqual([
-      {
-        key: "test",
-        name: "TestProgram",
-        cash: [],
-        currency: "USD",
-        paymentCount: 0,
-        won: 0,
-        deals: [deal("t1", "test", null)],
-        closed: 30,
-      },
-    ]);
-  });
-
-  it("has no sections for a closer with no deals and no cash", () => {
+  it("has no programs for a closer with no deals and no cash", () => {
     expect(
-      buildProgramSections(
+      buildBookPrograms(
         { cash: { programs: [] }, wins: { programs: [] }, open: { deals: [], programs: [] } },
         "USD",
         NOW,

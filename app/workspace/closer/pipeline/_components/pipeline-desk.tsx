@@ -5,38 +5,41 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { BusinessDaySetting } from "@/lib/businessDay";
 import {
-  buildProgramSections,
-  countWithoutNextStep,
+  buildBookPrograms,
   mainCurrency,
-  NO_PROGRAM,
+  summarizeBook,
+  type BookFilter,
   type PipelineMonth,
 } from "@/lib/closer-pipeline";
 import { cn } from "@/lib/utils";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
-import { MoneyStrip } from "./money-strip";
+import { BookPanel } from "./book-panel";
+import { OpenDeals } from "./open-deals";
 import { DeskSkeleton } from "./pipeline-skeleton";
-import { programLabel, ProgramCard } from "./program-card";
 import { useKeptQuery } from "./use-kept-query";
 
 type MonthCash = FunctionReturnType<typeof api.closer.pipelineDesk.getMonthCash>;
 type MonthWins = FunctionReturnType<typeof api.closer.pipelineDesk.getMonthWins>;
-type OpenDeals = FunctionReturnType<typeof api.closer.pipelineDesk.getOpenDeals>;
+type OpenDealsData = FunctionReturnType<typeof api.closer.pipelineDesk.getOpenDeals>;
 
 /**
- * The desk: the month's money strip, then one card per program. The month's
- * queries keep their last result while a new month loads, dimmed, so a
- * switch never flashes the skeleton; only the first load does.
+ * The desk: the book panel (the month's money, where every open deal stands,
+ * the programs), then the open deals as one list the panel filters. The
+ * month's queries keep their last result while a new month loads, dimmed, so
+ * a switch never flashes the skeleton; only the first load does.
  */
 export function PipelineDesk({
   month,
   now,
   setting,
-  onShowProgram,
+  filter,
+  onFilter,
 }: {
   month: PipelineMonth;
   now: number;
   setting: BusinessDaySetting;
-  onShowProgram: (programKey: string) => void;
+  filter: BookFilter;
+  onFilter: (filter: BookFilter) => void;
 }) {
   const range = { startDate: month.startDate, endDate: month.endDate };
   const cash = useKeptQuery(api.closer.pipelineDesk.getMonthCash, range);
@@ -58,7 +61,8 @@ export function PipelineDesk({
       wins={wins.data}
       open={open}
       isStale={cash.isStale || wins.isStale || previous.isStale}
-      onShowProgram={onShowProgram}
+      filter={filter}
+      onFilter={onFilter}
     />
   );
 }
@@ -73,7 +77,8 @@ export function PipelineDeskView({
   wins,
   open,
   isStale,
-  onShowProgram,
+  filter,
+  onFilter,
 }: {
   month: PipelineMonth;
   now: number;
@@ -81,72 +86,61 @@ export function PipelineDeskView({
   cash: MonthCash;
   previous: MonthCash | undefined;
   wins: MonthWins;
-  open: OpenDeals;
+  open: OpenDealsData;
   isStale: boolean;
-  onShowProgram: (programKey: string) => void;
+  filter: BookFilter;
+  onFilter: (filter: BookFilter) => void;
 }) {
   // Last month's main currency breaks a tie in this month's payment counts.
   const currency = mainCurrency(cash.currencies, previous ? mainCurrency(previous.currencies) : null);
-  const sections = buildProgramSections({ cash, wins, open }, currency, now);
-  const paired = sections.length > 1;
-  const programNames = sections
-    .filter((section) => section.key !== NO_PROGRAM)
-    .map((section) => programLabel(section.name));
+  const summary = summarizeBook(open.deals, now);
+  const programs = buildBookPrograms({ cash, wins, open }, currency, now);
   const hasDeals = open.programs.length > 0;
 
   return (
-    <div
-      aria-busy={isStale}
-      className={cn("flex flex-col gap-3.5 transition-opacity duration-200", isStale && "opacity-60")}
-    >
-      <MoneyStrip
-        month={month}
-        currency={currency}
-        cash={cash}
-        previous={previous}
-        wins={wins}
-        open={{
-          count: open.deals.length,
-          withoutNextStep: countWithoutNextStep(open.deals, now),
-          isPartial: open.isPartial,
-        }}
-        programs={programNames}
-      />
+    <div className="flex flex-col gap-3.5">
+      <div aria-busy={isStale} className={cn("transition-opacity duration-200", isStale && "opacity-60")}>
+        <BookPanel
+          month={month}
+          currency={currency}
+          cash={cash}
+          previous={previous}
+          wins={wins}
+          summary={summary}
+          isPartial={open.isPartial}
+          programs={programs}
+          filter={filter}
+          onFilter={onFilter}
+          setting={setting}
+          now={now}
+        />
+      </div>
 
-      {sections.length === 0 ? (
+      {open.deals.length > 0 ? (
+        <OpenDeals
+          deals={open.deals}
+          summary={summary}
+          programs={programs}
+          isPartial={open.isPartial}
+          filter={filter}
+          onFilter={onFilter}
+          now={now}
+          setting={setting}
+        />
+      ) : (
         <section className="rounded-xl border bg-card text-card-foreground">
           {hasDeals ? (
-            <SectionEmpty title={`No open deals, and no cash ${month.isCurrent ? "this month" : `in ${month.name}`}.`}>
-              Every deal you worked is in All deals below.
+            <SectionEmpty title="No open deals.">
+              Every deal you worked, won or lost, is in All deals below.
             </SectionEmpty>
           ) : (
             <SectionEmpty title="No deals yet.">
-              A deal lands here when someone books a call with you. Each program you sell gets its own
-              section, with its cash this month and its open deals, and each deal its next step.
+              A deal opens here when someone books a call with you. Each one shows where it stands and its
+              next step, and the panel above counts your month and your book.
             </SectionEmpty>
           )}
         </section>
-      ) : (
-        <div className={cn("grid gap-3.5", paired && "xl:grid-cols-2")}>
-          {sections.map((section) => (
-            <ProgramCard
-              key={section.key}
-              section={section}
-              month={month}
-              now={now}
-              setting={setting}
-              paired={paired}
-              onShowAll={onShowProgram}
-            />
-          ))}
-        </div>
       )}
-
-      {open.isPartial ? (
-        <p className="text-[13px] text-muted-foreground">
-          Showing your newest {open.deals.length.toLocaleString()} open deals. The rest are in All deals.
-        </p>
-      ) : null}
     </div>
   );
 }

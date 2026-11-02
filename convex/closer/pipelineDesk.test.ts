@@ -7,6 +7,7 @@ import {
   MEETING_RANGE,
   T0,
   closerPipelineHarness,
+  insertCloserMeeting,
   insertTask,
   seededCloserPipeline,
 } from "../../tests/closerPipelineFixtures";
@@ -189,7 +190,17 @@ describe("getOpenDeals", () => {
       });
       // A call that has passed with no result, and a scheduling link waiting:
       // the link still comes back, so the client can show it instead.
-      await ctx.db.patch("opportunities", deals.sideDeal, { nextMeetingAt: T0 - 30 * DAY });
+      const missedCall = await insertCloserMeeting(ctx, {
+        tenantId: harness.tenantId,
+        opportunityId: deals.sideDeal,
+        closerId: harness.closerId,
+        status: "scheduled",
+        scheduledAt: T0 - 30 * DAY,
+      });
+      await ctx.db.patch("opportunities", deals.sideDeal, {
+        nextMeetingAt: T0 - 30 * DAY,
+        nextMeetingId: missedCall,
+      });
       await insertTask(ctx, {
         opportunityId: deals.sideDeal,
         type: "scheduling_link",
@@ -228,6 +239,10 @@ describe("getOpenDeals", () => {
       task: { kind: "task", method: "call", dueAt: T0 + 3 * DAY },
     });
     expect(steps.get(deals.bareFollowUp)).toEqual({ callAt: null, task: null });
+    // The passed call's meeting comes back, so its outcome can be recorded from the row.
+    const meetingOf = new Map(desk.deals.map((deal) => [deal.opportunityId, deal.nextMeetingId]));
+    expect(meetingOf.get(deals.sideDeal)).toEqual(expect.any(String));
+    expect(meetingOf.get(deals.bareFollowUp)).toBeNull();
   });
 
   it("refuses an admin on every desk query", async () => {
