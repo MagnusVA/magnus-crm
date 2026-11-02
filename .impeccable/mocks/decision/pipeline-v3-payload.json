@@ -1,0 +1,50 @@
+{
+  "title": "My Pipeline: choose the structure (round 2)",
+  "question": "More to read, actions one step away. Lock one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "book-panel",
+      "kind": "assigned",
+      "label": "The book at a glance",
+      "kicker": "THE ROLL",
+      "lineage": "A report header over one list that opens in place",
+      "thesis": "A navy panel reads the whole book (where each deal stands, how old the backlog is, which programs carry it), and every row below opens in place to its calls, notes and actions.",
+      "palette": ["#141a28", "#84b135", "#f3f5f8", "#ffffff", "#f0b429"],
+      "materials": ["navy panel", "state bar", "white ruled list", "row that opens"],
+      "viewport": "Title and month; a navy panel with the month's cash and wins, one state bar (Ahead 14 · No next step 4 · Not recorded 298 split by age), stage counts and a per-program table; under it one list by what's next, one row opened showing its last calls, note and Record outcome, Set next step, Mark lost.",
+      "risk": "The panel can grow into a report; it must stay one screen-third and every figure must filter the list.",
+      "raised": [
+        {"from": "notation-diagram-systems-labanotation", "raise": "Each row carries an age bar whose length is the days since its last call, so the backlog's age reads down the column."},
+        {"from": "pop-culture-shelf-streaming-title-card-wall", "raise": "The opened row expands in place to the deal's details while the rest of the list stays put."}
+      ],
+      "html": ".impeccable/mocks/decision/pipeline-v3-book-panel.html"
+    },
+    {
+      "id": "program-matrix",
+      "kind": "dealt",
+      "label": "Programs by state",
+      "lineage": "A pivot table over the list it filters",
+      "thesis": "One table crosses programs with where their deals stand and how old; click any count and the list below shows exactly those deals.",
+      "palette": ["#141a28", "#84b135", "#f3f5f8", "#ffffff", "#f0b429"],
+      "materials": ["ruled pivot table", "condensed counts", "white list"],
+      "viewport": "Money strip; a ruled matrix: rows are programs, columns Ahead, No next step, Not recorded <30d / 30–90d / 90d+, Won this month, Cash; a selected cell outlined in lime; the list of those deals under it with a row menu (Record outcome, Set next step, Mark lost, Open).",
+      "risk": "A pivot is dense; a closer with one or two programs gets a small table that says little.",
+      "html": ".impeccable/mocks/decision/pipeline-v3-program-matrix.html"
+    },
+    {
+      "id": "month-report",
+      "kind": "dealt",
+      "label": "The month's report",
+      "lineage": "A closer's own report page with the list under it",
+      "thesis": "The month told in figures and two charts (cash by week, outcomes recorded vs calls held), then the open book as one list with its actions.",
+      "palette": ["#141a28", "#84b135", "#f3f5f8", "#ffffff", "#f0b429"],
+      "materials": ["navy strip", "bar charts", "white ruled list"],
+      "viewport": "Money strip; two chart cards side by side (cash by week against last month; calls this month: held, no-show, not recorded); the deal list below with stage, last call, next step and a row menu.",
+      "risk": "Charts repeat what Reports shows admins; on a slow month they are mostly empty.",
+      "html": ".impeccable/mocks/decision/pipeline-v3-month-report.html"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": {"value": "code"}
+}

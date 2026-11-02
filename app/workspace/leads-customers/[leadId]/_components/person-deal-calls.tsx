@@ -22,7 +22,10 @@ const COLUMNS = "@xl/calls:grid-cols-[9.5rem_8.5rem_4rem_minmax(0,1fr)_auto]";
 type Attendance = { word: string; ink: string; owed: boolean };
 
 /** The call's attendance as one condensed word in its ink; a past call still scheduled is owed. */
-function attendanceOf(meeting: EntityDetailMeeting, now: number): Attendance {
+export function attendanceOf(
+  meeting: Pick<EntityDetailMeeting, "status" | "scheduledAt" | "durationMinutes">,
+  now: number,
+): Attendance {
   switch (meeting.status) {
     case "held":
       return { word: "Held", ink: "text-stage-held-ink", owed: false };

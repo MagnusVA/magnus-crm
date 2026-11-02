@@ -7,7 +7,7 @@ import { SearchIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { CloserLookupTab } from "@/convex/closer/pipelineTabs";
 import { addBusinessDays, businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
-import { formatCash, NO_PROGRAM } from "@/lib/closer-pipeline";
+import { formatCash, NO_PROGRAM, programLabel } from "@/lib/closer-pipeline";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
@@ -32,7 +32,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { formatBusinessDate } from "@/app/workspace/closer/_components/today-time";
 import { dealHref, NextStep, ROW_LINK, StageWord } from "./deal-cells";
-import { programLabel } from "./program-card";
 import { useKeptQuery } from "./use-kept-query";
 
 export type LookupFilters = {

@@ -150,7 +150,7 @@ export function formatCash(amountMinor: number, currency: string, signed = false
   return formatted.replace(/^-/, "\u2212");
 }
 
-// ── Program sections ──────────────────────────────────────────────────────
+// ── The book ──────────────────────────────────────────────────────────────
 
 export const NO_PROGRAM = "none";
 
@@ -189,7 +189,163 @@ export type DeskDeal = {
   position: "booked" | "call_held" | "follow_up";
   programKey: string;
   nextStep: DeskNextStep;
+  /** The meeting behind `nextStep.callAt`, where a call that passed with no result is recorded. */
+  nextMeetingId?: string | null;
+  lastActivityAt: number;
 };
+
+/**
+ * Where an open deal stands as of `now`. Ahead: it has a next step (a call
+ * ahead or an open task). Not recorded: no step, and its last booked call
+ * passed with no outcome. No next step: neither.
+ */
+export type DealState = "ahead" | "no_step" | "not_recorded";
+
+/** How long ago a call that was never recorded took place. */
+export type RecordAge = "under_30" | "30_90" | "over_90";
+
+export const RECORD_AGE_LABELS: Record<RecordAge, string> = {
+  under_30: "Under 30 days",
+  "30_90": "30–90 days",
+  over_90: "Over 90 days",
+};
+
+const DAY = 86_400_000;
+
+export function recordAgeOf(missedCallAt: number, now: number): RecordAge {
+  const days = (now - missedCallAt) / DAY;
+  if (days < 30) return "under_30";
+  if (days <= 90) return "30_90";
+  return "over_90";
+}
+
+export type DealStanding = {
+  state: DealState;
+  step: ShownStep;
+  /** The call that passed with no result, if any (set beside a step too). */
+  missedCallAt: number | null;
+};
+
+export function dealStanding(deal: Pick<DeskDeal, "nextStep">, now: number): DealStanding {
+  const { step, missedCallAt } = resolveNextStep(deal.nextStep, now);
+  const state: DealState =
+    step !== null ? "ahead" : missedCallAt !== null ? "not_recorded" : "no_step";
+  return { state, step, missedCallAt };
+}
+
+export type BookSummary = {
+  total: number;
+  positions: Record<DeskDeal["position"], number>;
+  ahead: number;
+  noStep: number;
+  notRecorded: number;
+  ages: Record<RecordAge, number>;
+  /** The oldest call never recorded, if any. */
+  oldestMissedAt: number | null;
+};
+
+/** The open book in counts, as of `now`. */
+export function summarizeBook(deals: DeskDeal[], now: number): BookSummary {
+  const summary: BookSummary = {
+    total: deals.length,
+    positions: { booked: 0, call_held: 0, follow_up: 0 },
+    ahead: 0,
+    noStep: 0,
+    notRecorded: 0,
+    ages: { under_30: 0, "30_90": 0, over_90: 0 },
+    oldestMissedAt: null,
+  };
+  for (const deal of deals) {
+    summary.positions[deal.position] += 1;
+    const { state, missedCallAt } = dealStanding(deal, now);
+    if (state === "ahead") summary.ahead += 1;
+    else if (state === "no_step") summary.noStep += 1;
+    else if (missedCallAt !== null) {
+      summary.notRecorded += 1;
+      summary.ages[recordAgeOf(missedCallAt, now)] += 1;
+      if (summary.oldestMissedAt === null || missedCallAt < summary.oldestMissedAt) {
+        summary.oldestMissedAt = missedCallAt;
+      }
+    }
+  }
+  return summary;
+}
+
+/** What the open-deals list shows: a state (and, for calls never recorded, an age) and a program. */
+export type BookFilter = {
+  state: DealState | null;
+  age: RecordAge | null;
+  programKey: string | null;
+};
+
+export const NO_BOOK_FILTER: BookFilter = { state: null, age: null, programKey: null };
+
+export function matchesBookFilter(deal: DeskDeal, filter: BookFilter, now: number): boolean {
+  if (filter.programKey !== null && deal.programKey !== filter.programKey) return false;
+  if (filter.state === null) return true;
+  const { state, missedCallAt } = dealStanding(deal, now);
+  if (state !== filter.state) return false;
+  if (filter.age === null || missedCallAt === null) return true;
+  return recordAgeOf(missedCallAt, now) === filter.age;
+}
+
+/**
+ * The list's rows: the first `limit` deals the filter matches, in the
+ * list's order, plus the open row's deal wherever it went (setting a next
+ * step from it can move it out of the filter or past the page, and its
+ * dialog must outlive that). `matched` counts the filter's deals only.
+ */
+export function visibleBookDeals(
+  deals: DeskDeal[],
+  filter: BookFilter,
+  openId: string | null,
+  now: number,
+  limit: number,
+): { rows: DeskDeal[]; matched: number } {
+  const matching = deals.filter((deal) => matchesBookFilter(deal, filter, now)).sort(compareBookDeals(now));
+  const rows = matching.slice(0, limit);
+  const open = openId === null ? undefined : deals.find((deal) => deal.opportunityId === openId);
+  if (open && !rows.includes(open)) {
+    rows.push(open);
+    rows.sort(compareBookDeals(now));
+  }
+  return { rows, matched: matching.length };
+}
+
+const STATE_ORDER: Record<DealState, number> = { ahead: 0, no_step: 1, not_recorded: 2 };
+
+/** When a step happens: calls and tasks by time (an overdue one first), then links. */
+function stepTime(step: ShownStep): [number, number] {
+  if (step === null) return [0, 0];
+  if (step.kind === "call") return [0, step.at];
+  if (step.kind === "task") return [0, step.dueAt ?? Number.MAX_SAFE_INTEGER];
+  return [1, step.sentAt];
+}
+
+/**
+ * The list's order as of `now`, by what's next: deals with a step by its
+ * time (links after calls and tasks), then deals with no next step, the most
+ * recent activity first, then calls never recorded, the oldest call first.
+ */
+export function compareBookDeals(now: number) {
+  return (a: DeskDeal, b: DeskDeal): number => {
+    const sa = dealStanding(a, now);
+    const sb = dealStanding(b, now);
+    const byState = STATE_ORDER[sa.state] - STATE_ORDER[sb.state];
+    if (byState !== 0) return byState;
+    if (sa.state === "ahead") {
+      const [groupA, timeA] = stepTime(sa.step);
+      const [groupB, timeB] = stepTime(sb.step);
+      if (groupA !== groupB || timeA !== timeB) return groupA - groupB || timeA - timeB;
+    } else if (sa.state === "not_recorded") {
+      const byCall = (sa.missedCallAt ?? 0) - (sb.missedCallAt ?? 0);
+      if (byCall !== 0) return byCall;
+    } else if (a.lastActivityAt !== b.lastActivityAt) {
+      return b.lastActivityAt - a.lastActivityAt;
+    }
+    return a.personName.localeCompare(b.personName);
+  };
+}
 
 export type DeskInput = {
   cash: {
@@ -208,66 +364,36 @@ export type DeskInput = {
   };
 };
 
-export type ProgramSection = {
+/** One program in the book's table. */
+export type BookProgram = {
   key: string;
   /** Null for the deals with no program. */
   name: string | null;
-  /** The month's cash, by currency, its main currency first. */
+  open: number;
+  notRecorded: number;
+  won: number;
+  /** The month's cash, by currency, its own main currency first. */
   cash: CurrencyAmount[];
-  /**
-   * The currency its header leads with: the program's own currency from its
-   * settings, else the one with the most payments in it, else the page's.
-   */
+  /** The program's own currency from its settings, else its most-paid one, else the page's. */
   currency: string;
   paymentCount: number;
-  won: number;
-  /** The open deals, the ones with no next step first. */
-  deals: DeskDeal[];
-  closed: number;
 };
 
-/** When a step happens, for the row order: calls and tasks by time, then links. */
-function stepOrder(step: ShownStep): [number, number] {
-  if (step === null) return [0, 0];
-  if (step.kind === "call") return [1, step.at];
-  if (step.kind === "task") return [1, step.dueAt ?? Number.MAX_SAFE_INTEGER];
-  return [2, step.sentAt];
-}
-
-/** As of `now`: an open deal with no next step first, then the soonest step, then by name. */
-export function compareDeskDeals(now: number) {
-  return (a: DeskDeal, b: DeskDeal): number => {
-    const [groupA, timeA] = stepOrder(resolveNextStep(a.nextStep, now).step);
-    const [groupB, timeB] = stepOrder(resolveNextStep(b.nextStep, now).step);
-    return groupA - groupB || timeA - timeB || a.personName.localeCompare(b.personName);
-  };
-}
-
-/** How many of `deals` have no next step as of `now`. */
-export function countWithoutNextStep(deals: DeskDeal[], now: number): number {
-  return deals.filter((deal) => resolveNextStep(deal.nextStep, now).step === null).length;
-}
-
 /**
- * One section per program, in the order the user settled: the programs
- * with cash this month, the most cash in the page's main currency first (a
- * tie goes to more payments, then more open deals); then the programs with
- * open deals and no cash, the most open deals first, with the deals that
- * have no program last. A program with neither is left out; its deals stay
- * in the lookup. Rows are ordered as of `now`.
+ * The programs with open deals, cash or wins in the month: the most cash in
+ * the page's main currency first (a tie goes to more payments), then the
+ * most open deals, with the deals that have no program last. A program with
+ * only closed deals and nothing this month is left out; its deals stay in
+ * All deals.
  */
-export function buildProgramSections(
-  input: DeskInput,
-  currency: string,
-  now: number,
-): ProgramSection[] {
-  const sections = new Map<string, ProgramSection>();
+export function buildBookPrograms(input: DeskInput, currency: string, now: number): BookProgram[] {
+  const rows = new Map<string, BookProgram>();
   const owned = new Map<string, string | null>();
-  const section = (key: string, name: string | null) => {
-    let entry = sections.get(key);
+  const row = (key: string, name: string | null) => {
+    let entry = rows.get(key);
     if (!entry) {
-      entry = { key, name, cash: [], currency, paymentCount: 0, won: 0, deals: [], closed: 0 };
-      sections.set(key, entry);
+      entry = { key, name, open: 0, notRecorded: 0, won: 0, cash: [], currency, paymentCount: 0 };
+      rows.set(key, entry);
     }
     if (entry.name === null && name !== null) entry.name = name;
     return entry;
@@ -275,46 +401,39 @@ export function buildProgramSections(
 
   for (const program of input.cash.programs) {
     if (program.paymentCount === 0) continue;
-    const entry = section(program.programKey, program.programName);
+    const entry = row(program.programKey, program.programName);
     entry.cash = program.currencies;
     entry.paymentCount = program.paymentCount;
     owned.set(program.programKey, program.defaultCurrency);
   }
   for (const deal of input.open.deals) {
-    section(deal.programKey, null).deals.push(deal);
-  }
-  for (const program of input.open.programs) {
-    const entry = sections.get(program.programKey);
-    if (!entry) continue;
-    if (entry.name === null) entry.name = program.programName;
-    entry.closed = program.closed;
+    const entry = row(deal.programKey, null);
+    entry.open += 1;
+    if (dealStanding(deal, now).state === "not_recorded") entry.notRecorded += 1;
   }
   for (const program of input.wins.programs) {
-    const entry = sections.get(program.programKey);
-    if (entry) entry.won = program.won;
+    if (program.won > 0) row(program.programKey, null).won = program.won;
   }
-  for (const entry of sections.values()) {
+  for (const program of input.open.programs) {
+    const entry = rows.get(program.programKey);
+    if (entry && entry.name === null) entry.name = program.programName;
+  }
+  for (const entry of rows.values()) {
     entry.currency = owned.get(entry.key) ?? mainCurrency(entry.cash, currency);
     entry.cash = leadingWith(entry.cash, entry.currency);
-    entry.deals.sort(compareDeskDeals(now));
   }
 
-  const withCash = [...sections.values()].filter((entry) => entry.paymentCount > 0);
-  const openOnly = [...sections.values()].filter((entry) => entry.paymentCount === 0);
-  const byName = (a: ProgramSection, b: ProgramSection) =>
-    (a.name ?? "").localeCompare(b.name ?? "");
-  withCash.sort(
-    (a, b) =>
-      amountIn(b.cash, currency) - amountIn(a.cash, currency) ||
-      b.paymentCount - a.paymentCount ||
-      b.deals.length - a.deals.length ||
-      byName(a, b),
-  );
-  openOnly.sort(
+  return [...rows.values()].sort(
     (a, b) =>
       Number(a.key === NO_PROGRAM) - Number(b.key === NO_PROGRAM) ||
-      b.deals.length - a.deals.length ||
-      byName(a, b),
+      amountIn(b.cash, currency) - amountIn(a.cash, currency) ||
+      b.paymentCount - a.paymentCount ||
+      b.open - a.open ||
+      (a.name ?? "").localeCompare(b.name ?? ""),
   );
-  return [...withCash, ...openOnly];
+}
+
+/** The program's name, or the words for the deals with none. */
+export function programLabel(name: string | null) {
+  return name ?? "No program";
 }

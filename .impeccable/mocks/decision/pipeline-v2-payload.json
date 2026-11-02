@@ -1,0 +1,51 @@
+{
+  "title": "My Pipeline: choose the structure",
+  "question": "Three ways to make the backlog the job, with live deals in one list by what's next. Lock one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "two-boards",
+      "kind": "assigned",
+      "label": "Ahead and Never recorded",
+      "kicker": "THE ROLL",
+      "lineage": "Today's departures board, applied to the whole book",
+      "thesis": "Two lanes: what's ahead in time order, and the calls never recorded, oldest first, cleared in place.",
+      "palette": ["#141a28", "#84b135", "#f3f5f8", "#ffffff", "#b45309"],
+      "materials": ["navy board", "white ruled card", "condensed status words"],
+      "viewport": "Title row with month switcher, the money strip, then side by side: AHEAD on navy (calls, call-backs, links in time order with status words) and a white NEVER RECORDED · 298 card, oldest first, each row with No-show, Lost and Open; All deals collapsed below.",
+      "risk": "Two lists side by side get narrow on a laptop next to Zoom; the backlog card must fold its row actions well.",
+      "raised": [
+        {"from": "signals-instruments-split-flap-concourse", "raise": "Both lanes share one fixed column grid; a row's state restyles in place and never jumps."},
+        {"from": "vernacular-ephemera-jet-age-ticket-wallet", "raise": "A cleared call stays in its row stamped NO-SHOW or LOST until the page reloads, so the closer sees the work done."},
+        {"from": "wayfinding-cartography-signage-terminal-yellow-wayfinding", "raise": "The oldest unrecorded call heads its lane with its choices ahead of it."}
+      ],
+      "html": ".impeccable/mocks/decision/pipeline-v2-two-boards.html"
+    },
+    {
+      "id": "runway",
+      "kind": "dealt",
+      "label": "The runway",
+      "lineage": "A time axis of the book, past to future",
+      "thesis": "One strip shows every open deal on a week axis: unrecorded calls behind today, scheduled steps ahead; pick a stretch and the list below follows.",
+      "palette": ["#141a28", "#84b135", "#f3f5f8", "#ffffff", "#b45309"],
+      "materials": ["navy strip", "week bars", "white ruled list"],
+      "viewport": "Title and money line, then a navy runway: 16 weeks of stacked bars (amber behind today, blue ahead) with TODAY marked; under it one list scoped to the selected weeks, oldest unrecorded first, inline No-show and Lost.",
+      "risk": "The chart is new vocabulary on a working page; it must stay a filter, not a report.",
+      "html": ".impeccable/mocks/decision/pipeline-v2-runway.html"
+    },
+    {
+      "id": "clearing-desk",
+      "kind": "dealt",
+      "label": "The clearing desk",
+      "lineage": "The task queue: a list beside one open record",
+      "thesis": "A queue of unrecorded calls on the left, one open on the right with its outcome question; record it and the next one opens.",
+      "palette": ["#141a28", "#84b135", "#f3f5f8", "#ffffff", "#b45309"],
+      "materials": ["340px white queue", "board strip", "outcome panel"],
+      "viewport": "Band with tabs NEVER RECORDED 298 · AHEAD 14 · ALL DEALS and the month's money; a 340px queue oldest first; the open call as a board strip with the outcome panel 'Did Alice C show up on Jul 14?' and No-show, Held, Lost; J and K move.",
+      "risk": "Strong for clearing, weaker for a glance at the month; live deals sit one tab away.",
+      "html": ".impeccable/mocks/decision/pipeline-v2-clearing-desk.html"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": {"value": "code"}
+}
