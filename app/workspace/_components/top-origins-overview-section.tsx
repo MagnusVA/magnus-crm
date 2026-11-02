@@ -68,7 +68,7 @@ function Thumbnail({ preview, kind }: { preview: Preview | undefined; kind: stri
 function PostRow({ row, preview }: { row: OriginRow; preview: Preview | undefined }) {
   const ready = preview?.status === "ready";
   const caption = ready ? preview.caption : null;
-  const title = caption ?? formatOriginValue(row.originValue);
+  const title = caption || formatOriginValue(row.originValue);
   const kind = kindWord[row.originKind] ?? row.originKind;
   const meta = [
     ready && preview.handle ? `@${preview.handle}` : hostOf(row.originValue),

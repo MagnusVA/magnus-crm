@@ -54,7 +54,10 @@ export const fetchOriginPreview = internalAction({
     if (!row || row.status === "ready" || row.attempts >= 3) return null;
     let stored: Id<"_storage"> | undefined;
     try {
-      const page = await fetch(row.url, { headers: { "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" }, signal: AbortSignal.timeout(10000) });
+      // Ask the canonical host and refuse redirects, so the request never leaves Instagram.
+      const pageUrl = new URL(row.url);
+      pageUrl.hostname = "www.instagram.com";
+      const page = await fetch(pageUrl, { headers: { "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" }, signal: AbortSignal.timeout(10000), redirect: "error" });
       if (!page.ok) throw new Error("Instagram unavailable");
       const preview = parseInstagramPreview(await page.text());
       if (!preview?.image) throw new Error("No thumbnail");

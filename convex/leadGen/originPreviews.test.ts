@@ -7,7 +7,7 @@ import { ensureOriginPreview } from "./originPreviews";
 import { parseInstagramPreview } from "./instagramPreview";
 
 const url = "https://www.instagram.com/reel/DVXcIyOmvWA/";
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 describe("Instagram previews", () => {
   it("decodes metadata and parses the caption, author, date, and image", () => {
     expect(parseInstagramPreview(`<meta property="og:title" content="Cole DaSilva on Instagram: &quot;Make time to go to the gym&quot;" />
@@ -46,6 +46,20 @@ describe("Instagram previews", () => {
       const row = await ctx.db.query("leadGenOriginPreviews").withIndex("by_tenantId_and_originKey", q => q.eq("tenantId", tenantId).eq("originKey", url)).unique();
       expect(row).not.toBeNull();
     });
+  });
+  it("fetches the page from www.instagram.com and refuses redirects", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 503 }));
+    const t = convexTest(schema, convexTestModules);
+    const previewId = await t.run(async ctx => {
+      const tenantId = await ctx.db.insert("tenants", { companyName: "Preview", contactEmail: "test@example.test", workosOrgId: "org_preview", status: "active", inviteExpiresAt: 0, createdBy: "test" });
+      return await ctx.db.insert("leadGenOriginPreviews", { tenantId, originKey: "k", url: "https://instagram.com/reel/DVXcIyOmvWA/", status: "pending", attempts: 0, requestedAt: 0 });
+    });
+    await t.action(internal.leadGen.originPreviews.fetchOriginPreview, { previewId });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(url);
+    expect(fetchMock.mock.calls[0][1]?.redirect).toBe("error");
+    await t.run(async ctx => { expect(await ctx.db.get("leadGenOriginPreviews", previewId)).toMatchObject({ attempts: 1, status: "unavailable" }); });
   });
   it("stops retrying after three failures", async () => {
     vi.useFakeTimers();
