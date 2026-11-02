@@ -1,5 +1,5 @@
 import migrationsTest from "@convex-dev/migrations/test";
-import { afterEach, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
@@ -8,7 +8,12 @@ import { migrations } from "../migrations";
 // Captures recorded with no team take the specialist's current team, with
 // their daily stats and team-origin stats (convex/leadGen/backfills.ts).
 
-afterEach(() => vi.useRealTimers());
+// Captures enqueue link previews; draining jobs must never contact Instagram.
+beforeEach(() => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 503 }));
+});
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 

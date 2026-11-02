@@ -5,24 +5,26 @@ import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
 import { mergeOverviewDashboard } from "@/convex/analytics/merge/overview";
 import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
-import { businessDateForInstant } from "@/lib/businessDay";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
+import {
+  AnalyticsFreshnessAlert,
+  FreshnessWords,
+  freshnessSummary,
+} from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
-import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useRole } from "@/components/auth/role-context";
-import {
-	DashboardDateRangeFilter,
-	type DashboardRangeInput,
-} from "./dashboard-date-range-filter";
+import { cn } from "@/lib/utils";
 import { validateCustomDashboardRange } from "./dashboard-date-utils";
+import { DateRangePicker, formatBusinessDateSpan, rangePhrase, type DashboardRangeInput } from "./date-range-picker";
 import type { OverviewDashboard } from "./overview-dashboard-types";
-import { OverviewTopCards } from "./overview-top-cards";
+import { DmClosersRanking, LeadGenRanking, QualifiersRanking } from "./overview-rankings";
+import { PageBand } from "./page-band";
 import { PhoneCloserOperationsSection } from "./phone-closer-operations-section";
+import { OverviewDashboardSkeleton, OverviewSectionsSkeleton } from "./skeletons/overview-dashboard-skeleton";
 import { TopOriginsOverviewSection } from "./top-origins-overview-section";
-import { OverviewDashboardSkeleton } from "./skeletons/overview-dashboard-skeleton";
 
 type OverviewSectionKey = Exclude<keyof OverviewDashboard, "range">;
 
@@ -32,124 +34,121 @@ type OverviewSectionKey = Exclude<keyof OverviewDashboard, "range">;
  * this reports once per mount for each section and error code.
  */
 function useReportOverviewSectionError(
-	key: OverviewSectionKey,
-	section: OverviewDashboard[OverviewSectionKey] | undefined,
+  key: OverviewSectionKey,
+  section: OverviewDashboard[OverviewSectionKey] | undefined,
 ) {
-	const errorCode = section?.status === "error" ? section.errorCode : null;
-	useEffect(() => {
-		if (errorCode === null) return;
-		posthog.captureException(new Error(`Overview section failed: ${key}`), {
-			error_origin: "dashboard_overview",
-			section: key,
-			error_code: errorCode,
-		});
-	}, [key, errorCode]);
+  const errorCode = section?.status === "error" ? section.errorCode : null;
+  useEffect(() => {
+    if (errorCode === null) return;
+    posthog.captureException(new Error(`Overview section failed: ${key}`), {
+      error_origin: "dashboard_overview",
+      section: key,
+      error_code: errorCode,
+    });
+  }, [key, errorCode]);
+}
+
+const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
+
+/** "This week · Oct 27 – Nov 1", "Today · Nov 1", or a custom range's dates. */
+function rangeWords(range: DashboardRangeInput, shown: OverviewDashboard["range"] | undefined, today: string) {
+  const dates = shown
+    ? formatBusinessDateSpan(shown.startBusinessDate, shown.endBusinessDateInclusive, today)
+    : null;
+  if (range.kind === "custom") return dates ?? "Custom range";
+  return dates ? `${PRESET_WORDS[range.preset]} · ${dates}` : PRESET_WORDS[range.preset];
 }
 
 export function DashboardPageClient() {
-	usePageTitle("Overview");
-	const { isAdmin } = useRole();
-	const { loaded, setting } = useBusinessDay();
-	const now = useNow();
-	const [range, setRange] = useState<DashboardRangeInput>({
-		kind: "preset",
-		preset: "today",
-	});
-	const [queryRange, setQueryRange] = useState<DashboardRangeInput>({
-		kind: "preset",
-		preset: "today",
-	});
-	const rangeValidationMessage =
-		range.kind === "custom"
-			? validateCustomDashboardRange({
-					startBusinessDate: range.startBusinessDate,
-					endBusinessDateInclusive: range.endBusinessDateInclusive,
-				})
-			: null;
-	// Today reads Convex live, and so does today's part of a longer range; the
-	// days before today read ClickHouse once the page is switched
-	// (docs/agents/reporting.md).
-	const todayBusinessDate = businessDateForInstant(now, setting);
-	const plan = dashboardRangePlan(
-		queryRange,
-		todayBusinessDate,
-	);
-	const report = useAnalyticsReport({
-		page: "overview",
-		reportId: "overview.dashboard",
-		plan,
-		live: api.dashboard.overview.getOverviewDashboard,
-		liveArgs: isAdmin && loaded ? { range: queryRange } : "skip",
-		todayArgs: isAdmin && loaded ? { range: dashboardRangeFromToday(queryRange, todayBusinessDate) } : "skip",
-		merge: mergeOverviewDashboard,
-	});
-	const overview = report.data;
-	useReportOverviewSectionError("leadGen", overview?.leadGen);
-	useReportOverviewSectionError("topQualifiers", overview?.topQualifiers);
-	useReportOverviewSectionError("topDmClosers", overview?.topDmClosers);
-	useReportOverviewSectionError(
-		"phoneCloserOperations",
-		overview?.phoneCloserOperations,
-	);
-	useReportOverviewSectionError("topOrigins", overview?.topOrigins);
+  usePageTitle("Overview");
+  const { isAdmin } = useRole();
+  const { loaded, setting } = useBusinessDay();
+  const now = useNow();
+  const [range, setRange] = useState<DashboardRangeInput>({ kind: "preset", preset: "today" });
+  // Today reads Convex live, and so does today's part of a longer range; the
+  // days before today read ClickHouse once the page is switched
+  // (docs/agents/reporting.md).
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const report = useAnalyticsReport({
+    page: "overview",
+    reportId: "overview.dashboard",
+    plan: dashboardRangePlan(range, todayBusinessDate),
+    live: api.dashboard.overview.getOverviewDashboard,
+    liveArgs: isAdmin && loaded ? { range } : "skip",
+    todayArgs: isAdmin && loaded ? { range: dashboardRangeFromToday(range, todayBusinessDate) } : "skip",
+    merge: mergeOverviewDashboard,
+  });
 
-	// A ClickHouse range can take a while to load; keep the controls and its
-	// status on screen instead of the full-page skeleton.
-	if (!isAdmin || (!overview && report.source !== "warehouse")) {
-		return <OverviewDashboardSkeleton />;
-	}
+  // A new range keeps the last one's numbers on screen, dimmed, until it
+  // arrives (DESIGN.md, Kept Data While Reloading).
+  const [kept, setKept] = useState(report.data);
+  if (report.data !== undefined && report.data !== kept) setKept(report.data);
+  const overview = report.data ?? kept;
+  const reloading = report.data === undefined && kept !== undefined;
 
-	return (
-		<div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6 pb-6">
-			<header className="flex flex-col gap-3 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-				<div className="flex min-w-0 items-start gap-3">
-					<div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
-					<div>
-						<h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-						{overview ? (
-							<p className="mt-1 text-sm text-muted-foreground">
-								{overview.range.label}
-							</p>
-						) : (
-							<Skeleton className="mt-1 h-4 w-40" />
-						)}
-					</div>
-				</div>
-				<div className="flex flex-col gap-2 lg:items-end">
-					<DashboardDateRangeFilter
-						value={range}
-						onChange={(nextRange) => {
-							setRange(nextRange);
-							if (
-								nextRange.kind === "preset" ||
-								validateCustomDashboardRange({
-									startBusinessDate: nextRange.startBusinessDate,
-									endBusinessDateInclusive:
-										nextRange.endBusinessDateInclusive,
-								}) === null
-							) {
-								setQueryRange(nextRange);
-							}
-						}}
-						validationMessage={rangeValidationMessage}
-					/>
-					<AnalyticsFreshnessLine items={[report.freshness]} />
-				</div>
-			</header>
+  useReportOverviewSectionError("leadGen", report.data?.leadGen);
+  useReportOverviewSectionError("topQualifiers", report.data?.topQualifiers);
+  useReportOverviewSectionError("topDmClosers", report.data?.topDmClosers);
+  useReportOverviewSectionError("phoneCloserOperations", report.data?.phoneCloserOperations);
+  useReportOverviewSectionError("topOrigins", report.data?.topOrigins);
 
-			{overview ? (
-				<>
-					<OverviewTopCards overview={overview} queryRange={queryRange} />
-					<PhoneCloserOperationsSection section={overview.phoneCloserOperations} />
-					<TopOriginsOverviewSection section={overview.topOrigins} />
-				</>
-			) : (
-				<div className="flex flex-col gap-5" aria-hidden="true">
-					<Skeleton className="h-64 w-full rounded-lg" />
-					<Skeleton className="h-[320px] w-full rounded-lg" />
-					<Skeleton className="h-[360px] w-full rounded-lg" />
-				</div>
-			)}
-		</div>
-	);
+  // A ClickHouse range can take a while to load; once the page has shown
+  // anything, keep the band and its status on screen instead of the skeleton.
+  if (!isAdmin || (!overview && report.source !== "warehouse")) {
+    return <OverviewDashboardSkeleton />;
+  }
+
+  const freshness = freshnessSummary([report.freshness], now);
+  const shownRange = report.data?.range;
+
+  return (
+    <div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3">
+      <PageBand
+        title="Overview"
+        description={
+          <>
+            <span className="font-medium text-board-foreground">{rangeWords(range, shownRange, todayBusinessDate)}</span>
+            {freshness.kind === "line" ? (
+              <>
+                {" · "}
+                <FreshnessWords summary={freshness} />
+              </>
+            ) : null}
+            <span className="hidden @3xl:inline"> · {businessDayDisclosure(setting)}</span>
+          </>
+        }
+        actions={
+          <DateRangePicker
+            tone="board"
+            value={range}
+            todayBusinessDate={todayBusinessDate}
+            onChange={(next) => {
+              if (next.kind === "preset" || validateCustomDashboardRange(next) === null) setRange(next);
+            }}
+          />
+        }
+      />
+
+      <AnalyticsFreshnessAlert summary={freshness} />
+
+      {overview ? (
+        <div
+          aria-busy={reloading}
+          className={cn("flex flex-col gap-3.5 transition-opacity duration-200 short:gap-3", reloading && "opacity-60")}
+        >
+          <section aria-label="Rankings" className="grid gap-3.5 @4xl:grid-cols-3 short:gap-3">
+            <LeadGenRanking section={overview.leadGen} range={range} />
+            <QualifiersRanking section={overview.topQualifiers} range={range} />
+            <DmClosersRanking section={overview.topDmClosers} range={range} />
+          </section>
+          <div className="grid items-start gap-3.5 @5xl:grid-cols-[1.35fr_1fr] short:gap-3">
+            <PhoneCloserOperationsSection section={overview.phoneCloserOperations} rangePhrase={rangePhrase(range)} />
+            <TopOriginsOverviewSection section={overview.topOrigins} rangePhrase={rangePhrase(range)} />
+          </div>
+        </div>
+      ) : (
+        <OverviewSectionsSkeleton />
+      )}
+    </div>
+  );
 }
