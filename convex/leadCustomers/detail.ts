@@ -1,15 +1,18 @@
+import { entityDetailValidator } from "./detailValidators";
+import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
 import { ENROLLMENT_DEAL_LIMIT } from "../lib/enrollments";
 import { readResparkSettings } from "../lib/respark/settings";
 import { DEFAULT_BUSINESS_DAY } from "../../lib/businessDay";
-import { requireTenantUser } from "../requireTenantUser";
+import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { buildEntityDetailPayload } from "./detailPayload";
 import { timelineEventLabel } from "./timeline";
 
 export const getEntityDetail = query({
   args: { leadId: v.id("leads") },
+  returns: entityDetailValidator,
   handler: async (ctx, { leadId }) => {
     const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
@@ -17,6 +20,16 @@ export const getEntityDetail = query({
       "closer",
     ]);
 
+    return await buildEntityDetail(ctx, { userId, tenantId, role }, leadId);
+  },
+});
+
+/** Shared person reader; preserves the web payload and its per-record permissions. */
+export async function buildEntityDetail(
+  ctx: QueryCtx,
+  { userId, tenantId, role }: Pick<TenantUserResult, "userId" | "tenantId" | "role">,
+  leadId: Id<"leads">,
+) {
     const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) {
       return null;
@@ -72,5 +85,4 @@ export const getEntityDetail = query({
       // so the server and the browser render the same day.
       businessTimeZone: (tenant.businessDay ?? DEFAULT_BUSINESS_DAY).timeZone,
     };
-  },
-});
+}

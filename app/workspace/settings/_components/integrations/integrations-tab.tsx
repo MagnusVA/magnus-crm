@@ -1,5 +1,7 @@
 "use client";
 
+import { AiAssistantsCard } from "./ai-assistants-card";
+
 import type { Preloaded } from "convex/react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -44,6 +46,7 @@ export function IntegrationsTab({
         <CalendlyConnection connectionStatus={connectionStatus} />
       )}
       <SlackIntegrationCard preloadedStatus={preloadedSlackStatus} />
+      <AiAssistantsCard />
       <ApiKeysCard />
       <FathomIntegrationCard />
     </div>

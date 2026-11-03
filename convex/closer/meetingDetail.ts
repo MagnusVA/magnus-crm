@@ -1,6 +1,7 @@
+import { meetingDetailValidator } from "./meetingDetailValidator";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import {
   buildDealAttributionDetail,
   resolveBookingDmAttribution,
@@ -13,7 +14,7 @@ import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
-import { requireTenantUser } from "../requireTenantUser";
+import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { loadActiveFollowUpSummary } from "../lib/activeFollowUp";
 import { loadPendingRescheduleLink } from "../opportunities/dealState";
 import { dealLabelOf, meetingDealLabelOf } from "../opportunities/stageLabels";
@@ -57,6 +58,7 @@ type EnrichedPayment = Omit<
  */
 export const getMeetingDetail = query({
   args: { meetingId: v.id("meetings") },
+  returns: meetingDetailValidator,
   handler: async (ctx, { meetingId }) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "closer",
@@ -64,6 +66,16 @@ export const getMeetingDetail = query({
       "tenant_admin",
     ]);
 
+    return await buildMeetingDetail(ctx, { userId, tenantId, role }, meetingId);
+  },
+});
+
+/** Shared reader. The caller authenticates; record authorization stays here. */
+export async function buildMeetingDetail(
+  ctx: QueryCtx,
+  { userId, tenantId, role }: Pick<TenantUserResult, "userId" | "tenantId" | "role">,
+  meetingId: Id<"meetings">,
+) {
     // Load the meeting
     const meeting = await ctx.db.get("meetings", meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
@@ -379,5 +391,4 @@ export const getMeetingDetail = query({
       dealAttribution,
       activeFollowUp,
     };
-  },
-});
+}

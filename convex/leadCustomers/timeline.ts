@@ -169,6 +169,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   "followUp.booked": "Follow-up call booked",
   "followUp.completed": "Task done",
   "followUp.expired": "Task expired",
+  "opportunity.call_note_added": "Call note added",
   "opportunity.created": "Deal created",
   "opportunity.stage_changed": "Deal stage changed",
   "opportunity.status_changed": "Deal stage changed",

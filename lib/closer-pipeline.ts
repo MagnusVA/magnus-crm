@@ -2,7 +2,7 @@ import {
   businessPeriodRange,
   countBusinessDays,
   type BusinessDaySetting,
-} from "@/lib/businessDay";
+} from "./businessDay";
 
 // My Pipeline's month and program sections, worked out from the desk's
 // queries (convex/closer/pipelineDesk.ts) by the rules the user settled

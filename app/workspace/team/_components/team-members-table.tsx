@@ -1,5 +1,7 @@
 "use client";
 
+import { AiAssistantMemberMenuItem, AiAssistantBlockedBadge } from "./ai-assistant-member-access";
+
 import { useMemo } from "react";
 import {
   Table,
@@ -53,6 +55,7 @@ interface TeamMember {
   fullName?: string;
   role: "closer" | "tenant_admin" | "tenant_master" | "lead_generator";
   isActive: boolean;
+  mcpBlockedAt?: number;
   avatar: MemberAvatarIdentity;
   calendlyMemberName?: string;
   calendlyUserUri?: string;
@@ -197,7 +200,7 @@ export function TeamMembersTable({
               member.role === "closer" && onAssignEventType;
             const canMarkUnavailable =
               member.role === "closer" && onMarkUnavailable;
-            const hasAnyAction = canEditRole || canRemove || canRelinkCalendly || canAssignEventType || canMarkUnavailable;
+            const hasAnyAction = member.isActive || canEditRole || canRemove || canRelinkCalendly || canAssignEventType || canMarkUnavailable;
 
             return (
               <TableRow
@@ -223,6 +226,7 @@ export function TeamMembersTable({
                   {member.email}
                 </TableCell>
                 <TableCell>
+                  <AiAssistantBlockedBadge member={member} />
                   <Badge variant={role.variant}>{role.label}</Badge>
                 </TableCell>
                 <TableCell>
@@ -273,6 +277,7 @@ export function TeamMembersTable({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuGroup>
+                          <AiAssistantMemberMenuItem member={member} />
                           {canRelinkCalendly && (
                             <DropdownMenuItem
                               onClick={() => onRelinkCalendly(member._id)}
