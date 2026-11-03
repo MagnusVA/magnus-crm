@@ -9,8 +9,11 @@ import { interactivity } from "./slack/interactivity";
 import { oauthRedirect } from "./slack/oauth";
 import { registerMcpRoutes } from "./mcp/http";
 
+import { handleFathomWebhook } from "./fathom/webhook";
+
 const http = httpRouter();
 authKit.registerRoutes(http);
+http.route({ path: "/webhooks/fathom", method: "POST", handler: handleFathomWebhook });
 
 http.route({
   path: "/webhooks/calendly",

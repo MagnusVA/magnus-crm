@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendlyConnection } from "./calendly-connection";
+import { FathomIntegrationCard } from "@/components/fathom/fathom-integration-card";
 import { ApiKeysCard } from "./api-keys-card";
 import { SlackIntegrationCard } from "./slack-integration-card";
 
@@ -44,6 +45,7 @@ export function IntegrationsTab({
       )}
       <SlackIntegrationCard preloadedStatus={preloadedSlackStatus} />
       <ApiKeysCard />
+      <FathomIntegrationCard />
     </div>
   );
 }

@@ -107,4 +107,9 @@ crons.interval("analytics-heartbeat", { minutes: 5 }, internal.analytics.sync.be
 // audit rows after 90 days (decision 16), and used preview tokens.
 crons.cron("mcp-prune", "20 7 * * *", internal.mcp.access.pruneDaily, {});
 
+// Fathom (docs/plans/closer-assistant.md §6.5): reconciliation, member sync
+// and health every 30 minutes; raw events, held payloads and old transcripts daily.
+crons.interval("fathom-reconcile-and-health", { minutes: 30 }, internal.fathom.maintenance.sweep, {});
+crons.cron("fathom-retention", "41 7 * * *", internal.fathom.maintenance.purge, {});
+
 export default crons;

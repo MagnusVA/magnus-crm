@@ -25,7 +25,17 @@ export const fathomTables = {
     lastError: v.optional(v.string()),
     connectedByUserId: v.id("users"),
     connectedAt: v.number(),
-  }).index("by_tenantId", ["tenantId"]),
+    // Additive operational state. No existing row needs a backfill.
+    operationToken: v.optional(v.string()),
+    operationUntil: v.optional(v.number()),
+    nextRequestAt: v.optional(v.number()),
+    reconcileToken: v.optional(v.string()),
+    reconcileUntil: v.optional(v.number()),
+    droppedCount: v.optional(v.number()),
+    healthWarnings: v.optional(v.array(v.string())),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_connectionStatus", ["connectionStatus"]),
 
   // Fathom's roster, like calendlyOrgMembers. Not a staff table: it mirrors a
   // vendor roster, links each member to a user, and holds no role.
@@ -51,6 +61,8 @@ export const fathomTables = {
     webhookMessageId: v.string(),
     receivedAt: v.number(),
     payload: v.string(),
+    payloadStorageId: v.optional(v.id("_storage")),
+    attempts: v.optional(v.number()),
     status: v.union(
       v.literal("pending"),
       v.literal("processed"),
@@ -63,8 +75,13 @@ export const fathomTables = {
     error: v.optional(v.string()),
   })
     .index("by_tenantId_and_webhookMessageId", ["tenantId", "webhookMessageId"])
+    .index("by_status_and_holdUntil", ["status", "holdUntil"])
     .index("by_status_and_receivedAt", ["status", "receivedAt"])
-    .index("by_tenantId_and_status_and_receivedAt", ["tenantId", "status", "receivedAt"]),
+    .index("by_tenantId_and_status_and_receivedAt", [
+      "tenantId",
+      "status",
+      "receivedAt",
+    ]),
 
   // One Fathom recording. It keeps only its meeting: the deal and the person
   // come from the meeting, so a merge or a deal move needs nothing here.
@@ -83,6 +100,7 @@ export const fathomTables = {
     scheduledEndAt: v.optional(v.number()),
     recordingStartAt: v.number(),
     recordingEndAt: v.number(),
+    transcriptExpiresAt: v.optional(v.number()),
     summaryMarkdown: v.optional(v.string()),
     actionItems: v.optional(
       v.array(
@@ -96,6 +114,7 @@ export const fathomTables = {
     // The transcript lives in file storage: a document caps at 1 MiB.
     transcriptStorageId: v.optional(v.id("_storage")),
     transcriptLanguage: v.optional(v.string()),
+    transcriptLineCount: v.optional(v.number()),
     transcriptDeletedAt: v.optional(v.number()),
     // Fathom's invitee list, for matching and reassignment only. Not a copy
     // of the person's identifiers, and nothing reads it as identity.
@@ -129,6 +148,13 @@ export const fathomTables = {
       "createdAt",
     ])
     .index("by_meetingId", ["meetingId"])
-    .index("by_tenantId_and_fathomRecordingId", ["tenantId", "fathomRecordingId"])
-    .index("by_transcriptDeletedAt_and_createdAt", ["transcriptDeletedAt", "createdAt"]),
+    .index("by_tenantId_and_fathomRecordingId", [
+      "tenantId",
+      "fathomRecordingId",
+    ])
+    .index("by_transcriptExpiresAt", ["transcriptExpiresAt"])
+    .index("by_transcriptDeletedAt_and_createdAt", [
+      "transcriptDeletedAt",
+      "createdAt",
+    ]),
 };

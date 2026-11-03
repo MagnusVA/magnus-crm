@@ -20,6 +20,9 @@ const app = defineApp({
     CALENDLY_CLIENT_ID: v.string(),
     CALENDLY_CLIENT_SECRET: v.string(),
 
+    // Convex HTTP action origin used to register the Fathom webhook.
+    CONVEX_SITE_URL: v.optional(v.string()),
+
     // Public app URL for links in Slack messages.
     APP_URL: v.optional(v.string()),
     // Public app URL for invite links and the Calendly OAuth redirect.
