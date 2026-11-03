@@ -113,6 +113,43 @@ function countBookedSlackOpportunities(
   }).length;
 }
 
+/**
+ * A team's first bookings that no dm_closer row names, grouped by the UTMs
+ * they arrived with, so the page can say where they came from (an ads
+ * campaign, an unmapped medium). Blank UTMs read as null.
+ */
+export type TeamOnlySource = {
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  booked: number;
+};
+
+export type TeamOnlySourcesByTeam = Map<Id<"attributionTeams">, TeamOnlySource[]>;
+
+export function utmValue(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function addTeamOnlySource(
+  byTeam: TeamOnlySourcesByTeam,
+  teamId: Id<"attributionTeams">,
+  source: Omit<TeamOnlySource, "booked">,
+  booked: number,
+) {
+  const sources = byTeam.get(teamId) ?? [];
+  const existing = sources.find(
+    (entry) =>
+      entry.utmSource === source.utmSource &&
+      entry.utmMedium === source.utmMedium &&
+      entry.utmCampaign === source.utmCampaign,
+  );
+  if (existing) existing.booked += booked;
+  else sources.push({ ...source, booked });
+  byTeam.set(teamId, sources);
+}
+
 // Booked Calls credit (docs/plans/phase-3-attribution.md §6.1, D9). The
 // population is first bookings: every meeting but a follow_up. A DM closer
 // record counts the first bookings its dm_closer row names; a team counts the
@@ -124,6 +161,7 @@ function countBookedMeetings(
   const byDmCloser = new Map<Id<"dmClosers">, number>();
   const byAttributionTeam = new Map<Id<"attributionTeams">, number>();
   let teamOnlyBooked = 0;
+  const teamOnlySources: TeamOnlySourcesByTeam = new Map();
   for (const meeting of meetings) {
     if (meeting.callClassification === "follow_up") continue;
     const credit = credits.get(meeting._id);
@@ -139,10 +177,22 @@ function countBookedMeetings(
         credit.teamId,
         (byAttributionTeam.get(credit.teamId) ?? 0) + 1,
       );
-      if (!credit.dmCloserId) teamOnlyBooked += 1;
+      if (!credit.dmCloserId) {
+        teamOnlyBooked += 1;
+        addTeamOnlySource(
+          teamOnlySources,
+          credit.teamId,
+          {
+            utmSource: utmValue(meeting.utmParams?.utm_source),
+            utmMedium: utmValue(meeting.utmParams?.utm_medium),
+            utmCampaign: utmValue(meeting.utmParams?.utm_campaign),
+          },
+          1,
+        );
+      }
     }
   }
-  return { byDmCloser, byAttributionTeam, teamOnlyBooked };
+  return { byDmCloser, byAttributionTeam, teamOnlyBooked, teamOnlySources };
 }
 
 export async function buildLeadGenEfficiencyRows(
@@ -434,6 +484,8 @@ export type DmCloserEfficiencyResult = {
   // First bookings with a dm_team row and no dm_closer row. They count toward
   // their team and the goal, never toward a DM closer or the DM closer total.
   teamOnlyBooked: number;
+  // The team-only bookings above, per team, by their UTMs.
+  teamOnlySources: TeamOnlySourcesByTeam;
 };
 
 export type BookedMeetingCounts = ReturnType<typeof countBookedMeetings>;
@@ -475,6 +527,7 @@ export async function buildDmCloserEfficiencyRows(
       truncated: true,
       bookedByTeam: new Map(),
       teamOnlyBooked: 0,
+      teamOnlySources: new Map(),
     };
   }
 
@@ -499,12 +552,13 @@ export async function buildDmCloserRowsFromCounts(
   },
   counts: BookedMeetingCounts,
 ): Promise<DmCloserEfficiencyResult> {
-  const { byDmCloser, byAttributionTeam, teamOnlyBooked } = counts;
+  const { byDmCloser, byAttributionTeam, teamOnlyBooked, teamOnlySources } = counts;
   const truncatedResult = {
     rows: [],
     truncated: true,
     bookedByTeam: byAttributionTeam,
     teamOnlyBooked,
+    teamOnlySources,
   };
 
   const [dmCloserScan, dmCloserScheduleScan] = await Promise.all([
@@ -619,6 +673,7 @@ export async function buildDmCloserRowsFromCounts(
     truncated: false,
     bookedByTeam: byAttributionTeam,
     teamOnlyBooked,
+    teamOnlySources,
   };
 }
 

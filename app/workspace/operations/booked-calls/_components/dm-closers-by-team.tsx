@@ -1,3 +1,4 @@
+import { UserRoundXIcon } from "lucide-react";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { MemberAvatar } from "@/app/workspace/_components/member-avatar";
@@ -61,9 +62,80 @@ function BookedBar({ booked, max, fill }: { booked: number; max: number; fill: s
   );
 }
 
+type TeamOnly = NonNullable<BookingTeam["teamOnly"]>;
+
+function UtmPart({ label, value }: { label: string; value: string | null }) {
+  return value === null ? (
+    <span>no {label}</span>
+  ) : (
+    <span>
+      {label} <span className="font-mono text-[12px] text-foreground">{value}</span>
+    </span>
+  );
+}
+
+/**
+ * Bookings through the team's links that name no DM closer: they count
+ * toward the team's goal (D9) but toward nobody below, so the closers plus
+ * this row add up to the team's figure. Each UTM combination they came with
+ * is listed under it.
+ */
+function NoDmCloserRow({ teamOnly, max, teamLabel }: { teamOnly: TeamOnly; max: number; teamLabel: string }) {
+  return (
+    <li className="border-t border-dashed bg-muted/25">
+      <div className={cn(ROW, "py-2")}>
+        <span aria-hidden="true" className="row-start-1 text-muted-foreground @lg/closers:row-start-auto">
+          –
+        </span>
+        <div className="row-start-1 flex min-w-0 items-center gap-2.5 @lg/closers:row-start-auto">
+          <span
+            aria-hidden="true"
+            className="grid size-6 shrink-0 place-items-center rounded-full border border-dashed border-muted-foreground/50 text-muted-foreground"
+          >
+            <UserRoundXIcon className="size-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate font-medium">No DM closer</p>
+            <p className="truncate text-[13px] text-muted-foreground">
+              Counted toward {teamLabel}, credited to nobody
+            </p>
+          </div>
+        </div>
+        <div className="col-span-2 col-start-2 row-start-2 pt-1.5 @lg/closers:col-span-1 @lg/closers:col-start-auto @lg/closers:row-start-auto @lg/closers:pt-0">
+          <BookedBar booked={teamOnly.booked} max={max} fill="bg-stage-held" />
+        </div>
+        <span className="col-start-3 row-start-1 @lg/closers:col-start-auto @lg/closers:row-start-auto" />
+      </div>
+      {teamOnly.sources === null ? (
+        <p className="px-4 pb-2 pl-[calc(1.125rem+2.75rem+0.75rem)] text-[13px] text-muted-foreground">
+          UTMs aren&apos;t broken down for this range.
+        </p>
+      ) : (
+        <ul aria-label={`UTMs of ${teamLabel} bookings with no DM closer`} className="pb-2">
+          {teamOnly.sources.map((source) => (
+            <li
+              key={JSON.stringify([source.utmSource, source.utmMedium, source.utmCampaign])}
+              className="flex items-baseline gap-3 px-4 py-0.5 pl-[calc(1rem+1.125rem+0.75rem+2.125rem)] text-[13px] text-muted-foreground"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                <UtmPart label="medium" value={source.utmMedium} /> · <UtmPart label="campaign" value={source.utmCampaign} /> ·{" "}
+                <UtmPart label="source" value={source.utmSource} />
+              </span>
+              <span className="shrink-0 font-condensed text-[14px] font-semibold text-foreground tabular-nums">
+                {formatWholeNumber(source.booked)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 function TeamSection({ team, max }: { team: BookingTeam; max: number }) {
   const tone = PACE_TONE[team.pace.kind];
   const headingId = `closers-team-${team.key.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const teamOnlyShown = (team.teamOnly?.booked ?? 0) > 0;
   return (
     <section aria-labelledby={headingId} className="border-b last:border-b-0">
       <div className="flex min-h-10 flex-wrap items-center gap-x-2.5 gap-y-0.5 bg-muted/50 px-4 py-2">
@@ -83,7 +155,7 @@ function TeamSection({ team, max }: { team: BookingTeam; max: number }) {
           {team.pace.goal === null ? "booked" : <>of {formatWholeNumber(team.pace.goal)} booked</>}
         </span>
       </div>
-      {team.closers.length === 0 ? (
+      {team.closers.length === 0 && !teamOnlyShown ? (
         <p className="border-t px-4 py-2.5 text-[13px] text-muted-foreground">No DM closer booked or was scheduled.</p>
       ) : (
         <ol aria-label={`${team.label} DM closers, most booked first`}>
@@ -107,6 +179,7 @@ function TeamSection({ team, max }: { team: BookingTeam; max: number }) {
               </div>
             </li>
           ))}
+          {teamOnlyShown && team.teamOnly ? <NoDmCloserRow teamOnly={team.teamOnly} max={max} teamLabel={team.label} /> : null}
         </ol>
       )}
     </section>
@@ -115,7 +188,10 @@ function TeamSection({ team, max }: { team: BookingTeam; max: number }) {
 
 export function DmClosersByTeam({ teams, rangePhrase }: { teams: BookingTeam[]; rangePhrase: string }) {
   const closerCount = teams.reduce((sum, team) => sum + team.closers.length, 0);
-  const max = Math.max(0, ...teams.flatMap((team) => team.closers.map((closer) => closer.booked)));
+  const max = Math.max(
+    0,
+    ...teams.flatMap((team) => [...team.closers.map((closer) => closer.booked), team.teamOnly?.booked ?? 0]),
+  );
   return (
     <DetailCard title="DM closers by team" meta="Ranked within each team" className="min-w-0">
       {closerCount === 0 && teams.every((team) => team.pace.booked === 0) ? (

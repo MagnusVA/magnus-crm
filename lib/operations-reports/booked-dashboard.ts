@@ -34,7 +34,14 @@ export type DmCloserViewModel = Pick<
 export type BookingGoalTeamViewModel = Pick<
   LiveGoalTeam,
   "label" | "dailyQuota" | "target" | "progress"
->;
+> & {
+  /**
+   * The part of progress no DM closer is credited with, and the UTMs it came
+   * with (null when the path can't tell them). Null when unknown: an answer
+   * or snapshot from before the breakdown existed.
+   */
+  teamOnly: NonNullable<LiveGoalTeam["teamOnly"]> | null;
+};
 
 export type BookedCallsDashboardViewModel = {
   dmClosers: DmCloserViewModel[];
@@ -114,6 +121,10 @@ function readBookingGoalTeam(
     dailyQuota: requireNullableNumber(payload, "dailyQuota", context),
     target: requireNullableNumber(payload, "target", context),
     progress: requireNumber(payload, "progress", context),
+    teamOnly:
+      typeof payload.teamOnlyBooked === "number"
+        ? { booked: payload.teamOnlyBooked, sources: null }
+        : null,
   };
 }
 
@@ -140,6 +151,7 @@ export function bookedCallsDashboardFromLive(
         dailyQuota: team.dailyQuota,
         target: team.target,
         progress: team.progress,
+        teamOnly: team.teamOnly ?? null,
       })),
     },
     window: dashboard.window,

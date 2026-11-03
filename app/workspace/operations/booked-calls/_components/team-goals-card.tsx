@@ -84,6 +84,14 @@ function TeamTile({ team }: { team: BookingTeam }) {
           {bookingPaceWord(pace)}
         </p>
         <p className="truncate text-[13px] text-muted-foreground">{paceBasis(team)}</p>
+        {team.teamOnly && team.teamOnly.booked > 0 ? (
+          <p className="truncate text-[13px] text-muted-foreground">
+            <span className="font-condensed text-[14px] font-semibold text-foreground tabular-nums">
+              {formatWholeNumber(team.teamOnly.booked)}
+            </span>{" "}
+            with no DM closer
+          </p>
+        ) : null}
       </div>
     </li>
   );

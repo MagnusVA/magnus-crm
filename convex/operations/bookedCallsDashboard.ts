@@ -7,7 +7,10 @@ import type { QueryCtx } from "../_generated/server";
 import {
   buildDmCloserEfficiencyRows,
   type DmCloserEfficiencyResult,
+  type TeamOnlySource,
+  utmValue,
 } from "../dashboard/overviewLeaderboardBuilders";
+import { compareTeamOnlySources } from "../analytics/merge/operations";
 import { isRangeCapErrorMessage } from "../dashboard/overviewRange";
 import {
   deriveOverviewRange,
@@ -56,12 +59,28 @@ const dmCloserRowValidator = v.object({
   avatar: memberAvatarIdentityValidator,
 });
 
+const teamOnlySourceValidator = v.object({
+  utmSource: v.union(v.string(), v.null()),
+  utmMedium: v.union(v.string(), v.null()),
+  utmCampaign: v.union(v.string(), v.null()),
+  booked: v.number(),
+});
+
 const goalTeamValidator = v.object({
   teamId: v.id("attributionTeams"),
   label: v.string(),
   dailyQuota: v.union(v.number(), v.null()),
   target: v.union(v.number(), v.null()),
   progress: v.number(),
+  // The part of progress no DM closer is credited with (D9), and the UTMs
+  // it came with, most booked first. Sources are null where the path can't
+  // tell them (the snapshot job). Absent from answers cached before it.
+  teamOnly: v.optional(
+    v.object({
+      booked: v.number(),
+      sources: v.union(v.array(teamOnlySourceValidator), v.null()),
+    }),
+  ),
 });
 
 const initialSourceValidator = v.union(
@@ -94,20 +113,26 @@ const bookedCallRowValidator = v.object({
   selfReportedIncome: v.union(v.number(), v.null()),
   attributionTeamId: v.union(v.id("attributionTeams"), v.null()),
   attributionTeamLabel: v.union(v.string(), v.null()),
-  dmCloserId: v.id("dmClosers"),
+  // Null for a team-only booking: its UTMs named the team and no DM closer.
+  dmCloserId: v.union(v.id("dmClosers"), v.null()),
   dmCloserLabel: v.union(v.string(), v.null()),
+  utmSource: v.union(v.string(), v.null()),
+  utmMedium: v.union(v.string(), v.null()),
+  utmCampaign: v.union(v.string(), v.null()),
 });
 
 type BookedCall = {
   meeting: Doc<"meetings">;
-  credit: BookingCredit & { dmCloserId: Id<"dmClosers"> };
+  credit: BookingCredit;
 };
 
-// The details list is the DM closer table's bookings, the population of the
-// Overview's DM closer machinery (buildDmCloserEfficiencyRows): first
-// bookings (anything but a follow_up) whose createdAt falls in the window and
-// whose booking rows name a DM closer. Team-only bookings count toward their
-// team's goal but are not listed here.
+/** All bookings, one DM closer's, or the team-only ones (no DM closer). */
+type BookedCallFilter = { dmCloserId?: Id<"dmClosers">; teamOnly?: boolean };
+
+// The details list is the dashboard's bookings: first bookings (anything but
+// a follow_up) whose createdAt falls in the window and whose booking rows
+// name a DM closer or a team. Team-only bookings, which name a team and no
+// DM closer, are listed too, so the page can show where they came from.
 function isFirstBooking(meeting: Doc<"meetings">) {
   return meeting.callClassification !== "follow_up";
 }
@@ -115,11 +140,12 @@ function isFirstBooking(meeting: Doc<"meetings">) {
 function bookedCall(
   meeting: Doc<"meetings">,
   credit: BookingCredit | undefined,
-  dmCloserId: Id<"dmClosers"> | undefined,
+  filter: BookedCallFilter,
 ): BookedCall | null {
-  if (!credit?.dmCloserId) return null;
-  if (dmCloserId !== undefined && credit.dmCloserId !== dmCloserId) return null;
-  return { meeting, credit: { ...credit, dmCloserId: credit.dmCloserId } };
+  if (!credit || (!credit.dmCloserId && !credit.teamId)) return null;
+  if (filter.dmCloserId !== undefined && credit.dmCloserId !== filter.dmCloserId) return null;
+  if (filter.teamOnly === true && credit.dmCloserId) return null;
+  return { meeting, credit };
 }
 
 /** Each deal's DM team and DM closer rows, keyed by booking. */
@@ -161,6 +187,20 @@ function validateWindow(start: number, end: number) {
     throw new Error("Booked-calls window end must be after its start.");
   }
   return { start, end };
+}
+
+// Matches goalTeamValidator.teamOnly: answers cached before it lack it, and
+// the snapshot job can't name sources.
+type TeamOnlyPart =
+  | { booked: number; sources: TeamOnlySource[] | null }
+  | undefined;
+
+function teamOnlyOf(sources: TeamOnlySource[] | undefined): TeamOnlyPart {
+  const list = [...(sources ?? [])].sort(compareTeamOnlySources);
+  return {
+    booked: list.reduce((sum, source) => sum + source.booked, 0),
+    sources: list.map((source) => ({ ...source })),
+  };
 }
 
 function compareLabels(left: string, right: string) {
@@ -219,7 +259,7 @@ async function enrichBookedCallRows(
     const opportunity = opportunityById.get(meeting.opportunityId) ?? null;
     const lead = opportunity ? (leadById.get(opportunity.leadId) ?? null) : null;
     const team = credit.teamId ? (teamById.get(credit.teamId) ?? null) : null;
-    const dmCloser = dmCloserById.get(credit.dmCloserId) ?? null;
+    const dmCloser = credit.dmCloserId ? (dmCloserById.get(credit.dmCloserId) ?? null) : null;
     const fallbackLeadName = meeting.leadName?.trim();
     const deal = opportunity ? dealLabelOf(opportunity) : null;
 
@@ -255,8 +295,11 @@ async function enrichBookedCallRows(
       selfReportedIncome: lead?.selfReportedIncome ?? null,
       attributionTeamId: credit.teamId ?? null,
       attributionTeamLabel: team?.displayName ?? null,
-      dmCloserId: credit.dmCloserId,
+      dmCloserId: credit.dmCloserId ?? null,
       dmCloserLabel: dmCloser?.displayName ?? null,
+      utmSource: utmValue(meeting.utmParams?.utm_source),
+      utmMedium: utmValue(meeting.utmParams?.utm_medium),
+      utmCampaign: utmValue(meeting.utmParams?.utm_campaign),
     };
   });
 }
@@ -352,7 +395,7 @@ export async function buildBookedCallsDashboard(
   range: Pick<DerivedOverviewRange, "dayCount" | "slackWindowStart" | "slackWindowEnd">,
   builderResult: DmCloserEfficiencyResult,
 ) {
-  const { rows, truncated, bookedByTeam, teamOnlyBooked } = builderResult;
+  const { rows, truncated, bookedByTeam, teamOnlyBooked, teamOnlySources } = builderResult;
   if (truncated) {
     return {
       totalBooked: 0,
@@ -517,6 +560,7 @@ export async function buildBookedCallsDashboard(
         dailyQuota,
         target: dailyQuota === null ? null : dailyQuota * range.dayCount,
         progress: bookedByTeam.get(team._id) ?? 0,
+        teamOnly: teamOnlyOf(teamOnlySources.get(team._id)),
       };
     })
     .sort((left, right) => compareLabels(left.label, right.label));
@@ -560,6 +604,7 @@ export const listBookedCallsDetails = query({
     start: v.number(),
     end: v.number(),
     dmCloserId: v.optional(v.id("dmClosers")),
+    teamOnly: v.optional(v.boolean()),
   },
   returns: v.object({
     page: v.array(bookedCallRowValidator),
@@ -595,7 +640,7 @@ export const listBookedCallsDetails = query({
         maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
       });
 
-    // Follow-ups and bookings no DM closer row names are excluded post-read
+    // Follow-ups and bookings with no DM closer or team row are excluded post-read
     // within the page (there is no createdAt index carrying those
     // dimensions), so pages can come back shorter than numItems; the cursor
     // stays correct. A page holds at most two meetings, so their rows are
@@ -608,7 +653,7 @@ export const listBookedCallsDetails = query({
     );
     const bookedCalls = firstBookings
       .map((meeting, index) =>
-        bookedCall(meeting, credits[index], args.dmCloserId),
+        bookedCall(meeting, credits[index], args),
       )
       .filter(isNonNull);
 
@@ -636,6 +681,7 @@ export const searchBookedCallsDetails = query({
     start: v.number(),
     end: v.number(),
     dmCloserId: v.optional(v.id("dmClosers")),
+    teamOnly: v.optional(v.boolean()),
   },
   returns: v.array(bookedCallRowValidator),
   handler: async (ctx, args) => {
@@ -686,7 +732,7 @@ export const searchBookedCallsDetails = query({
     );
     const bookedCalls = firstBookings
       .map((meeting) =>
-        bookedCall(meeting, credits.get(meeting._id), args.dmCloserId),
+        bookedCall(meeting, credits.get(meeting._id), args),
       )
       .filter(isNonNull)
       .sort((left, right) => right.meeting.createdAt - left.meeting.createdAt)

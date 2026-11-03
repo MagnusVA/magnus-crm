@@ -25,14 +25,17 @@ type DetailsPage = FunctionReturnType<
   typeof api.operations.bookedCallsDashboard.listBookedCallsDetails
 >;
 
-async function listAllDetails(admin: Admin, dmCloserId?: Id<"dmClosers">) {
+async function listAllDetails(
+  admin: Admin,
+  filter: { dmCloserId?: Id<"dmClosers">; teamOnly?: boolean } = {},
+) {
   const rows: DetailsPage["page"] = [];
   let cursor: string | null = null;
   for (let page = 0; page < 50; page += 1) {
     const result: DetailsPage = await admin.query(api.operations.bookedCallsDashboard.listBookedCallsDetails, {
       paginationOpts: { cursor, numItems: 2 },
       ...BOOKED_CALLS_WINDOW,
-      ...(dmCloserId ? { dmCloserId } : {}),
+      ...filter,
     });
     rows.push(...result.page);
     if (result.isDone) return rows;
@@ -77,8 +80,25 @@ describe("Booked Calls", () => {
     );
 
     expect(dashboard.goal.teams).toEqual([
-      { teamId: fixture.teams.north, label: "North Team", dailyQuota: 2, target: 2, progress: 3 },
-      { teamId: fixture.teams.south, label: "South Team", dailyQuota: 1, target: 1, progress: 1 },
+      {
+        teamId: fixture.teams.north,
+        label: "North Team",
+        dailyQuota: 2,
+        target: 2,
+        progress: 3,
+        teamOnly: { booked: 0, sources: [] },
+      },
+      {
+        teamId: fixture.teams.south,
+        label: "South Team",
+        dailyQuota: 1,
+        target: 1,
+        progress: 1,
+        teamOnly: {
+          booked: 1,
+          sources: [{ utmSource: null, utmMedium: null, utmCampaign: null, booked: 1 }],
+        },
+      },
     ]);
     expect(dashboard.goal.totalTarget).toBe(3);
     // Three DM-closer bookings and South's team-only booking.
@@ -89,12 +109,36 @@ describe("Booked Calls", () => {
     ).toBe(0);
   });
 
-  it("lists the DM closer's first bookings in the window with labels from the rows", async () => {
+  it("names the UTMs of each team's bookings that no DM closer is credited with", async () => {
+    const { t, fixture, admin } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch("meetings", fixture.meetings.teamOnlySouth, {
+        utmParams: { utm_source: "dm_team_south", utm_medium: " masterclass ", utm_campaign: "ads" },
+      });
+    });
+
+    const dashboard = await admin.query(
+      api.operations.bookedCallsDashboard.getBookedCallsDashboard,
+      { range: BOOKED_CALLS_RANGE },
+    );
+    expect(dashboard.goal.teams.find((team) => team.teamId === fixture.teams.south)?.teamOnly).toEqual({
+      booked: 1,
+      sources: [{ utmSource: "dm_team_south", utmMedium: "masterclass", utmCampaign: "ads", booked: 1 }],
+    });
+
+    const teamOnly = await listAllDetails(admin, { teamOnly: true });
+    expect(teamOnly.map((row) => [row.meetingId, row.dmCloserId, row.utmMedium, row.utmCampaign])).toEqual([
+      [fixture.meetings.teamOnlySouth, null, "masterclass", "ads"],
+    ]);
+  });
+
+  it("lists the first bookings in the window, team-only ones included, with labels from the rows", async () => {
     const { fixture, admin } = await setup();
     const rows = await listAllDetails(admin);
 
     expect(rows.map((row) => row.meetingId)).toEqual([
       fixture.meetings.legacyNorthB,
+      fixture.meetings.teamOnlySouth,
       fixture.meetings.firstNorthA2,
       fixture.meetings.firstNorthA,
     ]);
@@ -106,11 +150,17 @@ describe("Booked Calls", () => {
       leadLabel: "Alpha Prospect",
     });
 
-    const second = await listAllDetails(admin, fixture.dmClosers.northA2);
+    expect(rows.find((row) => row.meetingId === fixture.meetings.teamOnlySouth)).toMatchObject({
+      attributionTeamLabel: "South Team",
+      dmCloserId: null,
+      dmCloserLabel: null,
+    });
+
+    const second = await listAllDetails(admin, { dmCloserId: fixture.dmClosers.northA2 });
     expect(second.map((row) => [row.meetingId, row.dmCloserLabel])).toEqual([
       [fixture.meetings.firstNorthA2, "Avery North Second"],
     ]);
-    const blake = await listAllDetails(admin, fixture.dmClosers.northB);
+    const blake = await listAllDetails(admin, { dmCloserId: fixture.dmClosers.northB });
     expect(blake.map((row) => row.meetingId)).toEqual([fixture.meetings.legacyNorthB]);
   });
 
@@ -126,6 +176,7 @@ describe("Booked Calls", () => {
     const all = await search("prospect");
     expect(all.map((row) => row.meetingId)).toEqual([
       fixture.meetings.legacyNorthB,
+      fixture.meetings.teamOnlySouth,
       fixture.meetings.firstNorthA2,
       fixture.meetings.firstNorthA,
     ]);
@@ -140,7 +191,10 @@ describe("Booked Calls", () => {
     expect((await search("alpha", fixture.dmClosers.northA)).map((row) => row.meetingId)).toEqual([
       fixture.meetings.firstNorthA,
     ]);
-    expect(await search("charlie")).toEqual([]);
+    // Deal C's booking named South and no DM closer.
+    expect((await search("charlie")).map((row) => [row.meetingId, row.dmCloserId])).toEqual([
+      [fixture.meetings.teamOnlySouth, null],
+    ]);
   });
 });
 
