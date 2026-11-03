@@ -99,25 +99,25 @@ function MeetingRow({
         aria-expanded={open}
         aria-controls={detailId}
         onClick={onToggle}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto_1.25rem] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset @xl/meetings:min-h-11 @xl/meetings:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_9.5rem_7.5rem_1.25rem]"
+        className="grid w-full grid-cols-[minmax(0,1fr)_auto_1.25rem] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset @2xl/meetings:min-h-11 @2xl/meetings:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_9.5rem_7.5rem_1.25rem]"
       >
         <span className="min-w-0 truncate font-semibold">{row.leadName}</span>
-        <span className="col-start-1 row-start-2 min-w-0 truncate text-[13px] text-muted-foreground @xl/meetings:col-start-auto @xl/meetings:row-start-auto">
+        <span className="col-start-1 row-start-2 min-w-0 truncate text-[13px] text-muted-foreground @2xl/meetings:col-start-auto @2xl/meetings:row-start-auto">
           {closer}
-          <span className="@xl/meetings:hidden">
+          <span className="@2xl/meetings:hidden">
             {" · "}
             {at.day} · {at.time}
           </span>
         </span>
         <time
           dateTime={new Date(row.scheduledAt).toISOString()}
-          className="hidden font-condensed text-[15px] font-semibold whitespace-nowrap tabular-nums @xl/meetings:block"
+          className="hidden font-condensed text-[15px] font-semibold whitespace-nowrap tabular-nums @2xl/meetings:block"
         >
           {at.day} <span className="font-medium text-muted-foreground">· {at.time}</span>
         </time>
         <span
           className={cn(
-            "row-span-2 text-right font-condensed text-[13px] font-bold tracking-[0.08em] whitespace-nowrap uppercase @xl/meetings:row-span-1",
+            "row-span-2 text-right font-condensed text-[13px] font-bold tracking-[0.08em] whitespace-nowrap uppercase @2xl/meetings:row-span-1",
             STATUS_INK[status],
           )}
         >
@@ -126,7 +126,7 @@ function MeetingRow({
         <ChevronDownIcon
           aria-hidden="true"
           className={cn(
-            "row-span-2 size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none @xl/meetings:row-span-1",
+            "row-span-2 size-4 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none @2xl/meetings:row-span-1",
             open && "rotate-180",
           )}
         />

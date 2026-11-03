@@ -17,6 +17,7 @@ export function resultsWords(
   counts: { resultsRecorded: number; pastCalls: number },
   partial: boolean | undefined,
 ) {
+  if (counts.pastCalls === 0 && !partial) return "No past calls yet";
   return `${formatCount(counts.resultsRecorded)} of ${formatCount(counts.pastCalls)} past calls have a result${partial ? " (partial)" : ""}`;
 }
 

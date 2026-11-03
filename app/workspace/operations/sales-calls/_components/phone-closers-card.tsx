@@ -25,49 +25,48 @@ type Row = SalesCloserRow | SalesTeamTotal;
 type Column = {
   key: string;
   head: string;
-  words: string;
   value: (row: Row, currency: string) => string;
   /** Slate when the figure is zero and the row is not the total. */
   quietAtZero?: (row: Row, currency: string) => boolean;
 };
 
 const COLUMNS: Column[] = [
-  { key: "booked", head: "Booked", words: "booked", value: (row) => formatCount(row.booked) },
+  { key: "booked", head: "Booked", value: (row) => formatCount(row.booked) },
   {
     key: "canceled",
     head: "Canceled",
-    words: "canceled",
+   
     value: (row) => formatCount(row.canceled),
     quietAtZero: (row) => row.canceled === 0,
   },
   {
     key: "noShows",
     head: "No-show",
-    words: "no-show",
+   
     value: (row) => formatCount(row.noShows),
     quietAtZero: (row) => row.noShows === 0,
   },
-  { key: "showed", head: "Held", words: "held", value: (row) => formatCount(row.showed) },
-  { key: "showUpRate", head: "Show rate", words: "show rate", value: (row) => formatRateOrDash(row.showUpRate) },
-  { key: "closeRate", head: "Close rate", words: "close rate", value: (row) => formatCloseRate(row) },
+  { key: "showed", head: "Held", value: (row) => formatCount(row.showed) },
+  { key: "showUpRate", head: "Show rate", value: (row) => formatRateOrDash(row.showUpRate) },
+  { key: "closeRate", head: "Close rate", value: (row) => formatCloseRate(row) },
   {
     key: "paymentSales",
     head: "Payment sales",
-    words: "payment sales",
+   
     value: (row, currency) => formatCount(performanceMoneyForCurrency(row, currency).paymentSales),
     quietAtZero: (row, currency) => performanceMoneyForCurrency(row, currency).paymentSales === 0,
   },
   {
     key: "revenue",
     head: "Revenue",
-    words: "revenue",
+   
     value: (row, currency) => formatCash(performanceMoneyForCurrency(row, currency).paymentRevenueMinor, currency),
     quietAtZero: (row, currency) => performanceMoneyForCurrency(row, currency).paymentRevenueMinor === 0,
   },
   {
     key: "avg",
     head: "Avg sale",
-    words: "avg sale",
+   
     value: (row, currency) => {
       const avg = performanceMoneyForCurrency(row, currency).avgPaymentDealMinor;
       return avg === null ? "—" : formatCash(Math.round(avg), currency);
@@ -80,18 +79,41 @@ function proofLine(row: Row, partial: boolean | undefined) {
   return `${resultsWords(row, partial)}${won ? ` · ${won}` : ""}`;
 }
 
-function CountWords({ row, currency }: { row: Row; currency: string }) {
+/** The phone row's second line: the counts that matter most, in short words. */
+function CompactWords({ row, currency, partial }: { row: Row; currency: string; partial?: boolean }) {
+  const money = performanceMoneyForCurrency(row, currency);
+  const parts = [
+    `${formatCount(row.booked)} booked`,
+    `${formatCount(row.showed)} held`,
+    `${formatCount(row.noShows)} no-show`,
+    `${formatRateOrDash(row.showUpRate)} show`,
+    `${formatCloseRate(row)} close`,
+    `${formatCount(money.paymentSales)} sale${money.paymentSales === 1 ? "" : "s"}`,
+  ];
   return (
-    <p className="text-[13px] text-muted-foreground">
-      {COLUMNS.map((column, index) => (
-        <Fragment key={column.key}>
-          <span className="whitespace-nowrap">
-            <span className={cn(FIGURE_15, "text-foreground")}>{column.value(row, currency)}</span> {column.words}
-          </span>
-          {index < COLUMNS.length - 1 ? " · " : null}
+    <p className="text-[13px] text-muted-foreground" title={resultsTitle(partial)}>
+      {(partial ? [...parts, "counts partial"] : parts).map((part, index) => (
+        <Fragment key={part}>
+          {index > 0 ? " · " : null}
+          <span className="whitespace-nowrap">{part}</span>
         </Fragment>
       ))}
     </p>
+  );
+}
+
+function PhoneRow({ name, row, currency, partial, total }: { name: string; row: Row; currency: string; partial?: boolean; total?: boolean }) {
+  const revenue = performanceMoneyForCurrency(row, currency).paymentRevenueMinor;
+  return (
+    <>
+      <div className="flex items-baseline gap-3">
+        <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
+        <p className={cn(FIGURE_15, "shrink-0", !total && revenue === 0 && "text-muted-foreground")}>
+          {formatCash(revenue, currency)}
+        </p>
+      </div>
+      <CompactWords row={row} currency={currency} partial={partial} />
+    </>
   );
 }
 
@@ -190,18 +212,17 @@ function ClosersTable({
 
       <ul aria-label="Sales-call outcomes and payments by phone closer" className="flex flex-col @3xl/closers:hidden">
         {rows.map((row) => (
-          <li key={row.closerId} className="flex flex-col gap-1 border-b px-4 py-2.5">
-            <p className="truncate font-semibold">{getMemberDisplayName(row.avatar)}</p>
-            <CountWords row={row} currency={currency} />
-            <p className="text-[13px] text-muted-foreground" title={resultsTitle(partial)}>
-              {proofLine(row, partial)}
-            </p>
+          <li key={row.closerId} className="flex flex-col gap-0.5 border-b px-4 py-2.5">
+            <PhoneRow name={getMemberDisplayName(row.avatar)} row={row} currency={currency} partial={partial} />
           </li>
         ))}
-        <li className="flex flex-col gap-1 bg-muted/40 px-4 py-2.5">
-          <p className="font-semibold">Total</p>
-          <CountWords row={total} currency={currency} />
-          <TotalProof total={total} partial={partial} unattributedMinor={unattributedMinor} currency={currency} />
+        <li className="flex flex-col gap-0.5 bg-muted/40 px-4 py-2.5">
+          <PhoneRow name="Total" row={total} currency={currency} partial={partial} total />
+          {unattributedMinor > 0 ? (
+            <p className="text-[13px] text-muted-foreground">
+              {formatCash(unattributedMinor, currency)} not credited to a closer
+            </p>
+          ) : null}
         </li>
       </ul>
     </div>

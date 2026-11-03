@@ -27,5 +27,6 @@ export function formatCloseRate(row: SalesCloseRate) {
 export function dealsWonWords(row: SalesCloseRate, hideWhenEmpty = false) {
   const counts = closeRateOfRow(row);
   if (!counts || (hideWhenEmpty && counts.cohortDeals === 0)) return null;
+  if (counts.cohortDeals === 0) return "No deals had a first held call";
   return `${counts.wonDeals.toLocaleString()} of ${counts.cohortDeals.toLocaleString()} deal${counts.cohortDeals === 1 ? "" : "s"} won`;
 }

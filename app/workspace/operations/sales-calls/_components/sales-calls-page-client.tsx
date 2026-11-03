@@ -164,7 +164,7 @@ export function SalesCallsPageClient() {
         description={
           <>
             <span className="font-medium text-board-foreground">{rangeWords(shownRange, now, todayBusinessDate, setting)}</span>
-            {!needsSnapshot && freshness.kind === "line" ? (
+            {dashboard !== undefined && !needsSnapshot && freshness.kind === "line" ? (
               <>
                 {" · "}
                 <FreshnessWords summary={freshness} />
