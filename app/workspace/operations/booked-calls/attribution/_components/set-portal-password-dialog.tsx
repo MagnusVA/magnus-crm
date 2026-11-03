@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAction } from "convex/react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -17,14 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
@@ -129,79 +122,81 @@ export function SetPortalPasswordDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Form {...form}>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <FormField
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={form.handleSubmit(onSubmit)}
+        >
+          <FieldGroup>
+            <Controller
               control={form.control}
               name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Portal password <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      autoComplete="new-password"
-                      disabled={form.formState.isSubmitting}
-                      placeholder="Enter portal password…"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="portal-password">
+                    Portal password <span aria-hidden="true" className="text-danger-ink">*</span>
+                  </FieldLabel>
+                  <Input
+                    {...field}
+                    id="portal-password"
+                    type="password"
+                    autoComplete="new-password"
+                    aria-required="true"
+                    aria-invalid={fieldState.invalid}
+                    disabled={form.formState.isSubmitting}
+                    placeholder="Enter portal password…"
+                  />
+                  <FieldError className="text-[13px] text-danger-ink" errors={[fieldState.error]} />
+                </Field>
               )}
             />
 
-            <FormField
+            <Controller
               control={form.control}
               name="confirmPassword"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Confirm password <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      autoComplete="new-password"
-                      disabled={form.formState.isSubmitting}
-                      placeholder="Confirm portal password…"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="portal-password-confirm">
+                    Confirm password <span aria-hidden="true" className="text-danger-ink">*</span>
+                  </FieldLabel>
+                  <Input
+                    {...field}
+                    id="portal-password-confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    aria-required="true"
+                    aria-invalid={fieldState.invalid}
+                    disabled={form.formState.isSubmitting}
+                    placeholder="Confirm portal password…"
+                  />
+                  <FieldError className="text-[13px] text-danger-ink" errors={[fieldState.error]} />
+                </Field>
               )}
             />
+          </FieldGroup>
 
-            {submitError ? (
-              <Alert variant="destructive">
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            ) : null}
+          {submitError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{submitError}</AlertDescription>
+            </Alert>
+          ) : null}
 
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={form.formState.isSubmitting}
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                {hasExistingPassword ? "Update Password" : "Set Password"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={form.formState.isSubmitting}
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={form.formState.isSubmitting}>
+              {form.formState.isSubmitting ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {hasExistingPassword ? "Update password" : "Set password"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

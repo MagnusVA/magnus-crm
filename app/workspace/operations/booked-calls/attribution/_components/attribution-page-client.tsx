@@ -1,31 +1,40 @@
 "use client";
 
 import { useCallback } from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
-import { ArrowLeftIcon } from "lucide-react";
+import { Tabs as TabsPrimitive } from "radix-ui";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageBand } from "@/app/workspace/_components/page-band";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { PipelineRecoveryPanel } from "../../../_components/pipeline-recovery-panel";
 import { AttributionRegistry } from "./attribution-registry";
 import { AttributionUnmappedPanel } from "./attribution-unmapped-panel";
-import { BookingLinkMatrix } from "./booking-link-matrix";
+import { BookingLinkMatrix, BookingLinkMatrixSkeleton } from "./booking-link-matrix";
 import { CampaignPresetsCard } from "./campaign-presets-card";
 import { PortalAccessCard } from "./portal-access-card";
-import { PortalEventTypeReadinessCard } from "./portal-event-type-readiness-card";
+import { PortalEventTypeReadinessCard, PortalEventTypeReadinessSkeleton } from "./portal-event-type-readiness-card";
 import { PortalUsageCard } from "./portal-usage-card";
-import { TeamEventTypesCard } from "./team-event-types-card";
-
-const SECTIONS = ["teams", "portal", "diagnostics"] as const;
-type Section = (typeof SECTIONS)[number];
+import { TeamEventTypesCard, TeamEventTypesSkeleton } from "./team-event-types-card";
+import {
+  ATTRIBUTION_BACK,
+  ATTRIBUTION_DESCRIPTION,
+  ATTRIBUTION_ROOT,
+  ATTRIBUTION_TITLE,
+  BAND_TAB_LIST,
+  BAND_TAB_ROW,
+  SECTION_LABEL,
+  SECTIONS,
+  type Section,
+} from "./attribution-layout";
 
 function sectionFromParam(value: string | null): Section {
   return SECTIONS.includes(value as Section) ? (value as Section) : "teams";
 }
+
+/** In-band tabs: the directory band's style (DESIGN.md, The directory band). */
+const TAB =
+  "h-10 shrink-0 border-b-2 border-transparent font-condensed text-[13px] font-semibold tracking-[0.12em] whitespace-nowrap text-board-muted uppercase outline-none hover:text-board-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-[state=active]:border-primary data-[state=active]:text-board-foreground";
 
 export function AttributionPageClient() {
   usePageTitle("Attribution");
@@ -51,48 +60,35 @@ export function AttributionPageClient() {
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <header className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Attribution
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              DM teams, closers, the link portal, and attribution diagnostics
-              behind booked calls.
-            </p>
-          </div>
+    <TabsPrimitive.Root value={section} onValueChange={handleSectionChange} className={ATTRIBUTION_ROOT}>
+      <PageBand title={ATTRIBUTION_TITLE} description={ATTRIBUTION_DESCRIPTION} back={ATTRIBUTION_BACK}>
+        <div className={BAND_TAB_ROW}>
+          <TabsPrimitive.List
+            aria-label="Attribution sections"
+            className={BAND_TAB_LIST}
+          >
+            {SECTIONS.map((value) => (
+              <TabsPrimitive.Trigger key={value} value={value} className={TAB}>
+                {SECTION_LABEL[value]}
+              </TabsPrimitive.Trigger>
+            ))}
+          </TabsPrimitive.List>
         </div>
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/workspace/operations/booked-calls">
-            <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
-            Booked Calls
-          </Link>
-        </Button>
-      </header>
+      </PageBand>
 
-      <Tabs value={section} onValueChange={handleSectionChange}>
-        <TabsList>
-          <TabsTrigger value="teams">Teams & DM Closers</TabsTrigger>
-          <TabsTrigger value="portal">Link Portal</TabsTrigger>
-          <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
-        </TabsList>
+      <TabsPrimitive.Content value="teams" className="min-w-0 outline-none">
+        <AttributionRegistry />
+      </TabsPrimitive.Content>
 
-        <TabsContent value="teams" className="mt-4">
-          <AttributionRegistry />
-        </TabsContent>
+      <TabsPrimitive.Content value="portal" className="min-w-0 outline-none">
+        <PortalSection />
+      </TabsPrimitive.Content>
 
-        <TabsContent value="portal" className="mt-4">
-          <PortalSection />
-        </TabsContent>
-
-        <TabsContent value="diagnostics" className="mt-4">
-          <div className="space-y-4"><PipelineRecoveryPanel /><DiagnosticsSection /></div>
-        </TabsContent>
-      </Tabs>
-    </div>
+      <TabsPrimitive.Content value="diagnostics" className="flex min-w-0 flex-col gap-3.5 outline-none short:gap-3">
+        <PipelineRecoveryPanel />
+        <DiagnosticsSection />
+      </TabsPrimitive.Content>
+    </TabsPrimitive.Root>
   );
 }
 
@@ -102,24 +98,20 @@ function PortalSection() {
     {},
   );
 
-  // Settings sit in a side rail on wide screens so the event type tables get
-  // the main column; below 2xl the rail stacks on top.
+  // Settings sit in a 400px rail on the right from @6xl so the event type
+  // tables get the main column; narrower, the rail stacks on top.
   return (
-    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_400px] 2xl:items-start">
-      <div className="flex min-w-0 flex-col gap-4 2xl:col-start-2 2xl:row-start-1">
+    <div className="grid gap-3.5 short:gap-3 @6xl:grid-cols-[minmax(0,1fr)_400px] @6xl:items-start">
+      <div className="flex min-w-0 flex-col gap-3.5 short:gap-3 @6xl:col-start-2 @6xl:row-start-1">
         <PortalAccessCard />
         <CampaignPresetsCard />
         <PortalUsageCard />
       </div>
-      <div className="flex min-w-0 flex-col gap-4 2xl:col-start-1 2xl:row-start-1">
+      <div className="flex min-w-0 flex-col gap-3.5 short:gap-3 @6xl:col-start-1 @6xl:row-start-1">
         {eventTypeConfigs === undefined ? (
           <>
-            <Skeleton
-              className="h-96 w-full"
-              role="status"
-              aria-label="Loading portal event types"
-            />
-            <Skeleton className="h-72 w-full" />
+            <PortalEventTypeReadinessSkeleton />
+            <TeamEventTypesSkeleton />
           </>
         ) : (
           <>
@@ -145,7 +137,7 @@ function DiagnosticsSection() {
     eventTypeConfigs !== undefined;
 
   return (
-    <div className="flex flex-col gap-4">
+    <>
       <AttributionUnmappedPanel />
       {matrixLoaded ? (
         <BookingLinkMatrix
@@ -154,8 +146,8 @@ function DiagnosticsSection() {
           eventTypeConfigs={eventTypeConfigs}
         />
       ) : (
-        <Skeleton className="h-80 w-full" />
+        <BookingLinkMatrixSkeleton />
       )}
-    </div>
+    </>
   );
 }

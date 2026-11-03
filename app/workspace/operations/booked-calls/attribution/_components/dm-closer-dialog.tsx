@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -112,7 +113,7 @@ export function DmCloserDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {dmCloser ? "Edit DM Closer" : "New DM Closer"}
+            {dmCloser ? "Edit DM closer" : "New DM closer"}
           </DialogTitle>
           <DialogDescription>
             DM closers are attribution records and can optionally link to a CRM
@@ -121,7 +122,7 @@ export function DmCloserDialog({
         </DialogHeader>
         <FieldGroup>
           <Field>
-            <FieldLabel>DM Team</FieldLabel>
+            <FieldLabel htmlFor="dm-closer-team">DM team</FieldLabel>
             <Select
               value={teamId}
               onValueChange={(value) =>
@@ -129,7 +130,7 @@ export function DmCloserDialog({
               }
               disabled={isSaving}
             >
-              <SelectTrigger>
+              <SelectTrigger id="dm-closer-team">
                 <SelectValue placeholder="Select team" />
               </SelectTrigger>
               <SelectContent>
@@ -153,7 +154,7 @@ export function DmCloserDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="dm-closer-utm-medium">UTM Medium</FieldLabel>
+            <FieldLabel htmlFor="dm-closer-utm-medium">UTM medium</FieldLabel>
             <Input
               id="dm-closer-utm-medium"
               value={utmMedium}
@@ -162,7 +163,7 @@ export function DmCloserDialog({
             />
           </Field>
           <Field>
-            <FieldLabel>Linked CRM user</FieldLabel>
+            <FieldLabel htmlFor="dm-closer-linked-user">Linked CRM user</FieldLabel>
             <Select
               value={linkedUserId ?? "__none__"}
               onValueChange={(value) =>
@@ -172,7 +173,7 @@ export function DmCloserDialog({
               }
               disabled={isSaving}
             >
-              <SelectTrigger>
+              <SelectTrigger id="dm-closer-linked-user">
                 <SelectValue placeholder="No linked user" />
               </SelectTrigger>
               <SelectContent>
@@ -189,19 +190,20 @@ export function DmCloserDialog({
             </Select>
           </Field>
         </FieldGroup>
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button
+            type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSaving}
           >
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button type="button" onClick={handleSave} disabled={isSaving}>
             {isSaving && <Spinner data-icon="inline-start" />}
             Save
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

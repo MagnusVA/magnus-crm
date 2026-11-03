@@ -153,10 +153,10 @@ describe("historical operations dashboards", () => {
     }
   });
 
-  it("renders the original booked-calls chart, goal, and contribution table", () => {
+  it("renders the booked-calls team goals and DM closers by team", () => {
     const html = render(createElement(BookedCallsPageClient));
-    expect(html).toContain("Booked per DM Closer");
-    expect(html).toContain("DM Closer Contributions");
+    expect(html).toContain("Team goals");
+    expect(html).toContain("DM closers by team");
     expect(html).not.toContain("Historical booked-call summary");
   });
 });

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
@@ -19,14 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getErrorMessage } from "@/lib/errors";
@@ -57,10 +50,10 @@ type BookingGoalsDialogProps = {
 };
 
 /**
- * Slim per-team booking goal editor for the Booked Calls goal ring: one
- * "goal per business day" input per active DM team, saved through
+ * Per-team booking goal editor for the Booked calls team goals: one "goal per
+ * business day" field per active DM team, saved through
  * `attribution.teams.setTeamBookingQuota`. The full registry (teams, closers,
- * rates) lives in the page's Configuration sheet.
+ * rates) lives on the Attribution page.
  */
 export function BookingGoalsDialog({
   open,
@@ -133,11 +126,11 @@ export function BookingGoalsDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit Booking Goals</DialogTitle>
+          <DialogTitle>Edit booking goals</DialogTitle>
           <DialogDescription>
-            Set each DM team&apos;s booked-calls goal per business day. The
-            goal ring multiplies these by the business days in the selected
-            range.
+            Set each DM team&apos;s booked-calls goal per business day. A
+            team&apos;s goal for a range is this number times the days in the
+            range. Leave it blank for no goal.
           </DialogDescription>
         </DialogHeader>
 
@@ -159,54 +152,64 @@ export function BookingGoalsDialog({
           </div>
         ) : activeTeams.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No active DM teams yet. Create teams in Configuration first.
+            No active DM teams yet. Create teams on the Attribution page first.
           </p>
         ) : (
-          <Form {...form}>
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={form.handleSubmit(onSubmit)}
-            >
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={form.handleSubmit(onSubmit)}
+          >
+            <FieldGroup className="gap-0 rounded-[9.8px] border">
               {activeTeams.map((team) => (
-                <FormField
+                <Controller
                   key={team._id}
                   control={form.control}
                   name={`quotas.${team._id}`}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{team.displayName}</FormLabel>
-                      <FormControl>
+                  render={({ field, fieldState }) => (
+                    <Field
+                      orientation="horizontal"
+                      data-invalid={fieldState.invalid}
+                      className="flex-wrap border-b px-4 py-2.5 last:border-b-0"
+                    >
+                      <FieldLabel htmlFor={`quota-${team._id}`} className="min-w-0 flex-1 font-medium">
+                        {team.displayName}
+                      </FieldLabel>
+                      <div className="flex shrink-0 items-center gap-2 text-[13px] text-muted-foreground">
                         <Input
                           {...field}
+                          id={`quota-${team._id}`}
                           value={field.value ?? ""}
                           inputMode="numeric"
-                          placeholder="Not set"
+                          placeholder="No goal"
                           disabled={form.formState.isSubmitting}
+                          aria-invalid={fieldState.invalid}
                           aria-label={`Daily booking goal for ${team.displayName}`}
+                          className="w-24 text-right font-condensed text-[15px] font-semibold tabular-nums placeholder:font-sans placeholder:text-[13px] placeholder:font-normal"
                         />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                        a day
+                      </div>
+                      {fieldState.invalid ? <FieldError errors={[fieldState.error]} className="basis-full" /> : null}
+                    </Field>
                   )}
                 />
               ))}
+            </FieldGroup>
 
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={form.formState.isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                </DialogClose>
-                <Button type="submit" disabled={form.formState.isSubmitting}>
-                  Save Booking Goals
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={form.formState.isSubmitting}
+                >
+                  Cancel
                 </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+              </DialogClose>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                Save goals
+              </Button>
+            </DialogFooter>
+          </form>
         )}
       </DialogContent>
     </Dialog>

@@ -87,7 +87,7 @@ export function DmCloserSchedulesDialog({
     <WeeklyScheduleDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="DM Closer Schedules"
+      title="DM closer schedules"
       description="Weekly scheduled hours per DM closer. Booking efficiency on this page divides booked calls by these hours."
       selectLabel="Select DM closer"
       options={options}

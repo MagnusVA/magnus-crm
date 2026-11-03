@@ -1,0 +1,49 @@
+{
+  "title": "Booked Calls: choose the structure",
+  "question": "Same content and data, new design in the Departures Board world. Lock one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "goal-band",
+      "kind": "assigned",
+      "label": "Goal in the band",
+      "kicker": "THE ROLL",
+      "lineage": "The book panel's sibling for the DM team",
+      "thesis": "The navy band carries the range's booking goal as figures (Booked 34 of 50) with one meter per DM team, so the owner reads whether the floor is on pace before any table.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band with goal figures and team meters", "white ruled cards", "condensed figures with inline bars"],
+      "viewport": "PageBand 'Booked calls' with range words, freshness and the board-tone picker; Schedules, Configuration and Export as board buttons; inside the band a goal zone: Booked 34 at 30px, 'of 50 · 68%', then five team meters (DmTeam1 12/15). Below: the DM closers table (closer, team, booked with an inline bar replacing the bar chart, booked per hour, rate), then Bookings as ruled rows that open in place.",
+      "risk": "The band grows tall on a goal-less tenant; it must fold to one line when no goal is set.",
+      "raised": [
+        { "from": "Boarding pass and gate board", "raise": "On a live range, a DM closer whose count changes moves to its new rank in place and holds a faint tint until the next change, instead of the table re-sorting under the eye." }
+      ],
+      "html": ".impeccable/mocks/decision/booked-goal-band.html"
+    },
+    {
+      "id": "closers-open",
+      "kind": "dealt",
+      "label": "Closers open to their bookings",
+      "lineage": "One table, drilled in place",
+      "thesis": "One DM closers card is the page: each closer row opens in place to that closer's bookings, so 'who booked what' is one click; a compact goal strip sits above, and All bookings stays a search in the card header.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["goal strip card", "rows that open in place", "condensed figures"],
+      "viewport": "PageBand with range words and the picker; a white goal strip (Booked 34 of 50, five team meters inline); the DM closers card with a search field and an 'All bookings' toggle in its header; Alpha Second's row open, showing six bookings (scheduled day, person, program, status word) on a muted fill.",
+      "risk": "Bookings with no DM closer need their own 'Not attributed' row, and the flat search list hides behind a toggle.",
+      "html": ".impeccable/mocks/decision/booked-closers-open.html"
+    },
+    {
+      "id": "bookings-board",
+      "kind": "dealt",
+      "label": "Bookings lead",
+      "lineage": "The bookings as the main column, numbers in a rail",
+      "thesis": "Bookings own the main column as ruled rows with one condensed status word each (Held, No-show, Not recorded, Upcoming), and the goal and the DM closers ranking sit in a right rail like Today's.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["ruled booking rows with status words", "384px rail", "condensed figures"],
+      "viewport": "PageBand with range words and the picker; left, the Bookings card (search, DM closer select; rows of booked day, person and handle, DM closer, program, the call's day and its status word); right, a 384px rail: Goal card (34 of 50, team meters, Edit goals) above the DM closers card (rank, name, team, booked, per hour).",
+      "risk": "Puts the list above the numbers: an owner checking pace reads the rail second, and the rate column gets cramped in 384px.",
+      "html": ".impeccable/mocks/decision/booked-bookings-board.html"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": { "value": "code" }
+}

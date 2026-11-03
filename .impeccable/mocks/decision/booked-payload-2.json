@@ -1,0 +1,46 @@
+{
+  "title": "Booked Calls: choose the structure (round 2)",
+  "question": "Your steer: more visual, colour as feedback, DM closers ranked inside their own team. Every card colours each team by pace: lime goal met, teal on pace or ahead, amber behind, red missed once the range is over. Lock one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "team-rings",
+      "kind": "assigned",
+      "label": "Team rings",
+      "kicker": "THE ROLL",
+      "lineage": "One goal ring per team, then the teams' rankings beside the bookings",
+      "thesis": "A row of team tiles, each a goal ring filled in its pace colour with the count, the pace word and 'expected by today'; under it, one DM closers table split into team sections (a coloured edge, the team's pace word, ranks restarting at 1) beside the Bookings list.",
+      "palette": ["#141a28", "#84b135", "#2a9d95", "#f5b700", "#d93a40", "#f5f6f8"],
+      "materials": ["goal rings in pace colours", "team-sectioned table with inline bars", "booking rows with status word and stage chip"],
+      "viewport": "Navy band (range words, live line, Schedules, Configuration, Export, picker); five team tiles (ring 57%, '12 of 21', AHEAD, '9 expected by today'); left 'DM closers by team' with a section per team and inline booked bars in the team colour; right Bookings with search, closer filter, the attendance word and the deal's stage chip per row.",
+      "risk": "Five or more teams squeeze the tile row; past six it wraps to a second row, and on Today the pace reads only 'N to go'.",
+      "html": ".impeccable/mocks/decision/booked-team-rings.html"
+    },
+    {
+      "id": "goal-race",
+      "kind": "dealt",
+      "label": "Goal race",
+      "lineage": "A bullet chart of the teams, then the team-sectioned table",
+      "thesis": "One wide 'Team goals' chart opens the page: a bar per team against its goal, a tick for where it should be by today, the bar in its pace colour and the gap said in words ('Behind · 3 short'); the team-sectioned closers table and Bookings follow full width.",
+      "palette": ["#141a28", "#84b135", "#2a9d95", "#f5b700", "#d93a40", "#f5f6f8"],
+      "materials": ["bullet bars with a pace tick", "team-sectioned table", "full-width bookings"],
+      "viewport": "Navy band; 'Team goals' card with five 14px bars on one scale (DmTeam5 full lime, DmTeam1 teal past the tick, DmTeam3 amber short of it), counts and pace words on the right, footer 'All teams 30 of 70 · 43% of the week gone' and Edit goals; under it 'DM closers by team', team sections with coloured edges and inline bars.",
+      "risk": "The most chart-like: the closers sit below the fold on a laptop, and Bookings is a scroll away.",
+      "html": ".impeccable/mocks/decision/booked-goal-race.html"
+    },
+    {
+      "id": "team-lanes",
+      "kind": "dealt",
+      "label": "Team lanes",
+      "lineage": "Each team its own lane, closers as ranked tiles",
+      "thesis": "Every team is a full-width lane with a pace-coloured edge: the team's figure, meter and pace word on the left, then its DM closers as ranked tiles (booked at 26px, per hour, a bar in the team colour, hours and rate); Bookings follow the lanes.",
+      "palette": ["#141a28", "#84b135", "#2a9d95", "#f5b700", "#d93a40", "#f5f6f8"],
+      "materials": ["lanes with pace-coloured edges", "closer tiles", "condensed figures"],
+      "viewport": "Navy band; five lanes, each 230px team block (DmTeam1, '12 of 21 goal', meter with a today tick, AHEAD · +3, 'Expected 9 by today · 3/day') and up to four closer tiles; teams with one closer leave the lane mostly empty.",
+      "risk": "The strongest separation but the least dense: lanes with one closer waste width, and a team of eight closers wraps.",
+      "html": ".impeccable/mocks/decision/booked-team-lanes.html"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": { "value": "code" }
+}

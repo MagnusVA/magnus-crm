@@ -8,26 +8,19 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { AttributionTeamDialog } from "./attribution-team-dialog";
+import { DmClosersCardSkeleton, DmTeamsCardSkeleton } from "./attribution-registry-skeleton";
+import { CardNote, CODE, RuledTable, StatusWord, Td, Th, Tr } from "./attribution-ui";
 import { DmCloserDialog } from "./dm-closer-dialog";
 import { getErrorMessage } from "@/lib/errors";
 
@@ -103,7 +96,7 @@ function InlineNumberCell({
         inputMode="decimal"
         disabled={saving}
         aria-label={ariaLabel}
-        className="h-8 w-24"
+        className="h-8 w-24 font-condensed text-[15px] tabular-nums"
       />
     );
   }
@@ -115,14 +108,14 @@ function InlineNumberCell({
           type="button"
           variant="ghost"
           size="sm"
-          className="group/inline-edit -ml-2 h-8 gap-1.5 px-2 font-normal tabular-nums"
+          className="group/inline-edit -ml-2 h-8 gap-1.5 px-2 font-condensed text-[15px] font-semibold tabular-nums"
           aria-label={ariaLabel}
           onClick={() => {
             setDraft(editValue);
             setEditing(true);
           }}
         >
-          <span className={display === "—" ? "text-muted-foreground" : ""}>
+          <span className={display === "—" ? "font-normal text-muted-foreground" : ""}>
             {display}
           </span>
           <PencilIcon
@@ -196,7 +189,7 @@ export function AttributionRegistry() {
   const registryLoaded = teams !== undefined && closers !== undefined;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3.5 short:gap-3">
       <Alert>
         <AlertTitle>External DM attribution</AlertTitle>
         <AlertDescription>
@@ -207,44 +200,45 @@ export function AttributionRegistry() {
 
       {registryLoaded ? (
         <>
-          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">DM Teams</CardTitle>
-                <Button size="sm" onClick={() => setDialog({ kind: "team" })}>
-                  New Team
+          <div className="grid gap-3.5 short:gap-3 @6xl:grid-cols-[0.9fr_1.1fr] @6xl:items-start">
+            <DetailCard
+              title="DM teams"
+              className="min-w-0"
+              meta={
+                <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "team" })}>
+                  New DM team
                 </Button>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>UTM Source</TableHead>
-                      <TableHead>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-default">Goal/day</span>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-pretty">
-                            Booked-calls goal per business day. The Booked
-                            Calls goal ring multiplies it by the business days
-                            in the selected range.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+              }
+            >
+              <CardNote>
+                Goal / day is the booked-calls goal per business day. Booked
+                calls multiplies it by the business days in the chosen range.
+              </CardNote>
+              {teams.length === 0 ? (
+                <SectionEmpty title="No DM teams yet.">
+                  A DM team maps one UTM source to an external team.
+                </SectionEmpty>
+              ) : (
+                <RuledTable label="DM teams">
+                  <thead>
+                    <tr>
+                      <Th>Name</Th>
+                      <Th>UTM source</Th>
+                      <Th>Goal / day</Th>
+                      <Th>Status</Th>
+                      <Th>
+                        <span className="sr-only">Actions</span>
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {teams.map((team) => (
-                      <TableRow key={team._id}>
-                        <TableCell>{team.displayName}</TableCell>
-                        <TableCell className="font-mono text-xs">
+                      <Tr key={team._id}>
+                        <Td className="font-medium">{team.displayName}</Td>
+                        <Td className={CODE} translate="no">
                           {team.utmSource}
-                        </TableCell>
-                        <TableCell>
+                        </Td>
+                        <Td>
                           <InlineNumberCell
                             display={
                               team.bookingDailyQuota === undefined
@@ -266,19 +260,18 @@ export function AttributionRegistry() {
                               })
                             }
                           />
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={team.isActive ? "secondary" : "outline"}
-                          >
+                        </Td>
+                        <Td>
+                          <StatusWord tone={team.isActive ? "active" : "inactive"}>
                             {team.isActive ? "Active" : "Disabled"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
+                          </StatusWord>
+                        </Td>
+                        <Td className="text-right">
+                          <div className="flex justify-end gap-1.5">
                             <Button
                               size="sm"
                               variant="ghost"
+                              aria-label={`Edit ${team.displayName}`}
                               onClick={() =>
                                 setDialog({ kind: "team", teamId: team._id })
                               }
@@ -288,6 +281,7 @@ export function AttributionRegistry() {
                             <Button
                               size="sm"
                               variant="outline"
+                              aria-label={`${team.isActive ? "Disable" : "Enable"} ${team.displayName}`}
                               onClick={() =>
                                 setTeamActive({
                                   teamId: team._id,
@@ -298,58 +292,63 @@ export function AttributionRegistry() {
                               {team.isActive ? "Disable" : "Enable"}
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </Td>
+                      </Tr>
                     ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                  </tbody>
+                </RuledTable>
+              )}
+            </DetailCard>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">DM Closers</CardTitle>
+            <DetailCard
+              title="DM closers"
+              className="min-w-0"
+              meta={
                 <Button
                   size="sm"
+                  variant="outline"
                   onClick={() => setDialog({ kind: "dmCloser" })}
                   disabled={teams.length === 0}
                 >
-                  New DM Closer
+                  New DM closer
                 </Button>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Team</TableHead>
-                      <TableHead>UTM Medium</TableHead>
-                      <TableHead>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-default">Rate/hr</span>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-pretty">
-                            Hourly contract rate. Enter it in major units
-                            (e.g. 25 for $25.00/hr); it is stored in cents.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+              }
+            >
+              <CardNote>
+                Rate / h is the hourly contract rate. Enter it in dollars (25
+                for $25.00 an hour); it is stored in cents.
+              </CardNote>
+              {closers.length === 0 ? (
+                <SectionEmpty title="No DM closers yet.">
+                  {teams.length === 0
+                    ? "Add a DM team first, then its DM closers."
+                    : "A DM closer maps one UTM medium to a person on a DM team."}
+                </SectionEmpty>
+              ) : (
+                <RuledTable label="DM closers">
+                  <thead>
+                    <tr>
+                      <Th>DM closer</Th>
+                      <Th>Team</Th>
+                      <Th>UTM medium</Th>
+                      <Th>Rate / h</Th>
+                      <Th>Status</Th>
+                      <Th>
+                        <span className="sr-only">Actions</span>
+                      </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {closers.map((closer) => (
-                      <TableRow key={closer._id}>
-                        <TableCell>
+                      <Tr key={closer._id}>
+                        <Td>
                           <MemberIdentity identity={closer.identity} />
-                        </TableCell>
-                        <TableCell>{closer.teamLabel}</TableCell>
-                        <TableCell className="font-mono text-xs">
+                        </Td>
+                        <Td>{closer.teamLabel}</Td>
+                        <Td className={CODE} translate="no">
                           {closer.utmMedium}
-                        </TableCell>
-                        <TableCell>
+                        </Td>
+                        <Td>
                           <InlineNumberCell
                             display={
                               closer.hourlyRateMinor === undefined
@@ -357,7 +356,7 @@ export function AttributionRegistry() {
                                 : `${formatAmountMinor(
                                     closer.hourlyRateMinor,
                                     "USD",
-                                  )}/hr`
+                                  )}/h`
                             }
                             editValue={
                               closer.hourlyRateMinor === undefined
@@ -374,21 +373,18 @@ export function AttributionRegistry() {
                               })
                             }
                           />
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              closer.isActive ? "secondary" : "outline"
-                            }
-                          >
+                        </Td>
+                        <Td>
+                          <StatusWord tone={closer.isActive ? "active" : "inactive"}>
                             {closer.isActive ? "Active" : "Disabled"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
+                          </StatusWord>
+                        </Td>
+                        <Td className="text-right">
+                          <div className="flex justify-end gap-1.5">
                             <Button
                               size="sm"
                               variant="ghost"
+                              aria-label={`Edit ${closer.displayName}`}
                               onClick={() =>
                                 setDialog({
                                   kind: "dmCloser",
@@ -401,6 +397,7 @@ export function AttributionRegistry() {
                             <Button
                               size="sm"
                               variant="outline"
+                              aria-label={`${closer.isActive ? "Disable" : "Enable"} ${closer.displayName}`}
                               onClick={() =>
                                 setDmCloserActive({
                                   dmCloserId: closer._id,
@@ -411,13 +408,13 @@ export function AttributionRegistry() {
                               {closer.isActive ? "Disable" : "Enable"}
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </Td>
+                      </Tr>
                     ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                  </tbody>
+                </RuledTable>
+              )}
+            </DetailCard>
           </div>
 
           <AttributionTeamDialog
@@ -434,9 +431,9 @@ export function AttributionRegistry() {
           />
         </>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Skeleton className="h-72 w-full" />
-          <Skeleton className="h-72 w-full" />
+        <div className="grid gap-3.5 short:gap-3 @6xl:grid-cols-[0.9fr_1.1fr] @6xl:items-start">
+          <DmTeamsCardSkeleton />
+          <DmClosersCardSkeleton />
         </div>
       )}
     </div>

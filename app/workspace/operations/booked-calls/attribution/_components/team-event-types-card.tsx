@@ -5,15 +5,8 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import {
   Select,
   SelectContent,
@@ -22,16 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   READINESS_LABEL,
   type PortalReadiness,
@@ -40,6 +24,9 @@ import {
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
+import { CardNote, RuledTable, StatusWord, TableSkeleton, Td, Th, Tr } from "./attribution-ui";
+
+const TITLE = "Team event types";
 
 type SchedulingMode = "normal" | "extended";
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
@@ -80,13 +67,7 @@ export function TeamEventTypesCard({
   const [pendingCell, setPendingCell] = useState<string | null>(null);
 
   if (teams === undefined || programs === undefined || routes === undefined) {
-    return (
-      <Skeleton
-        className="h-72 w-full"
-        role="status"
-        aria-label="Loading team event types"
-      />
-    );
+    return <TeamEventTypesSkeleton />;
   }
 
   const activeTeams = teams.filter((team) => team.isActive);
@@ -134,118 +115,118 @@ export function TeamEventTypesCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Team Event Types</CardTitle>
-        <CardDescription>
-          Pick the event type each team&apos;s portal links book into, per
-          program and scheduling mode.
-        </CardDescription>
-        {activeTeams.length > 0 && team ? (
-          <CardAction>
-            <Select
-              value={team._id}
-              onValueChange={(value) => setSelectedTeamId(value)}
-            >
-              <SelectTrigger aria-label="Team" className="w-52">
-                <SelectValue placeholder="Select team" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {activeTeams.map((row) => (
-                    <SelectItem key={row._id} value={row._id}>
-                      {row.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </CardAction>
-        ) : null}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {!team ? (
-          <p className="text-sm text-muted-foreground">
-            Create an active team to assign event types.
-          </p>
-        ) : (
-          <>
-            <div className="flex flex-col gap-1 rounded-lg border bg-muted/30 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3">
-              {teamRoutes.length > 0 ? (
-                <Badge variant="secondary">
-                  Own event types · {teamRoutes.length}
-                </Badge>
-              ) : (
-                <Badge variant="outline">
-                  Shared event types · {sharedCount}
-                </Badge>
-              )}
-              <span className="text-xs text-muted-foreground">
-                {teamRoutes.length > 0
-                  ? `${team.displayName}'s DM closers only see the event types assigned below.`
-                  : `${team.displayName} sees every portal-ready event type no team is assigned to. Assigning one switches it to its own set.`}
+    <DetailCard
+      title={TITLE}
+      className="@container/routes min-w-0"
+      meta={
+        activeTeams.length > 0 && team ? (
+          <Select
+            value={team._id}
+            onValueChange={(value) => setSelectedTeamId(value)}
+          >
+            <SelectTrigger aria-label="Team" size="sm" className="w-52 text-[13px] text-foreground">
+              <SelectValue placeholder="Select team" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {activeTeams.map((row) => (
+                  <SelectItem key={row._id} value={row._id}>
+                    {row.displayName}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : null
+      }
+    >
+      <CardNote>
+        Pick the event type each team&apos;s portal links book into, per
+        program and scheduling mode.
+      </CardNote>
+      {!team ? (
+        <SectionEmpty title="No active DM teams.">
+          Create an active team to assign event types.
+        </SectionEmpty>
+      ) : (
+        <>
+          <div className="flex flex-col gap-0.5 px-4 py-2.5 text-[13px] @xl/routes:flex-row @xl/routes:items-baseline @xl/routes:gap-3">
+            <span className="shrink-0 font-medium whitespace-nowrap">
+              {teamRoutes.length > 0 ? "Own event types" : "Shared event types"}{" "}
+              <span className="font-condensed text-[15px] font-semibold tabular-nums">
+                {teamRoutes.length > 0 ? teamRoutes.length : sharedCount}
               </span>
-            </div>
-            <div className="overflow-hidden rounded-lg border">
-              <Table className="table-fixed">
-                <TableHeader className="bg-muted/40">
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[30%] pl-3">Program</TableHead>
-                    {MODES.map(({ mode, label }) => (
-                      <TableHead key={mode}>{label}</TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {programs.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={3}
-                        className="h-24 text-center text-muted-foreground"
-                      >
-                        No programs are available.
-                      </TableCell>
-                    </TableRow>
-                  ) : null}
-                  {programs.map((program) => (
-                    <TableRow key={program._id}>
-                      <TableCell
-                        className="truncate pl-3 font-medium"
-                        title={program.name}
-                      >
-                        {program.name}
-                      </TableCell>
-                      {MODES.map(({ mode, label }) => (
-                        <TableCell key={mode}>
-                          <RouteCell
-                            options={eventTypeConfigs.filter(
-                              (config) =>
-                                config.bookingProgramId === program._id &&
-                                config.bookingProgramMappingStatus ===
-                                  "mapped" &&
-                                modeOf(config) === mode,
-                            )}
-                            route={routeByCell.get(cellKey(program._id, mode))}
-                            eventTypeById={eventTypeById}
-                            isPending={
-                              pendingCell === cellKey(program._id, mode)
-                            }
-                            onChange={(value) =>
-                              handleChange(team._id, program._id, mode, value)
-                            }
-                            label={`${program.name} ${label} event type for ${team.displayName}`}
-                          />
-                        </TableCell>
-                      ))}
-                    </TableRow>
+            </span>
+            <span className="text-muted-foreground">
+              {teamRoutes.length > 0
+                ? `${team.displayName}'s DM closers only see the event types assigned below.`
+                : `${team.displayName} sees every portal-ready event type no team is assigned to. Assigning one switches it to its own set.`}
+            </span>
+          </div>
+          {programs.length === 0 ? (
+            <SectionEmpty className="border-t" title="No programs are available." />
+          ) : (
+            <RuledTable label={`${TITLE} for ${team.displayName}`} className="min-w-[36rem] table-fixed">
+              <thead>
+                <tr>
+                  <Th className="w-[30%]">Program</Th>
+                  {MODES.map(({ mode, label }) => (
+                    <Th key={mode}>{label}</Th>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+                </tr>
+              </thead>
+              <tbody>
+                {programs.map((program) => (
+                  <Tr key={program._id}>
+                    <Td
+                      className="truncate py-2 font-medium"
+                      title={program.name}
+                    >
+                      {program.name}
+                    </Td>
+                    {MODES.map(({ mode, label }) => (
+                      <Td key={mode} className="py-2">
+                        <RouteCell
+                          options={eventTypeConfigs.filter(
+                            (config) =>
+                              config.bookingProgramId === program._id &&
+                              config.bookingProgramMappingStatus ===
+                                "mapped" &&
+                              modeOf(config) === mode,
+                          )}
+                          route={routeByCell.get(cellKey(program._id, mode))}
+                          eventTypeById={eventTypeById}
+                          isPending={
+                            pendingCell === cellKey(program._id, mode)
+                          }
+                          onChange={(value) =>
+                            handleChange(team._id, program._id, mode, value)
+                          }
+                          label={`${program.name} ${label} event type for ${team.displayName}`}
+                        />
+                      </Td>
+                    ))}
+                  </Tr>
+                ))}
+              </tbody>
+            </RuledTable>
+          )}
+        </>
+      )}
+    </DetailCard>
+  );
+}
+
+export function TeamEventTypesSkeleton() {
+  return (
+    <DetailCard title={TITLE} className="min-w-0">
+      <TableSkeleton
+        label="Loading team event types"
+        heads={["Program", ...MODES.map(({ label }) => label)]}
+        rows={4}
+        rowClassName="h-12"
+      />
+    </DetailCard>
   );
 }
 
@@ -311,9 +292,9 @@ function RouteCell({
         {isPending ? <Spinner /> : null}
       </div>
       {isStale ? (
-        <Badge variant="destructive">No longer matches this program</Badge>
+        <StatusWord tone="broken" className="max-w-full">No longer matches this program</StatusWord>
       ) : readiness && readiness !== "ready" ? (
-        <Badge variant="destructive">{READINESS_LABEL[readiness]}</Badge>
+        <StatusWord tone="attention" className="max-w-full">{READINESS_LABEL[readiness]}</StatusWord>
       ) : null}
     </div>
   );
