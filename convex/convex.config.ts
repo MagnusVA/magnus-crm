@@ -58,8 +58,9 @@ const app = defineApp({
     ANALYTICS_DAILY_RUN_BUDGET: v.optional(v.string()),
 
     // AI assistants over MCP (docs/plans/closer-assistant.md §6.1). Both
-    // optional: the third auth provider and the /mcp routes exist only where
-    // both are set. AUTHKIT_DOMAIN is the AuthKit issuer, such as
+    // optional: the /mcp routes answer 404 unless both are set, and
+    // convex/mcp/http.ts verifies AuthKit tokens with them. AUTHKIT_DOMAIN is
+    // the AuthKit issuer, such as
     // https://magnus-crm.authkit.app; MCP_RESOURCE_URL is this deployment's
     // https://<deployment>.convex.site/mcp, the access tokens' audience.
     AUTHKIT_DOMAIN: v.optional(v.string()),
