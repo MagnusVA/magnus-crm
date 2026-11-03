@@ -116,7 +116,7 @@ function CoverageCard({ coverage, board }: { coverage: Coverage; board: Board })
         <p className="px-4 py-6 text-[14px] text-muted-foreground">No programs yet. Create one to start routing links.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[56rem] table-fixed border-collapse text-left">
+          <table aria-labelledby="coverage-title" className="w-full min-w-[56rem] table-fixed border-collapse text-left">
             <colgroup>
               <col className="w-[12rem]" />
               <col className="w-[5.5rem]" />

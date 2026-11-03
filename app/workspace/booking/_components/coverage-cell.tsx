@@ -23,6 +23,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
 import {
+  eventTypeFacts,
   eventTypeStatus,
   linkIssue,
   modeOf,
@@ -280,9 +281,7 @@ function CellPicker({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{eventType.displayName}</span>
                   <span className="block text-[12px] text-muted-foreground">
-                    {[eventType.calendlyDurationMinutes ? `${eventType.calendlyDurationMinutes} min` : null, eventType.calendlyPoolingType?.replace("_", " ")]
-                      .filter(Boolean)
-                      .join(" · ") || "Calendly"}
+                    {eventTypeFacts(eventType)}
                   </span>
                 </span>
                 <span
