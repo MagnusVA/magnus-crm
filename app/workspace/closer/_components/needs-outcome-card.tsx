@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SecondOpinionHint } from "@/components/second-opinion/needs-outcome-hint";
 import { UnmatchedRecordings } from "@/components/fathom/unmatched-recordings";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
@@ -92,6 +93,7 @@ export function NeedsOutcomeCard({
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
+                    <SecondOpinionHint meetingId={meeting.meetingId} />
                   </div>
                   <Button asChild className="h-8 px-3 font-semibold">
                     <Link

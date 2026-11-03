@@ -28,7 +28,7 @@ function clock(seconds: number) {
 /**
  * The recorder is the Closer. A speaker whose email is an invitee's is the
  * Prospect. Otherwise a speaker named like the recorder is the Closer, and
- * anyone else is the Prospect when there is one other voice, or Other.
+ * anyone else is Other.
  */
 export function labelSpeakers(
   lines: TranscriptLine[],
@@ -38,19 +38,17 @@ export function labelSpeakers(
   const recorderEmail = recorder.email.toLowerCase();
   const invitees = new Set(inviteeEmails.map((email) => email.toLowerCase()));
   const recorderName = recorder.name?.trim().toLowerCase();
-  const speakerKey = (line: TranscriptLine) => (line.speakerEmail ?? line.speakerName ?? "?").toLowerCase();
-  const others = new Set<string>();
   const roleOf = (line: TranscriptLine): SpeakerRole | null => {
     const email = line.speakerEmail?.toLowerCase();
     if (email && email === recorderEmail) return "Closer";
     if (email && invitees.has(email)) return "Prospect";
-    if (recorderName && line.speakerName?.trim().toLowerCase() === recorderName) return "Closer";
+    if (recorderName && line.speakerName?.trim().toLowerCase() === recorderName)
+      return "Closer";
     return null;
   };
-  for (const line of lines) if (!roleOf(line)) others.add(speakerKey(line));
   return lines.map((line) => ({
     ...line,
-    role: roleOf(line) ?? (others.size === 1 ? "Prospect" : "Other"),
+    role: roleOf(line) ?? "Other",
   }));
 }
 
@@ -80,16 +78,26 @@ export function measureEvidence(
   let prospectFirst: number | undefined;
   const sorted = [...lines].sort((a, b) => a.atSeconds - b.atSeconds);
   sorted.forEach((line, i) => {
-    const next = sorted[i + 1]?.atSeconds ?? Math.min(line.atSeconds + 10, totalSeconds);
-    const span = Math.max(0, Math.min(next - line.atSeconds, 60));
-    const minute = Math.min(minutes - 1, Math.floor(line.atSeconds / 60));
+    const next =
+      sorted[i + 1]?.atSeconds ?? Math.min(line.atSeconds + 10, totalSeconds);
+    const start = Math.max(0, line.atSeconds);
+    const span = Math.max(0, Math.min(next - start, 60, totalSeconds - start));
+    const addMinutes = (role: "c" | "p") => {
+      const end = start + span;
+      for (let at = start; at < end;) {
+        const minute = Math.floor(at / 60);
+        const until = Math.min(end, (minute + 1) * 60);
+        perMinute[minute][role] += until - at;
+        at = until;
+      }
+    };
     if (line.role === "Closer") {
       closer += span;
-      perMinute[minute].c += span;
+      addMinutes("c");
     } else if (line.role === "Prospect") {
       prospect += span;
-      perMinute[minute].p += span;
-      prospectFirst ??= recordingStartAt + line.atSeconds * 1000;
+      addMinutes("p");
+      if (span > 0) prospectFirst ??= recordingStartAt + start * 1000;
     }
   });
   const talkPattern = perMinute
@@ -121,7 +129,7 @@ export function buildState(input: {
   actionItems?: string[];
   lines: Array<TranscriptLine & { role: SpeakerRole }>;
 }) {
-  const last = input.lines.at(-1)?.atSeconds ?? 0;
+  const last = input.recordedMinutes * 60;
   const trimmed = last > TWO_HOURS_SECONDS;
   const from = trimmed ? last - LAST_HOUR_SECONDS : 0;
   return {
@@ -135,6 +143,10 @@ export function buildState(input: {
     ...(input.actionItems?.length ? { actionItems: input.actionItems } : {}),
     transcript: input.lines
       .filter((line) => line.atSeconds >= from)
-      .map((line): LabelledLine => ({ at: clock(line.atSeconds), speaker: line.role, text: line.text })),
+      .map((line): LabelledLine => ({
+        at: clock(line.atSeconds),
+        speaker: line.role,
+        text: line.text,
+      })),
   };
 }

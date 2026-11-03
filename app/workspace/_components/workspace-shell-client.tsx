@@ -144,6 +144,7 @@ const operationsNavItem: NavItem = {
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   operationsNavItem,
+  { href: "/workspace/pipeline/second-opinions", label: "Second opinions", icon: ClipboardCheckIcon },
   leadsCustomersNavItem,
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },

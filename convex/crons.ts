@@ -112,4 +112,6 @@ crons.cron("mcp-prune", "20 7 * * *", internal.mcp.access.pruneDaily, {});
 crons.interval("fathom-reconcile-and-health", { minutes: 30 }, internal.fathom.maintenance.sweep, {});
 crons.cron("fathom-retention", "41 7 * * *", internal.fathom.maintenance.purge, {});
 
+crons.interval("second-opinion-day-close", { hours: 1 }, internal.secondOpinion.sweep.run, {});
+
 export default crons;

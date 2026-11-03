@@ -1,5 +1,7 @@
 "use client";
 
+import { SecondOpinionSettingsRow } from "@/components/second-opinion/settings-row";
+
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
@@ -256,6 +258,7 @@ function FathomSettings() {
             )}
           </>
         )}
+        <SecondOpinionSettingsRow />
       </CardContent>
     </Card>
   );

@@ -134,8 +134,10 @@ describe("transcript", () => {
     expect(evidence.recordedMinutes).toBe(15);
     expect(evidence.prospectFirstAt).toBe(600_000);
     expect(evidence.talkPattern[0]).toBe("c");
-    expect(evidence.talkPattern.slice(1, 10)).toBe("qqqqqqqqq");
-    expect(evidence.talkPattern[11]).toBe("p");
+    expect(evidence.talkPattern[1]).toBe("c"); // Speech crosses the minute boundary.
+    expect(evidence.talkPattern.slice(2, 10)).toBe("qqqqqqqq");
+    expect(evidence.talkPattern[10]).toBe("p");
+    expect(evidence.talkPattern[11]).toBe("c");
     const state = buildState({ callKind: "new call", recordedMinutes: 15, lines });
     expect(state.transcript[1]).toEqual({ at: "10:00", speaker: "Prospect", text: "Sorry I'm late." });
   });
