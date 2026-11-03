@@ -33,15 +33,16 @@ export const summary = internalQuery({
     // Shown to the closer only in "on" mode; it never goes to Slack.
     const gaps = [...day.gaps];
     if (me.tenant.secondOpinion?.mode === "on") {
+      // The caller's own open opinions, so other closers' can't crowd them out.
       const open = await ctx.db
         .query("secondOpinions")
-        .withIndex("by_tenantId_and_reviewState_and_createdAt", (q) =>
-          q.eq("tenantId", me.tenantId).eq("reviewState", "open"),
+        .withIndex("by_tenantId_and_closerUserId_and_reviewState_and_createdAt", (q) =>
+          q.eq("tenantId", me.tenantId).eq("closerUserId", me.userId).eq("reviewState", "open"),
         )
         .order("desc")
         .take(50);
       for (const opinion of open) {
-        if (opinion.closerUserId !== me.userId || opinion.verdict !== "disagrees") continue;
+        if (opinion.verdict !== "disagrees") continue;
         const meeting = await ctx.db.get("meetings", opinion.meetingId);
         if (!meeting || meeting.assignedCloserId !== me.userId) continue;
         gaps.push({

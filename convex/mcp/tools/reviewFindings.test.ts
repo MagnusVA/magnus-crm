@@ -174,8 +174,28 @@ describe("review round 1", () => {
         createdAt: Date.now(),
       });
     });
+    // Fifty newer disagreements of another closer's must not hide the caller's.
+    await f.t.run(async (ctx) => {
+      const recordingId = await insertMatchedRecording(ctx, f, f.otherMeetingId, 9);
+      for (let i = 0; i < 50; i++) {
+        await ctx.db.insert("secondOpinions", {
+          tenantId: f.tenantId,
+          meetingId: f.otherMeetingId,
+          recordingId,
+          closerUserId: f.otherCloserId,
+          trigger: "recording_matched",
+          inputKey: `other:${i}`,
+          model: "typesafe/jev-1.13",
+          status: "answered",
+          attempts: 1,
+          verdict: "disagrees",
+          reviewState: "open",
+          createdAt: Date.now() + 1000 + i,
+        });
+      }
+    });
     const summary = await callTool(f.t, f.token, f.sessionId, "magnus_day_summary");
     const gaps = (summary.data as { gaps: Array<{ kind: string }> }).gaps;
-    expect(gaps.map((gap) => gap.kind)).toContain("second_opinion");
+    expect(gaps.filter((gap) => gap.kind === "second_opinion")).toHaveLength(1);
   });
 });

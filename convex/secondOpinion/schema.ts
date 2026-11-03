@@ -118,5 +118,11 @@ export const secondOpinionTables = {
       "createdAt",
     ])
     .index("by_tenantId_and_verdict_and_createdAt", ["tenantId", "verdict", "createdAt"])
+    .index("by_tenantId_and_closerUserId_and_reviewState_and_createdAt", [
+      "tenantId",
+      "closerUserId",
+      "reviewState",
+      "createdAt",
+    ])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"]),
 };
