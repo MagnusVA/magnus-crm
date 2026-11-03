@@ -1,5 +1,7 @@
 "use client";
 
+import { CallNotesCard } from "./call-notes-card";
+
 import { useState } from "react";
 import { format } from "date-fns";
 import { ShuffleIcon } from "lucide-react";
@@ -171,6 +173,7 @@ export function MeetingDetailView({
           {paymentLinks && paymentLinks.length > 0 ? (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
           ) : null}
+          <CallNotesCard opportunityId={opportunity._id} />
           <MeetingComments meetingId={meeting._id} />
         </div>
 

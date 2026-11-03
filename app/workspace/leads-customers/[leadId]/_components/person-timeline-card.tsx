@@ -1,5 +1,7 @@
 "use client";
 
+import { CallNoteTimelineRow } from "./call-note-timeline-row";
+
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -136,6 +138,7 @@ export function PersonTimelineCard() {
       ) : (
         <ol className="divide-y" aria-busy={latest === undefined}>
           {shown.map((entry) => {
+            if (entry.eventType === "opportunity.call_note_added") return <CallNoteTimelineRow key={entry.eventId} entry={entry} timeZone={businessTimeZone} />;
             const { fact, figure, subject } = timelineSentence(entry, programOf, dayOf);
             return (
               <li

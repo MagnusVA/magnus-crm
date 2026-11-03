@@ -1,5 +1,7 @@
 "use client";
 
+import { ConnectAiAssistantCard } from "./connect-ai-assistant-card";
+
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -64,6 +66,7 @@ export function ProfilePageClient() {
         description="Managed through your organization's sign-in."
       />
 
+      <ConnectAiAssistantCard />
       <Card className="w-full gap-0 py-0">
         <div className="divide-y [&>dl]:py-1">
           <ProfilePictureControl user={user} />
