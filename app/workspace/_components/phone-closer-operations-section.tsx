@@ -4,12 +4,13 @@ import { cn } from "@/lib/utils";
 import { getMemberDisplayName } from "./member-avatar";
 import type { PhoneCloserOperationsSectionData } from "./overview-dashboard-types";
 import { formatRate, formatWholeNumber } from "./overview-formatters";
-import { OverviewSectionState } from "./overview-section-state";
-import { ATTENDANCE_COUNTS_PARTIAL_HELP, SHOW_RATE_HELP } from "./results-recorded";
+import { OverviewPartialNote, OverviewSectionState } from "./overview-section-state";
+import { ATTENDANCE_COUNTS_PARTIAL_HELP } from "./results-recorded";
 
 // Overview's phone closers: booked-call outcomes per assigned closer, one
 // ruled table with a Total row. Below @xl/closers each closer folds to two
-// lines: the name, then the counts in words.
+// lines: the name, then the counts in words. When attendance counts are
+// partial, one note above the rows says why, for the table and the list.
 
 type ReadyData = Extract<PhoneCloserOperationsSectionData, { status: "ready" }>["data"];
 type Counts = ReadyData["totals"];
@@ -72,6 +73,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
   const partial = data.attendanceCountsPartial;
   return (
     <div className="@container/closers">
+      {partial ? <OverviewPartialNote>{ATTENDANCE_COUNTS_PARTIAL_HELP}</OverviewPartialNote> : null}
       <table className="hidden w-full border-collapse @xl/closers:table">
         <caption className="sr-only">Booked-call outcomes by phone closer</caption>
         <thead>
@@ -83,7 +85,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <th scope="col" className={head}>Held</th>
             <th scope="col" className={head}>No-show</th>
             <th scope="col" className={head}>Review</th>
-            <th scope="col" className={head} title={SHOW_RATE_HELP}>
+            <th scope="col" className={head}>
               Show rate
             </th>
             <th scope="col" className={cn(head, "pr-4")}>
@@ -96,9 +98,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <tr key={row.closerId} className="border-b">
               <th scope="row" className="py-2 pr-3 pl-4 text-left font-normal">
                 <p className="font-semibold">{getMemberDisplayName(row.closer)}</p>
-                <p className="text-[13px] text-muted-foreground" title={partial ? ATTENDANCE_COUNTS_PARTIAL_HELP : undefined}>
-                  {resultsLine(row, partial)}
-                </p>
+                <p className="text-[13px] text-muted-foreground">{resultsLine(row, partial)}</p>
               </th>
               <Figures counts={row} />
             </tr>

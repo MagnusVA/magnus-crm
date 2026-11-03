@@ -5,6 +5,7 @@ import type { FunctionReturnType } from "convex/server";
 import { FilmIcon, ImageIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { formatBusinessDateSpan } from "./date-range-picker";
 import type { TopOriginsSection } from "./overview-dashboard-types";
 import { formatOriginValue, formatWholeNumber } from "./overview-formatters";
 import { OverviewSectionState } from "./overview-section-state";
@@ -18,13 +19,11 @@ type Preview = FunctionReturnType<typeof api.leadGen.originPreviews.listOriginPr
 
 const kindWord: Record<string, string> = { post: "Post", reel: "Reel", story: "Story", story_poll: "Story poll" };
 
-const monthDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-const monthDayYear = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-
-function postedDay(isoDate: string) {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return null;
-  return (date.getUTCFullYear() === new Date().getFullYear() ? monthDay : monthDayYear).format(date);
+// The year shows only outside the business day's year. Without today's
+// business date, the year always shows.
+function postedDay(isoDate: string, todayBusinessDate: string | undefined) {
+  if (Number.isNaN(Date.parse(`${isoDate}T00:00:00Z`))) return null;
+  return formatBusinessDateSpan(isoDate, isoDate, todayBusinessDate ?? "");
 }
 
 function isExternalUrl(value: string) {
@@ -65,7 +64,15 @@ function Thumbnail({ preview, kind }: { preview: Preview | undefined; kind: stri
   );
 }
 
-function PostRow({ row, preview }: { row: OriginRow; preview: Preview | undefined }) {
+function PostRow({
+  row,
+  preview,
+  todayBusinessDate,
+}: {
+  row: OriginRow;
+  preview: Preview | undefined;
+  todayBusinessDate: string | undefined;
+}) {
   const ready = preview?.status === "ready";
   const caption = ready ? preview.caption : null;
   const title = caption || formatOriginValue(row.originValue);
@@ -73,7 +80,7 @@ function PostRow({ row, preview }: { row: OriginRow; preview: Preview | undefine
   const meta = [
     ready && preview.handle ? `@${preview.handle}` : hostOf(row.originValue),
     kind,
-    ready && preview.postedOn ? postedDay(preview.postedOn) : null,
+    ready && preview.postedOn ? postedDay(preview.postedOn, todayBusinessDate) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -112,14 +119,14 @@ function PostRow({ row, preview }: { row: OriginRow; preview: Preview | undefine
   );
 }
 
-function TopPostsList({ rows }: { rows: OriginRow[] }) {
+function TopPostsList({ rows, todayBusinessDate }: { rows: OriginRow[]; todayBusinessDate: string | undefined }) {
   const keys = rows.map((row) => row.originKey).slice(0, 50);
   const previews = useQuery(api.leadGen.originPreviews.listOriginPreviews, { originKeys: keys });
   const byKey = new Map((previews ?? []).map((preview) => [preview.originKey, preview]));
   return (
     <ol aria-label="Top posts and reels by submissions" className="flex flex-col">
       {rows.map((row) => (
-        <PostRow key={`${row.source}:${row.originKey}`} row={row} preview={byKey.get(row.originKey)} />
+        <PostRow key={`${row.source}:${row.originKey}`} row={row} preview={byKey.get(row.originKey)} todayBusinessDate={todayBusinessDate} />
       ))}
     </ol>
   );
@@ -128,15 +135,18 @@ function TopPostsList({ rows }: { rows: OriginRow[] }) {
 export function TopOriginsOverviewSection({
   section,
   rangePhrase = "in this range",
+  todayBusinessDate,
 }: {
   section: TopOriginsSection;
   /** How the empty line names the range: "today", "this week", "in this range". */
   rangePhrase?: string;
+  /** Today's business date, to drop this year from post dates. */
+  todayBusinessDate?: string;
 }) {
   return (
     <DetailCard title="Top posts & reels" meta="By submissions" className="min-w-0">
       {section.status === "ready" ? (
-        <TopPostsList rows={section.data.rows} />
+        <TopPostsList rows={section.data.rows} todayBusinessDate={todayBusinessDate} />
       ) : (
         <OverviewSectionState section={section} emptyTitle={`No submissions came from a post or reel ${rangePhrase}.`} />
       )}
