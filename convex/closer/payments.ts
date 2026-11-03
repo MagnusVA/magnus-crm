@@ -38,6 +38,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
 } from "../reporting/writeHooks";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -305,6 +306,9 @@ export async function recordMeetingPayment(
     source: role === "closer" ? "closer" : "admin",
     actorUserId: userId,
   });
+
+  // A recorded result plus a matched recording starts Jev's check (§6.9).
+  await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
 
   return paymentId;
 }

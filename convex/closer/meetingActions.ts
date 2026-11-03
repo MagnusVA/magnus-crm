@@ -17,6 +17,7 @@ import {
   type CoreActor,
   type Provenance,
 } from "../lib/outcomeCores";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
 export async function loadMeetingContext(
   ctx: MutationCtx,
@@ -179,6 +180,8 @@ export async function recordMeetingLoss(
       toMeetingStatus: "held",
       recordedAt: now,
     });
+    // A recorded result plus a matched recording starts Jev's check (§6.9).
+    await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
   }
 }
 

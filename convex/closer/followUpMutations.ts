@@ -24,6 +24,7 @@ import {
   type CoreActor,
   type Provenance,
 } from "../lib/outcomeCores";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -450,6 +451,8 @@ export async function createCallbackTask(
       toMeetingStatus: "held",
       recordedAt: now,
     });
+    // A recorded result plus a matched recording starts Jev's check (§6.9).
+    await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
   }
 
   return { followUpId };

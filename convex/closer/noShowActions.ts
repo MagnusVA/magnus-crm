@@ -17,6 +17,7 @@ import {
   type CoreActor,
   type Provenance,
 } from "../lib/outcomeCores";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
 export const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -174,6 +175,8 @@ export async function recordNoShow(
     },
     occurredAt: now,
   });
+  // A recorded result plus a matched recording starts Jev's check (§6.9).
+  await queueSecondOpinion(ctx, { meetingId: meetingId, trigger: "result_recorded" });
 }
 
 /**

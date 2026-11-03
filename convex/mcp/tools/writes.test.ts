@@ -237,3 +237,90 @@ describe("magnus_attach_proof", () => {
     expect(again.text ?? "").toContain("already has a proof file");
   });
 });
+
+describe("the second opinion's trigger in the result cores", () => {
+  it("queues one check when an agent records the result of a recorded call, and none when it's off", async () => {
+    const f = await mcpToolsFixture();
+    const recordingId = await f.t.run(async (ctx) => {
+      const connectionId = await ctx.db.insert("tenantFathomConnections", {
+        tenantId: f.tenantId,
+        apiKey: "key",
+        keyLast4: "abcd",
+        triggeredFor: [],
+        connectionStatus: "connected",
+        connectedByUserId: f.ownerId,
+        connectedAt: 0,
+      });
+      const transcriptStorageId = await ctx.storage.store(new Blob(["[]"]));
+      const now = Date.now();
+      return await ctx.db.insert("callRecordings", {
+        tenantId: f.tenantId,
+        connectionId,
+        recordedByUserId: f.closerId,
+        recordedByEmail: "alex@northwind.example",
+        meetingId: f.meetingId,
+        fathomRecordingId: 1,
+        url: "https://fathom.video/calls/1",
+        shareUrl: "https://fathom.video/share/1",
+        title: "Call",
+        recordingStartAt: now - 40 * 60_000,
+        recordingEndAt: now,
+        transcriptStorageId,
+        inviteeEmails: [],
+        matchStatus: "matched",
+        createdAt: now,
+      });
+    });
+    const args = { meetingId: f.meetingId, method: "call", date: tomorrow(), time: "16:00" };
+
+    // Off: nothing is queued.
+    await callTool(f.t, f.token, f.sessionId, "magnus_set_callback", args);
+    expect(await f.t.run((ctx) => ctx.db.query("secondOpinions").take(5))).toHaveLength(0);
+
+    // A fresh call in shadow mode queues exactly one check, with the claim.
+    const g = await mcpToolsFixture();
+    void recordingId;
+    await g.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", g.tenantId, {
+        secondOpinion: { mode: "shadow", monthlyCapUsd: 40, changedAt: 0, changedByUserId: g.ownerId },
+      });
+      const connectionId = await ctx.db.insert("tenantFathomConnections", {
+        tenantId: g.tenantId,
+        apiKey: "key",
+        keyLast4: "abcd",
+        triggeredFor: [],
+        connectionStatus: "connected",
+        connectedByUserId: g.ownerId,
+        connectedAt: 0,
+      });
+      const transcriptStorageId = await ctx.storage.store(new Blob(["[]"]));
+      const now = Date.now();
+      await ctx.db.insert("callRecordings", {
+        tenantId: g.tenantId,
+        connectionId,
+        recordedByUserId: g.closerId,
+        recordedByEmail: "alex@northwind.example",
+        meetingId: g.meetingId,
+        fathomRecordingId: 2,
+        url: "https://fathom.video/calls/2",
+        shareUrl: "https://fathom.video/share/2",
+        title: "Call",
+        recordingStartAt: now - 40 * 60_000,
+        recordingEndAt: now,
+        transcriptStorageId,
+        inviteeEmails: [],
+        matchStatus: "matched",
+        createdAt: now,
+      });
+    });
+    await callTool(g.t, g.token, g.sessionId, "magnus_set_callback", { ...args, meetingId: g.meetingId });
+    const opinions = await g.t.run((ctx) => ctx.db.query("secondOpinions").take(5));
+    expect(opinions).toHaveLength(1);
+    expect(opinions[0]).toMatchObject({
+      trigger: "result_recorded",
+      status: "queued",
+      record: { kind: "call_back" },
+      claim: "The prospect agreed to talk again before deciding.",
+    });
+  });
+});
