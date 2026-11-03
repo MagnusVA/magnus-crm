@@ -32,8 +32,8 @@ vi.mock("@/app/workspace/operations/_components/operations-report-export-menu", 
 vi.mock("@/app/workspace/operations/_components/report-job-status", () => ({
   OperationsReportJobStatus: () => null,
 }));
-vi.mock("@/app/workspace/operations/qualifications/_components/qualification-submissions-list", () => ({
-  QualificationSubmissionsList: () => null,
+vi.mock("@/app/workspace/operations/qualifications/_components/submissions-pane", () => ({
+  SubmissionsPane: () => null,
 }));
 vi.mock("@/app/workspace/operations/qualifications/_components/qualifier-schedules-dialog", () => ({
   QualifierSchedulesDialog: () => null,
@@ -135,11 +135,22 @@ function render(component: ReturnType<typeof createElement>) {
 }
 
 describe("historical operations dashboards", () => {
-  it("renders the original qualifications chart, goal, and contribution table", () => {
-    const html = render(createElement(QualificationsPageClient));
-    expect(html).toContain("Qualified per Opener");
-    expect(html).toContain("Setter Contributions");
-    expect(html).not.toContain("Historical qualification summary");
+  it("renders the qualifications goal and setters from the snapshot", () => {
+    // Late in the month, so "This month" runs past 7 days and reads the snapshot.
+    vi.useFakeTimers({ now: new Date("2026-10-20T18:00:00Z"), toFake: ["Date"] });
+    try {
+      const html = render(createElement(QualificationsPageClient));
+      expect(html).toContain("Team goal");
+      expect(html).toContain("of 80");
+      expect(html).toContain("4 a day × 20 business days");
+      expect(html).toContain("All setters");
+      expect(html).toContain("Avery");
+      expect(html).toContain("3.5");
+      expect(html).not.toContain("Loading setters");
+      expect(html).not.toContain("Historical qualification summary");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders the original booked-calls chart, goal, and contribution table", () => {

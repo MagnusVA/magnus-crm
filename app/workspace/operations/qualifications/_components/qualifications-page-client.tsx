@@ -1,75 +1,79 @@
 "use client";
-import { useBusinessDay } from "@/hooks/use-business-day";
-import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import { ClockIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { dashboardRangePlan, dashboardRangeFromToday } from "@/lib/analyticsRange";
 import { mergeQualificationsDashboard } from "@/convex/analytics/merge/operations";
-import { businessDateForInstant } from "@/lib/businessDay";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
-import {
-  useAnalyticsReport,
-  useAnalyticsSource,
-} from "@/app/workspace/_components/analytics/use-analytics-report";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
+import { cn } from "@/lib/utils";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { DashboardDateRangeFilter } from "@/app/workspace/_components/dashboard-date-range-filter";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  AnalyticsFreshnessAlert,
+  FreshnessWords,
+  freshnessSummary,
+} from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport, useAnalyticsSource } from "@/app/workspace/_components/analytics/use-analytics-report";
 import {
   OPERATIONS_DASHBOARD_RANGE_VALIDATION,
+  dashboardRangeToDayKeys,
   requiresOperationsReportSnapshot,
 } from "@/app/workspace/_components/dashboard-date-utils";
-import { GoalProgressRing } from "@/app/workspace/_components/goal-progress-ring";
-import { OpsBarChartCard } from "@/app/workspace/_components/ops-bar-chart-card";
-import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
+import {
+  DateRangePicker,
+  formatBusinessDateSpan,
+  rangePhrase,
+  type DashboardRangeInput,
+} from "@/app/workspace/_components/date-range-picker";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
+import { SectionError } from "@/app/workspace/closer/_components/section-state";
 import { TeamGoalDialog } from "@/app/workspace/reports/slack-qualifications/_components/team-goal-dialog";
 import {
   qualificationDashboardFromLive,
   qualificationDashboardFromSnapshot,
+  type QualificationDashboardViewModel,
 } from "@/lib/operations-reports/qualification-dashboard";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
-import {
-  useOperationsDashboardReport,
-  useAllOperationsReportRows,
-} from "../../_components/use-operations-report-job";
-import { QualificationSubmissionsList } from "./qualification-submissions-list";
+import { useAllOperationsReportRows, useOperationsDashboardReport } from "../../_components/use-operations-report-job";
+import { BAND_BUTTON_CLASS, QualificationsGoalRow } from "./qualifications-goal-row";
 import { QualifierSchedulesDialog } from "./qualifier-schedules-dialog";
-import { SetterContributionsTable } from "./setter-contributions-table";
+import { SettersPane } from "./setters-pane";
+import { SubmissionsPane, type StageFilter } from "./submissions-pane";
 
-function GoalRingSkeleton() {
-  return (
-    <Card role="status" aria-label="Loading goal progress">
-      <CardHeader className="gap-2">
-        <Skeleton className="h-5 w-24" />
-        <Skeleton className="h-4 w-44 max-w-full" />
-      </CardHeader>
-      <CardContent className="flex flex-col items-center gap-3">
-        <Skeleton className="aspect-square w-full max-w-[220px] rounded-full" />
-        <Skeleton className="h-4 w-32" />
-      </CardContent>
-    </Card>
-  );
+const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
+
+/** "Today · Nov 2", "This week · Oct 27 – Nov 2", or a custom range's dates. */
+function rangeWords(range: DashboardRangeInput, now: number, setting: ReturnType<typeof useBusinessDay>["setting"]) {
+  const today = businessDateForInstant(now, setting);
+  const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range, now, setting);
+  const dates = formatBusinessDateSpan(startDayKey, endDayKey, today);
+  return range.kind === "custom" ? dates : `${PRESET_WORDS[range.preset]} · ${dates}`;
 }
 
 export function QualificationsPageClient() {
- const { setting } = useBusinessDay();
- const now = useNow();
   usePageTitle("Qualified Leads");
-
-  const { range, setRange, queryRange, rangeLabel, validationMessage } =
-    useDashboardRange({
-      urlSync: true,
-      defaultRange: { kind: "preset", preset: "today" },
-      validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
-    });
+  const { setting } = useBusinessDay();
+  const now = useNow();
+  const { range, setRange, queryRange } = useDashboardRange({
+    urlSync: true,
+    defaultRange: { kind: "preset", preset: "today" },
+    validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
+  });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  // The submissions query takes one primary filter, so a setter and a stage
+  // never apply together: choosing one clears the other.
+  const [setter, setSetter] = useState<{ key: string; label: string } | null>(null);
+  const [stage, setStage] = useState<StageFilter>("all");
+
   const requiresSnapshot = useMemo(
     () => requiresOperationsReportSnapshot(queryRange, setting, now),
     [queryRange, now, setting],
@@ -89,12 +93,10 @@ export function QualificationsPageClient() {
     live: api.operations.qualificationsDashboard.getQualificationsDashboard,
     merge: mergeQualificationsDashboard,
     todayArgs: { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
-    liveArgs:
-      source !== "warehouse" && requiresSnapshot ? "skip" : { range: queryRange },
+    liveArgs: source !== "warehouse" && requiresSnapshot ? "skip" : { range: queryRange },
   });
   const dashboard = report.data;
-  const needsSnapshot =
-    source === "live" && (requiresSnapshot || dashboard?.capped === true);
+  const needsSnapshot = source === "live" && (requiresSnapshot || dashboard?.capped === true);
   const snapshot = useOperationsDashboardReport({
     reportKind: "qualifications",
     range: queryRange,
@@ -115,149 +117,164 @@ export function QualificationsPageClient() {
     ) {
       return undefined;
     }
-    return qualificationDashboardFromSnapshot({
-      summary: snapshot.summary,
-      openers: openerSnapshot.rows,
-    });
-  }, [
-    needsSnapshot,
-    openerSnapshot.error,
-    openerSnapshot.isLoading,
-    openerSnapshot.rows,
-    snapshot.summary,
-  ]);
+    return qualificationDashboardFromSnapshot({ summary: snapshot.summary, openers: openerSnapshot.rows });
+  }, [needsSnapshot, openerSnapshot.error, openerSnapshot.isLoading, openerSnapshot.rows, snapshot.summary]);
   const displayDashboard = useMemo(() => {
     if (needsSnapshot) return snapshotDashboard?.data ?? undefined;
-    return dashboard === undefined
-      ? undefined
-      : qualificationDashboardFromLive(dashboard);
+    return dashboard === undefined ? undefined : qualificationDashboardFromLive(dashboard);
   }, [dashboard, needsSnapshot, snapshotDashboard]);
   const snapshotError = openerSnapshot.error ?? snapshotDashboard?.error ?? null;
 
-  const barData = useMemo(
-    () =>
-      (displayDashboard?.openers ?? []).map((opener) => ({
-        key: opener.key,
-        label: opener.label,
-        value: opener.qualified,
-      })),
-    [displayDashboard?.openers],
-  );
+  const freshness = freshnessSummary([report.freshness], now);
 
-  const goalSublabel = useMemo(() => {
-    if (!displayDashboard) {
-      return undefined;
-    }
-    const { dailyQuota, businessDayCount } = displayDashboard.goal;
-    if (dailyQuota === null) {
-      return rangeLabel;
-    }
-    return `${formatWholeNumber(dailyQuota)}/day × ${formatWholeNumber(
-      businessDayCount,
-    )} business day${businessDayCount === 1 ? "" : "s"} — ${rangeLabel}`;
-  }, [displayDashboard, rangeLabel]);
+  // A new range keeps the last one's numbers on screen, dimmed, until it
+  // arrives (DESIGN.md, Kept Data While Reloading). A snapshot job or a
+  // failed read says so in its alert instead.
+  // Kept by content, not identity, so a source that hands back equal data as
+  // new objects can't re-set this on every render.
+  const displaySignature = useMemo(
+    () => (displayDashboard === undefined ? undefined : JSON.stringify([queryRange, displayDashboard])),
+    [displayDashboard, queryRange],
+  );
+  const [kept, setKept] = useState<{
+    signature: string;
+    data: QualificationDashboardViewModel;
+    range: DashboardRangeInput;
+  } | null>(null);
+  if (displayDashboard !== undefined && displaySignature !== undefined && displaySignature !== kept?.signature) {
+    setKept({ signature: displaySignature, data: displayDashboard, range: queryRange });
+  }
+  const canKeep = !needsSnapshot && freshness.kind !== "failed";
+  const shown = displayDashboard ?? (canKeep ? kept?.data : undefined);
+  const reloading = displayDashboard === undefined && shown !== undefined;
+  const shownRange = displayDashboard === undefined && shown && kept ? kept.range : queryRange;
+
+  // A failed read with nothing kept leaves the panes nothing to show; they
+  // say so instead of loading forever under the failure notice.
+  const failed =
+    shown === undefined &&
+    (needsSnapshot
+      ? snapshotError !== null || snapshot.requestError !== null || snapshot.job?.status === "failed"
+      : freshness.kind === "failed");
+
+  const setters = shown?.openers;
+  const selectedSetter = setter && setters?.find((entry) => entry.key === setter.key);
+  // A setter the new range doesn't list at all stops filtering; one listed
+  // with no leads stays pressed and shows its zero.
+  if (setter && displayDashboard !== undefined && !displayDashboard.openers.some((entry) => entry.key === setter.key)) {
+    setSetter(null);
+  }
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <header className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Qualified Leads
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Opener throughput, team goal attainment, setter contributions,
-              and the qualification submissions queue.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col items-start gap-3 lg:items-end">
+    <div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3">
+      <PageBand
+        title="Qualified Leads"
+        description={
+          <>
+            <span className="font-medium text-board-foreground">{rangeWords(shownRange, now, setting)}</span>
+            {!needsSnapshot && freshness.kind === "line" ? (
+              <>
+                {" · "}
+                <FreshnessWords summary={freshness} />
+              </>
+            ) : null}
+            <span className="hidden @3xl:inline"> · {businessDayDisclosure(setting)}</span>
+          </>
+        }
+        actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setSchedulesOpen(true)}
-            >
+            <Button type="button" variant="outline" className={BAND_BUTTON_CLASS} onClick={() => setSchedulesOpen(true)}>
               <ClockIcon data-icon="inline-start" aria-hidden="true" />
               Schedules
             </Button>
-            <OperationsReportExportMenu
-              reportKind="qualifications"
-              range={queryRange}
+            {/* The shared export menu draws a small outline button; the band sets it in its board tone. */}
+            <div className="contents [&>button]:h-[34px] [&>button]:rounded-[7px] [&>button]:border-board-foreground/15 [&>button]:bg-board-raised [&>button]:px-3 [&>button]:text-[13px] [&>button]:text-board-foreground [&>button:hover]:bg-board-foreground/10 [&>button:hover]:text-board-foreground">
+              <OperationsReportExportMenu reportKind="qualifications" range={queryRange} />
+            </div>
+            <DateRangePicker
+              tone="board"
+              value={range}
+              todayBusinessDate={todayBusinessDate}
+              validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
+              onChange={setRange}
             />
           </div>
-          <DashboardDateRangeFilter
-            validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
-            validationMessage={validationMessage}
-            value={range}
-            onChange={setRange}
-          />
-          <p className="text-xs text-muted-foreground">
-            Showing: {rangeLabel}
-          </p>
-          {needsSnapshot ? null : (
-            <AnalyticsFreshnessLine items={[report.freshness]} />
-          )}
-        </div>
-      </header>
-
-      <OperationsHealthBanner />
+        }
+      >
+        <QualificationsGoalRow
+          goal={shown?.goal}
+          reloading={reloading}
+          failed={failed}
+          setters={setters}
+          selectedSetter={setter?.key ?? null}
+          onEditGoal={() => setGoalDialogOpen(true)}
+        />
+      </PageBand>
 
       {needsSnapshot ? (
         <OperationsReportJobStatus
-          state={snapshotError ? "failed" : snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
+          state={snapshotError ? "failed" : (snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued"))}
           generatedAt={snapshot.summary?.generatedAt ?? null}
           errorMessage={snapshotError ?? snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
           onCancel={() => void snapshot.cancel()}
           onRefresh={snapshot.refresh}
           onRetry={snapshot.retry}
         />
-      ) : null}
+      ) : (
+        <AnalyticsFreshnessAlert summary={freshness} />
+      )}
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-        <OpsBarChartCard
-          className="min-w-0 lg:col-span-2"
-          title="Qualified per Opener"
-          description={`Accepted qualification events per opener — ${rangeLabel}`}
-          data={barData}
-          valueLabel="Qualified"
-          loading={displayDashboard === undefined}
-          emptyMessage="No qualification events in this range."
-        />
-        {displayDashboard === undefined ? (
-          <GoalRingSkeleton />
-        ) : (
-          <GoalProgressRing
-            goal={displayDashboard.goal.target ?? undefined}
-            progress={displayDashboard.goal.progress}
-            label="Qualified"
-            sublabel={goalSublabel}
-            onEdit={() => setGoalDialogOpen(true)}
-          />
-        )}
-      </div>
+      <OperationsHealthBanner />
 
-      <SetterContributionsTable rows={displayDashboard?.openers} />
+      <Card className="min-w-0 gap-0 overflow-hidden py-0 @4xl:grid @4xl:h-[clamp(30rem,calc(100dvh-18rem),60rem)] @4xl:grid-cols-[minmax(16rem,22.5rem)_minmax(0,1fr)]">
+        <section aria-labelledby="qualifications-setters" className="flex min-h-0 flex-col border-b @4xl:border-r @4xl:border-b-0">
+          <div className="flex min-h-11 flex-wrap items-center gap-x-2 border-b px-4 py-2">
+            <h2 id="qualifications-setters" className="text-[0.9375rem] font-semibold">
+              Setters
+            </h2>
+            <span className="ml-auto text-[13px] text-muted-foreground">Qualified · per scheduled hour</span>
+          </div>
+          <div
+            aria-busy={reloading}
+            className={cn(
+              "max-h-[22rem] min-h-0 flex-1 overflow-y-auto overscroll-contain transition-opacity duration-200 motion-reduce:transition-none @4xl:max-h-none",
+              reloading && "opacity-60",
+            )}
+          >
+            <SettersPane
+              setters={setters}
+              failed={failed}
+              total={shown?.goal.progress}
+              selected={setter?.key ?? null}
+              onSelect={(key) => {
+                const next = key === null ? null : setters?.find((entry) => entry.key === key);
+                setSetter(next ? { key: next.key, label: next.label } : null);
+                if (next) setStage("all");
+              }}
+            />
+          </div>
+        </section>
+        <section aria-label="Submissions" className="flex min-h-0 min-w-0 flex-col">
+          <SectionErrorBoundary sectionName="qualification submissions" fallback={<SectionError what="the submissions" />}>
+            <SubmissionsPane
+              eventWindow={displayDashboard?.window}
+              failed={failed}
+              setter={setter ? { key: setter.key, label: selectedSetter?.label ?? setter.label } : null}
+              stage={stage}
+              onStageChange={(next) => {
+                setStage(next);
+                if (next !== "all") setSetter(null);
+              }}
+              onClearSetter={() => setSetter(null)}
+              rangePhrase={rangePhrase(shownRange)}
+              qualified={setter ? selectedSetter?.qualified : shown?.goal.progress}
+            />
+          </SectionErrorBoundary>
+        </section>
+      </Card>
 
-      <QualificationSubmissionsList
-        eventWindow={
-          displayDashboard?.window
-        }
-      />
-
-      <TeamGoalDialog
-        currentGoal={
-          displayDashboard?.goal.dailyQuota ?? null
-        }
-        open={goalDialogOpen}
-        onOpenChange={setGoalDialogOpen}
-      />
-      <QualifierSchedulesDialog
-        open={schedulesOpen}
-        onOpenChange={setSchedulesOpen}
-      />
+      <TeamGoalDialog currentGoal={shown?.goal.dailyQuota ?? null} open={goalDialogOpen} onOpenChange={setGoalDialogOpen} />
+      <QualifierSchedulesDialog open={schedulesOpen} onOpenChange={setSchedulesOpen} />
     </div>
   );
 }
