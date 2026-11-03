@@ -84,6 +84,7 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed a meeting status",
     iconHint: "arrow-right-left",
   },
+  "opportunity.call_note_added": { verb: "added a call note", iconHint: "notebook-pen" },
   "opportunity.created": {
     verb: "created an opportunity",
     iconHint: "sparkles",
