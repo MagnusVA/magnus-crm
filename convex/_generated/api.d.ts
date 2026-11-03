@@ -303,6 +303,7 @@ import type * as mcp_noteRead from "../mcp/noteRead.js";
 import type * as mcp_settings from "../mcp/settings.js";
 import type * as mcp_time from "../mcp/time.js";
 import type * as mcp_tools_callNotes from "../mcp/tools/callNotes.js";
+import type * as mcp_tools_callbacks from "../mcp/tools/callbacks.js";
 import type * as mcp_tools_endOfDay from "../mcp/tools/endOfDay.js";
 import type * as mcp_tools_person from "../mcp/tools/person.js";
 import type * as mcp_tools_recordings from "../mcp/tools/recordings.js";
@@ -795,6 +796,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/settings": typeof mcp_settings;
   "mcp/time": typeof mcp_time;
   "mcp/tools/callNotes": typeof mcp_tools_callNotes;
+  "mcp/tools/callbacks": typeof mcp_tools_callbacks;
   "mcp/tools/endOfDay": typeof mcp_tools_endOfDay;
   "mcp/tools/person": typeof mcp_tools_person;
   "mcp/tools/recordings": typeof mcp_tools_recordings;

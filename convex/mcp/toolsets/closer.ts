@@ -126,4 +126,20 @@ export const closerTools: McpToolRegistration[] = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     metadata: CLOSER,
   }),
+  defineMcpMutation({
+    name: "magnus_move_callback",
+    title: "Move a call-back",
+    description:
+      "Moves one of the closer's pending call-backs or text-backs to a new local date (YYYY-MM-DD) and time (HH:MM, 24-hour) in the closer's zone. Pass the taskId from magnus_today or magnus_tasks. Nothing else changes, and the task keeps its history. Read the resolved time back to the closer.",
+    fn: internal.mcp.tools.callbacks.moveCallback,
+    args: {
+      caller: mcpCallerValidator,
+      taskId: v.id("followUps"),
+      date: v.string(),
+      time: v.string(),
+    },
+    identityArg: "caller",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    metadata: CLOSER,
+  }),
 ];
