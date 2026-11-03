@@ -4,6 +4,8 @@ import { Fragment, useMemo, useState } from "react";
 import { DetailCard, DetailCardFooter, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { getMemberDisplayName } from "@/app/workspace/_components/member-avatar";
+import { OverviewPartialNote } from "@/app/workspace/_components/overview-section-state";
+import { ATTENDANCE_COUNTS_PARTIAL_HELP } from "@/app/workspace/_components/results-recorded";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCash } from "@/lib/closer-pipeline";
 import { cn } from "@/lib/utils";
@@ -286,13 +288,16 @@ export function PhoneClosersCard({
       ) : shown.length === 0 ? (
         <SectionEmpty title={`No calls or payments for phone closers ${rangePhrase}.`} />
       ) : (
-        <ClosersTable
+        <>
+          {attendanceCountsPartial ? <OverviewPartialNote>{ATTENDANCE_COUNTS_PARTIAL_HELP}</OverviewPartialNote> : null}
+          <ClosersTable
           rows={shown}
           total={teamTotal}
           currency={currency}
           partial={attendanceCountsPartial}
           unattributedMinor={unattributedMinor}
-        />
+          />
+        </>
       )}
       {quiet.length > 0 ? (
         <DetailCardFooter className="font-normal">
