@@ -10,7 +10,7 @@ import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { buildBookingUrl } from "@/app/dm-links/[portalSlug]/_components/build-booking-url";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
@@ -172,42 +172,41 @@ function CloserRow({
   const editorId = `closer-${closer._id}`;
   return (
     <li id={`row-${closer._id}`} className="scroll-mt-4 border-t border-border first:border-t-0">
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        aria-label={`Edit ${closer.displayName}`}
-        onClick={onToggle}
-        className={cn(ROW, "min-h-14 py-[9px] text-[14px] outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset")}
-      >
-        <Initials name={closer.displayName} />
-        <span className="min-w-0">
-          <b className="block truncate font-semibold">{closer.displayName}</b>
-          <small className="block truncate text-[12px] text-muted-foreground">
-            {closer.userId ? (closer.identity.email ?? "CRM user") : "No CRM user"}
-          </small>
-        </span>
-        <span className="hidden truncate font-mono text-[12.5px] tracking-[-0.01em] @lg/roster:block" translate="no">
-          {closer.utmMedium}
-        </span>
-        <span className={cn(FIGURE, "text-right", booked === 0 && "font-normal text-muted-foreground")}>{booked}</span>
-        <span
-          className={cn(
-            "hidden text-right @lg/roster:block",
-            weekly > 0 ? cn(FIGURE, "text-[14px]") : "text-[13px] text-muted-foreground",
-          )}
-        >
-          {weekly > 0 ? `${formatHours(weekly)}h` : "—"}
-        </span>
-        <ActiveWord active={closer.isActive} />
-        <ChevronRightIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
-      </button>
-      <CloserFlags closer={closer} teams={teams} allClosers={allClosers} unmatched={unmatched} />
       <Dialog
         open={open}
         onOpenChange={(next) => {
-          if (!next) onToggle();
+          if (next !== open) onToggle();
         }}
       >
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Edit ${closer.displayName}`}
+            className={cn(ROW, "min-h-14 py-[9px] text-[14px] outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset")}
+          >
+            <Initials name={closer.displayName} />
+            <span className="min-w-0">
+              <b className="block truncate font-semibold">{closer.displayName}</b>
+              <small className="block truncate text-[12px] text-muted-foreground">
+                {closer.userId ? (closer.identity.email ?? "CRM user") : "No CRM user"}
+              </small>
+            </span>
+            <span className="hidden truncate font-mono text-[12.5px] tracking-[-0.01em] @lg/roster:block" translate="no">
+              {closer.utmMedium}
+            </span>
+            <span className={cn(FIGURE, "text-right", booked === 0 && "font-normal text-muted-foreground")}>{booked}</span>
+            <span
+              className={cn(
+                "hidden text-right @lg/roster:block",
+                weekly > 0 ? cn(FIGURE, "text-[14px]") : "text-[13px] text-muted-foreground",
+              )}
+            >
+              {weekly > 0 ? `${formatHours(weekly)}h` : "—"}
+            </span>
+            <ActiveWord active={closer.isActive} />
+            <ChevronRightIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+          </button>
+        </DialogTrigger>
         <DialogContent
           className="max-h-[88vh] grid-cols-1 gap-0 overflow-y-auto p-0 sm:max-w-[46rem]"
           onEscapeKeyDown={(event) => {
@@ -251,6 +250,7 @@ function CloserRow({
           </div>
         </DialogContent>
       </Dialog>
+      <CloserFlags closer={closer} teams={teams} allClosers={allClosers} unmatched={unmatched} />
     </li>
   );
 }

@@ -120,7 +120,11 @@ export function TeamPageClient() {
         scheduleOpen={scheduleOpen}
         schedules={schedules}
         onToggle={(dmCloserId) => setOpen(openId === dmCloserId ? null : dmCloserId)}
-        onScheduleChange={(dmCloserId, open) => setOpen(dmCloserId, open)}
+        onScheduleChange={(dmCloserId, open) => {
+          // A save can settle after its modal closed; don't reopen it.
+          if (new URLSearchParams(window.location.search).get("closer") !== dmCloserId) return;
+          setOpen(dmCloserId, open);
+        }}
         onNew={() => setCreating(true)}
       />
       <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">

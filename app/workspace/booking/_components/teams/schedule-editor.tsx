@@ -58,7 +58,16 @@ function fill(hours: (day: Weekday) => number): WeekHours {
 }
 
 function toDraft(week: WeekHours): Record<Weekday, string> {
-  return Object.fromEntries(WEEKDAYS.map((day) => [day, formatHours(week[day])])) as Record<Weekday, string>;
+  // Exact values: rounding here would turn a saved 7.25 into an unsaved edit.
+  return Object.fromEntries(WEEKDAYS.map((day) => [day, String(week[day])])) as Record<Weekday, string>;
+}
+
+function sameWeek(left: WeekHours, right: WeekHours) {
+  return WEEKDAYS.every((day) => left[day] === right[day]);
+}
+
+function sameDraft(left: Record<Weekday, string>, right: Record<Weekday, string>) {
+  return WEEKDAYS.every((day) => left[day].trim() === right[day].trim());
 }
 
 export function weekTotal(week: WeekHours) {
@@ -183,6 +192,12 @@ function WeekEditor({
 }) {
   const setSchedule = useMutation(api.workSchedules.setDmCloserWeeklySchedule);
   const [draft, setDraft] = useState(() => toDraft(saved));
+  // While nothing is edited, follow the saved week (an Undo, another admin).
+  const [baseline, setBaseline] = useState(saved);
+  if (!sameWeek(baseline, saved)) {
+    setBaseline(saved);
+    if (sameDraft(draft, toDraft(baseline))) setDraft(toDraft(saved));
+  }
   const [saving, setSaving] = useState(false);
 
   const parsed = fill((day) => {
