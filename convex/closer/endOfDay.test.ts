@@ -254,6 +254,39 @@ describe("the shared summary builder", () => {
     );
   });
 
+  it("keeps the call's booking program and falls back to the event type for legacy deals", async () => {
+    const h = await endOfDayHarness();
+    await h.t.run(async (ctx) => {
+      const legacy = await eodCall(ctx, h, {
+        status: "held",
+        dealStatus: "follow_up_scheduled",
+      });
+      const eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
+        tenantId: h.tenantId,
+        calendlyEventTypeUri: "https://api.calendly.com/event_types/legacy",
+        displayName: "Legacy Program",
+        createdAt: 0,
+      });
+      await ctx.db.patch("opportunities", legacy.opportunityId, {
+        firstBookingProgramName: undefined,
+        eventTypeConfigId,
+      });
+      const call = await eodCall(ctx, h, {
+        status: "held",
+        dealStatus: "follow_up_scheduled",
+      });
+      await ctx.db.patch("meetings", call.meetingId, {
+        bookingProgramName: "Call Program",
+      });
+    });
+    const summary = await h.closer.query(api.closer.endOfDay.getDaySummary, {
+      now: EOD_NOW,
+    });
+    expect(
+      summary.numbers.people.map((person) => person.program).sort(),
+    ).toEqual(["Call Program", "Legacy Program"]);
+  });
+
   it("uses payment recordedAt and keeps currencies, disputes, deposit-only wins, and mixed payments separate", async () => {
     const h = await endOfDayHarness();
     await h.t.run(async (ctx) => {

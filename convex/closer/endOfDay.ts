@@ -272,6 +272,16 @@ export async function buildCloserDaySummary(
         ? (lead.fullName ?? meeting?.leadName)
         : meeting?.leadName,
     );
+    const eventType =
+      !meeting?.bookingProgramName &&
+      !deal.firstBookingProgramName &&
+      deal.eventTypeConfigId
+        ? await ctx.db.get("eventTypeConfigs", deal.eventTypeConfigId)
+        : null;
+    const program =
+      meeting?.bookingProgramName ??
+      deal.firstBookingProgramName ??
+      (eventType?.tenantId === tenantId ? eventType.displayName : undefined);
     const callType = meeting?.callClassification ?? "new";
     const { stage, outcome } = dealStageOf(deal);
     let kind: Numbers["people"][number]["kind"] | undefined;
@@ -322,9 +332,7 @@ export async function buildCloserDaySummary(
         kind,
         callType,
         name,
-        ...(deal.firstBookingProgramName && {
-          program: deal.firstBookingProgramName,
-        }),
+        ...(program && { program }),
         ...(amounts && { amounts }),
         ...(amounts?.length === 1 && {
           amountMinor: amounts[0].amountMinor,

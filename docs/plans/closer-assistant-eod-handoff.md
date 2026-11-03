@@ -134,5 +134,5 @@ delivery tests. Convex types regenerate with `npx convex codegen`.
 
 Verified on this branch: `npx convex codegen`, `pnpm typecheck` and `pnpm lint`
 passed. The full suite passed with `WORKOS_CLIENT_ID=client_test pnpm test`: 178
-files, 2,134 passing tests and one expected failure. The new EOD suite has 21
+files, 2,135 passing tests and one expected failure. The new EOD suite has 22
 passing tests.
