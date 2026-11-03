@@ -1,5 +1,6 @@
 import { defineMcpMutation, defineMcpQuery, type McpToolRegistration } from "convex-mcp-gateway";
 import { internal } from "../../_generated/api";
+import { v } from "convex/values";
 import { mcpCallerValidator } from "../guard";
 
 /**
@@ -33,5 +34,31 @@ export const closerTools: McpToolRegistration[] = [
     identityArg: "caller",
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     metadata: CLOSER,
+  }),
+  defineMcpQuery({
+    name: "magnus_day_summary",
+    title: "Day so far",
+    description:
+      "The numbers and open gaps since the closer's last end-of-day report, counted by Magnus: new and follow-up calls, show rate, close rate on first calls, won, deposits, lost, cash, call-backs, and gaps such as calls with no result or overdue call-backs. Saves nothing. Ask the closer about each gap before ending the day.",
+    fn: internal.mcp.tools.endOfDay.summary,
+    args: { caller: mcpCallerValidator },
+    identityArg: "caller",
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    metadata: CLOSER,
+  }),
+  defineMcpMutation({
+    name: "magnus_end_day",
+    title: "End the day",
+    description:
+      "Ends the closer's shift: saves the report Magnus counts and posts it to the team's end-of-day Slack channel. Pass narrative, a few short lines about each person written from what the closer said, and an optional note for the team. Never put numbers in the narrative; Magnus adds them. Ending twice within a minute returns the first report.",
+    fn: internal.mcp.tools.endOfDay.endDay,
+    args: {
+      caller: mcpCallerValidator,
+      narrative: v.optional(v.string()),
+      note: v.optional(v.string()),
+    },
+    identityArg: "caller",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    metadata: { ...CLOSER, auditArgs: { redact: ["narrative", "note"] } },
   }),
 ];

@@ -287,6 +287,7 @@ import type * as mcp_guard from "../mcp/guard.js";
 import type * as mcp_http from "../mcp/http.js";
 import type * as mcp_instructions from "../mcp/instructions.js";
 import type * as mcp_time from "../mcp/time.js";
+import type * as mcp_tools_endOfDay from "../mcp/tools/endOfDay.js";
 import type * as mcp_tools_today from "../mcp/tools/today.js";
 import type * as mcp_toolsets_closer from "../mcp/toolsets/closer.js";
 import type * as mcp_uploads from "../mcp/uploads.js";
@@ -758,6 +759,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/http": typeof mcp_http;
   "mcp/instructions": typeof mcp_instructions;
   "mcp/time": typeof mcp_time;
+  "mcp/tools/endOfDay": typeof mcp_tools_endOfDay;
   "mcp/tools/today": typeof mcp_tools_today;
   "mcp/toolsets/closer": typeof mcp_toolsets_closer;
   "mcp/uploads": typeof mcp_uploads;
