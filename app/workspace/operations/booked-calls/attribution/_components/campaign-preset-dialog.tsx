@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { AlertCircleIcon } from "lucide-react";
 import { useMutation } from "convex/react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -18,15 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
@@ -121,7 +113,7 @@ export function CampaignPresetDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {campaign ? "Edit Campaign Preset" : "New Campaign Preset"}
+            {campaign ? "Edit campaign preset" : "New campaign preset"}
           </DialogTitle>
           <DialogDescription>
             Campaign presets populate the generated Calendly UTM campaign value.
@@ -136,46 +128,48 @@ export function CampaignPresetDialog({
           </Alert>
         ) : null}
 
-        <Form {...form}>
-          <form
-            id="campaign-preset-form"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <FieldGroup>
-              <FormField
-                control={form.control}
-                name="label"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Label</FormLabel>
-                    <FormControl>
-                      <Input {...field} disabled={isSubmitting} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+        <form
+          id="campaign-preset-form"
+          onSubmit={form.handleSubmit(onSubmit)}
+        >
+          <FieldGroup>
+            <Controller
+              control={form.control}
+              name="label"
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="campaign-preset-label">Label</FieldLabel>
+                  <Input
+                    {...field}
+                    id="campaign-preset-label"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                  <FieldError className="text-[13px] text-danger-ink" errors={[fieldState.error]} />
+                </Field>
+              )}
+            />
 
-              <FormField
-                control={form.control}
-                name="utmCampaign"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>UTM Campaign</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        disabled={isSubmitting}
-                        className="font-mono"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </FieldGroup>
-          </form>
-        </Form>
+            <Controller
+              control={form.control}
+              name="utmCampaign"
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="campaign-preset-utm">UTM campaign</FieldLabel>
+                  <Input
+                    {...field}
+                    id="campaign-preset-utm"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                    className="font-mono"
+                    translate="no"
+                  />
+                  <FieldError className="text-[13px] text-danger-ink" errors={[fieldState.error]} />
+                </Field>
+              )}
+            />
+          </FieldGroup>
+        </form>
 
         <DialogFooter>
           <Button
@@ -192,7 +186,7 @@ export function CampaignPresetDialog({
             disabled={isSubmitting}
           >
             {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
-            {campaign ? "Save Campaign" : "Create Campaign"}
+            {campaign ? "Save campaign" : "Create campaign"}
           </Button>
         </DialogFooter>
       </DialogContent>

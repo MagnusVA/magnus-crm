@@ -8,32 +8,21 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  DetailCard,
+  DetailCardFooter,
+} from "@/app/workspace/closer/meetings/_components/detail-card";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs as TabsPrimitive } from "radix-ui";
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +35,21 @@ import {
 } from "@/app/workspace/_components/portal-readiness";
 import { getErrorMessage } from "@/lib/errors";
 import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
+import { cn } from "@/lib/utils";
+import {
+  CardNote,
+  RuledTable,
+  SEGMENT_ITEM,
+  SEGMENT_TRACK,
+  StatusWord,
+  TableSkeleton,
+  Td,
+  Th,
+  Tr,
+} from "./attribution-ui";
+
+const TITLE = "Portal event types";
+const HEADS = ["Event type", "Program", "Type", "Status", "Visible"];
 
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
   portalReadiness?: PortalReadiness;
@@ -187,24 +191,25 @@ export function PortalEventTypeReadinessCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Portal Event Types</CardTitle>
-        <CardDescription>
-          Event types DM closers can generate links for. Publishing needs a
-          mapped program, a booking URL, and a bookable Calendly event type.
-        </CardDescription>
-        <CardAction>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/workspace/settings">
-              Map programs
-              <ArrowUpRightIcon data-icon="inline-end" aria-hidden="true" />
-            </Link>
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {brokenPublished.length > 0 ? (
+    <DetailCard
+      title={TITLE}
+      className="@container/types min-w-0"
+      meta={
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/workspace/settings">
+            Map programs
+            <ArrowUpRightIcon data-icon="inline-end" aria-hidden="true" />
+          </Link>
+        </Button>
+      }
+    >
+      <CardNote>
+        Event types DM closers can generate links for. Publishing needs a
+        mapped program, a booking URL, and a bookable Calendly event type.
+      </CardNote>
+
+      {brokenPublished.length > 0 ? (
+        <div className="border-b px-4 py-3">
           <Alert variant="destructive">
             <TriangleAlertIcon />
             <AlertTitle>
@@ -221,95 +226,96 @@ export function PortalEventTypeReadinessCard({
                 .join(", ")}
             </AlertDescription>
           </Alert>
-        ) : null}
-
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <Tabs value={filter} onValueChange={handleFilterChange}>
-            <TabsList className="max-w-full overflow-x-auto">
-              {FILTERS.map(({ value, label }) => (
-                <TabsTrigger key={value} value={value} className="px-2.5">
-                  {label}
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {counts[value]}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          <InputGroup className="lg:w-64">
-            <InputGroupInput
-              type="search"
-              value={searchInput}
-              placeholder="Search event types"
-              aria-label="Search event types"
-              onChange={(event) => {
-                setSearchInput(event.target.value);
-                setVisibleCount(PAGE_SIZE);
-              }}
-            />
-            <InputGroupAddon>
-              <SearchIcon aria-hidden="true" />
-            </InputGroupAddon>
-          </InputGroup>
         </div>
+      ) : null}
 
-        <div className="overflow-hidden rounded-lg border">
-          <Table className="table-fixed">
-            <TableHeader className="bg-muted/40">
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="pl-3">Event Type</TableHead>
-                <TableHead className="w-44">Program</TableHead>
-                <TableHead className="w-24">Type</TableHead>
-                <TableHead className="w-40">Status</TableHead>
-                <TableHead className="w-20 pr-3 text-right">Visible</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleRows.length === 0 ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell
-                    colSpan={5}
-                    className="h-24 text-center whitespace-normal text-muted-foreground"
-                  >
-                    {search
-                      ? "No event types match your search."
-                      : emptyMessage(filter)}
-                  </TableCell>
-                </TableRow>
-              ) : null}
-              {visibleRows.map((config) => (
-                <EventTypeRow
-                  key={config._id}
-                  config={config}
-                  isPending={pendingConfigId === config._id}
-                  onToggle={(linkPortalEnabled) =>
-                    handleToggle(config._id, linkPortalEnabled)
-                  }
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+      <div className="flex flex-col gap-2.5 px-4 py-2.5 @xl/types:flex-row @xl/types:items-center @xl/types:justify-between">
+        <TabsPrimitive.Root value={filter} onValueChange={handleFilterChange} className="min-w-0">
+          <TabsPrimitive.List aria-label="Which event types" className={SEGMENT_TRACK}>
+            {FILTERS.map(({ value, label }) => (
+              <TabsPrimitive.Trigger key={value} value={value} className={SEGMENT_ITEM}>
+                {label}
+                <span className="font-condensed text-[13px] font-semibold tabular-nums">
+                  {counts[value]}
+                </span>
+              </TabsPrimitive.Trigger>
+            ))}
+          </TabsPrimitive.List>
+        </TabsPrimitive.Root>
+        <InputGroup className="h-[30px] @xl/types:w-60">
+          <InputGroupInput
+            type="search"
+            value={searchInput}
+            placeholder="Search event types"
+            aria-label="Search event types"
+            className="text-[13px]"
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              setVisibleCount(PAGE_SIZE);
+            }}
+          />
+          <InputGroupAddon>
+            <SearchIcon aria-hidden="true" />
+          </InputGroupAddon>
+        </InputGroup>
+      </div>
 
-        {rows.length > PAGE_SIZE ? (
-          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span className="tabular-nums">
-              Showing {visibleRows.length} of {rows.length}
+      {visibleRows.length === 0 ? (
+        <SectionEmpty
+          className="border-t"
+          title={search ? "No event types match your search." : emptyMessage(filter)}
+        />
+      ) : (
+        <RuledTable label={TITLE} className="min-w-[40rem] table-fixed">
+          <thead>
+            <tr>
+              <Th>Event type</Th>
+              <Th className="w-44">Program</Th>
+              <Th className="w-24">Type</Th>
+              <Th className="w-44">Status</Th>
+              <Th className="w-20 text-right">Visible</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((config) => (
+              <EventTypeRow
+                key={config._id}
+                config={config}
+                isPending={pendingConfigId === config._id}
+                onToggle={(linkPortalEnabled) =>
+                  handleToggle(config._id, linkPortalEnabled)
+                }
+              />
+            ))}
+          </tbody>
+        </RuledTable>
+      )}
+
+      {rows.length > PAGE_SIZE ? (
+        <DetailCardFooter className="text-[13px] font-normal">
+          <span>
+            Showing{" "}
+            <span className="font-condensed text-[15px] font-semibold text-foreground tabular-nums">
+              {visibleRows.length}
+            </span>{" "}
+            of{" "}
+            <span className="font-condensed text-[15px] font-semibold text-foreground tabular-nums">
+              {rows.length}
             </span>
-            {visibleRows.length < rows.length ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-              >
-                Show more
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+          </span>
+          {visibleRows.length < rows.length ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+            >
+              Show more
+            </Button>
+          ) : null}
+        </DetailCardFooter>
+      ) : null}
+    </DetailCard>
   );
 }
 
@@ -349,27 +355,23 @@ function EventTypeRow({
   );
 
   return (
-    <TableRow className={isPublished ? undefined : "text-muted-foreground"}>
-      <TableCell className="pl-3">
+    <Tr className={isPublished ? undefined : "text-muted-foreground"}>
+      <Td>
         <div
-          className={
-            isPublished
-              ? "truncate font-medium text-foreground"
-              : "truncate text-foreground"
-          }
+          className={cn("truncate text-foreground", isPublished && "font-medium")}
           title={config.displayName}
         >
           {config.displayName}
         </div>
         <div
-          className="truncate font-mono text-xs text-muted-foreground"
+          className="truncate font-mono text-[13px] text-muted-foreground"
           title={config.bookingBaseUrl}
           translate="no"
         >
           {config.bookingBaseUrl?.replace(/^https?:\/\//, "") ?? "No booking URL"}
         </div>
-      </TableCell>
-      <TableCell>
+      </Td>
+      <Td>
         {config.bookingProgramName ? (
           <span
             className="block truncate text-foreground"
@@ -378,26 +380,24 @@ function EventTypeRow({
             {config.bookingProgramName}
           </span>
         ) : (
-          <span className="italic">Unmapped</span>
+          <span>Unmapped</span>
         )}
-      </TableCell>
-      <TableCell>
-        <Badge variant={config.isExtended ? "secondary" : "outline"}>
-          {config.isExtended
-            ? SCHEDULING_MODE_LABEL.extended
-            : SCHEDULING_MODE_LABEL.normal}
-        </Badge>
-      </TableCell>
-      <TableCell>
-        <StatusBadge isPublished={isPublished} readiness={readiness} />
-      </TableCell>
-      <TableCell className="pr-3">
+      </Td>
+      <Td className="text-[13px]">
+        {config.isExtended
+          ? SCHEDULING_MODE_LABEL.extended
+          : SCHEDULING_MODE_LABEL.normal}
+      </Td>
+      <Td>
+        <PortalStatus isPublished={isPublished} readiness={readiness} />
+      </Td>
+      <Td>
         <div className="flex items-center justify-end gap-2">
           {isPending ? <Spinner /> : null}
           {blocker ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span tabIndex={0} className="inline-flex rounded-full">
+                <span tabIndex={0} className="inline-flex rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {toggle}
                 </span>
               </TooltipTrigger>
@@ -407,12 +407,12 @@ function EventTypeRow({
             toggle
           )}
         </div>
-      </TableCell>
-    </TableRow>
+      </Td>
+    </Tr>
   );
 }
 
-function StatusBadge({
+function PortalStatus({
   isPublished,
   readiness,
 }: {
@@ -420,31 +420,26 @@ function StatusBadge({
   readiness: PortalReadiness;
 }) {
   if (isPublished && readiness === "ready") {
-    return (
-      <Badge variant="secondary">
-        <span
-          className="size-1.5 rounded-full bg-emerald-500"
-          aria-hidden="true"
-        />
-        Live
-      </Badge>
-    );
+    return <StatusWord tone="active">Live</StatusWord>;
   }
   if (isPublished) {
-    return (
-      <Badge variant="destructive" className="max-w-full truncate">
-        {READINESS_LABEL[readiness]}
-      </Badge>
-    );
+    return <StatusWord tone="broken">{READINESS_LABEL[readiness]}</StatusWord>;
   }
   // Unpublished rows: only flag problems on mapped event types, since the
   // program column already says when one is unmapped.
   if (readiness === "missing_url" || readiness === "missing_current_calendly_url") {
-    return (
-      <Badge variant="destructive" className="max-w-full truncate">
-        {READINESS_LABEL[readiness]}
-      </Badge>
-    );
+    return <StatusWord tone="attention">{READINESS_LABEL[readiness]}</StatusWord>;
   }
-  return <Badge variant="muted">Hidden</Badge>;
+  return <StatusWord tone="inactive">Hidden</StatusWord>;
+}
+
+export function PortalEventTypeReadinessSkeleton() {
+  return (
+    <DetailCard title={TITLE} className="min-w-0">
+      <div className="flex items-center gap-2.5 border-b px-4 py-2.5">
+        <Skeleton className="h-[30px] w-80 max-w-full" />
+      </div>
+      <TableSkeleton label="Loading portal event types" heads={HEADS} rows={6} rowClassName="h-[52px]" />
+    </DetailCard>
+  );
 }

@@ -8,15 +8,16 @@ import {
   getMemberDisplayName,
   MemberAvatar,
 } from "@/app/workspace/_components/member-avatar";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  DetailCard,
+  DetailCardFooter,
+  detailLinkClass,
+} from "@/app/workspace/closer/meetings/_components/detail-card";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CardNote } from "./attribution-ui";
+
+const TITLE = "Recent link copies";
 
 const COLLAPSED_COUNT = 8;
 
@@ -35,90 +36,93 @@ export function PortalUsageCard() {
 
   if (events === undefined) {
     return (
-      <Skeleton
-        className="h-64 w-full"
-        role="status"
-        aria-label="Loading recent portal copy activity"
-      />
+      <DetailCard title={TITLE} className="min-w-0">
+        <div role="status" aria-label="Loading recent portal copy activity" className="divide-y">
+          {Array.from({ length: 4 }, (_, row) => (
+            <div key={row} className="flex gap-3 px-4 py-2.5">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3 w-48" />
+                <Skeleton className="h-3 w-40" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </DetailCard>
     );
   }
 
   const visibleEvents = expanded ? events : events.slice(0, COLLAPSED_COUNT);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recent Link Copies</CardTitle>
-        <CardDescription>
-          Who copied which link. Generated URLs aren&apos;t stored.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {events.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            No portal copy activity recorded yet.
-          </p>
-        ) : (
-          <>
-            <ol className="flex flex-col divide-y">
-              {visibleEvents.map((event) => (
-                <li
-                  key={event.id}
-                  className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
-                >
-                  {event.dmCloser ? (
-                    <MemberAvatar identity={event.dmCloser} className="mt-0.5" />
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-medium">
-                        {event.dmCloser
-                          ? getMemberDisplayName(event.dmCloser)
-                          : event.dmCloserName}
-                      </span>
-                      <time
-                        dateTime={new Date(event.copiedAt).toISOString()}
-                        title={formatTimestamp(event.copiedAt)}
-                        className="shrink-0 text-xs tabular-nums text-muted-foreground"
-                      >
-                        {formatDistanceToNowStrict(event.copiedAt, {
-                          addSuffix: true,
-                        })}
-                      </time>
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {event.bookingProgramName}
-                      <span aria-hidden="true"> · </span>
-                      <span title={event.utmCampaign}>
-                        {event.campaignLabel}
-                      </span>
-                    </p>
-                    <p
-                      className="truncate text-xs text-muted-foreground/70"
-                      title={`${event.attributionTeamName} · ${event.eventTypeName}`}
+    <DetailCard title={TITLE} className="min-w-0">
+      <CardNote>Who copied which link. Generated URLs aren&apos;t stored.</CardNote>
+      {events.length === 0 ? (
+        <SectionEmpty title="No portal copy activity recorded yet." />
+      ) : (
+        <>
+          <ol aria-label={TITLE} className="flex flex-col divide-y">
+            {visibleEvents.map((event) => (
+              <li key={event.id} className="flex gap-3 px-4 py-2.5">
+                {event.dmCloser ? (
+                  <MemberAvatar identity={event.dmCloser} className="mt-0.5" />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate font-medium">
+                      {event.dmCloser
+                        ? getMemberDisplayName(event.dmCloser)
+                        : event.dmCloserName}
+                    </span>
+                    <time
+                      dateTime={new Date(event.copiedAt).toISOString()}
+                      title={formatTimestamp(event.copiedAt)}
+                      className="shrink-0 font-condensed text-[13px] font-semibold tracking-[0.02em] text-muted-foreground tabular-nums"
                     >
-                      {event.attributionTeamName}
-                      <span aria-hidden="true"> · </span>
-                      {event.eventTypeName}
-                    </p>
+                      {formatDistanceToNowStrict(event.copiedAt, {
+                        addSuffix: true,
+                      })}
+                    </time>
                   </div>
-                </li>
-              ))}
-            </ol>
-            {events.length > COLLAPSED_COUNT ? (
-              <Button
+                  <p className="truncate text-[13px] text-muted-foreground">
+                    {event.bookingProgramName}
+                    <span aria-hidden="true"> · </span>
+                    <span title={event.utmCampaign}>
+                      {event.campaignLabel}
+                    </span>
+                  </p>
+                  <p
+                    className="truncate text-[13px] text-muted-foreground"
+                    title={`${event.attributionTeamName} · ${event.eventTypeName}`}
+                  >
+                    {event.attributionTeamName}
+                    <span aria-hidden="true"> · </span>
+                    {event.eventTypeName}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {events.length > COLLAPSED_COUNT ? (
+            <DetailCardFooter className="text-[13px] font-normal">
+              <span>
+                <span className="font-condensed text-[15px] font-semibold text-foreground tabular-nums">
+                  {visibleEvents.length}
+                </span>{" "}
+                of {events.length} shown
+              </span>
+              <button
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="mt-3 w-full"
+                className={detailLinkClass}
                 onClick={() => setExpanded((value) => !value)}
               >
                 {expanded ? "Show less" : `Show all ${events.length}`}
-              </Button>
-            ) : null}
-          </>
-        )}
-      </CardContent>
-    </Card>
+              </button>
+            </DetailCardFooter>
+          ) : null}
+        </>
+      )}
+    </DetailCard>
   );
 }

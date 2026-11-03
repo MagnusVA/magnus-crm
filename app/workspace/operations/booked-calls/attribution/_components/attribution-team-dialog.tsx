@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -65,7 +66,7 @@ export function AttributionTeamDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{team ? "Edit DM Team" : "New DM Team"}</DialogTitle>
+          <DialogTitle>{team ? "Edit DM team" : "New DM team"}</DialogTitle>
           <DialogDescription>
             Map a canonical UTM source to an external DM team.
           </DialogDescription>
@@ -81,7 +82,7 @@ export function AttributionTeamDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="team-utm-source">UTM Source</FieldLabel>
+            <FieldLabel htmlFor="team-utm-source">UTM source</FieldLabel>
             <Input
               id="team-utm-source"
               value={utmSource}
@@ -90,19 +91,20 @@ export function AttributionTeamDialog({
             />
           </Field>
         </FieldGroup>
-        <div className="flex justify-end gap-2">
+        <DialogFooter>
           <Button
+            type="button"
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSaving}
           >
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button type="button" onClick={handleSave} disabled={isSaving}>
             {isSaving && <Spinner data-icon="inline-start" />}
             Save
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

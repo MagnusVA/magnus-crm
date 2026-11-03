@@ -13,16 +13,9 @@ import {
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -32,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CardNote, StatusWord } from "./attribution-ui";
 import { CampaignPresetDialog } from "./campaign-preset-dialog";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -72,13 +66,7 @@ export function CampaignPresetsCard() {
   }, [campaigns, ensureDefaults]);
 
   if (campaigns === undefined) {
-    return (
-      <Skeleton
-        className="h-72 w-full"
-        role="status"
-        aria-label="Loading campaign presets"
-      />
-    );
+    return <CampaignPresetsSkeleton />;
   }
 
   const activeCampaignCount = campaigns.filter(
@@ -128,111 +116,99 @@ export function CampaignPresetsCard() {
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Campaign Presets</CardTitle>
-          <CardDescription>
-            UTM campaign values DM closers pick from in the portal.
-          </CardDescription>
-          <CardAction>
-            <Button type="button" size="sm" onClick={openCreateDialog}>
-              <PlusIcon data-icon="inline-start" />
-              New
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          {campaigns.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Campaign presets are being prepared.
-            </p>
-          ) : (
-            <ul className="divide-y rounded-lg border">
-              {campaigns.map((campaign) => {
-                const isPending = pendingCampaignId === campaign._id;
-                const cannotDisable =
-                  campaign.isActive && activeCampaignCount === 1;
-                return (
-                  <li
-                    key={campaign._id}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5",
-                      !campaign.isActive && "bg-muted/30",
-                    )}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "truncate text-sm font-medium",
-                            !campaign.isActive && "text-muted-foreground",
-                          )}
-                        >
-                          {campaign.label}
-                        </span>
-                        {campaign.isDefault && campaign.isActive ? (
-                          <Badge variant="secondary">
-                            <StarIcon data-icon="inline-start" />
-                            Default
-                          </Badge>
-                        ) : null}
-                        {!campaign.isActive ? (
-                          <Badge variant="muted">Disabled</Badge>
-                        ) : null}
-                      </div>
-                      <div
-                        className="truncate font-mono text-xs text-muted-foreground"
-                        translate="no"
+      <DetailCard
+        title="Campaign presets"
+        className="min-w-0"
+        meta={
+          <Button type="button" size="sm" variant="outline" onClick={openCreateDialog}>
+            <PlusIcon data-icon="inline-start" aria-hidden="true" />
+            New campaign
+          </Button>
+        }
+      >
+        <CardNote>UTM campaign values DM closers pick from in the portal.</CardNote>
+        {campaigns.length === 0 ? (
+          <SectionEmpty title="Campaign presets are being prepared." />
+        ) : (
+          <ul aria-label="Campaign presets" className="divide-y">
+            {campaigns.map((campaign) => {
+              const isPending = pendingCampaignId === campaign._id;
+              const cannotDisable =
+                campaign.isActive && activeCampaignCount === 1;
+              return (
+                <li
+                  key={campaign._id}
+                  className="flex min-h-11 items-center gap-3 px-4 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={cn(
+                          "truncate font-medium",
+                          !campaign.isActive && "text-muted-foreground",
+                        )}
                       >
-                        utm_campaign={campaign.utmCampaign}
-                      </div>
+                        {campaign.label}
+                      </span>
+                      {campaign.isDefault && campaign.isActive ? (
+                        <StatusWord tone="active">Default</StatusWord>
+                      ) : null}
+                      {!campaign.isActive ? (
+                        <StatusWord tone="inactive">Disabled</StatusWord>
+                      ) : null}
                     </div>
-                    {isPending ? <Spinner /> : null}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="icon-sm"
-                          variant="ghost"
-                          disabled={isPending}
-                          aria-label={`Actions for ${campaign.label}`}
-                        >
-                          <EllipsisIcon />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => openEditDialog(campaign)}
-                        >
-                          <PencilIcon />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={!campaign.isActive || campaign.isDefault}
-                          onClick={() => handleSetDefault(campaign)}
-                        >
-                          <StarIcon />
-                          Make Default
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          disabled={cannotDisable}
-                          onClick={() =>
-                            handleSetActive(campaign, !campaign.isActive)
-                          }
-                        >
-                          {campaign.isActive ? <BanIcon /> : <CheckIcon />}
-                          {campaign.isActive ? "Disable" : "Enable"}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                    <div
+                      className="truncate font-mono text-[13px] text-muted-foreground"
+                      translate="no"
+                    >
+                      utm_campaign={campaign.utmCampaign}
+                    </div>
+                  </div>
+                  {isPending ? <Spinner /> : null}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        aria-label={`Actions for ${campaign.label}`}
+                      >
+                        <EllipsisIcon />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={() => openEditDialog(campaign)}
+                      >
+                        <PencilIcon />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={!campaign.isActive || campaign.isDefault}
+                        onClick={() => handleSetDefault(campaign)}
+                      >
+                        <StarIcon />
+                        Make default
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        disabled={cannotDisable}
+                        onClick={() =>
+                          handleSetActive(campaign, !campaign.isActive)
+                        }
+                      >
+                        {campaign.isActive ? <BanIcon /> : <CheckIcon />}
+                        {campaign.isActive ? "Disable" : "Enable"}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </DetailCard>
 
       <CampaignPresetDialog
         open={dialogOpen}
@@ -245,5 +221,20 @@ export function CampaignPresetsCard() {
         }}
       />
     </>
+  );
+}
+
+function CampaignPresetsSkeleton() {
+  return (
+    <DetailCard title="Campaign presets" className="min-w-0">
+      <div role="status" aria-label="Loading campaign presets" className="divide-y">
+        {Array.from({ length: 3 }, (_, row) => (
+          <div key={row} className="flex min-h-11 flex-col justify-center gap-1.5 px-4 py-2">
+            <Skeleton className="h-3.5 w-32" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        ))}
+      </div>
+    </DetailCard>
   );
 }
