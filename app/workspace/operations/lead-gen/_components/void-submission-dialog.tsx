@@ -101,7 +101,9 @@ export function VoidSubmissionDialog({
         <Button
           aria-label={`Void submission${prospectLabel ? ` for ${prospectLabel}` : ""}`}
           size={compactTrigger ? "icon-sm" : "sm"}
-          variant="destructive"
+          variant={compactTrigger ? "ghost" : "destructive"}
+          className={compactTrigger ? "text-danger-ink hover:bg-destructive/10 hover:text-danger-ink" : undefined}
+          title={compactTrigger ? "Void submission" : undefined}
         >
           <BanIcon aria-hidden="true" data-icon="inline-start" />
           {compactTrigger ? null : "Void"}

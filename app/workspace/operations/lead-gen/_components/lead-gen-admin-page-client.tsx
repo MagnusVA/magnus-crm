@@ -1,11 +1,7 @@
 "use client";
-import { useBusinessDay } from "@/hooks/use-business-day";
-import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useQuery } from "convex/react";
-import { SettingsIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { dashboardRangePlan, dashboardRangeFromToday } from "@/lib/analyticsRange";
 import {
@@ -15,20 +11,30 @@ import {
 	mergeLeadGenProspectConversions,
 	mergeLeadGenResparkPerformance,
 } from "@/convex/analytics/merge/leadGen";
-import { businessDateForInstant } from "@/lib/businessDay";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
+import {
+	AnalyticsFreshnessAlert,
+	FreshnessWords,
+	freshnessSummary,
+} from "@/app/workspace/_components/analytics/analytics-freshness";
 import {
 	useAnalyticsReport,
 	useAnalyticsSource,
 } from "@/app/workspace/_components/analytics/use-analytics-report";
-import { Button } from "@/components/ui/button";
-import { DashboardDateRangeFilter } from "@/app/workspace/_components/dashboard-date-range-filter";
+import {
+	DateRangePicker,
+	formatBusinessDateSpan,
+	rangePhrase as rangePhraseOf,
+} from "@/app/workspace/_components/date-range-picker";
 import {
 	dashboardRangeToDayKeys,
 	OPERATIONS_DASHBOARD_RANGE_VALIDATION,
 	requiresOperationsReportSnapshot,
 } from "@/app/workspace/_components/dashboard-date-utils";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
 import {
@@ -42,13 +48,13 @@ import {
 	useOperationsDashboardReport,
 	useAllOperationsReportRows,
 } from "../../_components/use-operations-report-job";
-import { LeadGenFilterBar } from "./lead-gen-filter-bar";
-import { LeadGenSummaryCards } from "./lead-gen-summary-cards";
-import { ResparkPerformanceTable } from "./respark-performance-table";
-import { ProspectConversionTable } from "./prospect-conversion-table";
-import { RawSubmissionsTable } from "./raw-submissions-table";
-import { SpecialistPerformanceTable } from "./specialist-performance-table";
-import { TopOriginsTable } from "./top-origins-table";
+import { LeadGenBand } from "./lead-gen-band";
+import { ProspectConversionSection } from "./prospect-conversion-section";
+import { RawSubmissionsCard } from "./raw-submissions-card";
+import { ResparkSection } from "./respark-section";
+import { SpecialistsSection } from "./specialists-section";
+import { TopPostsByTeam } from "./top-posts-by-team";
+import { useKeptWhileLoading } from "./use-kept-while-loading";
 
 export type LeadGenSource = "instagram" | "meta_business";
 
@@ -58,10 +64,15 @@ export type LeadGenFilters = {
 	source?: LeadGenSource;
 };
 
+const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
+
+const asOfFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+
 export function LeadGenAdminPageClient() {
- const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
- const now = useNow();
-	const { range, setRange, queryRange, rangeLabel, validationMessage } =
+	usePageTitle("Lead Gen");
+	const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
+	const now = useNow();
+	const { range, setRange, queryRange, validationMessage } =
 		useDashboardRange({
 			urlSync: true,
 			defaultRange: { kind: "preset", preset: "today" },
@@ -184,9 +195,11 @@ export function LeadGenAdminPageClient() {
 		enabled: snapshot.summary !== undefined,
 	});
 
-	const displayOverview = needsSnapshot
-		? snapshot.summary ? leadDashboardOverview(snapshot.summary.payload) : undefined
-		: overview;
+	// Memoized like the rows below: the kept-data hook keeps each new object it sees.
+	const snapshotPayload = snapshot.summary?.payload;
+	const displayOverview = useMemo(() => needsSnapshot
+		? snapshotPayload ? leadDashboardOverview(snapshotPayload) : undefined
+		: overview, [needsSnapshot, snapshotPayload, overview]);
 	const displayWorkers = useMemo(() => needsSnapshot
 		? workerSnapshot.rows ? leadDashboardWorkers(workerSnapshot.rows) : undefined
 		: specialistRows, [needsSnapshot, workerSnapshot.rows, specialistRows]);
@@ -198,55 +211,76 @@ export function LeadGenAdminPageClient() {
 		: origins ? sortLeadDashboardOriginTeams(origins) : undefined, [needsSnapshot, originSnapshot.rows, origins]);
 	const resultError = workerSnapshot.error ?? originSnapshot.error;
 
+	// The range in words, from the business days the numbers cover.
+	const phrase = rangePhraseOf(queryRange);
+	const dates = formatBusinessDateSpan(filters.startDayKey, filters.endDayKey, todayBusinessDate);
+	const rangeWords = queryRange.kind === "custom" ? dates : `${PRESET_WORDS[queryRange.preset]} · ${dates}`;
+	const freshness = freshnessSummary(
+		[
+			overviewReport.freshness,
+			specialistReport.freshness,
+			originsReport.freshness,
+			conversionsReport.freshness,
+			resparksReport.freshness,
+		],
+		now,
+	);
+
+	// A new range or source keeps each section's last numbers on screen,
+	// dimmed, until the new ones arrive (DESIGN.md, Kept Data While Reloading).
+	const shownOverview = useKeptWhileLoading(displayOverview, phrase);
+	const shownWorkers = useKeptWhileLoading(displayWorkers, phrase);
+	const shownTeams = useKeptWhileLoading(displayTeams, phrase);
+	const shownOrigins = useKeptWhileLoading(displayOrigins, phrase);
+	const shownConversions = useKeptWhileLoading(conversions, phrase);
+	const shownResparks = useKeptWhileLoading(resparks, phrase);
+
+	const freshnessWords = needsSnapshot ? (
+		<span role="status">
+			{snapshot.summary
+				? `Historical report as of ${asOfFormatter.format(new Date(snapshot.summary.generatedAt))}`
+				: "Preparing the historical report"}
+		</span>
+	) : freshness.kind === "line" && shownOverview.data !== undefined ? (
+		// Until the first numbers arrive the source isn't settled, so no "Live" yet.
+		<FreshnessWords summary={freshness} />
+	) : null;
+
 	return (
-		<div className="flex min-w-0 flex-col gap-4">
-			<header className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-				<div className="flex min-w-0 items-start gap-3">
-					<div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
-					<div className="min-w-0">
-						<h1 className="text-2xl font-semibold tracking-tight">
-							Lead Gen Ops
-						</h1>
-						<p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-							Lead gen specialist activity, source quality, top origins,
-							and operational exports.
-						</p>
-					</div>
-				</div>
-				<div className="flex flex-col items-start gap-3 lg:items-end">
-					<div className="flex flex-wrap items-center gap-2">
-						<Button asChild size="sm">
-							<Link href="/workspace/lead-gen/settings">
-								<SettingsIcon data-icon="inline-start" />
-								Settings & Schedules
-							</Link>
-						</Button>
-						<OperationsReportExportMenu
-							reportKind="lead-gen"
-							range={queryRange}
-							sourceFilter={filters.source}
-						/>
-					</div>
-					<DashboardDateRangeFilter bucketKind="lead-gen"
-						validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
-						validationMessage={validationMessage}
+		<div className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3">
+			<LeadGenBand
+				description={
+					<>
+						<span className="font-medium text-board-foreground">{rangeWords}</span>
+						{freshnessWords ? <> · {freshnessWords}</> : null}
+						<span className="hidden @3xl:inline"> · {businessDayDisclosure(setting)}</span>
+						{validationMessage ? (
+							<span className="mt-1 block text-board-danger" role="alert">
+								{validationMessage}
+							</span>
+						) : null}
+					</>
+				}
+				picker={
+					<DateRangePicker
+						tone="board"
 						value={range}
 						onChange={setRange}
+						validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
+						todayBusinessDate={todayBusinessDate}
 					/>
-					<AnalyticsFreshnessLine
-						items={[
-							overviewReport.freshness,
-							specialistReport.freshness,
-							originsReport.freshness,
-							conversionsReport.freshness,
-							resparksReport.freshness,
-						]}
+				}
+				exportMenu={
+					<OperationsReportExportMenu
+						reportKind="lead-gen"
+						range={queryRange}
+						sourceFilter={filters.source}
 					/>
-				</div>
-			</header>
-
-			<LeadGenFilterBar
-				rangeLabel={rangeLabel}
+				}
+				totals={shownOverview.data}
+				specialistCount={shownWorkers.data?.length}
+				rangePhrase={shownWorkers.phrase}
+				reloading={shownOverview.reloading || shownWorkers.reloading}
 				source={source}
 				onSourceChange={setSource}
 			/>
@@ -260,15 +294,40 @@ export function LeadGenAdminPageClient() {
 					onRefresh={snapshot.refresh}
 					onRetry={snapshot.retry}
 				/>
-			) : null}
+			) : (
+				<AnalyticsFreshnessAlert summary={freshness} />
+			)}
 
-			<LeadGenSummaryCards data={displayOverview} specialistCount={displayWorkers?.length} />
-			<SpecialistPerformanceTable rows={displayWorkers} teams={displayTeams} />
-			<ProspectConversionTable report={conversions} />
-			<ResparkPerformanceTable report={resparks} />
-			<TopOriginsTable groups={displayOrigins} />
+			<ProspectConversionSection
+				report={shownConversions.data}
+				rangePhrase={shownConversions.phrase}
+				reloading={shownConversions.reloading}
+			/>
 
-			<RawSubmissionsTable filters={filters} />
+			<div className="grid items-start gap-3.5 @5xl:grid-cols-[minmax(0,1fr)_24rem] short:gap-3">
+				<SpecialistsSection
+					rows={shownWorkers.data}
+					teams={shownTeams.data}
+					conversions={shownConversions.data}
+					allSources={source === undefined}
+					rangePhrase={shownWorkers.phrase}
+					reloading={shownWorkers.reloading}
+				/>
+				<TopPostsByTeam
+					groups={shownOrigins.data}
+					rangePhrase={shownOrigins.phrase}
+					reloading={shownOrigins.reloading}
+					todayBusinessDate={todayBusinessDate}
+				/>
+			</div>
+
+			<ResparkSection
+				report={shownResparks.data}
+				rangePhrase={shownResparks.phrase}
+				reloading={shownResparks.reloading}
+			/>
+
+			<RawSubmissionsCard filters={filters} />
 		</div>
 	);
 }

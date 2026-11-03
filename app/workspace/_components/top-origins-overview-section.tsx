@@ -15,6 +15,8 @@ import { OverviewSectionState } from "./overview-section-state";
 // was fetched; otherwise the readable link stands in for the caption.
 
 type OriginRow = Extract<TopOriginsSection, { status: "ready" }>["data"]["rows"][number];
+/** A ranked post; Lead Gen's per-team rows carry the source as a plain string. */
+type PostRowData = Omit<OriginRow, "source"> & { source: string };
 type Preview = FunctionReturnType<typeof api.leadGen.originPreviews.listOriginPreviews>[number];
 
 const kindWord: Record<string, string> = { post: "Post", reel: "Reel", story: "Story", story_poll: "Story poll" };
@@ -69,7 +71,7 @@ function PostRow({
   preview,
   todayBusinessDate,
 }: {
-  row: OriginRow;
+  row: PostRowData;
   preview: Preview | undefined;
   todayBusinessDate: string | undefined;
 }) {
@@ -119,12 +121,21 @@ function PostRow({
   );
 }
 
-function TopPostsList({ rows, todayBusinessDate }: { rows: OriginRow[]; todayBusinessDate: string | undefined }) {
+/** The ranked post rows with their previews; Lead Gen reuses them per team. */
+export function TopPostsList({
+  rows,
+  todayBusinessDate,
+  label = "Top posts and reels by submissions",
+}: {
+  rows: PostRowData[];
+  todayBusinessDate: string | undefined;
+  label?: string;
+}) {
   const keys = rows.map((row) => row.originKey).slice(0, 50);
   const previews = useQuery(api.leadGen.originPreviews.listOriginPreviews, { originKeys: keys });
   const byKey = new Map((previews ?? []).map((preview) => [preview.originKey, preview]));
   return (
-    <ol aria-label="Top posts and reels by submissions" className="flex flex-col">
+    <ol aria-label={label} className="flex flex-col">
       {rows.map((row) => (
         <PostRow key={`${row.source}:${row.originKey}`} row={row} preview={byKey.get(row.originKey)} todayBusinessDate={todayBusinessDate} />
       ))}

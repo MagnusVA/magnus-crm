@@ -1,0 +1,46 @@
+{
+  "title": "Lead Gen: choose the structure",
+  "question": "Same content and data, new look. Lock one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "leadgen-roster",
+      "kind": "assigned",
+      "label": "One roster",
+      "kicker": "THE ROLL",
+      "lineage": "Every specialist on one ruled sheet",
+      "thesis": "Specialist performance, prospect conversion and resparks become one table, one row per specialist grouped by team, so a person's whole range reads across a single line.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band with totals and source tabs", "one wide ruled table with column groups", "condensed figures"],
+      "viewport": "Navy band (Lead Gen, range in words, Live, the picker; the four totals; ALL SOURCES · INSTAGRAM · META BUSINESS tabs with Export and Schedules); then the Specialists table: PERFORMANCE · CONVERSION · RESPARK column groups, team rows with subtotals, a Total row; posts by team and raw submissions below.",
+      "risk": "Fifteen figure columns: under about 1,400px the table shows one group at a time behind a Performance / Conversion / Respark toggle.",
+      "html": ".impeccable/mocks/decision/leadgen-roster.html"
+    },
+    {
+      "id": "leadgen-funnel",
+      "kind": "dealt",
+      "label": "Funnel first",
+      "lineage": "Where the captured people went",
+      "thesis": "Prospect conversion leads as a stage strip (Prospects to Customer with the share kept at each step); specialists and top posts share the row under it, respark last.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band with totals and source tabs", "a ruled stage strip with step bars", "specialist table beside a posts rail"],
+      "viewport": "Navy band as in One roster; a white Conversion strip of six stages (count, share of prospects, a bar) plus Deals; under it Specialists by team (submissions, per hour, a small conversion bar) beside a 384px Top posts rail with team tabs; Respark and raw submissions below.",
+      "risk": "Puts conversion, the slowest-moving number, above the day's output; on Today the strip is mostly zeros.",
+      "html": ".impeccable/mocks/decision/leadgen-funnel.html"
+    },
+    {
+      "id": "leadgen-tabs",
+      "kind": "dealt",
+      "label": "One table at a time",
+      "lineage": "A workbench with tabs",
+      "thesis": "Under the band one card holds the page's five tables behind tabs (Specialists, Conversion, Respark, Posts, Submissions), each at full width with no sideways scroll; the tab sits in the URL.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band with totals and source tabs", "one tabbed card", "full-width ruled tables"],
+      "viewport": "Navy band as in One roster; one white card whose 44px title row is the tab list SPECIALISTS · CONVERSION · RESPARK · POSTS · SUBMISSIONS with counts; Specialists open by default as team groups with subtotals and a Total row.",
+      "risk": "Calmest first screen, but comparing a specialist's output with their conversion means switching tabs.",
+      "html": ".impeccable/mocks/decision/leadgen-tabs.html"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": {"value": "code"}
+}
