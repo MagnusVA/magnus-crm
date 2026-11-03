@@ -67,6 +67,21 @@ describe("queueSecondOpinion", () => {
       ctx.db.patch("meetings", f.meetingId, { status: "held" }),
     );
     await f.patchDeal({ stage: "follow_up" });
+    // The call-back this meeting's result set.
+    await f.t.run((ctx) =>
+      ctx.db.insert("followUps", {
+        tenantId: f.tenantId,
+        opportunityId: f.opportunityId,
+        leadId: f.leadId,
+        closerId: f.closerId,
+        type: "manual_reminder",
+        sourceMeetingId: f.meetingId,
+        reminderScheduledAt: Date.now() + 86400_000,
+        reason: "closer_initiated",
+        status: "pending",
+        createdAt: Date.now(),
+      }),
+    );
     await f.t.run((ctx) =>
       ctx.db.patch("callRecordings", f.recordingId, {
         transcriptStorageId: undefined,
@@ -145,10 +160,14 @@ describe("queueSecondOpinion", () => {
   });
   it("snapshots a loss reason", async () => {
     const f = await secondOpinionHarness("on", "held");
+    // A meeting's loss writes lostAt with the meeting's heldMarkedAt.
+    const at = Date.now();
+    await f.t.run((ctx) => ctx.db.patch("meetings", f.meetingId, { heldMarkedAt: at }));
     await f.patchDeal({
       stage: "closed",
       outcome: "lost",
       lostReason: "price",
+      lostAt: at,
     });
     const id = await f.queue();
     expect((await row(f, id!))?.record).toEqual({

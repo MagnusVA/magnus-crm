@@ -37,7 +37,10 @@ async function insertMatchedRecording(ctx: MutationCtx, f: Fixture, meetingId: I
     title: "Call",
     recordingStartAt: now - 40 * 60_000,
     recordingEndAt: now,
-    transcriptStorageId: await ctx.storage.store(new Blob(["[]"])),
+    // convex-test serves storage.store inside t.run; the mutation type lacks it.
+    transcriptStorageId: await (ctx.storage as unknown as { store: (blob: Blob) => Promise<Id<"_storage">> }).store(
+      new Blob(["[]"]),
+    ),
     inviteeEmails: [],
     matchStatus: "matched",
     createdAt: now,
