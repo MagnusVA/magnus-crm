@@ -13,6 +13,7 @@ import { rejectRequest } from "../lib/observability/errors";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { actionItem } from "./validators";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
 export type RecordingActor = {
   tenantId: Id<"tenants">;
@@ -94,12 +95,12 @@ export async function getRecordingForMeeting(
     ? toRecordingView(row)
     : null;
 }
-/** The second opinion will hook in here. Every automatic and manual match calls this function. */
+/** Every automatic and manual match queues a check once a result exists. */
 export async function onRecordingMatched(
-  _ctx: MutationCtx,
-  _args: { meetingId: Id<"meetings">; recordingId: Id<"callRecordings"> },
+  ctx: MutationCtx,
+  args: { meetingId: Id<"meetings">; recordingId: Id<"callRecordings"> },
 ): Promise<void> {
-  // The second opinion will hook in here.
+  await queueSecondOpinion(ctx, { meetingId: args.meetingId, trigger: "recording_matched" });
 }
 export async function recordMatch(
   ctx: MutationCtx,

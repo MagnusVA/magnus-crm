@@ -141,8 +141,13 @@ export async function callDecisions(
   } catch (err) {
     return { kind: "retryable", status: 0, detail: err instanceof Error ? err.message : String(err) };
   }
-  const text = await response.text();
-  if (response.status === 502 || response.status === 503 || response.status === 504 || response.status === 429) {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    return { kind: "retryable", status: response.status, detail: "Could not read gateway response" };
+  }
+  if (response.status === 502 || response.status === 503) {
     return { kind: "retryable", status: response.status, detail: text.slice(0, 300) };
   }
   if (!response.ok) return { kind: "rejected", status: response.status, detail: text.slice(0, 300) };
