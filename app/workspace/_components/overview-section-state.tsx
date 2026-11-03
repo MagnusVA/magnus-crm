@@ -66,12 +66,15 @@ export function SectionProblem({
   );
 }
 
-/** Top Qualifiers' Slack cap, said in words above the rows. */
-export function OverviewPartialNote({ className }: { className?: string }) {
+/**
+ * Why a section's figures are partial, said once in words above the rows.
+ * Defaults to Top Qualifiers' Slack cap.
+ */
+export function OverviewPartialNote({ className, children }: { className?: string; children?: React.ReactNode }) {
   return (
     <p className={cn("border-b px-4 py-2 text-[13px] text-muted-foreground", className)}>
-      <span className="font-medium text-foreground">Partial.</span> This range hit the Slack event cap, so the ranking
-      uses the events read.
+      <span className="font-medium text-foreground">Partial.</span>{" "}
+      {children ?? "This range hit the Slack event cap, so the ranking uses the events read."}
     </p>
   );
 }

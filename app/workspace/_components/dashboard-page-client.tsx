@@ -145,7 +145,11 @@ export function DashboardPageClient() {
           </section>
           <div className="grid items-start gap-3.5 @5xl:grid-cols-[1.35fr_1fr] short:gap-3">
             <PhoneCloserOperationsSection section={overview.phoneCloserOperations} rangePhrase={rangePhrase(shownInput)} />
-            <TopOriginsOverviewSection section={overview.topOrigins} rangePhrase={rangePhrase(shownInput)} />
+            <TopOriginsOverviewSection
+              section={overview.topOrigins}
+              rangePhrase={rangePhrase(shownInput)}
+              todayBusinessDate={todayBusinessDate}
+            />
           </div>
         </div>
       ) : (
