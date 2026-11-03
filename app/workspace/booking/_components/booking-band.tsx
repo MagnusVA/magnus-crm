@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { PageBand } from "@/app/workspace/_components/page-band";
+import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
 import { eventTypeStatus } from "./booking-model";
@@ -74,10 +76,16 @@ function useEnsureCoverage(migrated: boolean | undefined) {
   useEffect(() => {
     if (migrated !== false || started.current) return;
     started.current = true;
-    ensureCoverage({}).catch((error: unknown) => {
-      started.current = false;
-      reportClientError(error, { flow: "booking_setup_ensure_coverage" });
-    });
+    const run = () => {
+      ensureCoverage({}).catch((error: unknown) => {
+        reportClientError(error, { flow: "booking_setup_ensure_coverage" });
+        toast.error(getErrorMessage(error, "Couldn't move this workspace to the new booking layout."), {
+          duration: Infinity,
+          action: { label: "Try again", onClick: run },
+        });
+      });
+    };
+    run();
   }, [ensureCoverage, migrated]);
 }
 

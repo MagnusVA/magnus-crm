@@ -242,6 +242,39 @@ describe("booking coverage", () => {
     ).toBe(fixture.poolA);
   });
 
+  it("refuses to migrate from a partial read", async () => {
+    const fixture = await createFixture();
+    await fixture.t.run(async (ctx) => {
+      for (let index = 0; index < 200; index += 1) {
+        await ctx.db.insert("attributionTeams", {
+          tenantId: fixture.tenantId,
+          slug: `extra-${index}`,
+          displayName: `extra-${index}`,
+          utmSource: `extra-${index}`,
+          normalizedUtmSource: `extra-${index}`,
+          isActive: false,
+          createdAt: 0,
+          updatedAt: 0,
+        });
+      }
+    });
+    await expect(
+      fixture.admin.mutation(api.bookingSetup.mutations.ensureCoverage, {}),
+    ).rejects.toThrow("too many teams");
+    const tenant = await fixture.t.run((ctx) => ctx.db.get("tenants", fixture.tenantId));
+    expect(tenant?.bookingCoverageMigratedAt).toBeUndefined();
+  });
+
+  it("leaves archived programs out of the portal", async () => {
+    const fixture = await createFixture();
+    await fixture.admin.mutation(api.bookingSetup.mutations.ensureCoverage, {});
+    expect((await linksByEventType(fixture))[fixture.sharedPool]).toEqual([fixture.teamA, fixture.teamB].sort());
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch("tenantPrograms", fixture.programId, { archivedAt: Date.now() });
+    });
+    expect(await linksByEventType(fixture)).toEqual({});
+  });
+
   it("sorts an event type out as not a sales call and back", async () => {
     const fixture = await createFixture();
     await fixture.admin.mutation(api.bookingSetup.mutations.ensureCoverage, {});

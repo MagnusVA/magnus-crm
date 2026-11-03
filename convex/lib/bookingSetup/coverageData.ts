@@ -16,6 +16,7 @@ export const MAX_SHARED_PROGRAM_EVENT_TYPES = 400;
 const MAX_TEAMS = 200;
 const MAX_EVENT_TYPES = 500;
 const MAX_TEAM_ROUTES = 2000;
+const MAX_PROGRAMS = 200;
 
 export function isCoverageMigrated(tenant: Pick<Doc<"tenants">, "bookingCoverageMigratedAt">) {
   return tenant.bookingCoverageMigratedAt !== undefined;
@@ -161,8 +162,21 @@ export async function planCoverageMigration(
       .withIndex("by_tenantId_and_archivedAt", (q) =>
         q.eq("tenantId", tenantId).eq("archivedAt", undefined),
       )
-      .take(200),
+      .take(MAX_PROGRAMS),
   ]);
+
+  // The plan must see the whole tenant: a route whose event type it didn't
+  // read would be removed. Refuse rather than plan from a partial read.
+  if (
+    teams.length >= MAX_TEAMS ||
+    routes.length >= MAX_TEAM_ROUTES ||
+    eventTypes.length >= MAX_EVENT_TYPES ||
+    programs.length >= MAX_PROGRAMS
+  ) {
+    throw new Error(
+      "This workspace has too many teams, routes, event types or programs to move to booking coverage in one step.",
+    );
+  }
 
   const routedTeamIds = new Set(routes.map((route) => route.teamId));
   const routedEventTypeIds = new Set(

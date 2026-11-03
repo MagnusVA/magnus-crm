@@ -51,7 +51,7 @@ export const getPortalBootstrapForSession = internalQuery({
 		}
 
 		const migrated = isCoverageMigrated(tenant);
-		const [teams, closers, campaignPresets, eventTypeConfigs, teamRoutes, sharedRoutes] =
+		const [teams, closers, campaignPresets, eventTypeConfigs, teamRoutes, sharedRoutes, activePrograms] =
 			await Promise.all([
 				ctx.db
 					.query("attributionTeams")
@@ -73,6 +73,14 @@ export const getPortalBootstrapForSession = internalQuery({
 					.take(500),
 				listTeamProgramEventTypesForTenant(ctx, tenantId),
 				migrated ? listSharedRoutes(ctx, tenantId) : Promise.resolve([]),
+				migrated
+					? ctx.db
+							.query("tenantPrograms")
+							.withIndex("by_tenantId_and_archivedAt", (q) =>
+								q.eq("tenantId", tenantId).eq("archivedAt", undefined),
+							)
+							.take(200)
+					: Promise.resolve([]),
 			]);
 
 		const activeTeamById = new Map(
@@ -98,8 +106,14 @@ export const getPortalBootstrapForSession = internalQuery({
 				});
 				for (const eventTypeConfigId of linkable) addTeam(eventTypeConfigId, team._id);
 			}
+			// Archived programs keep their cells, but their links can't be copied.
+			const activeProgramIds = new Set<string>(activePrograms.map((program) => program._id));
 			bookable = eventTypeConfigs.filter(
-				(config) => linkIssue(config) === null && teamIdsByEventType.has(config._id),
+				(config) =>
+					linkIssue(config) === null &&
+					teamIdsByEventType.has(config._id) &&
+					config.bookingProgramId !== undefined &&
+					activeProgramIds.has(config.bookingProgramId),
 			);
 		} else {
 			// Legacy rule: a team with routes sees only its routed event types;
