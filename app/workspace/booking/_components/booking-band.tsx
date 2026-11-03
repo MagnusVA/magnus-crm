@@ -11,6 +11,7 @@ import { ChevronLeftIcon, PlusIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
@@ -181,6 +182,26 @@ export function BookingBand() {
   );
 }
 
+// What each band figure counts, on hover or focus.
+const FIGURE_TIP: Record<string, string> = {
+  Coverage: "Team cells (each active DM team × program × Priority/Standard) that give a working link.",
+  "No link": "Team cells with no link: the team uses Shared and Shared is empty there too, or the Shared cell can't book.",
+  Broken: "Cells that point at an event type that can't take bookings (no booking URL, off in Calendly, or moved to another program).",
+  Unsorted: "Calendly event types nobody has filed under a program or set aside yet. Sort them in the Inbox.",
+  "To sort": "Event types waiting in this inbox: not filed under a program, not set aside, still active in Calendly.",
+  "On a program": "Event types filed under a program. Their bookings count as sales calls for it.",
+  "Not a sales call": "Event types set aside as not sales calls. Bring one back from Event types.",
+  Gone: "Unsorted event types Calendly no longer offers (switched off or deleted).",
+  "Active teams": "DM teams that appear in the link portal and get credit for bookings.",
+  "Active DM closers": "Active DM closers on active teams: the people who can copy links.",
+  "Booked via DM links · 30d": "Bookings in the last 30 days whose utm_source matched an active DM team.",
+  "Unmatched UTMs": "UTM values on bookings in the last 30 days that matched no team or DM closer, so nobody got credit. Fix them below.",
+  "Booked · 30 days": "Bookings in the last 30 days through links with this team's utm_source.",
+  "DM closers": "Active DM closers on this team.",
+  "Programs it can book": "Programs where this team's DM closers get at least one working link (Priority or Standard).",
+  "Link copies · 7 days": "Links this team's DM closers copied from the portal in the last 7 days.",
+};
+
 function Figure({
   label,
   value,
@@ -227,7 +248,7 @@ function Figure({
     </>
   );
   const className = "flex min-w-[92px] flex-col border-l border-board-line px-4 py-0.5 text-left";
-  return href ? (
+  const element = href ? (
     <Link
       href={href}
       className={cn(className, "outline-none hover:bg-board-foreground/5 focus-visible:ring-2 focus-visible:ring-ring")}
@@ -235,7 +256,19 @@ function Figure({
       {body}
     </Link>
   ) : (
-    <div className={className}>{body}</div>
+    <div tabIndex={0} className={cn(className, "cursor-help outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
+      {body}
+    </div>
+  );
+  const tip = FIGURE_TIP[label];
+  if (!tip) return element;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{element}</TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-[17rem] text-[12.5px] leading-snug">
+        {tip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

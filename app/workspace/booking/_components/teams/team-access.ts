@@ -27,6 +27,15 @@ export const ACCESS_WORD: Record<LaneAccess["word"], string> = {
   not_offered: "Not offered",
 };
 
+/** What each lane word means, for its hover help. */
+export const ACCESS_TIP: Record<LaneAccess["word"], string> = {
+  own: "This team has its own event type in this cell on Coverage; its DM closers' links book it.",
+  shared: "This team has nothing of its own here and uses Shared, so its links book the Shared cell's event type.",
+  broken: "The cell points at an event type that can't take bookings right now (see the reason). DM closers don't get a link until it's fixed on Coverage.",
+  no_link: "The team uses Shared, but the Shared cell is empty too, so there's no link here. Fill it on Coverage.",
+  not_offered: "The team doesn't use Shared and has no event type of its own here, so its DM closers don't get this link.",
+};
+
 export const ACCESS_TONE: Record<LaneAccess["word"], string> = {
   own: "text-foreground",
   shared: "text-muted-foreground",

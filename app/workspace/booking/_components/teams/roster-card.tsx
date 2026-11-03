@@ -5,11 +5,12 @@ import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
 import posthog from "posthog-js";
-import { ChevronDownIcon, PlusIcon } from "lucide-react";
+import { ChevronRightIcon, PlusIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { buildBookingUrl } from "@/app/dm-links/[portalSlug]/_components/build-booking-url";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
@@ -19,18 +20,16 @@ import { cn } from "@/lib/utils";
 import type { CoverageTeam } from "../booking-model";
 import { GetsRows } from "./gets-table";
 import { canBook, type TeamAccess } from "./team-access";
-import { ActiveWord, CardHead, CARD, Code, FIGURE, firstName, formatRate, Initials, LABEL } from "./team-ui";
+import { EMPTY_WEEK, formatHours, ScheduleBlock, weekTotal, type WeekHours } from "./schedule-editor";
+import { ActiveWord, CardHead, CARD, Code, FIGURE, firstName, HelpTip, Initials, LABEL } from "./team-ui";
 import { normalizeUtm } from "./utm-suggestions";
 
 export type RosterDmCloser = FunctionReturnType<typeof api.attribution.dmClosers.listDmClosers>[number];
 type TeamMember = FunctionReturnType<typeof api.users.queries.listTeamMembers>[number];
 type UnmatchedGroup = FunctionReturnType<typeof api.bookingSetup.queries.getBookingActivity>["unmatchedUtms"][number];
 
-// Mirrors MAX_HOURLY_RATE_MINOR in convex/attribution/dmClosers.ts ($100,000).
-const MAX_RATE_MAJOR = 100_000;
-
 const ROW =
-  "grid w-full items-center gap-2.5 px-4 text-left grid-cols-[28px_minmax(0,1fr)_40px_72px_14px] @lg/roster:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_52px_58px_76px_14px]";
+  "grid w-full items-center gap-2.5 px-4 text-left grid-cols-[28px_minmax(0,1fr)_40px_72px_14px] @lg/roster:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_44px_52px_70px_14px]";
 
 export function RosterCard({
   team,
@@ -43,7 +42,10 @@ export function RosterCard({
   campaign,
   unmatched,
   openId,
+  scheduleOpen,
+  schedules,
   onToggle,
+  onScheduleChange,
   onNew,
 }: {
   team: CoverageTeam;
@@ -56,7 +58,10 @@ export function RosterCard({
   campaign: { label: string; utmCampaign: string } | null;
   unmatched: readonly UnmatchedGroup[];
   openId: string | null;
+  scheduleOpen: boolean;
+  schedules: ReadonlyMap<string, WeekHours>;
   onToggle: (dmCloserId: string) => void;
+  onScheduleChange: (dmCloserId: string, open: boolean) => void;
   onNew: () => void;
 }) {
   const roster = [...closers].sort(
@@ -68,19 +73,37 @@ export function RosterCard({
 
   return (
     <section className={cn(CARD, "@container/roster")} aria-labelledby="roster-title">
-      <CardHead title={<span id="roster-title">Roster</span>} meta="Click a DM closer to edit them and see their links">
+      <CardHead title={<span id="roster-title">Roster</span>} meta="Click a DM closer to edit them, set their schedule and see their links">
         <Button variant="outline" size="sm" onClick={onNew}>
           <PlusIcon aria-hidden="true" />
           New DM closer
         </Button>
       </CardHead>
-      <div aria-hidden="true" className={cn(ROW, "min-h-[34px] border-b border-border pt-2.5 pb-2")}>
+      <div className={cn(ROW, "min-h-[34px] border-b border-border pt-2.5 pb-2")}>
         <span />
-        <span className={LABEL}>DM closer</span>
-        <span className={cn(LABEL, "hidden @lg/roster:block")}>utm_medium</span>
-        <span className={cn(LABEL, "text-right")}>30d</span>
-        <span className={cn(LABEL, "hidden text-right @lg/roster:block")}>Rate</span>
-        <span className={LABEL}>Status</span>
+        <span className={LABEL}>
+          <HelpTip tip="The external setter's name, and the CRM user they're linked to, if any. Click a row to edit them.">
+            DM closer
+          </HelpTip>
+        </span>
+        <span className={cn(LABEL, "hidden @lg/roster:block")}>
+          <HelpTip tip="The value their links carry as utm_medium. A booking whose utm_medium matches it (and whose utm_source matches the team) is credited to this DM closer.">
+            utm_medium
+          </HelpTip>
+        </span>
+        <span className={cn(LABEL, "text-right")}>
+          <HelpTip tip="Bookings made in the last 30 days through links with this DM closer's utm_medium.">30d</HelpTip>
+        </span>
+        <span className={cn(LABEL, "hidden text-right @lg/roster:block")}>
+          <HelpTip tip="Hours scheduled a week. Booked Calls divides booked calls by these hours. Open a DM closer and use Set schedule to change them.">
+            Hours
+          </HelpTip>
+        </span>
+        <span className={LABEL}>
+          <HelpTip tip="Active DM closers appear in the link portal and get credit for bookings. Disabled ones keep their history but can't copy links.">
+            Status
+          </HelpTip>
+        </span>
         <span />
       </div>
       {roster.length === 0 ? (
@@ -102,7 +125,10 @@ export function RosterCard({
               campaign={campaign}
               unmatched={unmatched}
               open={openId === closer._id}
+              week={schedules.get(closer._id) ?? EMPTY_WEEK}
+              scheduleOpen={openId === closer._id && scheduleOpen}
               onToggle={() => onToggle(closer._id)}
+              onScheduleChange={(next) => onScheduleChange(closer._id, next)}
             />
           ))}
         </ul>
@@ -122,7 +148,10 @@ function CloserRow({
   campaign,
   unmatched,
   open,
+  week,
+  scheduleOpen,
   onToggle,
+  onScheduleChange,
 }: {
   closer: RosterDmCloser;
   team: CoverageTeam;
@@ -134,49 +163,94 @@ function CloserRow({
   campaign: { label: string; utmCampaign: string } | null;
   unmatched: readonly UnmatchedGroup[];
   open: boolean;
+  week: WeekHours;
+  scheduleOpen: boolean;
   onToggle: () => void;
+  onScheduleChange: (open: boolean) => void;
 }) {
-  const rate = formatRate(closer.hourlyRateMinor);
+  const weekly = weekTotal(week);
   const editorId = `closer-${closer._id}`;
   return (
-    <li id={`row-${closer._id}`} className={cn("scroll-mt-4 border-t border-border first:border-t-0", open && "bg-muted/25")}>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={open ? editorId : undefined}
-        onClick={onToggle}
-        className={cn(ROW, "min-h-14 py-[9px] text-[14px] outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset")}
+    <li id={`row-${closer._id}`} className="scroll-mt-4 border-t border-border first:border-t-0">
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (next !== open) onToggle();
+        }}
       >
-        <Initials name={closer.displayName} />
-        <span className="min-w-0">
-          <b className="block truncate font-semibold">{closer.displayName}</b>
-          <small className="block truncate text-[12px] text-muted-foreground">
-            {closer.userId ? (closer.identity.email ?? "CRM user") : "No CRM user"}
-          </small>
-        </span>
-        <span className="hidden truncate font-mono text-[12.5px] tracking-[-0.01em] @lg/roster:block" translate="no">
-          {closer.utmMedium}
-        </span>
-        <span className={cn(FIGURE, "text-right", booked === 0 && "font-normal text-muted-foreground")}>{booked}</span>
-        <span className="hidden text-right text-[13px] text-muted-foreground @lg/roster:block">{rate ? `${rate}/h` : "—"}</span>
-        <ActiveWord active={closer.isActive} />
-        <ChevronDownIcon
-          aria-hidden="true"
-          className={cn("size-3.5 text-muted-foreground transition-transform duration-200", open && "rotate-180")}
-        />
-      </button>
-      <CloserFlags closer={closer} teams={teams} allClosers={allClosers} unmatched={unmatched} />
-      {open ? (
-        <CloserEditor
-          id={editorId}
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Edit ${closer.displayName}`}
+            className={cn(ROW, "min-h-14 py-[9px] text-[14px] outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset")}
+          >
+            <Initials name={closer.displayName} />
+            <span className="min-w-0">
+              <b className="block truncate font-semibold">{closer.displayName}</b>
+              <small className="block truncate text-[12px] text-muted-foreground">
+                {closer.userId ? (closer.identity.email ?? "CRM user") : "No CRM user"}
+              </small>
+            </span>
+            <span className="hidden truncate font-mono text-[12.5px] tracking-[-0.01em] @lg/roster:block" translate="no">
+              {closer.utmMedium}
+            </span>
+            <span className={cn(FIGURE, "text-right", booked === 0 && "font-normal text-muted-foreground")}>{booked}</span>
+            <span
+              className={cn(
+                "hidden text-right @lg/roster:block",
+                weekly > 0 ? cn(FIGURE, "text-[14px]") : "text-[13px] text-muted-foreground",
+              )}
+            >
+              {weekly > 0 ? `${formatHours(weekly)}h` : "—"}
+            </span>
+            <ActiveWord active={closer.isActive} />
+            <ChevronRightIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+          </button>
+        </DialogTrigger>
+        <DialogContent
+          className="max-h-[88vh] grid-cols-1 gap-0 overflow-y-auto p-0 sm:max-w-[46rem]"
+          onEscapeKeyDown={(event) => {
+            // Escape closes the week editor first, then the modal.
+            if (scheduleOpen) {
+              event.preventDefault();
+              onScheduleChange(false);
+            }
+          }}
+        >
+          <DialogHeader className="flex-row items-center gap-3 border-b border-border px-5 py-4 text-left">
+            <Initials name={closer.displayName} />
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-[17px] font-semibold">{closer.displayName}</DialogTitle>
+              <DialogDescription className="flex flex-wrap items-center gap-x-2 text-[13px]">
+                <span>{team.displayName}</span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono" translate="no">
+                  utm_medium={closer.utmMedium}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {booked} booking{booked === 1 ? "" : "s"} in 30 days
+                </span>
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="@container/roster pt-4">
+            <CloserEditor
+              id={editorId}
           closer={closer}
           team={team}
           teams={teams}
           teamMembers={teamMembers}
           access={access}
           campaign={campaign}
-        />
-      ) : null}
+          week={week}
+              scheduleOpen={scheduleOpen}
+              onScheduleChange={onScheduleChange}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+      <CloserFlags closer={closer} teams={teams} allClosers={allClosers} unmatched={unmatched} />
     </li>
   );
 }
@@ -286,15 +360,26 @@ function CommitInput({
   );
 }
 
-function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
+function Field({
+  label,
+  tip,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  tip?: ReactNode;
+  htmlFor?: string;
+  children: ReactNode;
+}) {
+  const text = tip ? <HelpTip tip={tip}>{label}</HelpTip> : label;
   return (
     <div className="flex min-w-0 flex-col gap-[5px]">
       {htmlFor ? (
         <label htmlFor={htmlFor} className={LABEL}>
-          {label}
+          {text}
         </label>
       ) : (
-        <span className={LABEL}>{label}</span>
+        <span className={LABEL}>{text}</span>
       )}
       {children}
     </div>
@@ -310,6 +395,9 @@ function CloserEditor({
   teamMembers,
   access,
   campaign,
+  week,
+  scheduleOpen,
+  onScheduleChange,
 }: {
   id: string;
   closer: RosterDmCloser;
@@ -318,6 +406,9 @@ function CloserEditor({
   teamMembers: readonly TeamMember[];
   access: TeamAccess;
   campaign: { label: string; utmCampaign: string } | null;
+  week: WeekHours;
+  scheduleOpen: boolean;
+  onScheduleChange: (open: boolean) => void;
 }) {
   const updateDmCloser = useMutation(api.attribution.dmClosers.updateDmCloser);
   // The latest server row, and this editor's saves still in flight (see save).
@@ -327,7 +418,6 @@ function CloserEditor({
   useEffect(() => {
     latest.current = closer;
   }, [closer]);
-  const setRate = useMutation(api.attribution.dmClosers.setDmCloserHourlyRate);
   const setActive = useMutation(api.attribution.dmClosers.setDmCloserActive);
   const first = firstName(closer.displayName);
 
@@ -396,19 +486,18 @@ function CloserEditor({
 
   const members = teamMembers.filter((member) => member.isActive || member._id === closer.userId);
   const otherTeams = teams.filter((row) => row.isActive || row._id === closer.teamId);
-  const rateValue = closer.hourlyRateMinor === undefined ? "" : String(closer.hourlyRateMinor / 100);
 
   return (
-    <div id={id} className="flex flex-col gap-3 px-4 pt-1 pb-4 @lg/roster:pl-[54px]">
+    <div id={id} className="flex flex-col gap-3 px-5 pb-5">
       <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 @md/roster:grid-cols-2 @xl/roster:grid-cols-3">
-        <Field label="Name" htmlFor={`${id}-name`}>
+        <Field label="Name" tip="Shown in the link portal's Who are you? list and on reports." htmlFor={`${id}-name`}>
           <CommitInput
             id={`${id}-name`}
             value={closer.displayName}
             onCommit={(next) => update({ displayName: next }, `Renamed to ${next.trim()}`, "name")}
           />
         </Field>
-        <Field label="Team" htmlFor={`${id}-team`}>
+        <Field label="Team" tip="Their links carry this team's utm_source, and they get the links on that team's Coverage column. Moving them changes both from now on." htmlFor={`${id}-team`}>
           <NativeSelect
             id={`${id}-team`}
             className="w-full [&_select]:bg-card"
@@ -431,7 +520,7 @@ function CloserEditor({
             ))}
           </NativeSelect>
         </Field>
-        <Field label="utm_medium" htmlFor={`${id}-utm`}>
+        <Field label="utm_medium" tip="The value their links carry as utm_medium. Bookings that come back with it are credited to them. Changing it doesn't rewrite links already sent." htmlFor={`${id}-utm`}>
           <CommitInput
             id={`${id}-utm`}
             value={closer.utmMedium}
@@ -441,32 +530,7 @@ function CloserEditor({
             onCommit={(next) => update({ utmMedium: next }, `${first}’s utm_medium is now ${next.trim()}`, "utm_medium")}
           />
         </Field>
-        <Field label="Rate / h ($)" htmlFor={`${id}-rate`}>
-          <CommitInput
-            id={`${id}-rate`}
-            value={rateValue}
-            inputMode="decimal"
-            placeholder="—"
-            className="font-condensed text-[15px] tabular-nums"
-            onCommit={async (raw) => {
-              const trimmed = raw.trim().replace(/^\$/, "");
-              const major = trimmed === "" ? null : Number(trimmed);
-              if (major !== null && (!Number.isFinite(major) || major < 0 || major > MAX_RATE_MAJOR)) {
-                toast.error(`Enter an hourly rate from 0 to ${MAX_RATE_MAJOR}, or leave it blank.`);
-                return false;
-              }
-              const next = major === null ? null : Math.round(major * 100);
-              const previous = closer.hourlyRateMinor ?? null;
-              return withUndo(
-                () => setRate({ dmCloserId: closer._id, hourlyRateMinor: next }),
-                next === null ? `${first} has no rate` : `${first}: ${formatRate(next)}/h`,
-                () => setRate({ dmCloserId: closer._id, hourlyRateMinor: previous }),
-                "rate",
-              );
-            }}
-          />
-        </Field>
-        <Field label="CRM user" htmlFor={`${id}-user`}>
+        <Field label="CRM user" tip="Optional. Link them to a CRM login if they also work inside Magnus, so their activity lines up with this DM closer." htmlFor={`${id}-user`}>
           <NativeSelect
             id={`${id}-user`}
             className="w-full [&_select]:bg-card"
@@ -489,7 +553,7 @@ function CloserEditor({
             ))}
           </NativeSelect>
         </Field>
-        <Field label="Active">
+        <Field label="Active" tip="On: they appear in the link portal and get credit for bookings. Off: they can't copy links; their history stays.">
           <label className="flex h-8 items-center gap-2.5 text-[13px] text-muted-foreground">
             <Switch
               checked={closer.isActive}
@@ -508,6 +572,13 @@ function CloserEditor({
           </label>
         </Field>
       </div>
+      <ScheduleBlock
+        dmCloserId={closer._id}
+        firstName={first}
+        week={week}
+        open={scheduleOpen}
+        onOpenChange={onScheduleChange}
+      />
       <CloserGets closer={closer} team={team} access={access} campaign={campaign} />
     </div>
   );

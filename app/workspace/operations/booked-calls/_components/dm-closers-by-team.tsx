@@ -4,7 +4,6 @@ import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { MemberAvatar } from "@/app/workspace/_components/member-avatar";
 import { formatDecimal, formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatAmountMinor } from "@/lib/format-currency";
 import { bookingPaceWord } from "@/lib/operations-reports/booking-pace";
 import type { DmCloserViewModel } from "@/lib/operations-reports/booked-dashboard";
 import { cn } from "@/lib/utils";
@@ -24,8 +23,7 @@ function hoursLine(closer: DmCloserViewModel) {
     closer.scheduledHours !== null && closer.scheduledHours > 0
       ? `${Number.isInteger(closer.scheduledHours) ? closer.scheduledHours : formatDecimal(closer.scheduledHours)} h scheduled`
       : "No schedule";
-  const rate = closer.hourlyRateMinor === null ? null : `${formatAmountMinor(closer.hourlyRateMinor, "USD")}/h rate`;
-  return rate ? `${hours} · ${rate}` : hours;
+  return hours;
 }
 
 function PerHour({ value }: { value: number | null }) {

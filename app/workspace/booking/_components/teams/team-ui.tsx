@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // Concept B's small pieces for the DM teams pages, in the app's tokens.
@@ -95,13 +96,41 @@ export function daysAgo(timestamp: number, now = Date.now()) {
   return `${days} days ago`;
 }
 
-/** 700 -> "$7", 650 -> "$6.50". */
-export function formatRate(minor: number | undefined) {
-  if (minor === undefined) return null;
-  const major = minor / 100;
-  return `$${Number.isInteger(major) ? major : major.toFixed(2)}`;
-}
-
 export function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * A label that explains itself on hover or focus: a dotted underline, and the
+ * explanation in a tooltip. Keyboard users reach it with Tab.
+ */
+export function HelpTip({
+  tip,
+  children,
+  className,
+  side = "top",
+}: {
+  tip: ReactNode;
+  children: ReactNode;
+  className?: string;
+  side?: "top" | "bottom" | "left" | "right";
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className={cn(
+            "cursor-help rounded-[3px] underline decoration-current/35 decoration-dotted underline-offset-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            className,
+          )}
+        >
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side={side} className="max-w-[17rem] text-[12.5px] leading-snug font-normal tracking-normal normal-case">
+        {tip}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
