@@ -224,9 +224,11 @@ import type * as lib_observability_posthog from "../lib/observability/posthog.js
 import type * as lib_opportunityActivity from "../lib/opportunityActivity.js";
 import type * as lib_opportunityMeetingRefs from "../lib/opportunityMeetingRefs.js";
 import type * as lib_opportunitySearch from "../lib/opportunitySearch.js";
+import type * as lib_outcomeCores from "../lib/outcomeCores.js";
 import type * as lib_outcomeEligibility from "../lib/outcomeEligibility.js";
 import type * as lib_payloadExtraction from "../lib/payloadExtraction.js";
 import type * as lib_paymentHelpers from "../lib/paymentHelpers.js";
+import type * as lib_paymentProof from "../lib/paymentProof.js";
 import type * as lib_paymentTypes from "../lib/paymentTypes.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_prospectConversions from "../lib/prospectConversions.js";
@@ -678,9 +680,11 @@ declare const fullApi: ApiFromModules<{
   "lib/opportunityActivity": typeof lib_opportunityActivity;
   "lib/opportunityMeetingRefs": typeof lib_opportunityMeetingRefs;
   "lib/opportunitySearch": typeof lib_opportunitySearch;
+  "lib/outcomeCores": typeof lib_outcomeCores;
   "lib/outcomeEligibility": typeof lib_outcomeEligibility;
   "lib/payloadExtraction": typeof lib_payloadExtraction;
   "lib/paymentHelpers": typeof lib_paymentHelpers;
+  "lib/paymentProof": typeof lib_paymentProof;
   "lib/paymentTypes": typeof lib_paymentTypes;
   "lib/permissions": typeof lib_permissions;
   "lib/prospectConversions": typeof lib_prospectConversions;

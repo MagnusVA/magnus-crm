@@ -10,6 +10,7 @@ import { DealCallsCard, PaymentLinksCard } from "./deal-calls-card";
 import { ReachCard } from "./reach-card";
 import { TaskNoteCard } from "./task-note-card";
 import { TaskOutcomeSection } from "./task-outcome-section";
+import { TaskPaymentLink } from "./task-payment-link";
 import { TaskStrip } from "./task-strip";
 import { taskKindLabel, type TaskDetail, type TaskDetailMode } from "./task-detail-types";
 
@@ -62,6 +63,7 @@ export function TaskDetailView({ detail, mode, closerName, onCompleted }: TaskDe
 
   return (
     <div className="@container flex flex-col gap-3.5">
+      {mode === "closer" ? <TaskPaymentLink detail={detail} onCompleted={onCompleted} /> : null}
       <TaskStrip
         followUp={followUp}
         now={now}
