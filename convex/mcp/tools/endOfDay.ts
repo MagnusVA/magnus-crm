@@ -29,6 +29,28 @@ export const summary = internalQuery({
   handler: async (ctx, { caller }) => {
     const me = await requireMcpUser(ctx, caller, ["closer"]);
     const day = await getDaySummaryCore(ctx, me, { now: Date.now() });
+    // An open disagreement is a gap to raise before ending the day (§6.9).
+    // Shown to the closer only in "on" mode; it never goes to Slack.
+    const gaps = [...day.gaps];
+    if (me.tenant.secondOpinion?.mode === "on") {
+      const open = await ctx.db
+        .query("secondOpinions")
+        .withIndex("by_tenantId_and_reviewState_and_createdAt", (q) =>
+          q.eq("tenantId", me.tenantId).eq("reviewState", "open"),
+        )
+        .order("desc")
+        .take(50);
+      for (const opinion of open) {
+        if (opinion.closerUserId !== me.userId || opinion.verdict !== "disagrees") continue;
+        const meeting = await ctx.db.get("meetings", opinion.meetingId);
+        if (!meeting || meeting.assignedCloserId !== me.userId) continue;
+        gaps.push({
+          kind: "second_opinion" as const,
+          label: `The second opinion disagrees with your result for ${meeting.leadName ?? "a call"} on ${formatLocal(meeting.scheduledAt, me.timeZone)}. An admin will check it.`,
+          meetingId: meeting._id,
+        });
+      }
+    }
     return {
       timeZone: day.timeZone,
       window: {
@@ -37,7 +59,7 @@ export const summary = internalQuery({
         previousDayUnclosed: day.previousDayUnclosed,
       },
       numbers: day.numbers,
-      gaps: day.gaps,
+      gaps,
       slackChannel: day.slackChannelName ? `#${day.slackChannelName}` : null,
     };
   },

@@ -64,6 +64,11 @@ export async function secondOpinionFor(
 }
 
 async function meetingExtras(ctx: QueryCtx, me: McpUser, meeting: Doc<"meetings">) {
+  // A deal can move to another closer while its past meetings stay with this
+  // one. Its notes, tasks and payments then belong to the new closer, so they
+  // show only while the deal is still the caller's.
+  const deal = await ctx.db.get("opportunities", meeting.opportunityId);
+  const ownsDeal = deal !== null && deal.tenantId === me.tenantId && deal.assignedCloserId === me.userId;
   const [latestNote, openTasks, payments, recording, secondOpinion] = await Promise.all([
     ctx.db
       .query("callNotes")
@@ -92,7 +97,7 @@ async function meetingExtras(ctx: QueryCtx, me: McpUser, meeting: Doc<"meetings"
     secondOpinionFor(ctx, me, meeting),
   ]);
   return {
-    latestCallNote: latestNote
+    latestCallNote: ownsDeal && latestNote
       ? {
           at: formatLocal(latestNote.createdAt, me.timeZone),
           objection: latestNote.objection,
@@ -100,15 +105,17 @@ async function meetingExtras(ctx: QueryCtx, me: McpUser, meeting: Doc<"meetings"
         }
       : null,
     openTasks: openTasks
-      .filter((task) => task.closerId === me.userId)
+      .filter((task) => ownsDeal && task.closerId === me.userId)
       .map((task) => ({
         taskId: task._id,
         kind: task.type === "scheduling_link" ? "scheduling_link" : (task.contactMethod ?? "call"),
         due: task.reminderScheduledAt ? formatLocal(task.reminderScheduledAt, me.timeZone) : null,
       })),
     payments: payments
-      .filter((payment) => payment.tenantId === me.tenantId)
+      .filter((payment) => ownsDeal && payment.tenantId === me.tenantId)
       .map((payment) => ({
+        paymentId: payment._id,
+        hasProof: payment.proofFileId !== undefined,
         amountMinor: payment.amountMinor,
         currency: payment.currency,
         paymentType: payment.paymentType,
@@ -287,6 +294,8 @@ export const todayResultValidator = v.object({
       ),
       payments: v.array(
         v.object({
+          paymentId: v.id("paymentRecords"),
+          hasProof: v.boolean(),
           amountMinor: v.number(),
           currency: v.string(),
           paymentType: v.string(),

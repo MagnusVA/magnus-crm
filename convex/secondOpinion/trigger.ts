@@ -24,6 +24,14 @@ export function businessDayClosed(
   return businessDayRange(date, tenant.businessDay).end <= now;
 }
 
+/**
+ * The result recorded for THIS meeting, never just the deal's latest state: a
+ * first call recorded as a call-back stays a call-back even when a later call
+ * on the same deal is paid before its recording arrives. Each core ties its
+ * result to the meeting: a payment carries `meetingId`, a call-back carries
+ * `sourceMeetingId`, and a meeting's loss writes `lostAt` in the same
+ * transaction that sets the meeting's `heldMarkedAt`. No match, no check.
+ */
 async function snapshotRecord(
   ctx: QueryCtx | MutationCtx,
   meeting: Doc<"meetings">,
@@ -32,20 +40,15 @@ async function snapshotRecord(
   if (meeting.status !== "held") return undefined;
   const deal = await ctx.db.get("opportunities", meeting.opportunityId);
   if (!deal || deal.tenantId !== meeting.tenantId) return undefined;
-  const payments = await Promise.all(
-    (["recorded", "verified"] as const).map((status) =>
-      ctx.db
-        .query("paymentRecords")
-        .withIndex("by_opportunityId_and_status_and_recordedAt", (q) =>
-          q.eq("opportunityId", deal._id).eq("status", status),
-        )
-        .order("desc")
-        .first(),
-    ),
+
+  const payments = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", deal._id))
+    .order("desc")
+    .take(50);
+  const payment = payments.find(
+    (p) => p.tenantId === meeting.tenantId && p.meetingId === meeting._id && p.status !== "disputed",
   );
-  const payment = payments
-    .filter((p) => p && p.tenantId === meeting.tenantId)
-    .sort((a, b) => b!.recordedAt - a!.recordedAt)[0];
   if (payment)
     return {
       kind: "payment",
@@ -53,9 +56,21 @@ async function snapshotRecord(
       amountMinor: payment.amountMinor,
       currency: payment.currency,
     };
-  if (deal.outcome === "lost")
+
+  if (
+    deal.outcome === "lost" &&
+    deal.lostAt !== undefined &&
+    meeting.heldMarkedAt !== undefined &&
+    Math.abs(deal.lostAt - meeting.heldMarkedAt) < 1000
+  )
     return { kind: "lost", lossReason: deal.lostReason };
-  if (deal.stage === "follow_up") return { kind: "call_back" };
+
+  const tasks = await ctx.db
+    .query("followUps")
+    .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", deal._id))
+    .take(50);
+  if (tasks.some((task) => task.sourceMeetingId === meeting._id && task.type === "manual_reminder"))
+    return { kind: "call_back" };
   return undefined;
 }
 

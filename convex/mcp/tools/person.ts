@@ -146,6 +146,7 @@ async function readPerson(
       | "outcome"
       | "soldProgramName"
       | "firstBookingProgramName"
+      | "assignedCloserId"
     >;
     callAt: number | null;
   }> = visible.map(({ opportunity, nextStep }) => ({
@@ -161,6 +162,18 @@ async function readPerson(
   const deals = await Promise.all(
     dealSummaries.map(async ({ opportunity, callAt }) => {
       const note = await latestCallNote(ctx, me.tenantId, opportunity._id);
+      // Payment IDs and proof status, so the agent can attach a receipt to
+      // one that has none (decision 12a). Only on the caller's own deals.
+      const payments =
+        opportunity.assignedCloserId === me.userId
+          ? await ctx.db
+              .query("paymentRecords")
+              .withIndex("by_opportunityId_and_recordedAt", (q) =>
+                q.eq("opportunityId", opportunity._id),
+              )
+              .order("desc")
+              .take(10)
+          : [];
       return {
         opportunityId: opportunity._id,
         program:
@@ -171,6 +184,17 @@ async function readPerson(
         outcome: opportunity.outcome,
         nextCall: callAt !== null ? formatLocal(callAt, me.timeZone) : null,
         latestCallNote: note ? noteResult(note, me.timeZone) : null,
+        payments: payments
+          .filter((payment) => payment.tenantId === me.tenantId)
+          .map((payment) => ({
+            paymentId: payment._id,
+            amountMinor: payment.amountMinor,
+            currency: payment.currency,
+            paymentType: payment.paymentType,
+            status: payment.status,
+            hasProof: payment.proofFileId !== undefined,
+            recordedAt: formatLocal(payment.recordedAt, me.timeZone),
+          })),
       };
     }),
   );
@@ -216,6 +240,17 @@ export const run = internalQuery({
             outcome: v.string(),
             nextCall: v.union(v.string(), v.null()),
             latestCallNote: v.union(noteResultValidator, v.null()),
+            payments: v.array(
+              v.object({
+                paymentId: v.id("paymentRecords"),
+                amountMinor: v.number(),
+                currency: v.string(),
+                paymentType: v.string(),
+                status: v.string(),
+                hasProof: v.boolean(),
+                recordedAt: v.string(),
+              }),
+            ),
           }),
         ),
         bookingAnswers: v.array(bookingAnswerValidator),
