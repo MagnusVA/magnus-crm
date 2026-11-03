@@ -28,7 +28,7 @@ describe("magnus_day_summary and magnus_end_day", () => {
     const second = await callTool(t, token, sessionId, "magnus_end_day", { narrative: "Again." });
     expect(second.data).toMatchObject({ repeated: true });
 
-    const reports = await t.run((ctx) => ctx.db.query("endOfDayReports").collect());
+    const reports = await t.run((ctx) => ctx.db.query("endOfDayReports").take(10));
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({ endedVia: "agent", agentClient: "hermes-agent", narrativeMarkdown: "Quiet day." });
   });
