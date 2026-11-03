@@ -98,6 +98,7 @@ import type * as calendly_webhookSetupMutations from "../calendly/webhookSetupMu
 import type * as closer_additionalPayment from "../closer/additionalPayment.js";
 import type * as closer_calendar from "../closer/calendar.js";
 import type * as closer_dashboard from "../closer/dashboard.js";
+import type * as closer_endOfDaySchema from "../closer/endOfDaySchema.js";
 import type * as closer_followUp from "../closer/followUp.js";
 import type * as closer_followUpMutations from "../closer/followUpMutations.js";
 import type * as closer_followUpQueries from "../closer/followUpQueries.js";
@@ -278,6 +279,7 @@ import type * as linkPortal_portalTouches from "../linkPortal/portalTouches.js";
 import type * as linkPortal_rateLimitMutations from "../linkPortal/rateLimitMutations.js";
 import type * as linkPortal_sessionToken from "../linkPortal/sessionToken.js";
 import type * as linkPortal_slugActions from "../linkPortal/slugActions.js";
+import type * as mcp_guard from "../mcp/guard.js";
 import type * as meetings_maintenance from "../meetings/maintenance.js";
 import type * as migrations from "../migrations.js";
 import type * as onboarding_complete from "../onboarding/complete.js";
@@ -550,6 +552,7 @@ declare const fullApi: ApiFromModules<{
   "closer/additionalPayment": typeof closer_additionalPayment;
   "closer/calendar": typeof closer_calendar;
   "closer/dashboard": typeof closer_dashboard;
+  "closer/endOfDaySchema": typeof closer_endOfDaySchema;
   "closer/followUp": typeof closer_followUp;
   "closer/followUpMutations": typeof closer_followUpMutations;
   "closer/followUpQueries": typeof closer_followUpQueries;
@@ -730,6 +733,7 @@ declare const fullApi: ApiFromModules<{
   "linkPortal/rateLimitMutations": typeof linkPortal_rateLimitMutations;
   "linkPortal/sessionToken": typeof linkPortal_sessionToken;
   "linkPortal/slugActions": typeof linkPortal_slugActions;
+  "mcp/guard": typeof mcp_guard;
   "meetings/maintenance": typeof meetings_maintenance;
   migrations: typeof migrations;
   "onboarding/complete": typeof onboarding_complete;
@@ -957,4 +961,6 @@ export declare const components: {
   resparkPool: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkPool">;
   resparkTeamPool: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkTeamPool">;
   resparkResultsByWorker: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkResultsByWorker">;
+  mcpGateway: import("convex-mcp-gateway/_generated/component.js").ComponentApi<"mcpGateway">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

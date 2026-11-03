@@ -32,6 +32,7 @@ type Env = {
   readonly CONVEX_SITE_URL: string;
   readonly ANALYTICS_DAILY_RUN_BUDGET: string | undefined;
   readonly APP_URL: string | undefined;
+  readonly AUTHKIT_DOMAIN: string | undefined;
   readonly CALENDLY_CLIENT_ID: string;
   readonly CALENDLY_CLIENT_SECRET: string;
   readonly CLICKHOUSE_PASSWORD: string | undefined;
@@ -41,6 +42,7 @@ type Env = {
   readonly INVITE_SIGNING_SECRET: string;
   readonly LINK_PORTAL_PASSWORD_PEPPER: string | undefined;
   readonly LINK_PORTAL_SESSION_SECRET: string | undefined;
+  readonly MCP_RESOURCE_URL: string | undefined;
   readonly NEXT_PUBLIC_APP_URL: string | undefined;
   readonly POSTHOG_HOST: string | undefined;
   readonly POSTHOG_PROJECT_TOKEN: string;

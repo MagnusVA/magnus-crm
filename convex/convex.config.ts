@@ -3,6 +3,8 @@ import aggregate from "@convex-dev/aggregate/convex.config";
 import migrations from "@convex-dev/migrations/convex.config";
 import workOSAuthKit from "@convex-dev/workos-authkit/convex.config";
 import posthog from "@posthog/convex/convex.config.js";
+import rateLimiter from "@convex-dev/rate-limiter/convex.config.js";
+import mcpGateway from "convex-mcp-gateway/convex.config";
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
 
@@ -51,6 +53,14 @@ const app = defineApp({
     // Runs a tenant's pages and API callers may start in 24 hours, a whole
     // number. Unset means no limit. The post-sync batch doesn't count.
     ANALYTICS_DAILY_RUN_BUDGET: v.optional(v.string()),
+
+    // AI assistants over MCP (docs/plans/closer-assistant.md §6.1). Both
+    // optional: the third auth provider and the /mcp routes exist only where
+    // both are set. AUTHKIT_DOMAIN is the AuthKit issuer, such as
+    // https://magnus-crm.authkit.app; MCP_RESOURCE_URL is this deployment's
+    // https://<deployment>.convex.site/mcp, the access tokens' audience.
+    AUTHKIT_DOMAIN: v.optional(v.string()),
+    MCP_RESOURCE_URL: v.optional(v.string()),
   },
 });
 app.use(workpool, { name: "webhookWorkpool" });
@@ -84,5 +94,9 @@ app.use(aggregate, { name: "billingPaymentsByStatusProgramType" });
 app.use(aggregate, { name: "resparkPool" });
 app.use(aggregate, { name: "resparkTeamPool" });
 app.use(aggregate, { name: "resparkResultsByWorker" });
+// The MCP endpoint's sessions, tool registry and audit log.
+app.use(mcpGateway);
+// 60 MCP calls a minute per user (closer-assistant.md §6.8).
+app.use(rateLimiter);
 
 export default app;

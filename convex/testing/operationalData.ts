@@ -21,6 +21,16 @@ const BATCH_SIZE = 64;
 const DOMAIN_EVENT_BATCH_SIZE = 40;
 
 const OPERATIONAL_TABLES = [
+  "secondOpinions",
+  "callNotes",
+  "paymentProofUploads",
+  "mcpConfirmations",
+  "mcpClientSessions",
+  "endOfDayReports",
+  "callRecordings",
+  "fathomWebhookEvents",
+  "fathomOrgMembers",
+  "tenantFathomConnections",
   "resparkBatchItems",
   "resparkBatches",
   "webhookRecoveryAttempts",
@@ -204,6 +214,16 @@ export const getSnapshot = internalQuery({
       slackInstallations: await countTableDocuments(ctx, "slackInstallations"),
       slackUsers: await countTableDocuments(ctx, "slackUsers"),
       tenants: await countTableDocuments(ctx, "tenants"),
+      secondOpinions: await countTableDocuments(ctx, "secondOpinions"),
+      callNotes: await countTableDocuments(ctx, "callNotes"),
+      paymentProofUploads: await countTableDocuments(ctx, "paymentProofUploads"),
+      mcpConfirmations: await countTableDocuments(ctx, "mcpConfirmations"),
+      mcpClientSessions: await countTableDocuments(ctx, "mcpClientSessions"),
+      endOfDayReports: await countTableDocuments(ctx, "endOfDayReports"),
+      callRecordings: await countTableDocuments(ctx, "callRecordings"),
+      fathomWebhookEvents: await countTableDocuments(ctx, "fathomWebhookEvents"),
+      fathomOrgMembers: await countTableDocuments(ctx, "fathomOrgMembers"),
+      tenantFathomConnections: await countTableDocuments(ctx, "tenantFathomConnections"),
       meetingFormResponses: await countTableDocuments(
         ctx,
         "meetingFormResponses",
@@ -366,6 +386,16 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("users"),
       v.literal("tenants"),
       v.literal("supportTickets"),
+      v.literal("secondOpinions"),
+      v.literal("callNotes"),
+      v.literal("paymentProofUploads"),
+      v.literal("mcpConfirmations"),
+      v.literal("mcpClientSessions"),
+      v.literal("endOfDayReports"),
+      v.literal("callRecordings"),
+      v.literal("fathomWebhookEvents"),
+      v.literal("fathomOrgMembers"),
+      v.literal("tenantFathomConnections"),
     ),
   },
   handler: async (ctx, args) => {
@@ -387,6 +417,25 @@ export const deleteOperationalDataBatch = internalMutation({
       case "paymentRecords":
         deleted = await deletePaymentRecordsBatch(ctx);
         break;
+      case "callRecordings": {
+        const rows = await ctx.db.query("callRecordings").take(BATCH_SIZE);
+        for (const row of rows) {
+          if (row.transcriptStorageId) await ctx.storage.delete(row.transcriptStorageId);
+          await ctx.db.delete("callRecordings", row._id);
+        }
+        deleted = rows.length;
+        break;
+      }
+      case "paymentProofUploads": {
+        const rows = await ctx.db.query("paymentProofUploads").take(BATCH_SIZE);
+        for (const row of rows) {
+          // An attached file backs a payment, whose own cleanup deletes it.
+          if (row.storageId && row.status !== "attached") await ctx.storage.delete(row.storageId);
+          await ctx.db.delete("paymentProofUploads", row._id);
+        }
+        deleted = rows.length;
+        break;
+      }
       default:
         deleted = await deleteSimpleBatch(ctx, args.tableName);
         break;
@@ -427,6 +476,16 @@ export const resetOperationalData = internalAction({
     }
 
     const deletedCounts: Record<OperationalTableName, number> = {
+      secondOpinions: 0,
+      callNotes: 0,
+      paymentProofUploads: 0,
+      mcpConfirmations: 0,
+      mcpClientSessions: 0,
+      endOfDayReports: 0,
+      callRecordings: 0,
+      fathomWebhookEvents: 0,
+      fathomOrgMembers: 0,
+      tenantFathomConnections: 0,
       resparkBatchItems: 0,
       resparkBatches: 0,
       meetingFormResponses: 0,
