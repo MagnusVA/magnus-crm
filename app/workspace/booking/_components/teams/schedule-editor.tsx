@@ -75,7 +75,8 @@ export function weekTotal(week: WeekHours) {
 }
 
 export function formatHours(hours: number) {
-  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1).replace(/\.0$/, "");
+  // Two decimals: quarter hours (7.25) show as typed.
+  return String(Math.round(hours * 100) / 100);
 }
 
 /** "Mon–Fri · 8 h", "Mon, Wed · 4 h" or "40 h across 6 days". */
@@ -265,7 +266,7 @@ function WeekEditor({
           const on = Number(draft[day]) > 0;
           const bad = invalid.includes(day);
           return (
-            <label key={day} className="flex min-w-0 flex-col items-center gap-1">
+            <div key={day} className="flex min-w-0 flex-col items-center gap-1">
               <button
                 type="button"
                 aria-pressed={on}
@@ -290,7 +291,7 @@ function WeekEditor({
                   !on && !bad && "text-muted-foreground",
                 )}
               />
-            </label>
+            </div>
           );
         })}
       </div>
