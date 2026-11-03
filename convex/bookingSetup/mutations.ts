@@ -271,3 +271,49 @@ export const sortEventType = mutation({
     return previous;
   },
 });
+
+// Sets (or clears) an event type's booking URL from the coverage picker or
+// the event type sheet, without touching its other details.
+export const setEventTypeBookingUrl = mutation({
+  args: {
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    bookingBaseUrl: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { eventTypeConfigId, bookingBaseUrl }) => {
+    const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
+    if (!config || config.tenantId !== tenantId) {
+      throw rejectRequest("booking_setup.event_type_not_found", "Event type not found.", {
+        tenantId,
+      });
+    }
+    const trimmed = bookingBaseUrl?.trim() || undefined;
+    if (trimmed) {
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(trimmed);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+        throw rejectRequest(
+          "booking_setup.invalid_booking_url",
+          "Booking URL must be a full http or https link.",
+          { tenantId },
+        );
+      }
+    }
+    await ctx.db.patch("eventTypeConfigs", eventTypeConfigId, {
+      bookingBaseUrl: trimmed,
+      bookingUrlSource: trimmed ? "admin_entered" : undefined,
+      updatedAt: Date.now(),
+    });
+    log.info("booking_setup.event_type.booking_url_set", {
+      tenantId,
+      eventTypeConfigId,
+      cleared: trimmed === undefined,
+    });
+    return null;
+  },
+});

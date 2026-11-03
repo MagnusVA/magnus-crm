@@ -30,7 +30,6 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
-import { BandFigure, BOOKING_ROOT, BookingBand } from "./booking-band";
 import { buildBoard, SCHEDULING_MODES, type Board, type Coverage, type CoverageProgram, type CoverageTeam } from "./booking-model";
 import { CoverageCell } from "./coverage-cell";
 import { ProgramFormDialog } from "./program-form-dialog";
@@ -45,18 +44,13 @@ export function CoveragePageClient() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className={BOOKING_ROOT}>
-      <BookingBand
-        description="Which event type each DM team's links book, for every program. Changes go live in the portal right away."
-        actions={
-          <Button onClick={() => setCreating(true)}>
-            <PlusIcon aria-hidden />
-            New program
-          </Button>
-        }
-      >
-        {board ? <Figures board={board} /> : <div className="h-[60px]" />}
-      </BookingBand>
+    <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
+      <div className="flex justify-end">
+        <Button onClick={() => setCreating(true)}>
+          <PlusIcon aria-hidden />
+          New program
+        </Button>
+      </div>
 
       {coverage && board ? (
         <>
@@ -72,28 +66,6 @@ export function CoveragePageClient() {
       )}
 
       <ProgramFormDialog open={creating} onOpenChange={setCreating} />
-    </div>
-  );
-}
-
-function Figures({ board }: { board: Board }) {
-  const { figures } = board;
-  return (
-    <div className="flex flex-wrap gap-x-8 gap-y-3 border-t border-board-line py-3.5">
-      <BandFigure
-        value={
-          <>
-            {figures.covered}
-            <span className="text-[17px] text-board-muted"> / {figures.cells}</span>
-          </>
-        }
-        label="Team links working"
-      />
-      <BandFigure value={figures.noLink} label="No link" tone={figures.noLink ? "warning" : "default"} />
-      <BandFigure value={figures.broken} label="Broken" tone={figures.broken ? "danger" : "default"} />
-      <Link href="/workspace/booking/inbox" className="rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <BandFigure value={figures.unsorted} label="Unsorted event types" tone={figures.unsorted ? "warning" : "default"} />
-      </Link>
     </div>
   );
 }

@@ -9,7 +9,6 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { BOOKING_ROOT, BookingBand } from "../../_components/booking-band";
 import {
   eventTypeStatus,
   modeLabel,
@@ -229,8 +228,7 @@ function InboxDesk({ coverage, requestedId }: { coverage: Coverage; requestedId:
   }, []);
 
   return (
-    <div className={BOOKING_ROOT}>
-      <BookingBand description={INBOX_DESCRIPTION} />
+    <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
       {selected ? (
         <Card className={INBOX_DESK}>
           <div className="order-2 flex max-h-[22rem] min-h-0 flex-col border-t @4xl:order-none @4xl:max-h-none @4xl:border-t-0 @4xl:border-r">

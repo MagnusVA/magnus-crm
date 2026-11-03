@@ -2,7 +2,6 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { BOOKING_ROOT } from "../../_components/booking-band";
-import { BookingBandSkeleton } from "../../_components/booking-band-skeleton";
 import {
   COL_LINK,
   COL_PAYMENT,
@@ -16,12 +15,7 @@ import {
 export function EventTypesPageSkeleton() {
   return (
     <div className={BOOKING_ROOT} role="status" aria-label="Loading event types">
-      <BookingBandSkeleton active="Event types" description={EVENT_TYPES_DESCRIPTION}>
-        <div className="-mx-4 flex flex-wrap items-center gap-2.5 border-t border-board-line px-4 py-2.5 @lg:-mx-[18px] @lg:px-[18px]">
-          <div className="h-[34px] w-full max-w-[30rem] rounded-[7px] bg-board-raised" />
-          <div className="h-[34px] w-full max-w-[16rem] rounded-[7px] bg-board-raised @3xl:ml-auto" />
-        </div>
-      </BookingBandSkeleton>
+      
       <Card className="@container/et gap-0 py-0">
         <div className="flex min-h-11 items-center border-b px-4">
           <Skeleton className="h-4 w-40" />

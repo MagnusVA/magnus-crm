@@ -14,7 +14,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { cn } from "@/lib/utils";
-import { BOOKING_ROOT, BookingBand } from "../../_components/booking-band";
 import {
   buildBoard,
   eventTypeStatus,
@@ -182,8 +181,8 @@ function EventTypesPage({ coverage }: { coverage: Coverage }) {
   const total = filter === "all" ? rows.length : counts[filter];
 
   return (
-    <div className={BOOKING_ROOT}>
-      <BookingBand description={EVENT_TYPES_DESCRIPTION}>
+    <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
+      <div className="dark rounded-xl bg-board text-board-foreground [&>div]:mx-0! [&>div]:border-t-0!">
         <div className="-mx-4 flex flex-wrap items-center gap-2.5 border-t border-board-line px-4 py-2.5 @lg:-mx-[18px] @lg:px-[18px]">
           <div className="max-w-full overflow-x-auto [scrollbar-width:none]">
             <ToggleGroup
@@ -242,7 +241,7 @@ function EventTypesPage({ coverage }: { coverage: Coverage }) {
             ) : null}
           </label>
         </div>
-      </BookingBand>
+      </div>
 
       <Card className="@container/et gap-0 overflow-hidden py-0">
         <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-2">

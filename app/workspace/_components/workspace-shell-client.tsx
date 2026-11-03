@@ -53,6 +53,11 @@ import {
   RefreshCwIcon,
   SettingsIcon,
   CalendarCogIcon,
+  LayoutGridIcon,
+  InboxIcon,
+  CalendarRangeIcon,
+  MessagesSquareIcon,
+  LinkIcon,
   TargetIcon,
   TrendingUpIcon,
   type LucideIcon,
@@ -142,12 +147,25 @@ const operationsNavItem: NavItem = {
   ],
 };
 
+const bookingNavItem: NavItem = {
+  href: "/workspace/booking",
+  label: "Booking setup",
+  icon: CalendarCogIcon,
+  children: [
+    { href: "/workspace/booking", label: "Coverage", icon: LayoutGridIcon, exact: true },
+    { href: "/workspace/booking/inbox", label: "Inbox", icon: InboxIcon },
+    { href: "/workspace/booking/event-types", label: "Event types", icon: CalendarRangeIcon },
+    { href: "/workspace/booking/teams", label: "DM teams", icon: MessagesSquareIcon },
+    { href: "/workspace/booking/portal", label: "Link portal", icon: LinkIcon },
+  ],
+};
+
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   operationsNavItem,
   leadsCustomersNavItem,
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
-  { href: "/workspace/booking", label: "Booking setup", icon: CalendarCogIcon },
+  bookingNavItem,
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -243,7 +261,7 @@ function CollapsibleNavItem({
               <SidebarMenuSubItem key={child.href}>
                 <SidebarMenuSubButton
                   asChild
-                  isActive={pathname.startsWith(child.href)}
+                  isActive={child.exact ? pathname === child.href : pathname.startsWith(child.href)}
                 >
                   <Link href={child.href}>
                     <child.icon />
