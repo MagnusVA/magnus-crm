@@ -103,4 +103,8 @@ crons.interval("reporting-work-health", { minutes: 15 }, internal.operations.wor
 // the stale-sync alert (docs/plans/clickhouse-reporting.md §8.2).
 crons.interval("analytics-heartbeat", { minutes: 5 }, internal.analytics.sync.beat, {});
 
+// MCP upkeep (docs/plans/closer-assistant.md §6.8): idle gateway sessions,
+// audit rows after 90 days (decision 16), and used preview tokens.
+crons.cron("mcp-prune", "20 7 * * *", internal.mcp.access.pruneDaily, {});
+
 export default crons;

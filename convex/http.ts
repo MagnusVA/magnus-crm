@@ -7,6 +7,7 @@ import { slashCommand } from "./slack/commands";
 import { handleEvent } from "./slack/events";
 import { interactivity } from "./slack/interactivity";
 import { oauthRedirect } from "./slack/oauth";
+import { registerMcpRoutes } from "./mcp/http";
 
 const http = httpRouter();
 authKit.registerRoutes(http);
@@ -54,5 +55,9 @@ http.route({ path: "/api/v1/funnel", method: "GET", handler: apiFunnel });
 http.route({ path: "/api/v1/today", method: "GET", handler: apiToday });
 http.route({ path: "/api/v1/freshness", method: "GET", handler: apiFreshness });
 http.route({ pathPrefix: "/api/v1/dimensions/", method: "GET", handler: apiDimensions });
+
+// AI assistants over MCP (docs/plans/closer-assistant.md §6.1). Answers 404
+// unless AUTHKIT_DOMAIN and MCP_RESOURCE_URL are set.
+registerMcpRoutes(http);
 
 export default http;
