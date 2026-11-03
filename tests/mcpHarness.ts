@@ -188,3 +188,29 @@ export async function callTool(
   }
   return { response, isError: Boolean(result?.isError), data, text };
 }
+
+/**
+ * convex-test records a stored file's size and hash but not its content
+ * type, which real Convex takes from the Blob. The upload route and the
+ * ChatGPT download store typed Blobs; this sets the type the same way
+ * `tests/proofFixtures.ts` does.
+ */
+export async function setStoredContentType(t: McpHarness["t"], storageId: string, contentType: string) {
+  await t.run(async () => {
+    const convex = (globalThis as unknown as {
+      Convex: { asyncSyscall: (op: string, args: string) => Promise<string> };
+    }).Convex;
+    await convex.asyncSyscall(
+      "1.0/shallowMerge",
+      JSON.stringify({ table: "_storage", id: storageId, value: { contentType } }),
+    );
+  });
+}
+
+/** The caller the gateway would inject, for calling a tool's function directly. */
+export function testCaller(orgId: string, client = "claude-ai", sub = "user_alex") {
+  return {
+    subject: sub,
+    claims: { tokenIdentifier: `${ISSUER}|${sub}`, org_id: orgId, magnusMcpClient: client },
+  };
+}
