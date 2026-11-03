@@ -1,283 +1,245 @@
 "use client";
 
-import Link from "next/link";
-import { EllipsisIcon, ExternalLinkIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { modeOf, type CoverageProgram } from "../../_components/booking-model";
+import type { EventTypeRow } from "../../_components/event-types/event-type-rows";
 import {
-  calendlyNameIfDifferent,
-  eventTypeFacts,
-  linkIssue,
-  modeLabel,
-  modeOf,
-  usedInLabel,
-  type CoverageEventType,
-  type EventTypeSorting,
-  type EventTypeStatus,
-  type Placement,
-} from "../../_components/booking-model";
-import { CalendlyDot } from "../../_components/calendly-dot";
-import { COL_LINK, COL_PAYMENT, COL_PROGRAM, COL_USED_IN, ROW_GRID } from "./event-types-layout";
+  COL_BOOKABLE,
+  COL_PORTAL,
+  COL_SCHEDULING,
+  CountsForSelect,
+  EventTypeName,
+  LABEL,
+  ROW_GRID,
+  SchedulingWord,
+  TONE,
+  WORD,
+} from "./event-types-parts";
 
-export type EventTypeRow = {
-  eventType: CoverageEventType;
-  status: EventTypeStatus;
-  placements: Placement[];
-};
+export type SortTarget = { kind: "program"; programId: string; mode: "normal" | "extended" } | { kind: "unsorted" } | { kind: "not_sales_call" };
 
-export type EventTypeGroup = {
-  key: string;
-  /** The 26px heading; null when the filter already names the rows. */
-  label: string | null;
-  rows: EventTypeRow[];
-};
+const CHECKBOX = "size-4 cursor-pointer accent-foreground";
 
-const HEAD = "font-condensed text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase";
-const WORD = "font-condensed text-[13px] font-bold tracking-[0.08em] uppercase";
-
+/** The Event types table: one row per event type, most-booked first, with checkboxes for bulk sorting. */
 export function EventTypesTable({
-  groups,
-  programName,
-  onEdit,
+  rows,
+  programs,
+  selected,
+  onSelect,
+  onSelectAll,
+  onOpen,
   onSort,
+  emptyText,
 }: {
-  groups: readonly EventTypeGroup[];
-  programName: (programId: string) => string;
-  onEdit: (row: EventTypeRow) => void;
-  onSort: (row: EventTypeRow, sorting: EventTypeSorting) => void;
+  rows: EventTypeRow[];
+  programs: readonly CoverageProgram[];
+  selected: ReadonlySet<string>;
+  onSelect: (id: string, checked: boolean) => void;
+  onSelectAll: (checked: boolean) => void;
+  onOpen: (id: string) => void;
+  onSort: (row: EventTypeRow, target: SortTarget) => void;
+  emptyText: string;
 }) {
+  const allChecked = rows.length > 0 && rows.every((row) => selected.has(row.eventType._id));
   return (
-    <div>
-      <div aria-hidden="true" className={cn(ROW_GRID, "hidden min-h-8 border-b px-4 @2xl/et:grid")}>
-        <span className={HEAD}>Event type</span>
-        <span className={cn(HEAD, COL_PROGRAM)}>Program</span>
-        <span className={cn(HEAD, COL_USED_IN)}>Used in</span>
-        <span className={cn(HEAD, COL_LINK)}>Link</span>
-        <span className={cn(HEAD, COL_PAYMENT)}>Payment</span>
-        <span />
+    <div role="table" aria-label="Event types" aria-rowcount={rows.length + 1}>
+      <div role="row" className={cn(ROW_GRID, "sticky top-0 z-[2] min-h-[30px] border-b border-border bg-card")}>
+        <span role="columnheader" className="flex items-center">
+          <input
+            type="checkbox"
+            className={CHECKBOX}
+            aria-label="Select all shown"
+            checked={allChecked}
+            disabled={rows.length === 0}
+            onChange={(event) => onSelectAll(event.target.checked)}
+          />
+        </span>
+        <span role="columnheader" className={LABEL}>
+          Event type
+        </span>
+        <span role="columnheader" className={cn(LABEL, "pl-1.5")}>
+          Counts for
+        </span>
+        <span role="columnheader" className={cn(LABEL, COL_SCHEDULING)}>
+          Scheduling
+        </span>
+        <span role="columnheader" className={cn(LABEL, COL_BOOKABLE)}>
+          Bookable
+        </span>
+        <span role="columnheader" className={cn(LABEL, COL_PORTAL)}>
+          In portal
+        </span>
+        <span role="columnheader" className={cn(LABEL, "text-right")}>
+          30 days
+        </span>
       </div>
-      {groups.map((group) => (
-        <section key={group.key} aria-label={group.label ?? undefined}>
-          {group.label ? (
-            <h3 className={cn(HEAD, "flex min-h-[26px] items-center border-b bg-muted/40 px-4")}>
-              {group.label} · {group.rows.length}
-            </h3>
-          ) : null}
-          <ul>
-            {group.rows.map((row) => (
-              <EventTypeRowView key={row.eventType._id} row={row} programName={programName} onEdit={onEdit} onSort={onSort} />
-            ))}
-          </ul>
-        </section>
-      ))}
+      {rows.length === 0 ? (
+        <p className="px-4 py-7 text-[13.5px] text-muted-foreground">{emptyText}</p>
+      ) : (
+        rows.map((row) => (
+          <Row
+            key={row.eventType._id}
+            row={row}
+            programs={programs}
+            checked={selected.has(row.eventType._id)}
+            onSelect={onSelect}
+            onOpen={onOpen}
+            onSort={onSort}
+          />
+        ))
+      )}
     </div>
   );
 }
 
-function EventTypeRowView({
+function Row({
   row,
-  programName,
-  onEdit,
+  programs,
+  checked,
+  onSelect,
+  onOpen,
   onSort,
 }: {
   row: EventTypeRow;
-  programName: (programId: string) => string;
-  onEdit: (row: EventTypeRow) => void;
-  onSort: (row: EventTypeRow, sorting: EventTypeSorting) => void;
+  programs: readonly CoverageProgram[];
+  checked: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  onOpen: (id: string) => void;
+  onSort: (row: EventTypeRow, target: SortTarget) => void;
 }) {
-  const { eventType, status, placements } = row;
-  const calendlyName = calendlyNameIfDifferent(eventType);
-  const gone = status === "gone";
-  const program = <ProgramCell row={row} programName={programName} />;
-  const link = <LinkWord row={row} />;
-
+  const id = row.eventType._id;
+  const [leaving, setLeaving] = useState(false);
   return (
-    <li
+    <div
+      role="row"
+      data-row={id}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("select, input, button, a")) return;
+        onOpen(id);
+      }}
       className={cn(
         ROW_GRID,
-        "relative min-h-11 border-b px-4 py-1.5 transition-colors last:border-b-0 hover:bg-muted/60",
-        gone && "text-muted-foreground",
+        "min-h-10 cursor-pointer border-b border-border transition-colors hover:bg-muted/40",
+        checked && "bg-stage-booked/6 hover:bg-stage-booked/10",
+        leaving && "opacity-60",
       )}
     >
-      <div className="min-w-0">
+      <span role="cell" className="flex items-center">
+        <input
+          type="checkbox"
+          className={CHECKBOX}
+          aria-label={`Select ${row.eventType.displayName}`}
+          checked={checked}
+          onChange={(event) => onSelect(id, event.target.checked)}
+        />
+      </span>
+      <span role="cell" className="min-w-0">
         <button
           type="button"
-          onClick={() => onEdit(row)}
-          className="flex max-w-full min-w-0 items-center gap-2 rounded-sm text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+          onClick={() => onOpen(id)}
+          className="block w-full min-w-0 rounded-[5px] text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          aria-label={`Open ${row.eventType.displayName}`}
         >
-          <CalendlyDot color={gone ? undefined : eventType.calendlyColor} />
-          <span className={cn("truncate", gone ? "font-normal" : "font-medium")}>{eventType.displayName}</span>
+          <EventTypeName row={row} />
         </button>
-        {/* From @2xl the facts; narrower, the program and link in words. */}
-        <p className="hidden truncate pl-4 text-[13px] text-muted-foreground @2xl/et:block">
-          {eventTypeFacts(eventType)}
-          {calendlyName ? ` · Calendly: ${calendlyName}` : null}
-        </p>
-        <p className="flex min-w-0 items-center gap-1.5 truncate pl-4 text-[13px] text-muted-foreground @2xl/et:hidden">
-          {program}
-          <span aria-hidden="true">·</span>
-          {link}
-        </p>
-      </div>
-      <div className={cn(COL_PROGRAM, "min-w-0")}>{program}</div>
-      <div className={cn(COL_USED_IN, "min-w-0 truncate text-sm")}>
-        <UsedIn status={status} placements={placements} />
-      </div>
-      <div className={cn(COL_LINK, "min-w-0")}>{link}</div>
-      <div className={cn(COL_PAYMENT, "text-sm")}>
-        {eventType.paymentLinkCount > 0 ? (
-          <>
-            <span className="font-condensed text-[15px] font-semibold tabular-nums">{eventType.paymentLinkCount}</span>{" "}
-            {eventType.paymentLinkCount === 1 ? "link" : "links"}
-          </>
-        ) : (
-          <span className="text-muted-foreground">None</span>
-        )}
-      </div>
-      <RowMenu row={row} onEdit={onEdit} onSort={onSort} />
-    </li>
-  );
-}
-
-function ProgramCell({ row, programName }: { row: EventTypeRow; programName: (programId: string) => string }) {
-  const { eventType, status } = row;
-  if (status === "sorted" && eventType.bookingProgramId) {
-    return (
-      <span className="inline-flex min-w-0 items-baseline gap-1.5">
-        <span className="truncate text-sm text-foreground">{programName(eventType.bookingProgramId)}</span>
-        <span className={cn(WORD, "shrink-0 text-[11px] text-muted-foreground")}>{modeLabel(modeOf(eventType))}</span>
       </span>
-    );
-  }
-  if (status === "unsorted") return <span className={cn(WORD, "text-warning-ink")}>Unsorted</span>;
-  if (status === "not_sales_call") return <span className="text-sm text-muted-foreground">Not a sales call</span>;
-  return <span className="text-sm text-muted-foreground">Gone from Calendly</span>;
-}
-
-function LinkWord({ row }: { row: EventTypeRow }) {
-  const { eventType, status, placements } = row;
-  if (status === "not_sales_call" || status === "gone") {
-    return <span className="text-sm text-muted-foreground">—</span>;
-  }
-  const issue = linkIssue(eventType);
-  if (issue === null) return <span className={cn(WORD, "text-foreground")}>Ready</span>;
-  if (issue === "missing_url") return <span className={cn(WORD, "text-warning-ink")}>No booking URL</span>;
-  return (
-    <span className={cn(WORD, placements.length > 0 ? "text-danger-ink" : "text-muted-foreground")}>
-      Inactive in Calendly
-    </span>
+      <span role="cell" className="min-w-0">
+        <CountsForSelect
+          row={row}
+          programs={programs}
+          label={`Counts for: ${row.eventType.displayName}`}
+          onChange={(value) => {
+            setLeaving(true);
+            window.setTimeout(() => setLeaving(false), 400);
+            onSort(row, value.kind === "program" ? { kind: "program", programId: value.programId, mode: modeOf(row.eventType) } : value);
+          }}
+        />
+      </span>
+      <span role="cell" className={COL_SCHEDULING}>
+        <SchedulingWord
+          row={row}
+          onToggle={() =>
+            row.eventType.bookingProgramId &&
+            onSort(row, {
+              kind: "program",
+              programId: row.eventType.bookingProgramId,
+              mode: modeOf(row.eventType) === "normal" ? "extended" : "normal",
+            })
+          }
+        />
+      </span>
+      <span role="cell" className={cn(WORD, COL_BOOKABLE, TONE[row.bookable.tone])}>
+        {row.bookable.word}
+      </span>
+      <span
+        role="cell"
+        className={cn(COL_PORTAL, "truncate", row.portal.condensed ? cn(WORD, TONE[row.portal.tone]) : cn("text-[13px]", TONE[row.portal.tone]))}
+      >
+        {row.portal.word}
+      </span>
+      <span
+        role="cell"
+        className={cn("text-right font-condensed text-[15px] leading-none font-semibold tabular-nums", row.bookings === 0 && "text-stage-held")}
+      >
+        {row.bookings}
+      </span>
+    </div>
   );
 }
 
-function UsedIn({ status, placements }: { status: EventTypeStatus; placements: readonly Placement[] }) {
-  const label = usedInLabel(placements);
-  if (!label) return <span className="text-muted-foreground">Not in coverage</span>;
-  // Cells still pointing at an event type that no longer counts for a program are broken.
-  if (status !== "sorted") return <span className="text-danger-ink">{label} · broken</span>;
-  return <span>{label}</span>;
-}
-
-function RowMenu({
-  row,
-  onEdit,
-  onSort,
+/** The navy bar that appears when rows are checked: file them all at once, with one Undo. */
+export function BulkBar({
+  count,
+  programs,
+  onNotSalesCall,
+  onProgram,
+  onClear,
 }: {
-  row: EventTypeRow;
-  onEdit: (row: EventTypeRow) => void;
-  onSort: (row: EventTypeRow, sorting: EventTypeSorting) => void;
+  count: number;
+  programs: readonly CoverageProgram[];
+  onNotSalesCall: () => void;
+  onProgram: (programId: string) => void;
+  onClear: () => void;
 }) {
-  const { eventType, status, placements } = row;
-  const cells = placements.length;
-  const breaks =
-    status === "sorted" && cells > 0
-      ? `${cells} coverage ${cells === 1 ? "cell uses" : "cells use"} it and will show as broken.`
-      : null;
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="relative z-10 justify-self-end"
-          aria-label={`Actions for ${eventType.displayName}`}
+    <div
+      role="region"
+      aria-label={`${count} selected`}
+      className="sticky bottom-2.5 z-[3] m-2.5 flex flex-wrap items-center gap-2.5 rounded-[9.8px] bg-board px-3.5 py-[9px] text-board-foreground animate-in fade-in-0 slide-in-from-bottom-2"
+    >
+      <b className="mr-1.5 font-condensed text-[15px] font-semibold tracking-[0.04em]">{count} selected</b>
+      <button
+        type="button"
+        onClick={onNotSalesCall}
+        className="inline-flex h-8 items-center rounded-[7px] border border-white/15 bg-board-raised px-3 text-[13px] font-medium outline-none hover:bg-white/10 focus-visible:ring-3 focus-visible:ring-primary/50"
+      >
+        Not a sales call
+      </button>
+      <label className="relative">
+        <span className="sr-only">Counts for</span>
+        <select
+          value=""
+          onChange={(event) => {
+            if (event.target.value) onProgram(event.target.value);
+          }}
+          className="h-8 w-[min(320px,60vw)] cursor-pointer appearance-none rounded-[7px] border border-white/15 bg-board-raised pr-7 pl-2.5 text-[13px] text-board-foreground outline-none focus-visible:ring-3 focus-visible:ring-primary/50"
         >
-          <EllipsisIcon />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuItem onSelect={() => onEdit(row)}>Edit details</DropdownMenuItem>
-        {status === "sorted" ? (
-          <>
-            <MenuChoice detail={breaks} onSelect={() => onSort(row, { kind: "unsorted" })}>
-              Move to inbox
-            </MenuChoice>
-            <MenuChoice detail={breaks} onSelect={() => onSort(row, { kind: "not_sales_call" })}>
-              Not a sales call
-            </MenuChoice>
-          </>
-        ) : null}
-        {status === "unsorted" ? (
-          <>
-            <DropdownMenuItem asChild>
-              <Link href={`/workspace/booking/inbox?id=${eventType._id}`}>Sort in the inbox</Link>
-            </DropdownMenuItem>
-            <MenuChoice
-              detail="Bookings on it stay out of booking setup."
-              onSelect={() => onSort(row, { kind: "not_sales_call" })}
-            >
-              Not a sales call
-            </MenuChoice>
-          </>
-        ) : null}
-        {status === "gone" ? (
-          <MenuChoice detail="Files it away; it stays here under Not a sales call." onSelect={() => onSort(row, { kind: "not_sales_call" })}>
-            Not a sales call
-          </MenuChoice>
-        ) : null}
-        {status === "not_sales_call" ? (
-          <MenuChoice detail="It goes back to the inbox to be sorted." onSelect={() => onSort(row, { kind: "unsorted" })}>
-            Bring back
-          </MenuChoice>
-        ) : null}
-        {eventType.calendlySchedulingUrl ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <a href={eventType.calendlySchedulingUrl} target="_blank" rel="noopener noreferrer">
-                Open in Calendly
-                <ExternalLinkIcon className="ml-auto" aria-hidden="true" />
-              </a>
-            </DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/** A menu item that says its consequence under its name. */
-function MenuChoice({
-  detail,
-  onSelect,
-  children,
-}: {
-  detail: string | null;
-  onSelect: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <DropdownMenuItem onSelect={onSelect} className="flex-col items-start gap-0">
-      <span>{children}</span>
-      {detail ? <span className="text-[12px] text-muted-foreground">{detail}</span> : null}
-    </DropdownMenuItem>
+          <option value="">Counts for…</option>
+          {programs.map((program) => (
+            <option key={program._id} value={program._id}>
+              {program.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto inline-flex h-8 items-center rounded-[7px] border border-white/15 bg-board-raised px-3 text-[13px] font-medium outline-none hover:bg-white/10 focus-visible:ring-3 focus-visible:ring-primary/50"
+      >
+        Clear
+      </button>
+    </div>
   );
 }

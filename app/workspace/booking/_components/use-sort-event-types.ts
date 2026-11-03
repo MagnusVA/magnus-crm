@@ -16,13 +16,20 @@ export type SortRequest = {
 };
 
 type SortOptions = {
-  /** The toast's words for how many were sorted ("Sorted into 25K Accelerator · Priority."). */
+  /** The toast's words for how many were sorted ("Filed under 25K Accelerator · Priority."). */
   message: (count: number) => string;
   /** Ids and enums only, for the PostHog event. */
-  analytics: { source: "inbox" | "inbox_bulk" | "event_types"; to: EventTypeSorting["kind"]; suggested?: boolean };
+  analytics: {
+    source: "inbox" | "inbox_bulk" | "event_types" | "event_types_bulk" | "event_types_fold" | "event_type_sheet";
+    to: EventTypeSorting["kind"];
+    suggested?: boolean;
+    reason?: string;
+  };
+  /** Runs after Undo puts them back. */
+  onUndone?: () => void;
 };
 
-// The coverage row as the mutation will leave it, so the inbox moves on at once.
+// The coverage row as the mutation will leave it, so the screens move on at once.
 function applyOptimistically(
   store: OptimisticLocalStore,
   args: { eventTypeConfigId: Id<"eventTypeConfigs">; sorting: EventTypeSorting },
@@ -41,8 +48,10 @@ function applyOptimistically(
 /**
  * Sorts one or more event types, then toasts with an Undo that puts each
  * back the way `sortEventType` says it was. The coverage subscription
- * updates optimistically, so the inbox moves on without waiting.
- * Resolves true when at least one was sorted.
+ * updates optimistically, so the screens move on without waiting.
+ *
+ * `sort` resolves to the previous sortings (what Undo restores), or null when
+ * nothing was sorted; `undo` takes them back.
  */
 export function useSortEventTypes() {
   const sortEventType = useMutation(api.bookingSetup.mutations.sortEventType).withOptimisticUpdate(applyOptimistically);
@@ -66,28 +75,32 @@ export function useSortEventTypes() {
     return { previous, failed, error };
   }
 
-  async function undo(previous: readonly SortRequest[]) {
+  async function undo(previous: readonly SortRequest[], onUndone?: () => void) {
     const result = await run(previous);
     if (result.failed > 0) {
       toast.error(getErrorMessage(result.error, "Couldn't undo. Sort the event type again from Event types."));
-      return;
+      return false;
     }
     posthog.capture("booking_event_type_sort_undone", { count: previous.length });
     toast(previous.length === 1 ? "Undone." : `Undone for ${previous.length} event types.`);
+    onUndone?.();
+    return true;
   }
 
-  return async function sort(requests: readonly SortRequest[], options: SortOptions) {
-    if (requests.length === 0) return false;
+  async function sort(requests: readonly SortRequest[], options: SortOptions): Promise<SortRequest[] | null> {
+    if (requests.length === 0) return null;
     const { previous, failed, error } = await run(requests);
     if (previous.length === 0) {
       toast.error(getErrorMessage(error, "Couldn't sort the event type. Try again."));
-      return false;
+      return null;
     }
     posthog.capture("booking_event_type_sorted", { ...options.analytics, count: previous.length, failed });
     const message = options.message(previous.length);
     toast.success(failed > 0 ? `${message} ${failed} couldn't be sorted; try those again.` : message, {
-      action: { label: "Undo", onClick: () => void undo(previous) },
+      action: { label: "Undo", onClick: () => void undo(previous, options.onUndone) },
     });
-    return true;
-  };
+    return previous;
+  }
+
+  return { sort, undo };
 }

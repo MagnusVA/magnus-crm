@@ -16,6 +16,7 @@ import {
 	normalizePortalSlugParam,
 	portalSessionCookieName,
 } from "./_lib/portal-session-cookie";
+import { readSessionTokenTimes } from "./_lib/session-token-times";
 
 export const unstable_instant = false;
 
@@ -48,10 +49,21 @@ export default async function DmLinksPage({ params }: Props) {
 				})
 			: null;
 
+	// Display only: when the session ends and how long sessions last. A
+	// cookie whose bootstrap failed means the session ended (it expired, the
+	// password or path rotated, or the portal was turned off).
+	const times = sessionToken ? readSessionTokenTimes(sessionToken) : null;
+	const session = {
+		expiresAt: bootstrap ? (times?.expiresAt ?? null) : null,
+		ttlSeconds: times?.ttlSeconds ?? null,
+		ended: Boolean(sessionToken) && !bootstrap,
+	};
+
 	return (
 		<DmLinkPortalClient
 			portalSlug={portalSlug ?? rawPortalSlug}
 			bootstrap={bootstrap}
+			session={session}
 			unlockPortal={unlockPortal}
 			logoutPortal={logoutPortal}
 			recordPortalCopy={recordPortalCopy}

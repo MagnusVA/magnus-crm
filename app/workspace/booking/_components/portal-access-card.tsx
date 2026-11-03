@@ -1,382 +1,377 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import {
-  CopyIcon,
-  ExternalLinkIcon,
-  KeyRoundIcon,
-  RotateCcwIcon,
-  ShieldCheckIcon,
-} from "lucide-react";
+import posthog from "posthog-js";
+import { CopyIcon, ExternalLinkIcon, KeyRoundIcon, RotateCwIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-  InputGroupText,
-} from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { CardNote, StatusWord } from "./attribution-ui";
-import { SetPortalPasswordDialog } from "./set-portal-password-dialog";
 import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { cn } from "@/lib/utils";
+import { generatePortalPassword } from "./portal/generate-password";
+import {
+  cardButton,
+  ConfirmStrip,
+  ICON_BUTTON,
+  PortalCard,
+  PortalRow,
+  RowText,
+} from "./portal/portal-card";
+import { SetPortalPasswordDialog } from "./set-portal-password-dialog";
 
-type PendingAction = "toggle" | "slug" | "ttl" | null;
+type Pending = "toggle" | "slug" | "ttl" | "password" | null;
+type Confirm = "path" | "password" | null;
 
-function formatTimestamp(timestamp: number | undefined) {
-  if (timestamp === undefined) {
-    return "Never";
+const SESSION_CHOICES = [900, 3600, 4 * 3600, 8 * 3600, 12 * 3600, 24 * 3600];
+
+function sessionLabel(seconds: number) {
+  if (seconds < 3600) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
   }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(timestamp);
+  const hours = Math.round((seconds / 3600) * 100) / 100;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
 }
 
-function formatTtlHours(sessionTtlSeconds: number | undefined) {
-  if (sessionTtlSeconds === undefined) {
-    return "8";
-  }
-  const hours = sessionTtlSeconds / 3600;
-  return Number.isInteger(hours) ? String(hours) : String(hours.toFixed(2));
+function formatTimestamp(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
 }
 
-async function copyPortalPath(portalPath: string) {
+async function copyText(text: string, success: string) {
   try {
-    await navigator.clipboard.writeText(portalPath);
-    toast.success("Portal path copied");
+    await navigator.clipboard.writeText(text);
+    toast.success(success);
   } catch {
-    toast.error("Could not copy portal path");
+    toast.error("Could not copy. Select it and copy by hand.");
   }
 }
 
+/**
+ * Concept C's Access card: the live switch, the portal path (copy, open,
+ * rotate), the session length and the password. Rotations confirm in place
+ * and say who they affect; a generated password is shown once.
+ */
 export function PortalAccessCard() {
-  const config = useQuery(
-    api.linkPortal.configQueries.getPortalConfigForSettings,
-    {},
-  );
-  const setPortalEnabled = useMutation(
-    api.linkPortal.configMutations.setPortalEnabled,
-  );
-  const updateSessionTtl = useMutation(
-    api.linkPortal.configMutations.updateSessionTtl,
-  );
+  const config = useQuery(api.linkPortal.configQueries.getPortalConfigForSettings, {});
+  const closers = useQuery(api.attribution.dmClosers.listDmClosers, {});
+  const setPortalEnabled = useMutation(api.linkPortal.configMutations.setPortalEnabled);
+  const updateSessionTtl = useMutation(api.linkPortal.configMutations.updateSessionTtl);
   const rotateSlug = useAction(api.linkPortal.slugActions.rotatePortalSlug);
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
-  const [ttlHours, setTtlHours] = useState(() =>
-    formatTtlHours(config?.sessionTtlSeconds),
-  );
-  const [syncedTtlSeconds, setSyncedTtlSeconds] = useState(
-    config?.sessionTtlSeconds,
-  );
-  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const rotatePassword = useAction(api.linkPortal.passwordActions.rotatePortalPassword);
+  const [pending, setPending] = useState<Pending>(null);
+  const [confirm, setConfirm] = useState<Confirm>(null);
+  const [newPassword, setNewPassword] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const sessionId = useId();
 
-  // Reload the TTL input whenever the saved TTL changes.
-  if (config?.sessionTtlSeconds !== syncedTtlSeconds) {
-    setSyncedTtlSeconds(config?.sessionTtlSeconds);
-    setTtlHours(formatTtlHours(config?.sessionTtlSeconds));
-  }
-
-  const portalPath = config ? `/dm-links/${config.publicSlug}` : "";
-  const ttlSecondsFromInput = useMemo(() => {
-    const hours = Number(ttlHours);
-    if (!Number.isFinite(hours)) {
-      return null;
-    }
-    return Math.round(hours * 3600);
-  }, [ttlHours]);
-  const ttlIsDirty =
-    config !== null &&
-    config !== undefined &&
-    ttlSecondsFromInput !== null &&
-    ttlSecondsFromInput !== config.sessionTtlSeconds;
-  const isBusy = pendingAction !== null;
-
-  async function handlePortalToggle(isEnabled: boolean) {
-    setPendingAction("toggle");
-    try {
-      await setPortalEnabled({ isEnabled });
-      toast.success(isEnabled ? "Portal enabled" : "Portal disabled");
-    } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Could not update portal"),
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  async function handleRotateSlug() {
-    setPendingAction("slug");
-    try {
-      const result = await rotateSlug({});
-      toast.success(`Portal path rotated to ${result.portalUrlPath}`);
-    } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Could not rotate portal path"),
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  async function handleSaveTtl() {
-    if (ttlSecondsFromInput === null) {
-      toast.error("Enter a valid session duration");
-      return;
-    }
-    setPendingAction("ttl");
-    try {
-      await updateSessionTtl({ sessionTtlSeconds: ttlSecondsFromInput });
-      toast.success("Session duration updated");
-    } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Could not update session duration"),
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  if (config === undefined) {
-    return <PortalAccessSkeleton />;
-  }
+  if (config === undefined) return <PortalAccessSkeleton />;
 
   const isEnabled = config?.isEnabled ?? false;
+  const hasPassword = config?.passwordSetAt !== undefined;
+  const portalPath = config ? `/dm-links/${config.publicSlug}` : null;
+  const activeClosers = closers?.filter((closer) => closer.isActive).length ?? null;
+  const closersWord =
+    activeClosers === null ? "every DM closer" : activeClosers === 1 ? "the 1 DM closer" : `all ${activeClosers} DM closers`;
+  const busy = pending !== null;
+  const ttl = config?.sessionTtlSeconds ?? 8 * 3600;
+  const sessionChoices = SESSION_CHOICES.includes(ttl) ? SESSION_CHOICES : [...SESSION_CHOICES, ttl].sort((a, b) => a - b);
+
+  async function toggle(next: boolean) {
+    setPending("toggle");
+    try {
+      await setPortalEnabled({ isEnabled: next });
+      posthog.capture("link_portal_toggled", { enabled: next });
+      toast.success(next ? "Portal is live" : "Portal is off. Every session signed out.");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not update the portal"));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function confirmRotatePath() {
+    setPending("slug");
+    try {
+      await rotateSlug({});
+      setConfirm(null);
+      posthog.capture("link_portal_path_rotated");
+      toast.success("Path rotated. The old link stopped working.");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not rotate the portal path"));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function changeSession(seconds: number) {
+    const previous = ttl;
+    if (seconds === previous) return;
+    setPending("ttl");
+    try {
+      await updateSessionTtl({ sessionTtlSeconds: seconds });
+      toast.success(`Sessions now last ${sessionLabel(seconds)}`, {
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void updateSessionTtl({ sessionTtlSeconds: previous }).catch((error: unknown) => {
+              reportClientError(error, { flow: "link_portal_session_undo" });
+              toast.error(getErrorMessage(error, "Could not undo"));
+            });
+          },
+        },
+      });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not save the session length"));
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function confirmRotatePassword() {
+    const password = generatePortalPassword();
+    setPending("password");
+    try {
+      await rotatePassword({ password });
+      setConfirm(null);
+      setNewPassword(password);
+      posthog.capture("link_portal_password_rotated", { generated: true });
+      toast.success(hasPassword ? "Password rotated. Every session signed out." : "Password set");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not rotate the password"));
+    } finally {
+      setPending(null);
+    }
+  }
 
   return (
     <>
-      <DetailCard title="Portal access" className="min-w-0">
-        <CardNote>
-          Password-protected page where external DM closers generate booking
-          links.
-        </CardNote>
+      <PortalCard id="card-access" title="Access" meta="Who can open the portal, and for how long">
+        <PortalRow>
+          <RowText
+            title={
+              <span className="inline-flex items-center gap-[5px] font-condensed text-[12px] leading-none font-bold tracking-[0.08em] uppercase">
+                <span aria-hidden className={cn("size-1.5 rounded-full", isEnabled ? "bg-primary" : "bg-muted-foreground/60")} />
+                {isEnabled ? "Portal is live" : "Portal is off"}
+              </span>
+            }
+            detail={
+              config === null || !hasPassword
+                ? "Set a password first. Then turn it on."
+                : "Turning it off signs out every open session."
+            }
+          />
+          {pending === "toggle" ? <Spinner /> : null}
+          <Switch
+            checked={isEnabled}
+            disabled={!config || !hasPassword || busy}
+            aria-label="Portal on or off"
+            onCheckedChange={(next) => void toggle(next)}
+            className="data-[state=checked]:bg-foreground"
+          />
+        </PortalRow>
 
-        {config === null ? (
-          <div className="border-b px-4 py-3">
-            <Alert>
-              <ShieldCheckIcon data-icon="inline-start" />
-              <AlertTitle>Portal access is not configured</AlertTitle>
-              <AlertDescription>
-                Set a password to create the private portal path and access
-                credentials.
-              </AlertDescription>
-            </Alert>
+        <PortalRow className={cn(confirm === "path" && "border-b-0")}>
+          <div className="min-w-0 flex-1">
+            <div className="mb-[5px] text-[12px] text-muted-foreground">Portal path</div>
+            <div className="flex h-8 min-w-0 items-center gap-1 rounded-[7px] border border-input bg-background pr-1 pl-2.5 font-mono text-[12.5px]">
+              <span className="min-w-0 flex-1 truncate" translate="no" title={portalPath ?? undefined}>
+                {portalPath ?? "Set a password to create the portal path"}
+              </span>
+              {portalPath ? (
+                <>
+                  <button
+                    type="button"
+                    className={ICON_BUTTON}
+                    title="Copy link"
+                    aria-label="Copy the portal link"
+                    onClick={() => void copyText(`${window.location.origin}${portalPath}`, "Portal link copied")}
+                  >
+                    <CopyIcon aria-hidden className="size-3.5" />
+                  </button>
+                  <a
+                    href={portalPath}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={ICON_BUTTON}
+                    title="Open the portal"
+                    aria-label="Open the portal in a new tab"
+                  >
+                    <ExternalLinkIcon aria-hidden className="size-3.5" />
+                  </a>
+                  <button
+                    type="button"
+                    className={ICON_BUTTON}
+                    title="Rotate path"
+                    aria-label="Rotate the portal path"
+                    aria-expanded={confirm === "path"}
+                    disabled={busy}
+                    onClick={() => setConfirm(confirm === "path" ? null : "path")}
+                  >
+                    <RotateCwIcon aria-hidden className="size-3.5" />
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
+        </PortalRow>
+        {confirm === "path" ? (
+          <ConfirmStrip
+            actions={
+              <>
+                <button type="button" className={cardButton({ size: "sm" })} onClick={() => setConfirm(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  autoFocus
+                  className={cardButton({ size: "sm", tone: "ink" })}
+                  disabled={busy}
+                  onClick={() => void confirmRotatePath()}
+                >
+                  {pending === "slug" ? <Spinner className="size-3" /> : null}
+                  Rotate path
+                </button>
+              </>
+            }
+          >
+            Rotating breaks the old link for {closersWord} right away.
+          </ConfirmStrip>
         ) : null}
 
-        <div className="flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2.5">
-          <div className="min-w-0">
-            <StatusWord tone={isEnabled ? "active" : "inactive"}>
-              {isEnabled ? "Portal is live" : "Portal is off"}
-            </StatusWord>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">
-              Turning it off signs out every active session.
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {pendingAction === "toggle" ? <Spinner /> : null}
-            <Switch
-              checked={isEnabled}
-              disabled={!config || isBusy}
-              aria-label="Toggle public portal access"
-              onCheckedChange={handlePortalToggle}
-            />
-          </div>
-        </div>
-
-        <FieldGroup className="gap-0 divide-y border-b">
-          <Field className="px-4 py-3">
-            <FieldLabel htmlFor="portal-url" className="text-[13px] font-normal text-muted-foreground">
-              Portal path
-            </FieldLabel>
-            <InputGroup>
-              <InputGroupInput
-                id="portal-url"
-                value={portalPath}
-                readOnly
-                disabled={!portalPath}
-                className="font-mono text-[13px]"
-                translate="no"
-                onFocus={(event) => event.currentTarget.select()}
-              />
-              <InputGroupAddon align="inline-end">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <InputGroupButton
-                      size="icon-xs"
-                      aria-label="Copy portal path"
-                      disabled={!portalPath}
-                      onClick={() => copyPortalPath(portalPath)}
-                    >
-                      <CopyIcon />
-                    </InputGroupButton>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy path</TooltipContent>
-                </Tooltip>
-                {portalPath && isEnabled ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <InputGroupButton
-                        size="icon-xs"
-                        aria-label="Open portal in a new tab"
-                        asChild
-                      >
-                        <a
-                          href={portalPath}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLinkIcon />
-                        </a>
-                      </InputGroupButton>
-                    </TooltipTrigger>
-                    <TooltipContent>Open portal</TooltipContent>
-                  </Tooltip>
-                ) : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <InputGroupButton
-                      size="icon-xs"
-                      aria-label="Rotate portal path"
-                      disabled={!config || isBusy}
-                      onClick={handleRotateSlug}
-                    >
-                      {pendingAction === "slug" ? (
-                        <Spinner />
-                      ) : (
-                        <RotateCcwIcon />
-                      )}
-                    </InputGroupButton>
-                  </TooltipTrigger>
-                  <TooltipContent>Rotate path</TooltipContent>
-                </Tooltip>
-              </InputGroupAddon>
-            </InputGroup>
-            <FieldDescription className="text-[13px]">
-              Rotating the path breaks the old one immediately.
-            </FieldDescription>
-          </Field>
-
-          <Field className="px-4 py-3">
-            <FieldLabel htmlFor="portal-session-duration" className="text-[13px] font-normal text-muted-foreground">
-              Session duration
-            </FieldLabel>
-            <div className="flex gap-2">
-              <InputGroup>
-                <InputGroupInput
-                  id="portal-session-duration"
-                  type="number"
-                  inputMode="decimal"
-                  min="0.25"
-                  max="24"
-                  step="0.25"
-                  value={ttlHours}
-                  disabled={!config || isBusy}
-                  className="font-condensed text-[15px] tabular-nums"
-                  onChange={(event) => setTtlHours(event.target.value)}
-                />
-                <InputGroupAddon align="inline-end">
-                  <InputGroupText>hours</InputGroupText>
-                </InputGroupAddon>
-              </InputGroup>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!config || !ttlIsDirty || isBusy}
-                onClick={handleSaveTtl}
-              >
-                {pendingAction === "ttl" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                Save
-              </Button>
-            </div>
-            <FieldDescription className="text-[13px]">
-              Between 0.25 and 24 hours.
-            </FieldDescription>
-          </Field>
-        </FieldGroup>
-
-        <div className="flex min-h-11 items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <KeyRoundIcon
-              className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <div className="min-w-0">
-              <p className="font-medium">Password</p>
-              <p className="text-[13px] text-muted-foreground">
-                {config?.passwordSetAt === undefined
-                  ? "Not set"
-                  : `${config.passwordRotatedAt ? "Rotated" : "Set"} ${formatTimestamp(
-                      config.passwordRotatedAt ?? config.passwordSetAt,
-                    )}`}
-              </p>
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isBusy}
-            onClick={() => setPasswordDialogOpen(true)}
+        <PortalRow className={cn(confirm === "path" && "border-t border-border")}>
+          <RowText title={<label htmlFor={sessionId}>Session length</label>} detail="Between 15 minutes and 24 hours." />
+          {pending === "ttl" ? <Spinner /> : null}
+          <select
+            id={sessionId}
+            value={ttl}
+            disabled={!config || busy}
+            onChange={(event) => void changeSession(Number(event.target.value))}
+            className="h-8 min-w-0 appearance-none rounded-[7px] border border-input bg-card bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2212%22%20height=%2212%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22%234f596b%22%20stroke-width=%222.2%22%3E%3Cpath%20d=%22m6%209%206%206%206-6%22/%3E%3C/svg%3E')] bg-[position:right_9px_center] bg-no-repeat pr-7 pl-2.5 text-[13.5px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
           >
-            {config?.passwordSetAt ? "Rotate" : "Set password"}
-          </Button>
-        </div>
-      </DetailCard>
+            {sessionChoices.map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {sessionLabel(seconds)}
+              </option>
+            ))}
+          </select>
+        </PortalRow>
 
-      <SetPortalPasswordDialog
-        open={passwordDialogOpen}
-        hasExistingPassword={config?.passwordSetAt !== undefined}
-        onOpenChange={setPasswordDialogOpen}
-      />
+        <PortalRow className="border-b-0">
+          <KeyRoundIcon aria-hidden className="size-4 flex-none text-muted-foreground" />
+          <RowText
+            title="Password"
+            detail={
+              config?.passwordSetAt === undefined
+                ? "Not set yet"
+                : `${config.passwordRotatedAt ? "Rotated" : "Set"} ${formatTimestamp(config.passwordRotatedAt ?? config.passwordSetAt)}`
+            }
+          />
+          <button
+            type="button"
+            className={cardButton()}
+            disabled={busy}
+            aria-expanded={confirm === "password"}
+            onClick={() => setConfirm(confirm === "password" ? null : "password")}
+          >
+            <RotateCwIcon aria-hidden className="size-3.5" />
+            {hasPassword ? "Rotate" : "Set password"}
+          </button>
+        </PortalRow>
+        {confirm === "password" ? (
+          <ConfirmStrip
+            actions={
+              <>
+                <button type="button" className={cardButton({ size: "sm" })} onClick={() => setConfirm(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={cardButton({ size: "sm" })}
+                  onClick={() => {
+                    setConfirm(null);
+                    setDialogOpen(true);
+                  }}
+                >
+                  Choose my own…
+                </button>
+                <button
+                  type="button"
+                  autoFocus
+                  className={cardButton({ size: "sm", tone: "ink" })}
+                  disabled={busy}
+                  onClick={() => void confirmRotatePassword()}
+                >
+                  {pending === "password" ? <Spinner className="size-3" /> : null}
+                  {hasPassword ? "Rotate password" : "Set password"}
+                </button>
+              </>
+            }
+          >
+            {hasPassword
+              ? "Every open session signs out. DM closers need the new password to get back in."
+              : "We’ll make a password you can share with your DM closers."}
+          </ConfirmStrip>
+        ) : null}
+        {newPassword ? (
+          <div className="cov-row-in flex flex-wrap items-center gap-2 border-t border-border bg-stage-booked/[0.07] px-4 py-2.5 text-[13px]">
+            <span className="whitespace-nowrap">New password</span>
+            <code
+              translate="no"
+              className="rounded-[5px] border border-border bg-card px-2 py-[3px] font-mono text-[14px] font-semibold tracking-[0.02em] whitespace-nowrap select-all"
+            >
+              {newPassword}
+            </code>
+            <button
+              type="button"
+              className={cardButton({ size: "sm" })}
+              onClick={() => void copyText(newPassword, "Password copied")}
+            >
+              <CopyIcon aria-hidden className="size-3" />
+              Copy
+            </button>
+            <span className="ml-auto text-[12px] text-muted-foreground">Shown once</span>
+            <button type="button" className={ICON_BUTTON} aria-label="Hide the new password" onClick={() => setNewPassword(null)}>
+              <XIcon aria-hidden className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+      </PortalCard>
+
+      <SetPortalPasswordDialog open={dialogOpen} hasExistingPassword={hasPassword} onOpenChange={setDialogOpen} />
     </>
   );
 }
 
 function PortalAccessSkeleton() {
   return (
-    <DetailCard title="Portal access" className="min-w-0">
+    <PortalCard title="Access" meta="Who can open the portal, and for how long">
       <div role="status" aria-label="Loading portal access">
-        <div className="flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2.5">
-          <div className="flex flex-col gap-1.5">
-            <Skeleton className="h-3.5 w-28" />
+        <PortalRow>
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3 w-28" />
             <Skeleton className="h-3 w-56" />
           </div>
           <Skeleton className="h-5 w-9 rounded-full" />
-        </div>
-        {Array.from({ length: 2 }, (_, row) => (
-          <div key={row} className="flex flex-col gap-2 border-b px-4 py-3">
-            <Skeleton className="h-3 w-24" />
+        </PortalRow>
+        <PortalRow>
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3 w-20" />
             <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-3 w-48" />
           </div>
-        ))}
-        <div className="flex min-h-11 items-center justify-between gap-3 px-4 py-2.5">
-          <Skeleton className="h-3.5 w-40" />
-          <Skeleton className="h-7 w-20" />
-        </div>
+        </PortalRow>
+        <PortalRow>
+          <Skeleton className="h-3.5 flex-1" />
+          <Skeleton className="h-8 w-24" />
+        </PortalRow>
+        <PortalRow>
+          <Skeleton className="h-3.5 flex-1" />
+          <Skeleton className="h-8 w-20" />
+        </PortalRow>
       </div>
-    </DetailCard>
+    </PortalCard>
   );
 }

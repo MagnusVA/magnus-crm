@@ -41,11 +41,9 @@ const TITLE: Record<Exclude<BookingSection, "team">, string> = {
 
 const DESCRIPTION: Record<Exclude<BookingSection, "team">, string> = {
   coverage: "Who can book what: every program against every DM team, and the exact link each DM closer gets.",
-  inbox:
-    "Calendly event types nobody has sorted. Sort each one once: file it under a program and lane, or say why it isn’t a sales call. New ones land here after every sync.",
+  inbox: "Calendly event types nobody has sorted yet. File each one under a program and lane, or set it aside as not a sales call.",
   "event-types": "Calendly’s event types, sorted: sales calls, the unsorted, look-alikes and the noise.",
-  teams:
-    "External setters who send booking links. A team is a utm_source and each DM closer a utm_medium; they don’t get CRM accounts. Each team’s page shows exactly what its closers get in the portal.",
+  teams: "External setters who send booking links: a team is a utm_source, each DM closer a utm_medium. Open a team to see exactly what its closers get.",
   portal: "The password-protected page where DM closers copy their links, and what they did with it.",
 };
 
@@ -115,7 +113,7 @@ export function BookingBand() {
                 </span>
               ) : null}
             </h1>
-            <p className="mt-[5px] max-w-[520px] text-[13px] text-board-muted">
+            <p className="mt-[5px] max-w-[520px] text-[13px] leading-[19px] text-board-muted @4xl:min-h-[38px]">
               {section === "team" ? team ? <TeamMeta team={team} /> : " " : DESCRIPTION[section]}
             </p>
           </div>

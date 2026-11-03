@@ -1,183 +1,273 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { format, formatDistanceToNowStrict } from "date-fns";
 import { CheckIcon } from "lucide-react";
+import posthog from "posthog-js";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import {
+  buildInboxCards,
+  NOT_SALES_REASON_LABEL,
+  type Destination,
+  type InboxCard as InboxCardModel,
+  type IntelMode,
+  type NotSalesReason,
+} from "@/lib/booking-setup/event-type-intel";
+import {
+  buildBoard,
   eventTypeStatus,
   modeLabel,
-  suggestSorting,
+  poolingLabel,
   type Coverage,
-  type CoverageProgram,
-  type SchedulingMode,
+  type CoverageEventType,
 } from "../../_components/booking-model";
-import { InboxFocusCard } from "./inbox-focus-card";
-import { INBOX_DESCRIPTION, INBOX_DESK } from "./inbox-layout";
+import {
+  alternativeLabel,
+  destinationLabel,
+  shortUrl,
+  sortingFor,
+  toIntelEventTypes,
+  toIntelPrograms,
+  type BookingActivity,
+  type EventTypeExtras,
+} from "../../_components/event-types/intel-adapter";
+import { KeyHint } from "../../_components/event-types/key-hint";
+import { useSortEventTypes, type SortRequest } from "../../_components/use-sort-event-types";
+import { flyAway, riseIn } from "./fly-away";
+import { InboxCard, type CardFacts } from "./inbox-card";
 import { InboxPageSkeleton } from "./inbox-page-skeleton";
-import { InboxQueue } from "./inbox-queue";
-import type { InboxItem, SuggestionGroup } from "./inbox-shared";
-import { useSortEventTypes } from "../../_components/use-sort-event-types";
+import { SortedThisSession, UpNext, type QueueRow, type SessionRow } from "./inbox-side";
+import { ProgramPalette } from "./program-palette";
 
 export function InboxPageClient() {
   usePageTitle("Inbox · Booking setup");
   const coverage = useQuery(api.bookingSetup.queries.getCoverage, {});
-  // Event types links here with ?id= to open one event type first.
-  const requestedId = useSearchParams().get("id");
+  const activity = useQuery(api.bookingSetup.queries.getBookingActivity, {});
+  const configs = useQuery(api.eventTypeConfigs.queries.listEventTypeConfigs, {});
 
-  if (coverage === undefined) {
+  const extras = useMemo<EventTypeExtras | undefined>(() => {
+    if (!configs) return undefined;
+    return new Map(
+      configs.map((config) => {
+        const created = config.calendlyCreatedAt ? Date.parse(config.calendlyCreatedAt) : Number.NaN;
+        return [
+          config._id as string,
+          {
+            ownerName: config.calendlyProfileName,
+            createdAt: Number.isNaN(created) ? config._creationTime : created,
+            slug: config.calendlySlug,
+          },
+        ];
+      }),
+    );
+  }, [configs]);
+
+  if (coverage === undefined || activity === undefined) {
     return <InboxPageSkeleton />;
   }
-  return <InboxDesk coverage={coverage} requestedId={requestedId} />;
+  return <InboxDesk coverage={coverage} activity={activity} extras={extras} />;
 }
 
-const byName = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+type UndoEntry = { sessionId: string; previous: SortRequest[] };
 
-function InboxDesk({ coverage, requestedId }: { coverage: Coverage; requestedId: string | null }) {
-  const programs = useMemo(
-    () => coverage.programs.filter((program) => program.archivedAt === undefined),
-    [coverage.programs],
-  );
-  const programsById = useMemo(
-    () => new Map(coverage.programs.map((program) => [program._id as string, program])),
-    [coverage.programs],
-  );
-  const programName = (programId: string) => programsById.get(programId)?.name ?? "A removed program";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-  // Alphabetical, so look-alikes ("25K Accelerator – Ana", "– Bo") sit together.
-  const items = useMemo<InboxItem[]>(
-    () =>
-      coverage.eventTypes
-        .filter((eventType) => eventTypeStatus(eventType) === "unsorted")
-        .sort((left, right) => byName.compare(left.displayName, right.displayName))
-        .map((eventType) => ({ eventType, suggestion: suggestSorting(eventType, programs) })),
-    [coverage.eventTypes, programs],
+function InboxDesk({
+  coverage,
+  activity,
+  extras,
+}: {
+  coverage: Coverage;
+  activity: BookingActivity;
+  extras: EventTypeExtras | undefined;
+}) {
+  const board = useMemo(() => buildBoard(coverage), [coverage]);
+  const intel = useMemo(() => toIntelEventTypes(coverage, board, activity, extras), [coverage, board, activity, extras]);
+  const programs = useMemo(() => toIntelPrograms(board), [board]);
+  const cards = useMemo(
+    () => buildInboxCards(intel.filter((eventType) => eventType.status === "unsorted"), programs, intel),
+    [intel, programs],
   );
 
-  const groups = useMemo<SuggestionGroup[]>(() => {
-    const byKey = new Map<string, SuggestionGroup>();
-    for (const item of items) {
-      if (!item.suggestion) continue;
-      const key = `${item.suggestion.programId}:${item.suggestion.mode}`;
-      const group = byKey.get(key) ?? { key, programId: item.suggestion.programId, mode: item.suggestion.mode, items: [] };
-      group.items.push(item);
-      byKey.set(key, group);
+  const programsById = useMemo(() => new Map(coverage.programs.map((program) => [program._id as string, program.name])), [coverage.programs]);
+  // Programs made from the palette, named until the coverage query catches up.
+  const [createdNames, setCreatedNames] = useState<Readonly<Record<string, string>>>({});
+  const programName = (programId: string) => programsById.get(programId) ?? createdNames[programId] ?? "A removed program";
+  const eventTypeName = (id: string) => board.eventTypesById.get(id)?.displayName;
+
+  const laneCount = (programId: string, mode: IntelMode, except: ReadonlySet<string> = new Set()) =>
+    coverage.eventTypes.filter(
+      (eventType) =>
+        !except.has(eventType._id) &&
+        eventTypeStatus(eventType) === "sorted" &&
+        eventType.bookingProgramId === programId &&
+        (eventType.isExtended === true ? "extended" : "normal") === mode,
+    ).length;
+
+  // Queue order: the suggestion ranking, "Later" cards at the back, and the
+  // card on screen stays on screen until it is filed.
+  const [later, setLater] = useState<string[]>([]);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const ordered = useMemo(() => {
+    const rest = cards.filter((card) => !later.includes(card.id));
+    const back = later.flatMap((id) => cards.filter((card) => card.id === id));
+    return [...rest, ...back];
+  }, [cards, later]);
+  const top = ordered.find((card) => card.id === focusId) ?? ordered[0] ?? null;
+  if (top && focusId !== top.id) setFocusId(top.id);
+  const queue = ordered.filter((card) => card !== top);
+
+  const [notMenuOpen, setNotMenuOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [session, setSession] = useState<Array<SessionRow & { count: number }>>([]);
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const { sort, undo } = useSortEventTypes();
+  const upsertProgram = useMutation(api.tenantPrograms.mutations.upsertProgram);
+  const cardRef = useRef<HTMLElement>(null);
+
+  // The incoming card rises from the stack underneath.
+  const shownId = top?.id ?? null;
+  const firstShown = useRef(true);
+  useEffect(() => {
+    if (firstShown.current) {
+      firstShown.current = false;
+      return;
     }
-    return [...byKey.values()]
-      .filter((group) => group.items.length >= 2)
-      .sort((left, right) => right.items.length - left.items.length);
-  }, [items]);
+    riseIn(cardRef.current);
+  }, [shownId]);
 
-  const goneCount = useMemo(
-    () => coverage.eventTypes.filter((eventType) => eventTypeStatus(eventType) === "gone").length,
-    [coverage.eventTypes],
-  );
-
-  // The focused item by id; when it leaves the queue, whatever now sits at
-  // its place takes over, so a decision moves on to the next one.
-  const [cursor, setCursor] = useState<{ id: string | null; index: number }>({ id: requestedId, index: 0 });
-  const foundIndex = items.findIndex((item) => item.eventType._id === cursor.id);
-  const selectedIndex = items.length === 0 ? -1 : foundIndex >= 0 ? foundIndex : Math.min(cursor.index, items.length - 1);
-  const selected = selectedIndex >= 0 ? items[selectedIndex] : null;
-
-  // The decision being made on the focused item; the suggestion until changed.
-  const [draft, setDraft] = useState<{
-    forId: string;
-    programId: CoverageProgram["_id"] | null;
-    mode: SchedulingMode;
-  } | null>(null);
-  const decision =
-    selected && draft?.forId === selected.eventType._id
-      ? draft
-      : {
-          forId: selected?.eventType._id ?? "",
-          programId: selected?.suggestion?.programId ?? null,
-          mode: selected?.suggestion?.mode ?? ("normal" as SchedulingMode),
-        };
-
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const sort = useSortEventTypes();
-
-  function selectAt(index: number) {
-    const item = items[index];
-    if (item) setCursor({ id: item.eventType._id, index });
-  }
-
-  function move(delta: 1 | -1, wrap = false) {
-    if (selectedIndex < 0 || items.length === 0) return;
-    let next = selectedIndex + delta;
-    if (wrap) next = (next + items.length) % items.length;
-    if (next < 0 || next >= items.length) return;
-    selectAt(next);
-  }
-
-  // Focus the one after the decided item (or before it, at the end).
-  function advancePast(index: number) {
-    const next = items[index + 1] ?? items[index - 1] ?? null;
-    setCursor({ id: next?.eventType._id ?? null, index });
-  }
-
-  function setProgram(programId: CoverageProgram["_id"]) {
-    if (!selected) return;
-    setDraft({ ...decision, forId: selected.eventType._id, programId });
-  }
-
-  function setMode(mode: SchedulingMode) {
-    if (!selected) return;
-    setDraft({ ...decision, forId: selected.eventType._id, mode });
-  }
-
-  function sortSelected() {
-    if (!selected || !decision.programId) return;
-    const { programId, mode } = decision;
-    const name = selected.eventType.displayName;
-    const suggested = selected.suggestion?.programId === programId && selected.suggestion.mode === mode;
-    advancePast(selectedIndex);
-    void sort([{ eventTypeConfigId: selected.eventType._id, sorting: { kind: "program", programId, mode } }], {
-      message: () => `${name} sorted into ${programName(programId)} · ${modeLabel(mode)}.`,
-      analytics: { source: "inbox", to: "program", suggested },
+  function membersOf(card: InboxCardModel) {
+    return card.eventTypes.flatMap((eventType) => {
+      const row = board.eventTypesById.get(eventType.id);
+      return row ? [row] : [];
     });
   }
 
-  function markNotSalesCall() {
-    if (!selected) return;
-    const name = selected.eventType.displayName;
-    advancePast(selectedIndex);
-    void sort([{ eventTypeConfigId: selected.eventType._id, sorting: { kind: "not_sales_call" } }], {
-      message: () => `${name} set aside as not a sales call.`,
-      analytics: { source: "inbox", to: "not_sales_call" },
-    });
+  function cardName(card: InboxCardModel) {
+    return card.stackLabel ?? eventTypeName(card.eventTypes[0].id) ?? "Event type";
   }
 
-  async function acceptGroup(group: SuggestionGroup) {
-    const ids = new Set(group.items.map((item) => item.eventType._id as string));
-    // Keep the focus where it is, or on the next item the group leaves behind.
-    if (selected && ids.has(selected.eventType._id)) {
-      const rest = items.filter((item) => !ids.has(item.eventType._id));
-      const after = items.slice(selectedIndex + 1).find((item) => !ids.has(item.eventType._id));
-      const next = after ?? rest[rest.length - 1] ?? null;
-      setCursor({ id: next?.eventType._id ?? null, index: next ? rest.indexOf(next) : 0 });
-    }
-    const label = `${programName(group.programId)} · ${modeLabel(group.mode)}`;
-    setBulkBusy(true);
-    try {
-      await sort(
-        group.items.map((item) => ({
-          eventTypeConfigId: item.eventType._id,
-          sorting: { kind: "program", programId: group.programId, mode: group.mode },
-        })),
-        {
-          message: (count) => `${count} event ${count === 1 ? "type" : "types"} sorted into ${label}.`,
-          analytics: { source: "inbox_bulk", to: "program", suggested: true },
+  function describe(destination: Destination) {
+    return destinationLabel(destination, programName, eventTypeName);
+  }
+
+  function bandTarget(destination: Destination) {
+    const href = destination.kind === "program" ? "/workspace/booking/event-types" : "/workspace/booking/event-types?filter=not_sales_call";
+    const links = [...document.querySelectorAll(`a[href="${href}"]`)];
+    return links.find((link) => /on a program|not a sales call/i.test(link.textContent ?? "")) ?? links[0] ?? null;
+  }
+
+  function forgetSession(sessionId: string) {
+    setSession((rows) => rows.filter((row) => row.id !== sessionId));
+    setUndoStack((entries) => entries.filter((entry) => entry.sessionId !== sessionId));
+  }
+
+  async function file(
+    card: InboxCardModel,
+    destination: Destination,
+    analytics: { suggested: boolean; source: "inbox" | "inbox_bulk" },
+    labelOverride?: string,
+  ) {
+    if (card.id === top?.id) flyAway(cardRef.current, bandTarget(destination));
+    const label = labelOverride ?? describe(destination);
+    const sessionId = `${card.id}:${Date.now()}`;
+    const members = card.eventTypes.map((eventType) => eventType.id as Id<"eventTypeConfigs">);
+    setSession((rows) => [
+      { id: sessionId, label: cardName(card), destination: label, kind: destination.kind === "program" ? "booking" : "not_sales", count: members.length },
+      ...rows,
+    ]);
+    setNotMenuOpen(false);
+    setPaletteOpen(false);
+    setLater((ids) => ids.filter((id) => id !== card.id));
+    if (focusId === card.id) setFocusId(null);
+
+    const previous = await sort(
+      members.map((eventTypeConfigId) => ({ eventTypeConfigId, sorting: sortingFor(destination) })),
+      {
+        message: (count) =>
+          `${count > 1 ? `${count} event types filed` : "Filed"} ${destination.kind === "program" ? "under" : "as"} ${label}.`,
+        analytics: {
+          source: analytics.source,
+          to: destination.kind === "program" ? "program" : "not_sales_call",
+          suggested: analytics.suggested,
+          reason: destination.kind === "not_sales_call" ? destination.reason : undefined,
         },
-      );
+        onUndone: () => forgetSession(sessionId),
+      },
+    );
+    if (previous) setUndoStack((entries) => [...entries, { sessionId, previous }]);
+    else setSession((rows) => rows.filter((row) => row.id !== sessionId));
+  }
+
+  function accept(card: InboxCardModel | null, source: "inbox" | "inbox_bulk" = "inbox") {
+    if (!card) return;
+    const best = card.result.best;
+    if (!best) {
+      setPaletteOpen(true);
+      return;
+    }
+    void file(card, best, { suggested: true, source });
+  }
+
+  function alternative(index: number) {
+    const destination = top?.result.alternatives[index];
+    if (top && destination) void file(top, destination, { suggested: false, source: "inbox" });
+  }
+
+  function notSalesCall(reason: NotSalesReason) {
+    if (!top) return;
+    const best = top.result.best;
+    const duplicateAlternative = top.result.alternatives.find(
+      (alt): alt is Extract<Destination, { kind: "not_sales_call" }> => alt.kind === "not_sales_call" && alt.reason === "duplicate",
+    );
+    const duplicateOfId =
+      reason === "duplicate" ? (best?.kind === "not_sales_call" ? best.duplicateOfId : duplicateAlternative?.duplicateOfId) : undefined;
+    const suggested = best?.kind === "not_sales_call" && best.reason === reason;
+    void file(top, { kind: "not_sales_call", reason, duplicateOfId }, { suggested, source: "inbox" });
+  }
+
+  function laterCard() {
+    if (!top) return;
+    setLater((ids) => [...ids.filter((id) => id !== top.id), top.id]);
+    setFocusId(null);
+    setNotMenuOpen(false);
+    posthog.capture("booking_inbox_later", { stacked: top.eventTypes.length > 1 });
+  }
+
+  async function undoLast() {
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry) return;
+    setUndoStack((entries) => entries.slice(0, -1));
+    const sessionId = entry.sessionId;
+    const ok = await undo(entry.previous, () => setSession((rows) => rows.filter((row) => row.id !== sessionId)));
+    if (!ok) setUndoStack((entries) => [...entries, entry]);
+  }
+
+  async function createProgram(name: string) {
+    if (!top || busy) return;
+    setBusy(true);
+    try {
+      const programId = await upsertProgram({ name });
+      setCreatedNames((names) => ({ ...names, [programId]: name.trim() }));
+      posthog.capture("booking_program_created", { source: "inbox_palette" });
+      const mode: IntelMode = /\b(extended|standard)\b/i.test(name) ? "extended" : "normal";
+      await file(top, { kind: "program", programId, mode }, { suggested: false, source: "inbox" }, `${name.trim()} · ${modeLabel(mode)}`);
+    } catch (error) {
+      reportClientError(error, { flow: "booking_inbox_create_program" });
+      toast.error(getErrorMessage(error, "Couldn't create the program. Try again."));
     } finally {
-      setBulkBusy(false);
+      setBusy(false);
     }
   }
 
@@ -185,39 +275,55 @@ function InboxDesk({ coverage, requestedId }: { coverage: Coverage; requestedId:
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
-    // Leave keys alone while a dialog, menu or popover has focus.
-    if (target?.closest("[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']")) return;
-    if (!selected) return;
+    if (paletteOpen || target?.closest("[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']")) return;
+    if (document.querySelector("[data-slot='dialog-content'], [data-slot='sheet-content']")) return;
 
     const key = event.key;
     const lower = key.toLowerCase();
-    if (/^[1-9]$/.test(key)) {
-      const program = programs[Number(key) - 1];
-      if (program) {
+    if (lower === "u" && !busy) {
+      event.preventDefault();
+      void undoLast();
+      return;
+    }
+    if (!top) return;
+    if (key === "Escape") {
+      if (notMenuOpen || helpOpen) {
         event.preventDefault();
-        setProgram(program._id);
+        setNotMenuOpen(false);
+        setHelpOpen(false);
       }
-    } else if (lower === "p" || lower === "s") {
-      if (programs.length === 0) return;
+      return;
+    }
+    if (key === "?") {
       event.preventDefault();
-      setMode(lower === "p" ? "normal" : "extended");
-    } else if (key === "Enter") {
-      // Enter on another button or a link does that control's own job;
-      // on a program or scheduling choice, or nowhere in particular, it sorts.
+      setHelpOpen((open) => !open);
+      return;
+    }
+    if (busy) return;
+    if (key === "Enter") {
+      // Enter on another control does that control's job.
       const control = target?.closest("button, a, [role='button']");
-      if (control && !control.hasAttribute("data-inbox-choice")) return;
-      if (!decision.programId) return;
+      if (control && !control.hasAttribute("data-inbox-accept")) return;
       event.preventDefault();
-      sortSelected();
+      accept(top);
+    } else if (/^[1-5]$/.test(key)) {
+      const index = Number(key) - 1;
+      if (notMenuOpen) {
+        event.preventDefault();
+        notSalesCall(["personal", "follow_up", "internal", "group", "duplicate"][index] as NotSalesReason);
+      } else if (top.result.alternatives[index]) {
+        event.preventDefault();
+        alternative(index);
+      }
+    } else if (lower === "p") {
+      event.preventDefault();
+      setPaletteOpen(true);
     } else if (lower === "n") {
       event.preventDefault();
-      markNotSalesCall();
-    } else if (lower === "j" || key === "ArrowDown") {
+      setNotMenuOpen((open) => !open);
+    } else if (lower === "s") {
       event.preventDefault();
-      move(1);
-    } else if (lower === "k" || key === "ArrowUp") {
-      event.preventDefault();
-      move(-1);
+      laterCard();
     }
   });
 
@@ -227,84 +333,220 @@ function InboxDesk({ coverage, requestedId }: { coverage: Coverage; requestedId:
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
+  const sessionTotal = session.reduce((sum, row) => sum + row.count, 0);
+  const sessionCard = (
+    <SortedThisSession rows={session} total={sessionTotal} onUndo={() => void undoLast()} canUndo={undoStack.length > 0} />
+  );
+
+  if (!top) {
+    const counts = { sorted: 0, notSales: 0, gone: 0 };
+    for (const eventType of coverage.eventTypes) {
+      const status = eventTypeStatus(eventType);
+      if (status === "sorted") counts.sorted += 1;
+      else if (status === "not_sales_call") counts.notSales += 1;
+      else if (status === "gone") counts.gone += 1;
+    }
+    return (
+      <div className="@container flex min-w-0 flex-col gap-3.5">
+        <InboxZero counts={counts} />
+        {session.length > 0 ? <div className="@4xl:max-w-[420px]">{sessionCard}</div> : null}
+      </div>
+    );
+  }
+
+  const members = membersOf(top);
+  const memberIds = new Set(members.map((member) => member._id as string));
+  const best = top.result.best;
+  const facts = factsFor(members[0], activity, extras);
+
+  const acceptLabel = (() => {
+    const all = top.eventTypes.length > 1 ? `all ${top.eventTypes.length} ` : "";
+    if (!best) return "Pick a program…";
+    if (best.kind === "program") return `File ${all}under ${programName(best.programId)} · ${modeLabel(best.mode)}`;
+    if (best.reason === "duplicate") return top.eventTypes.length > 1 ? `File ${all}as duplicates` : "File as a duplicate";
+    const reason = NOT_SALES_REASON_LABEL[best.reason].toLowerCase();
+    return top.eventTypes.length > 1 ? `File ${all}as ${reason}s` : `File as a ${reason}`;
+  })();
+
+  const destinationNote = (() => {
+    if (!best) return null;
+    if (best.kind === "program") {
+      const count = laneCount(best.programId, best.mode, memberIds);
+      return count === 0 ? "first event type in this lane" : `joins ${count} event ${count === 1 ? "type" : "types"} in this lane`;
+    }
+    return "leaves triage until someone brings it back";
+  })();
+
+  const queueRows: QueueRow[] = queue.map((card) => ({
+    id: card.id,
+    name: cardName(card),
+    color: board.eventTypesById.get(card.eventTypes[0].id)?.calendlyColor,
+    count: card.eventTypes.length,
+    meta: card.result.best ? describe(card.result.best) : "No suggestion yet",
+    later: later.includes(card.id),
+  }));
+
+  const helpButton = (
+    <Popover open={helpOpen} onOpenChange={setHelpOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 px-2" aria-label="Keyboard shortcuts" aria-keyshortcuts="?">
+          <KeyHint>?</KeyHint>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[300px] p-3" onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        <p className="mb-1 text-sm font-semibold">Inbox shortcuts</p>
+        <dl className="text-[13.5px]">
+          {[
+            ["Take the suggestion", "↵"],
+            ["Alternatives", "1 · 2"],
+            ["Pick a program and lane", "P"],
+            ["Not a sales call, then a reason", "N, 1–5"],
+            ["Later", "S"],
+            ["Undo", "U"],
+            ["Close", "Esc"],
+          ].map(([label, keys]) => (
+            <div key={label} className="flex items-center justify-between border-t border-border py-1 first:border-t-0">
+              <dt>{label}</dt>
+              <dd>
+                <KeyHint>{keys}</KeyHint>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </PopoverContent>
+    </Popover>
+  );
+
   return (
-    <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
-      {selected ? (
-        <Card className={INBOX_DESK}>
-          <div className="order-2 flex max-h-[22rem] min-h-0 flex-col border-t @4xl:order-none @4xl:max-h-none @4xl:border-t-0 @4xl:border-r">
-            <InboxQueue
-              items={items}
-              selectedId={selected.eventType._id}
-              groups={programs.length > 0 ? groups : []}
-              programName={programName}
-              busy={bulkBusy}
-              onSelect={(id) => {
-                const index = items.findIndex((item) => item.eventType._id === id);
-                if (index >= 0) selectAt(index);
-              }}
-              onAcceptGroup={(group) => void acceptGroup(group)}
+    <div className="@container min-w-0">
+      <div className="grid items-start gap-3.5 @4xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
+          <div className="relative pb-[18px]">
+            {queue.length > 1 ? (
+              <div aria-hidden="true" className="absolute inset-x-0 top-0 bottom-[18px] z-0 translate-y-[18px] scale-[0.95] rounded-xl border border-border bg-card opacity-60" />
+            ) : null}
+            {queue.length > 0 ? (
+              <div aria-hidden="true" className="absolute inset-x-0 top-0 bottom-[18px] z-[1] translate-y-[9px] scale-[0.975] rounded-xl border border-border bg-card opacity-90" />
+            ) : null}
+            <InboxCard
+              key={top.id}
+              ref={cardRef}
+              card={top}
+              members={members}
+              facts={facts}
+              memberMeta={(eventType) => memberMeta(eventType, activity)}
+              acceptLabel={acceptLabel}
+              destination={best ? describe(best) : null}
+              destinationNote={destinationNote}
+              alternatives={top.result.alternatives.map((destination) => ({
+                destination,
+                label: alternativeLabel(destination, programName),
+                title: describe(destination),
+              }))}
+              notMenuOpen={notMenuOpen}
+              canUndo={undoStack.length > 0}
+              busy={busy}
+              onAccept={() => accept(top)}
+              onAlternative={alternative}
+              onPalette={() => setPaletteOpen(true)}
+              onToggleNotMenu={() => setNotMenuOpen((open) => !open)}
+              onNotReason={notSalesCall}
+              onLater={laterCard}
+              onUndo={() => void undoLast()}
+              helpButton={helpButton}
             />
           </div>
-          <div className="order-1 flex min-h-0 flex-col @4xl:order-none">
-            <InboxFocusCard
-              key={selected.eventType._id}
-              item={selected}
-              position={selectedIndex + 1}
-              total={items.length}
-              programs={programs}
-              programName={programName}
-              programId={decision.programId}
-              mode={decision.mode}
-              busy={bulkBusy}
-              onProgram={setProgram}
-              onMode={setMode}
-              onSort={sortSelected}
-              onNotSalesCall={markNotSalesCall}
-              onSkip={() => move(1, true)}
-              onMove={(delta) => move(delta)}
-            />
-          </div>
-        </Card>
-      ) : (
-        <InboxZero goneCount={goneCount} />
-      )}
+        </div>
+        <aside aria-label="Inbox queue" className="flex min-w-0 flex-col gap-3.5">
+          <UpNext
+            rows={queueRows}
+            busy={busy}
+            onFocus={(id) => {
+              setFocusId(id);
+              setNotMenuOpen(false);
+            }}
+            onAcceptStack={(id) => accept(cards.find((card) => card.id === id) ?? null, "inbox_bulk")}
+          />
+          {sessionCard}
+        </aside>
+      </div>
+      <ProgramPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        programs={programs}
+        laneCount={(programId, mode) => laneCount(programId, mode, memberIds)}
+        onPick={(programId, mode) => void file(top, { kind: "program", programId, mode }, { suggested: false, source: "inbox" })}
+        onCreate={(name) => void createProgram(name)}
+      />
     </div>
   );
 }
 
-const LINK =
-  "font-semibold text-foreground underline decoration-foreground/40 underline-offset-[3px] hover:decoration-foreground";
+function kindWord(eventType: CoverageEventType) {
+  if (eventType.calendlyKind === "group") return "Group event";
+  if (!eventType.calendlyPoolingType) return "One-on-one";
+  return poolingLabel(eventType.calendlyPoolingType);
+}
 
-function InboxZero({ goneCount }: { goneCount: number }) {
+function bookingsWord(eventType: CoverageEventType, activity: BookingActivity) {
+  const count = activity.bookings30d.eventTypes[eventType._id] ?? 0;
+  return `${count}${activity.capped ? "+" : ""}`;
+}
+
+function memberMeta(eventType: CoverageEventType, activity: BookingActivity) {
+  const parts = [];
+  if (eventType.calendlyDurationMinutes !== undefined) parts.push(`${eventType.calendlyDurationMinutes} min`);
+  parts.push(kindWord(eventType));
+  const count = activity.bookings30d.eventTypes[eventType._id] ?? 0;
+  parts.push(`${count} ${count === 1 ? "booking" : "bookings"}`);
+  return parts.join(" · ");
+}
+
+function factsFor(eventType: CoverageEventType, activity: BookingActivity, extras: EventTypeExtras | undefined): CardFacts {
+  const extra = extras?.get(eventType._id);
+  const createdAt = extra?.createdAt ?? eventType._creationTime;
+  const age = Date.now() - createdAt;
+  const questions = eventType.formQuestionCount;
+  return {
+    kind: kindWord(eventType),
+    length: eventType.calendlyDurationMinutes !== undefined ? `${eventType.calendlyDurationMinutes} min` : "Not synced",
+    bookings: bookingsWord(eventType, activity),
+    form: questions === 0 ? "None seen yet" : `${questions} ${questions === 1 ? "question" : "questions"}`,
+    owner: extra?.ownerName ?? null,
+    added: format(createdAt, "MMM d, yyyy"),
+    url: shortUrl(eventType.calendlySchedulingUrl ?? eventType.bookingBaseUrl),
+    status:
+      age < 14 * DAY_MS
+        ? { word: age < DAY_MS ? "New · today" : `New · ${formatDistanceToNowStrict(createdAt, { addSuffix: true })}`, tone: "new" }
+        : { word: "Active", tone: "ok" },
+  };
+}
+
+function InboxZero({ counts }: { counts: { sorted: number; notSales: number; gone: number } }) {
   return (
-    <Card className="items-start gap-3 px-4 py-6 @4xl:px-6">
-      <span className="flex size-8 items-center justify-center rounded-full bg-muted">
-        <CheckIcon className="size-4" aria-hidden="true" />
+    <section aria-labelledby="inbox-zero" className="rounded-xl border border-border bg-card px-6 pt-12 pb-10 text-center">
+      <span className="mx-auto mb-3.5 grid size-[72px] place-items-center rounded-full bg-foreground text-background animate-in zoom-in-50 fade-in-0 duration-500">
+        <CheckIcon className="size-[34px]" aria-hidden="true" />
       </span>
-      <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-semibold">Inbox zero. Every Calendly event type is sorted.</h2>
-        <p className="max-w-[65ch] text-sm text-muted-foreground">
-          New event types land here after each Calendly sync.
-          {goneCount > 0 ? (
-            <>
-              {" "}
-              {goneCount} that Calendly no longer {goneCount === 1 ? "offers is" : "offers are"} kept under{" "}
-              <Link href="/workspace/booking/event-types?filter=gone" className={LINK}>
-                Gone
-              </Link>
-              .
-            </>
-          ) : null}
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button asChild variant="outline">
-          <Link href="/workspace/booking">Open Coverage</Link>
+      <h2 id="inbox-zero" className="text-[26px] font-semibold">
+        Inbox zero
+      </h2>
+      <p className="mx-auto mt-2 mb-[18px] max-w-[540px] text-muted-foreground">
+        Every Calendly event type is sorted: {counts.sorted} book a program, {counts.notSales}{" "}
+        {counts.notSales === 1 ? "isn’t a sales call" : "aren’t sales calls"}, {counts.gone} {counts.gone === 1 ? "is" : "are"} gone
+        from Calendly. New ones land here after each sync.
+      </p>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button asChild variant="outline" className="bg-card">
+          <Link href="/workspace/booking">Back to coverage</Link>
         </Button>
-        <Button asChild variant="outline">
-          <Link href="/workspace/booking/event-types">See every event type</Link>
+        <Button asChild variant="outline" className="bg-card">
+          <Link href="/workspace/booking/event-types?filter=all">See every event type</Link>
         </Button>
       </div>
-    </Card>
+    </section>
   );
 }
+

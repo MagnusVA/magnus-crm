@@ -1,356 +1,271 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
-import { SearchIcon, XIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAction, useQuery } from "convex/react";
+import { formatDistanceToNowStrict } from "date-fns";
+import posthog from "posthog-js";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
+import type { Id } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { cn } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { nameSaysStandard, type LookalikeGroup } from "@/lib/booking-setup/event-type-intel";
 import {
   buildBoard,
-  eventTypeStatus,
+  modeLabel,
   modeOf,
-  sortingLabel,
   type Coverage,
   type EventTypeSorting,
-  type EventTypeStatus,
+  type SchedulingMode,
 } from "../../_components/booking-model";
+import {
+  buildEventTypeRows,
+  parseFilter,
+  rowMatchesFilter,
+  type EventTypeFilter,
+  type EventTypeRow,
+} from "../../_components/event-types/event-type-rows";
+import type { BookingActivity } from "../../_components/event-types/intel-adapter";
 import { useSortEventTypes } from "../../_components/use-sort-event-types";
-import { EVENT_TYPES_DESCRIPTION } from "./event-types-layout";
+import { EventTypeSheet } from "./event-type-sheet";
+import { EventTypeTools, SyncLine } from "./event-types-parts";
 import { EventTypesPageSkeleton } from "./event-types-page-skeleton";
-import { EventTypesTable, type EventTypeGroup, type EventTypeRow } from "./event-types-table";
+import { BulkBar, EventTypesTable, type SortTarget } from "./event-types-table";
+import { LookAlikesView } from "./look-alikes-view";
 
-const EventTypeConfigDialog = dynamic(() =>
-  import("../../_components/event-type-config-dialog").then((module) => ({
-    default: module.EventTypeConfigDialog,
-  })),
-);
-
-const FILTERS = [
-  { value: "sorted", label: "Sorted" },
-  { value: "unsorted", label: "Unsorted" },
-  { value: "not_sales_call", label: "Not a sales call" },
-  { value: "gone", label: "Gone" },
-  { value: "all", label: "All" },
-] as const;
-
-type Filter = (typeof FILTERS)[number]["value"];
-
-function parseFilter(value: string | null): Filter {
-  return FILTERS.find((filter) => filter.value === value)?.value ?? "sorted";
-}
-
-const STATUS_GROUP_LABEL: Record<Exclude<EventTypeStatus, "sorted">, string> = {
-  unsorted: "Unsorted",
-  not_sales_call: "Not a sales call",
-  gone: "Gone from Calendly",
-};
-
-const EMPTY: Record<Filter, { title: string; hint: React.ReactNode }> = {
-  sorted: {
-    title: "No event types are sorted yet.",
-    hint: (
-      <>
-        Sort them into programs from the{" "}
-        <Link href="/workspace/booking/inbox" className="font-semibold text-foreground underline decoration-foreground/40 underline-offset-[3px]">
-          Inbox
-        </Link>
-        .
-      </>
-    ),
-  },
-  unsorted: { title: "Nothing to sort.", hint: "New Calendly event types show here until they're sorted." },
-  not_sales_call: {
-    title: "Nothing is set aside as not a sales call.",
-    hint: "Event types you mark as not a sales call show here, and can be brought back.",
-  },
-  gone: { title: "Calendly still offers every unsorted event type.", hint: null },
-  all: { title: "No event types yet.", hint: "They arrive with each Calendly sync." },
-};
-
-type FullConfig = FunctionReturnType<typeof api.eventTypeConfigs.queries.listEventTypeConfigs>[number];
-
-const byName = new Intl.Collator("en", { sensitivity: "base", numeric: true });
-
+/**
+ * Event types: concept C's library. Every event type Calendly returns, by how
+ * it's sorted, with the sync line, inline sorting, bulk actions, look-alike
+ * folding and a sheet per event type. The tab and the open event type live in
+ * the URL (`?filter=`, `?eventType=`).
+ */
 export function EventTypesPageClient() {
   usePageTitle("Event types · Booking setup");
   const coverage = useQuery(api.bookingSetup.queries.getCoverage, {});
-  if (coverage === undefined) {
-    return <EventTypesPageSkeleton />;
-  }
-  return <EventTypesPage coverage={coverage} />;
+  const activity = useQuery(api.bookingSetup.queries.getBookingActivity, {});
+  if (coverage === undefined) return <EventTypesPageSkeleton />;
+  return <Library coverage={coverage} activity={activity} />;
 }
 
-function EventTypesPage({ coverage }: { coverage: Coverage }) {
-  const pathname = usePathname();
+function Library({ coverage, activity }: { coverage: Coverage; activity: BookingActivity | undefined }) {
   const searchParams = useSearchParams();
   const filter = parseFilter(searchParams.get("filter"));
-  // ?q= seeds the search: the coverage board's program menu links here with it.
-  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
-  const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-
-  function setFilter(next: Filter) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === "sorted") params.delete("filter");
-    else params.set("filter", next);
-    const search = params.toString();
-    // Written in place, so a filter change never navigates.
-    window.history.replaceState(null, "", `${pathname}${search ? `?${search}` : ""}`);
-  }
+  const openId = searchParams.get("eventType");
 
   const board = useMemo(() => buildBoard(coverage), [coverage]);
-  const programsById = useMemo(
-    () => new Map(coverage.programs.map((program) => [program._id as string, program])),
-    [coverage.programs],
-  );
-  const programName = useMemo(
-    () => (programId: string) => {
-      const program = programsById.get(programId);
-      if (!program) return "A removed program";
-      return program.archivedAt !== undefined ? `${program.name} (archived)` : program.name;
-    },
-    [programsById],
-  );
+  const { rows, groups, counts } = useMemo(() => buildEventTypeRows(coverage, board, activity), [coverage, board, activity]);
+  const programs = board.programs;
+  const programName = (id: string) => coverage.programs.find((program) => program._id === id)?.name ?? "A removed program";
+  const teamName = (id: string) => coverage.teams.find((team) => team._id === id)?.displayName ?? "A removed team";
 
-  const rows = useMemo<EventTypeRow[]>(
-    () =>
-      coverage.eventTypes.map((eventType) => ({
-        eventType,
-        status: eventTypeStatus(eventType),
-        placements: board.placements.get(eventType._id) ?? [],
-      })),
-    [coverage.eventTypes, board.placements],
-  );
+  // Full configs for the sheet (payment links, form fields, the editor), only while one is open.
+  const configs = useQuery(api.eventTypeConfigs.queries.listEventTypeConfigs, openId ? {} : "skip");
 
-  const counts = useMemo(() => {
-    const result: Record<Filter, number> = { sorted: 0, unsorted: 0, not_sales_call: 0, gone: 0, all: rows.length };
-    for (const row of rows) result[row.status] += 1;
-    return result;
-  }, [rows]);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [syncing, setSyncing] = useState(false);
+  const { sort } = useSortEventTypes();
+  const syncNow = useAction(api.calendly.eventTypes.syncMyTenantEventTypes);
 
-  const shown = useMemo(() => {
-    return rows.filter((row) => {
-      if (filter !== "all" && row.status !== filter) return false;
-      if (!deferredQuery) return true;
-      const program = row.eventType.bookingProgramId ? programName(row.eventType.bookingProgramId) : "";
-      const haystack = `${row.eventType.displayName} ${row.eventType.calendlyName ?? ""} ${program}`.toLowerCase();
-      return haystack.includes(deferredQuery);
-    });
-  }, [rows, filter, deferredQuery, programName]);
-
-  const groups = useMemo(
-    () => groupRows(shown, filter, coverage.programs, programName),
-    [shown, filter, coverage.programs, programName],
-  );
-
-  // The editor needs the full config; one subscription serves every row. The
-  // dialog gets the doc as it was when opened: it resets its form whenever
-  // `config` changes, and this list re-sends every doc on any change.
-  const fullConfigs = useQuery(api.eventTypeConfigs.queries.listEventTypeConfigs, {});
-  const [editor, setEditor] = useState<{ id: string; open: boolean; config: FullConfig | null } | null>(null);
-  if (editor && editor.config === null && fullConfigs) {
-    const found = fullConfigs.find((config) => config._id === editor.id);
-    if (found) setEditor({ ...editor, config: found });
+  function writeParams(changes: Record<string, string | null>) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null) params.delete(key);
+      else params.set(key, value);
+    }
+    const search = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}`);
   }
 
-  const sort = useSortEventTypes();
-  function sortRow(row: EventTypeRow, sorting: EventTypeSorting) {
+  function setFilter(next: EventTypeFilter) {
+    setSelected(new Set());
+    writeParams({ filter: next === "sales" ? null : next });
+  }
+
+  const needle = query.trim().toLowerCase();
+  const shown = rows.filter((row) => rowMatchesFilter(row, filter) && (!needle || row.haystack.includes(needle)));
+  const openRow = openId ? (rows.find((row) => row.eventType._id === openId) ?? null) : null;
+  const openConfig = openId ? configs?.find((config) => config._id === openId) : undefined;
+
+  // Unsorted event types filed from here take the name's own mode ("Extended" → Standard).
+  function modeFor(row: EventTypeRow): SchedulingMode {
+    if (row.status === "sorted") return modeOf(row.eventType);
+    return nameSaysStandard(row.eventType.displayName) ? "extended" : "normal";
+  }
+
+  function sortingFor(target: SortTarget): EventTypeSorting {
+    if (target.kind === "program") {
+      return { kind: "program", programId: target.programId as Id<"tenantPrograms">, mode: target.mode };
+    }
+    return target;
+  }
+
+  function sortOne(row: EventTypeRow, target: SortTarget, source: "event_types" | "event_type_sheet") {
+    const resolved: SortTarget =
+      target.kind === "program" && row.status !== "sorted" ? { ...target, mode: modeFor(row) } : target;
     const name = row.eventType.displayName;
-    void sort([{ eventTypeConfigId: row.eventType._id, sorting }], {
+    // Coverage cells that point at it and won't match it any more.
+    const breaking = row.placements.filter(
+      (placement) => resolved.kind !== "program" || placement.programId !== resolved.programId || placement.mode !== resolved.mode,
+    ).length;
+    const warning =
+      breaking > 0 ? ` ${breaking} coverage ${breaking === 1 ? "cell uses" : "cells use"} it and ${breaking === 1 ? "shows" : "show"} as broken until you change ${breaking === 1 ? "it" : "them"}.` : "";
+    void sort([{ eventTypeConfigId: row.eventType._id, sorting: sortingFor(resolved) }], {
       message: () =>
-        sorting.kind === "unsorted"
-          ? row.status === "not_sales_call"
-            ? `${name} is back in the inbox.`
-            : `${name} moved to the inbox.`
-          : sorting.kind === "not_sales_call"
-            ? `${name} set aside as not a sales call.`
-            : `${name} sorted into ${sortingLabel(sorting, programsById)}.`,
-      analytics: { source: "event_types", to: sorting.kind },
+        (resolved.kind === "program"
+          ? `${name} counts for ${programName(resolved.programId)} · ${modeLabel(resolved.mode)}.`
+          : resolved.kind === "not_sales_call"
+            ? `${name} marked Not a sales call.`
+            : `${name} is back in the inbox.`) + warning,
+      analytics: { source, to: resolved.kind },
     });
   }
 
-  const filterLabel = FILTERS.find((entry) => entry.value === filter)?.label ?? "Sorted";
-  const total = filter === "all" ? rows.length : counts[filter];
+  function sortMany(ids: string[], target: { kind: "program"; programId: string } | { kind: "not_sales_call" }, source: "event_types_bulk" | "event_types_fold", message: (count: number) => string) {
+    const byId = new Map(rows.map((row) => [row.eventType._id as string, row]));
+    const requests = ids.flatMap((id) => {
+      const row = byId.get(id);
+      if (!row) return [];
+      const sorting: EventTypeSorting =
+        target.kind === "program"
+          ? { kind: "program", programId: target.programId as Id<"tenantPrograms">, mode: modeFor(row) }
+          : { kind: "not_sales_call" };
+      return [{ eventTypeConfigId: row.eventType._id, sorting }];
+    });
+    const breaking = requests.reduce((sum, request) => {
+      const placements = byId.get(request.eventTypeConfigId)?.placements ?? [];
+      const sorting = request.sorting;
+      return (
+        sum +
+        placements.filter(
+          (placement) => sorting.kind !== "program" || placement.programId !== sorting.programId || placement.mode !== sorting.mode,
+        ).length
+      );
+    }, 0);
+    const warning = breaking > 0 ? ` ${breaking} coverage ${breaking === 1 ? "cell shows" : "cells show"} as broken until you change ${breaking === 1 ? "it" : "them"}.` : "";
+    return sort(requests, { message: (count) => message(count) + warning, analytics: { source, to: target.kind } });
+  }
 
-  return (
-    <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
-      <div className="dark rounded-xl bg-board text-board-foreground [&>div]:mx-0! [&>div]:border-t-0!">
-        <div className="-mx-4 flex flex-wrap items-center gap-2.5 border-t border-board-line px-4 py-2.5 @lg:-mx-[18px] @lg:px-[18px]">
-          <div className="max-w-full overflow-x-auto [scrollbar-width:none]">
-            <ToggleGroup
-              type="single"
-              value={filter}
-              onValueChange={(next) => {
-                if (next) setFilter(parseFilter(next));
-              }}
-              aria-label="Show event types"
-              className="h-[34px] rounded-[7px] border border-board-foreground/15 bg-board-raised p-0.5"
-            >
-              {FILTERS.map((entry) => (
-                <ToggleGroupItem
-                  key={entry.value}
-                  value={entry.value}
-                  className="h-full gap-1.5 rounded-[5px]! px-2.5 text-[13px] whitespace-nowrap text-board-muted hover:bg-board-foreground/10 hover:text-board-foreground data-[state=on]:bg-board-foreground/15 data-[state=on]:text-board-foreground"
-                >
-                  {entry.label}
-                  <span
-                    className={cn(
-                      "font-condensed text-[14px] font-semibold tabular-nums",
-                      entry.value === "unsorted" && counts.unsorted > 0 && "text-warning",
-                    )}
-                  >
-                    {counts[entry.value]}
-                  </span>
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </div>
-          <label className="flex h-[34px] w-full items-center gap-2 rounded-[7px] border border-board-foreground/15 bg-board-raised px-3 transition-[color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 @3xl:ml-auto @3xl:w-[16rem]">
-            <SearchIcon className="size-4 shrink-0 text-board-muted" aria-hidden="true" />
-            <span className="sr-only">Search event types by name</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && query) {
-                  event.preventDefault();
-                  setQuery("");
-                }
-              }}
-              placeholder="Search event types"
-              className="h-full min-w-0 flex-1 appearance-none bg-transparent text-[13px] text-board-foreground caret-primary-ink outline-none placeholder:text-board-muted [&::-webkit-search-cancel-button]:appearance-none"
-            />
-            {query ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear search"
-                className="-mr-1.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[5.6px] text-board-muted outline-none hover:bg-board-foreground/10 hover:text-board-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                <XIcon className="size-4" aria-hidden="true" />
-              </button>
-            ) : null}
-          </label>
-        </div>
-      </div>
+  async function bulk(target: { kind: "program"; programId: string } | { kind: "not_sales_call" }) {
+    const ids = [...selected];
+    setSelected(new Set());
+    await sortMany(ids, target, "event_types_bulk", (count) =>
+      target.kind === "program"
+        ? `${count} event ${count === 1 ? "type counts" : "types count"} for ${programName(target.programId)}.`
+        : `${count} event ${count === 1 ? "type" : "types"} marked Not a sales call.`,
+    );
+  }
 
-      <Card className="@container/et gap-0 overflow-hidden py-0">
-        <div className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-2">
-          <h2 className="text-[15px] font-semibold">
-            {filter === "all" ? "All event types" : filterLabel === "Gone" ? "Gone from Calendly" : filterLabel}
-          </h2>
-          <span className="ml-auto text-[13px] text-muted-foreground">
-            {deferredQuery ? (
-              <>
-                <Figure>{shown.length}</Figure> of <Figure>{total}</Figure> match “{query.trim()}”
-              </>
-            ) : (
-              <>
-                <Figure>{shown.length}</Figure> {shown.length === 1 ? "event type" : "event types"}
-                {filter === "sorted" && shown.length > 0 ? " · by program, Priority first" : null}
-                {filter === "gone" && shown.length > 0 ? " · never sorted, kept for history" : null}
-              </>
-            )}
-          </span>
-        </div>
+  async function fold(group: LookalikeGroup, ids: string[]) {
+    // Let the rows flash before they fold away.
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    await sortMany(ids, { kind: "not_sales_call" }, "event_types_fold", (count) =>
+      `Folded ${count} look-${count === 1 ? "alike" : "alikes"} of ${group.label}: marked Not a sales call.`,
+    );
+  }
 
-        {shown.length === 0 ? (
-          deferredQuery ? (
-            <SectionEmpty title={`No ${filter === "all" ? "" : `${filterLabel.toLowerCase()} `}event types match “${query.trim()}”.`}>
-              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => setQuery("")}>
-                Clear search
-              </Button>
-            </SectionEmpty>
-          ) : (
-            <SectionEmpty title={EMPTY[filter].title}>{EMPTY[filter].hint}</SectionEmpty>
-          )
-        ) : (
-          <EventTypesTable
-            groups={groups}
-            programName={programName}
-            onEdit={(row) => setEditor({ id: row.eventType._id, open: true, config: null })}
-            onSort={sortRow}
-          />
-        )}
-      </Card>
-
-      {editor?.config ? (
-        <EventTypeConfigDialog
-          open={editor.open}
-          onOpenChange={(open) => setEditor((current) => (current ? { ...current, open } : null))}
-          config={editor.config}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function Figure({ children }: { children: React.ReactNode }) {
-  return <span className="font-condensed text-[15px] font-semibold text-foreground tabular-nums">{children}</span>;
-}
-
-/**
- * Sorted rows group by program in the programs' display order, Priority
- * before Standard, then by name. The other statuses are one group each;
- * a filtered view of one status needs no heading.
- */
-function groupRows(
-  rows: readonly EventTypeRow[],
-  filter: Filter,
-  programs: Coverage["programs"],
-  programName: (programId: string) => string,
-): EventTypeGroup[] {
-  const programOrder = new Map(programs.map((program, index) => [program._id as string, index]));
-  const sortedByProgram = new Map<string, EventTypeRow[]>();
-  const byStatus: Record<Exclude<EventTypeStatus, "sorted">, EventTypeRow[]> = {
-    unsorted: [],
-    not_sales_call: [],
-    gone: [],
-  };
-  for (const row of rows) {
-    if (row.status === "sorted") {
-      const programId = row.eventType.bookingProgramId ?? "";
-      const list = sortedByProgram.get(programId) ?? [];
-      list.push(row);
-      sortedByProgram.set(programId, list);
-    } else {
-      byStatus[row.status].push(row);
+  async function sync() {
+    setSyncing(true);
+    try {
+      const result = await syncNow({});
+      posthog.capture("booking_event_types_synced", { status: result.status });
+      if (result.status === "skipped") toast("A Calendly sync is already running. It will finish on its own.");
+      else
+        toast.success(
+          `Synced from Calendly: ${result.totalSeen} event ${result.totalSeen === 1 ? "type" : "types"}${result.created ? `, ${result.created} new` : ""}.`,
+        );
+    } catch (error) {
+      reportClientError(error, { flow: "booking_event_types_sync" });
+      toast.error(getErrorMessage(error, "Couldn't sync with Calendly. Try again."));
+    } finally {
+      setSyncing(false);
     }
   }
-  const byNameOnly = (left: EventTypeRow, right: EventTypeRow) =>
-    byName.compare(left.eventType.displayName, right.eventType.displayName);
-  const byModeThenName = (left: EventTypeRow, right: EventTypeRow) =>
-    Number(modeOf(left.eventType) === "extended") - Number(modeOf(right.eventType) === "extended") ||
-    byNameOnly(left, right);
 
-  const programGroups: EventTypeGroup[] = [...sortedByProgram.entries()]
-    .sort(
-      ([left], [right]) =>
-        (programOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (programOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
-    )
-    .map(([programId, list]) => ({
-      key: `program:${programId}`,
-      label: programName(programId),
-      rows: list.sort(byModeThenName),
-    }));
+  const lastSync = Math.max(0, ...coverage.eventTypes.map((eventType) => eventType.lastCalendlySyncedAt ?? 0));
+  const notReturned = coverage.eventTypes.filter(
+    (eventType) => eventType.calendlySyncStatus === "not_returned" || eventType.calendlySyncStatus === "deleted",
+  ).length;
+  const switchedOff = coverage.eventTypes.filter((eventType) => eventType.calendlySyncStatus === "inactive").length;
 
-  const statusGroup = (status: Exclude<EventTypeStatus, "sorted">, labelled: boolean): EventTypeGroup[] =>
-    byStatus[status].length === 0
-      ? []
-      : [{ key: status, label: labelled ? STATUS_GROUP_LABEL[status] : null, rows: byStatus[status].sort(byNameOnly) }];
+  const emptyText =
+    needle !== ""
+      ? "No event types match."
+      : filter === "unsorted"
+        ? "Everything is sorted."
+        : filter === "not_sales_call"
+          ? "Nothing marked Not a sales call yet."
+          : filter === "gone"
+            ? "Nothing is gone from Calendly."
+            : filter === "sales"
+              ? "No event type counts for a program yet. Sort them from Unsorted or the Inbox."
+              : "Calendly hasn’t returned any event types yet.";
 
-  if (filter === "sorted") return programGroups;
-  if (filter === "all") {
-    return [...statusGroup("unsorted", true), ...programGroups, ...statusGroup("not_sales_call", true), ...statusGroup("gone", true)];
-  }
-  return statusGroup(filter, false);
+  return (
+    <>
+      <section aria-label="Event types" className="@container/et overflow-clip rounded-xl border border-border bg-card">
+        <EventTypeTools query={query} onQuery={setQuery} filter={filter} onFilter={setFilter} counts={counts} />
+        <SyncLine
+          syncedAgo={lastSync ? formatDistanceToNowStrict(lastSync, { addSuffix: true }) : null}
+          returned={coverage.eventTypes.length - notReturned}
+          notReturned={notReturned}
+          switchedOff={switchedOff}
+          unsorted={counts.unsorted}
+          syncing={syncing}
+          onSync={() => void sync()}
+        />
+        {filter === "looks" ? (
+          <LookAlikesView
+            groups={groups}
+            board={board}
+            programName={programName}
+            teamName={teamName}
+            onFold={fold}
+            onOpen={(id) => writeParams({ eventType: id })}
+            query={needle}
+          />
+        ) : (
+          <>
+            <EventTypesTable
+              rows={shown}
+              programs={programs}
+              selected={selected}
+              onSelect={(id, checked) =>
+                setSelected((current) => {
+                  const next = new Set(current);
+                  if (checked) next.add(id);
+                  else next.delete(id);
+                  return next;
+                })
+              }
+              onSelectAll={(checked) => setSelected(checked ? new Set(shown.map((row) => row.eventType._id as string)) : new Set())}
+              onOpen={(id) => writeParams({ eventType: id })}
+              onSort={(row, target) => sortOne(row, target, "event_types")}
+              emptyText={emptyText}
+            />
+            {selected.size > 0 ? (
+              <BulkBar
+                count={selected.size}
+                programs={programs}
+                onNotSalesCall={() => void bulk({ kind: "not_sales_call" })}
+                onProgram={(programId) => void bulk({ kind: "program", programId })}
+                onClear={() => setSelected(new Set())}
+              />
+            ) : null}
+          </>
+        )}
+      </section>
+      <EventTypeSheet
+        row={openRow}
+        config={openConfig}
+        board={board}
+        programs={programs}
+        teamName={teamName}
+        onClose={() => writeParams({ eventType: null })}
+        onSort={(row, target) => sortOne(row, target, "event_type_sheet")}
+      />
+    </>
+  );
 }

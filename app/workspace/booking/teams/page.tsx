@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { BookingPageSkeleton } from "../_components/booking-page-skeleton";
 import { TeamsPageClient } from "../_components/teams-page-client";
+import { TeamsTableSkeleton } from "../_components/teams/teams-table";
 
 export default function BookingTeamsPage() {
   return (
-    <Suspense fallback={<BookingPageSkeleton />}>
+    <Suspense fallback={<TeamsTableSkeleton />}>
       <TeamsPageClient />
     </Suspense>
   );

@@ -46,12 +46,18 @@ export function DmCloserDialog({
   dmCloser,
   teams,
   teamMembers,
+  defaults,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   dmCloser?: DmCloserRow;
   teams: Doc<"attributionTeams">[];
   teamMembers: TeamMemberOption[];
+  /** Prefills a new DM closer (the team page's team, an unmatched utm_medium). */
+  defaults?: { teamId?: Id<"attributionTeams">; utmMedium?: string; displayName?: string };
+  /** Called with the DM closer's id after a save, before the dialog closes. */
+  onSaved?: (dmCloserId: Id<"dmClosers">) => void;
 }) {
   const [teamId, setTeamId] = useState<Id<"attributionTeams"> | undefined>();
   const [linkedUserId, setLinkedUserId] = useState<Id<"users"> | null>(null);
@@ -67,10 +73,10 @@ export function DmCloserDialog({
   if (sessionKey !== loadedSessionKey) {
     setLoadedSessionKey(sessionKey);
     if (open) {
-      setTeamId(dmCloser?.teamId ?? teams[0]?._id);
+      setTeamId(dmCloser?.teamId ?? defaults?.teamId ?? (teams.find((team) => team.isActive) ?? teams[0])?._id);
       setLinkedUserId(dmCloser?.userId ?? null);
-      setDisplayName(dmCloser?.displayName ?? "");
-      setUtmMedium(dmCloser?.utmMedium ?? "");
+      setDisplayName(dmCloser?.displayName ?? defaults?.displayName ?? "");
+      setUtmMedium(dmCloser?.utmMedium ?? defaults?.utmMedium ?? "");
     }
   }
 
@@ -81,23 +87,22 @@ export function DmCloserDialog({
     }
     setIsSaving(true);
     try {
-      if (dmCloser) {
-        await updateDmCloser({
-          dmCloserId: dmCloser._id,
-          teamId,
-          displayName,
-          utmMedium,
-          userId: linkedUserId,
-        });
-      } else {
-        await createDmCloser({
-          teamId,
-          displayName,
-          utmMedium,
-          userId: linkedUserId,
-        });
-      }
-      toast.success(dmCloser ? "DM closer updated" : "DM closer created");
+      const dmCloserId = dmCloser
+        ? await updateDmCloser({
+            dmCloserId: dmCloser._id,
+            teamId,
+            displayName,
+            utmMedium,
+            userId: linkedUserId,
+          })
+        : await createDmCloser({
+            teamId,
+            displayName,
+            utmMedium,
+            userId: linkedUserId,
+          });
+      toast.success(dmCloser ? `${displayName.trim()} saved` : `${displayName.trim()} added`);
+      onSaved?.(dmCloserId);
       onOpenChange(false);
     } catch (error) {
       toast.error(
@@ -116,8 +121,8 @@ export function DmCloserDialog({
             {dmCloser ? "Edit DM closer" : "New DM closer"}
           </DialogTitle>
           <DialogDescription>
-            DM closers are attribution records and can optionally link to a CRM
-            user for workspace avatar display.
+            A DM closer is one utm_medium on a DM team. They pick their name in
+            the link portal; they don’t get a CRM account.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -154,12 +159,15 @@ export function DmCloserDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="dm-closer-utm-medium">UTM medium</FieldLabel>
+            <FieldLabel htmlFor="dm-closer-utm-medium">utm_medium</FieldLabel>
             <Input
               id="dm-closer-utm-medium"
               value={utmMedium}
               onChange={(event) => setUtmMedium(event.target.value)}
               disabled={isSaving}
+              className="font-mono"
+              spellCheck={false}
+              autoCapitalize="none"
             />
           </Field>
           <Field>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,10 +23,16 @@ export function AttributionTeamDialog({
   open,
   onOpenChange,
   team,
+  defaults,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   team?: Doc<"attributionTeams">;
+  /** Prefills a new team (an unmatched utm_source, say). */
+  defaults?: { displayName?: string; utmSource?: string };
+  /** Called with the team's id after a save, before the dialog closes. */
+  onSaved?: (teamId: Id<"attributionTeams">) => void;
 }) {
   const [displayName, setDisplayName] = useState("");
   const [utmSource, setUtmSource] = useState("");
@@ -40,20 +46,19 @@ export function AttributionTeamDialog({
   if (sessionKey !== loadedSessionKey) {
     setLoadedSessionKey(sessionKey);
     if (open) {
-      setDisplayName(team?.displayName ?? "");
-      setUtmSource(team?.utmSource ?? "");
+      setDisplayName(team?.displayName ?? defaults?.displayName ?? "");
+      setUtmSource(team?.utmSource ?? defaults?.utmSource ?? "");
     }
   }
 
   async function handleSave() {
     setIsSaving(true);
     try {
-      if (team) {
-        await updateTeam({ teamId: team._id, displayName, utmSource });
-      } else {
-        await createTeam({ displayName, utmSource });
-      }
-      toast.success(team ? "Attribution team updated" : "Attribution team created");
+      const teamId = team
+        ? await updateTeam({ teamId: team._id, displayName, utmSource })
+        : await createTeam({ displayName, utmSource });
+      toast.success(team ? `${displayName.trim()} saved` : `${displayName.trim()} created`);
+      onSaved?.(teamId);
       onOpenChange(false);
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to save team"));
@@ -68,7 +73,8 @@ export function AttributionTeamDialog({
         <DialogHeader>
           <DialogTitle>{team ? "Edit DM team" : "New DM team"}</DialogTitle>
           <DialogDescription>
-            Map a canonical UTM source to an external DM team.
+            A DM team is one utm_source. Its DM closers’ links carry it, and
+            bookings with it count for the team.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -82,12 +88,15 @@ export function AttributionTeamDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="team-utm-source">UTM source</FieldLabel>
+            <FieldLabel htmlFor="team-utm-source">utm_source</FieldLabel>
             <Input
               id="team-utm-source"
               value={utmSource}
               onChange={(event) => setUtmSource(event.target.value)}
               disabled={isSaving}
+              className="font-mono"
+              spellCheck={false}
+              autoCapitalize="none"
             />
           </Field>
         </FieldGroup>

@@ -1,39 +1,37 @@
-import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BOOKING_ROOT } from "../../_components/booking-band";
-import { INBOX_DESCRIPTION, INBOX_DESK } from "./inbox-layout";
 
-/** The inbox before the coverage loads: the band, then the desk with its queue and focused card. */
+/** The inbox while it loads: the focused card on the left, Up next on the right from `@4xl`. */
 export function InboxPageSkeleton() {
   return (
-    <div className={BOOKING_ROOT} role="status" aria-label="Loading the inbox">
-      <Card className={INBOX_DESK}>
-        <div className="order-2 flex max-h-[22rem] min-h-0 flex-col overflow-hidden border-t @4xl:order-none @4xl:max-h-none @4xl:border-t-0 @4xl:border-r">
-          <div className="flex min-h-11 items-center border-b px-4">
-            <Skeleton className="h-4 w-28" />
+    <div className="@container min-w-0" role="status" aria-label="Loading the inbox">
+      <div className="grid items-start gap-3.5 @4xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="flex flex-col gap-3.5 rounded-xl border border-border bg-card px-5 py-4">
+          <Skeleton className="h-6 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+          <div className="grid grid-cols-3 gap-2">
+            {Array.from({ length: 6 }, (_, index) => (
+              <Skeleton key={index} className="h-11" />
+            ))}
           </div>
-          {Array.from({ length: 7 }, (_, index) => (
-            <div key={index} className="flex flex-col gap-1.5 border-b px-4 py-2.5">
+          <Skeleton className="h-32 rounded-[10px]" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-64" />
+            <Skeleton className="h-9 w-48" />
+          </div>
+          <Skeleton className="h-6 w-80" />
+        </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex min-h-11 items-center border-b border-border px-4">
+            <Skeleton className="h-4 w-24" />
+          </div>
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-1.5 border-b border-border px-4 py-2.5 last:border-b-0">
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
             </div>
           ))}
         </div>
-        <div className="order-1 flex flex-col gap-4 p-4 @4xl:order-none @4xl:p-5">
-          <Skeleton className="h-6 w-1/2" />
-          <Skeleton className="h-4 w-1/3" />
-          <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-3">
-            {Array.from({ length: 6 }, (_, index) => (
-              <Skeleton key={index} className="h-9" />
-            ))}
-          </div>
-          <Skeleton className="mt-2 h-24" />
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-56" />
-            <Skeleton className="h-9 w-36" />
-          </div>
-        </div>
-      </Card>
+      </div>
     </div>
   );
 }

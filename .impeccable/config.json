@@ -75,6 +75,15 @@
         ],
         "createdAt": "2026-10-29T18:21:52.244Z",
         "reason": "Claude: approved sketches predate the DESIGN.md ramp, which was derived from the shipped code; the sketches are thumbnails, not shipping UI"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "app/workspace/booking/_components/event-types/key-hint.tsx"
+        ],
+        "createdAt": "2026-11-03T18:20:38.532Z",
+        "reason": "agent decided: KeyHint is a keycap, and its 2px bottom border copies concept B's kbd style (border-bottom-width:2px in docs/concepts/booking-setup/b-program-home.html). It is not an accent stripe on a card."
       }
     ]
   }
