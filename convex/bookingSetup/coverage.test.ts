@@ -210,6 +210,38 @@ describe("booking coverage", () => {
     expect(cleared.previousEventTypeConfigId).toBe(unpublished);
   });
 
+  it("undoes a cleared cell back to its broken event type", async () => {
+    const fixture = await createFixture();
+    await routeTeamA(fixture);
+    await fixture.admin.mutation(api.bookingSetup.mutations.ensureCoverage, {});
+    await fixture.t.run(async (ctx) => {
+      await ctx.db.patch("eventTypeConfigs", fixture.poolA, { isExtended: true });
+    });
+    const cell = { teamId: fixture.teamA, programId: fixture.programId, mode: "normal" as const };
+
+    const { previousEventTypeConfigId } = await fixture.admin.mutation(
+      api.bookingSetup.mutations.setCell,
+      { ...cell, eventTypeConfigId: null },
+    );
+    expect(previousEventTypeConfigId).toBe(fixture.poolA);
+    await expect(
+      fixture.admin.mutation(api.bookingSetup.mutations.setCell, {
+        ...cell,
+        eventTypeConfigId: fixture.poolA,
+      }),
+    ).rejects.toThrow("is a Standard event type");
+    await fixture.admin.mutation(api.bookingSetup.mutations.setCell, {
+      ...cell,
+      eventTypeConfigId: fixture.poolA,
+      restore: true,
+    });
+    const coverage = await fixture.admin.query(api.bookingSetup.queries.getCoverage, {});
+    expect(
+      coverage.teamRoutes.find((route) => route.teamId === fixture.teamA && route.mode === "normal")
+        ?.eventTypeConfigId,
+    ).toBe(fixture.poolA);
+  });
+
   it("sorts an event type out as not a sales call and back", async () => {
     const fixture = await createFixture();
     await fixture.admin.mutation(api.bookingSetup.mutations.ensureCoverage, {});

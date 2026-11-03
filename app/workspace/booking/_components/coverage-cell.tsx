@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { CornerDownRightIcon } from "lucide-react";
@@ -176,28 +177,44 @@ function CellPicker({
     .filter((eventType) => eventTypeStatus(eventType) === "unsorted")
     .sort((left, right) => left.displayName.localeCompare(right.displayName));
 
-  async function apply(eventTypeConfigId: Id<"eventTypeConfigs"> | null, message: string) {
+  const cellArgs = { teamId: team?._id ?? null, programId: program._id, mode };
+
+  // Sets the cell; with `sortFirst`, sorts an unsorted event type into this
+  // program and mode first. Undo puts back both, and a failed cell write
+  // rolls the sort back.
+  async function apply(
+    eventTypeConfigId: Id<"eventTypeConfigs"> | null,
+    message: string,
+    sortFirst = false,
+  ) {
     setBusy(true);
+    let previousSorting: FunctionReturnType<typeof api.bookingSetup.mutations.sortEventType> | null = null;
     try {
-      const { previousEventTypeConfigId } = await setCell({
-        teamId: team?._id ?? null,
-        programId: program._id,
-        mode,
-        eventTypeConfigId,
+      if (sortFirst && eventTypeConfigId) {
+        previousSorting = await sortEventType({
+          eventTypeConfigId,
+          sorting: { kind: "program", programId: program._id, mode },
+        });
+      }
+      const { previousEventTypeConfigId } = await setCell({ ...cellArgs, eventTypeConfigId });
+      posthog.capture("booking_cell_set", {
+        shared: team === null,
+        cleared: eventTypeConfigId === null,
+        sorted: previousSorting !== null,
       });
-      posthog.capture("booking_cell_set", { shared: team === null, cleared: eventTypeConfigId === null });
       onDone();
+      const undoSorting = previousSorting;
       toast.success(message, {
         description: where,
         action: {
           label: "Undo",
           onClick: () => {
-            setCell({
-              teamId: team?._id ?? null,
-              programId: program._id,
-              mode,
-              eventTypeConfigId: previousEventTypeConfigId,
-            }).catch((error: unknown) => {
+            void (async () => {
+              await setCell({ ...cellArgs, eventTypeConfigId: previousEventTypeConfigId, restore: true });
+              if (undoSorting && eventTypeConfigId) {
+                await sortEventType({ eventTypeConfigId, sorting: undoSorting });
+              }
+            })().catch((error: unknown) => {
               reportClientError(error, { flow: "booking_cell_undo" });
               toast.error(getErrorMessage(error, "Couldn't undo that change."));
             });
@@ -205,26 +222,15 @@ function CellPicker({
         },
       });
     } catch (error) {
-      reportClientError(error, { flow: "booking_cell_set" });
+      reportClientError(error, { flow: sortFirst ? "booking_cell_sort_and_use" : "booking_cell_set" });
       toast.error(getErrorMessage(error, "Couldn't change this cell."));
+      if (previousSorting && eventTypeConfigId) {
+        await sortEventType({ eventTypeConfigId, sorting: previousSorting }).catch((rollbackError: unknown) => {
+          reportClientError(rollbackError, { flow: "booking_cell_sort_rollback" });
+        });
+      }
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function sortAndUse(eventTypeConfigId: Id<"eventTypeConfigs">, name: string) {
-    setBusy(true);
-    try {
-      await sortEventType({
-        eventTypeConfigId,
-        sorting: { kind: "program", programId: program._id, mode },
-      });
-      setBusy(false);
-      await apply(eventTypeConfigId, `${name} now counts for ${program.name} and is in this cell`);
-    } catch (error) {
-      setBusy(false);
-      reportClientError(error, { flow: "booking_cell_sort_and_use" });
-      toast.error(getErrorMessage(error, "Couldn't sort this event type."));
     }
   }
 
@@ -301,7 +307,9 @@ function CellPicker({
                   key={eventType._id}
                   value={`${eventType.displayName} ${eventType._id}`}
                   disabled={busy}
-                  onSelect={() => sortAndUse(eventType._id, eventType.displayName)}
+                  onSelect={() =>
+                    apply(eventType._id, `${eventType.displayName} now counts for ${program.name} and is in this cell`, true)
+                  }
                 >
                   <span className="truncate">{eventType.displayName}</span>
                 </CommandItem>

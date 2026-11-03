@@ -56,13 +56,15 @@ export const ensureCoverage = mutation({
 
 // Sets one cell of the coverage board. `teamId: null` is the Shared column;
 // `eventTypeConfigId: null` clears the cell. Returns the previous event type
-// so the board can undo.
+// so the board can undo. `restore` is Undo: it puts back what the cell held
+// even if that event type no longer matches the program or mode.
 export const setCell = mutation({
   args: {
     teamId: v.union(v.id("attributionTeams"), v.null()),
     programId: v.id("tenantPrograms"),
     mode: modeValidator,
     eventTypeConfigId: v.union(v.id("eventTypeConfigs"), v.null()),
+    restore: v.optional(v.boolean()),
   },
   returns: v.object({
     previousEventTypeConfigId: v.union(v.id("eventTypeConfigs"), v.null()),
@@ -125,8 +127,9 @@ export const setCell = mutation({
       });
     }
     if (
-      config.bookingProgramId !== args.programId ||
-      config.bookingProgramMappingStatus !== "mapped"
+      !args.restore &&
+      (config.bookingProgramId !== args.programId ||
+        config.bookingProgramMappingStatus !== "mapped")
     ) {
       throw rejectRequest(
         "booking_setup.event_type_program_mismatch",
@@ -134,7 +137,7 @@ export const setCell = mutation({
         { tenantId },
       );
     }
-    if (schedulingModeOf(config) !== args.mode) {
+    if (!args.restore && schedulingModeOf(config) !== args.mode) {
       throw rejectRequest(
         "booking_setup.event_type_mode_mismatch",
         args.mode === "extended"
