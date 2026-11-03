@@ -1,35 +1,58 @@
-import { Skeleton } from "@/components/ui/skeleton";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { ConversionStripSkeleton } from "./prospect-conversion-section";
+import { SpecialistsSkeleton } from "./specialists-section";
+import { PostsSkeleton } from "./top-posts-by-team";
+
+// Lead Gen's first load, at the page's real layout and heights.
+
+function BoardBar({ className }: { className: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block animate-pulse rounded-md bg-board-foreground/10 align-middle motion-reduce:animate-none ${className}`}
+    />
+  );
+}
 
 export function LeadGenAdminSkeleton() {
   return (
     <div
-      className="flex min-w-0 flex-col gap-4"
       role="status"
-      aria-label="Loading Lead Gen Ops dashboard"
+      aria-label="Loading Lead Gen"
+      className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3"
     >
-      <div className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-8 w-44" />
-          <Skeleton className="h-4 w-96 max-w-full" />
+      <PageBand
+        title="Lead Gen"
+        description={<BoardBar className="h-3.5 w-72 max-w-full" />}
+        actions={<BoardBar className="h-[34px] w-[22rem] max-w-full" />}
+      >
+        <div className="-mx-4 grid grid-cols-2 border-t border-board-line @lg:-mx-[18px] @3xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="flex h-[91px] flex-col gap-2 px-4 py-3 @lg:px-[18px]">
+              <BoardBar className="h-3 w-24" />
+              <BoardBar className="h-7 w-16" />
+              <BoardBar className="h-3 w-32" />
+            </div>
+          ))}
         </div>
-        <div className="flex flex-col items-start gap-3 lg:items-end">
-          <Skeleton className="h-8 w-64 max-w-full" />
-          <Skeleton className="h-8 w-72 max-w-full" />
+        <div className="-mx-4 flex h-10 items-center gap-[22px] border-t border-board-line px-4 @lg:-mx-[18px] @lg:px-[18px]">
+          <BoardBar className="h-3 w-20" />
+          <BoardBar className="h-3 w-16" />
+          <BoardBar className="h-3 w-24" />
         </div>
+      </PageBand>
+      <DetailCard title="Prospect conversion" className="@container/conv min-w-0">
+        <ConversionStripSkeleton />
+      </DetailCard>
+      <div className="grid items-start gap-3.5 @5xl:grid-cols-[minmax(0,1fr)_24rem] short:gap-3">
+        <DetailCard title="Specialists" className="min-w-0">
+          <SpecialistsSkeleton />
+        </DetailCard>
+        <DetailCard title="Top posts & reels" className="min-w-0">
+          <PostsSkeleton />
+        </DetailCard>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <Skeleton className="h-8 w-72 max-w-full" />
-        <Skeleton className="h-3 w-28" />
-      </div>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
-      </div>
-      <Skeleton className="h-[420px]" />
-      <Skeleton className="h-[360px]" />
-      <Skeleton className="h-14" />
     </div>
   );
 }

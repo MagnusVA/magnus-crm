@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnus · Lead Gen</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--shell:#141a28;--raised:#1d2536;--bm:#9aa4b6;--bl:rgba(242,244,247,.08);--paper:#f5f6f8;--card:#fff;--ink:#141a28;--ink2:#4f596b;--rule:#e3e7ed;--input:#d5dbe3;--muted:#eef1f5;--lime:#84b135;--lime-ink:#4a7212;--danger-ink:#b42328}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{font:400 14px/1.43 Barlow,sans-serif;color:var(--ink);background:var(--paper);display:grid;grid-template-columns:232px 1fr;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.c{font-family:"Barlow Condensed",sans-serif}
+.lbl{font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
+.rail{background:var(--shell);padding:16px 12px;display:flex;flex-direction:column;color:#eef1f6}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 22px;font:600 22px "Barlow Condensed"}
+.brand i{width:20px;height:16px;background:var(--lime);border-radius:2px}
+.nav a{display:flex;align-items:center;height:34px;padding:0 10px;border-radius:7px;color:#aeb8ca;font-weight:500}
+.nav a.on{background:rgba(132,177,53,.16);color:#fff}
+.nav .g{font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:rgba(154,164,182,.6);padding:16px 10px 6px}
+.me{margin-top:auto;border-top:1px solid var(--bl);padding:12px 8px 0;font-weight:500}.me small{display:block;color:var(--bm);font-weight:400;font-size:12px}
+.app{display:grid;grid-template-rows:52px 1fr;min-width:0}
+.bar{display:flex;align-items:center;gap:8px;padding:0 24px;border-bottom:1px solid var(--rule);background:var(--card);color:var(--ink2)}.bar b{color:var(--ink);font-weight:500}
+.search{margin-left:auto;width:256px;height:32px;border:1px solid var(--input);border-radius:7px;display:flex;align-items:center;padding:0 10px;color:var(--ink2);font-size:13px}
+.page{padding:20px 24px;display:flex;flex-direction:column;gap:14px;min-height:0;overflow:hidden}
+.band{background:var(--shell);color:#eef1f6;border-radius:9.8px;overflow:hidden}
+.bt{display:flex;align-items:center;gap:16px;padding:16px 18px 14px}
+.band h1{font:600 26px/1.1 Barlow;letter-spacing:-.01em}
+.band .sum{font-size:13px;color:var(--bm);margin-top:3px}.band .sum b{color:#eef1f6;font-weight:500}
+.live{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--lime);margin:0 5px 1px 0}
+.pick{margin-left:auto;display:flex;gap:8px;align-items:center}
+.bseg{display:flex;background:var(--raised);border:1px solid rgba(242,244,247,.15);border-radius:7px;padding:2px;height:34px}
+.bseg span{padding:0 12px;display:flex;align-items:center;border-radius:5.6px;font:600 13px "Barlow Condensed";letter-spacing:.1em;text-transform:uppercase;color:var(--bm)}
+.bseg span.on{background:#eef1f6;color:var(--shell)}
+.bbtn{height:34px;display:flex;align-items:center;gap:6px;padding:0 12px;border-radius:7px;background:var(--raised);border:1px solid rgba(242,244,247,.15);font-size:13px;color:#eef1f6}
+.bbtn.s{height:28px;font-size:13px}
+.tot{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--bl)}
+.tot>div{padding:12px 18px;border-left:1px solid var(--bl)}.tot>div:first-child{border-left:0}
+.tot .lb{font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:var(--bm)}
+.tot .f{font:600 30px/1.05 "Barlow Condensed";margin-top:4px}.tot .f small{font:500 13px Barlow;color:var(--bm);margin-left:3px}
+.tot .u{font-size:13px;color:rgba(238,241,246,.75)}
+.tabs{display:flex;align-items:center;gap:22px;padding:0 18px;border-top:1px solid var(--bl);height:40px}
+.tabs span{height:40px;display:flex;align-items:center;font:600 13px "Barlow Condensed";letter-spacing:.12em;text-transform:uppercase;color:var(--bm);border-bottom:2px solid transparent}
+.tabs span.on{color:#eef1f6;border-color:var(--lime)}
+.tabs .r{margin-left:auto;display:flex;gap:8px}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:9.8px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.ct{height:44px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--rule);flex:none}
+.ct h2{font:600 15px Barlow}.ct .m{margin-left:auto;font-size:13px;color:var(--ink2)}
+.av{width:28px;height:28px;border-radius:50%;background:var(--muted);display:grid;place-items:center;font:600 11px Barlow;color:var(--ink2);flex:none}
+.sub{font-size:13px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{height:28px;text-align:right;padding:0 8px;border-bottom:1px solid var(--rule);font:600 11px/1.15 "Barlow Condensed";letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);vertical-align:bottom;padding-bottom:6px}
+td{height:40px;padding:0 8px;border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;font:600 15px "Barlow Condensed"}
+td.p,th.p{text-align:left;font:400 14px Barlow}th.p{font:600 11px "Barlow Condensed";letter-spacing:.14em}
+th:first-child,td:first-child{padding-left:16px}th:last-child,td:last-child{padding-right:16px}
+td small{font:500 12px Barlow;color:var(--ink2);margin-left:3px}
+tr.team td{background:var(--paper);height:30px;font:600 11px "Barlow Condensed";letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
+tr.team td.f{font:600 14px "Barlow Condensed";letter-spacing:0;color:var(--ink)}
+tr.total td{background:rgba(238,241,245,.4);font-weight:700}
+.z{color:var(--ink2);font-weight:500}
+.who{display:flex;align-items:center;gap:9px}.who b{font-weight:500}
+.grp{border-left:1px solid var(--rule)}
+.foot{display:flex;align-items:center;height:40px;padding:0 16px;font-size:13px;color:var(--ink2);border-top:1px solid var(--rule)}
+.foot a{margin-left:auto;color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:rgba(20,26,40,.4);text-underline-offset:3px}
+.thumb{width:44px;height:44px;border-radius:7px;background:linear-gradient(135deg,#c9ced8,#9aa4b6);flex:none}
+.thumb.b{background:linear-gradient(135deg,#d7c6b4,#8e7a69)}.thumb.c{background:linear-gradient(135deg,#b9cbb0,#6b8061)}.thumb.d{background:linear-gradient(135deg,#c3c9dd,#5f6c94)}
+.post{display:flex;align-items:center;gap:12px;padding:8px 16px;border-bottom:1px solid var(--rule)}
+.post .t{min-width:0;flex:1}.post .t p:first-child{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.post .n{text-align:right}.post .n b{font:600 20px/1 "Barlow Condensed";display:block}
+</style></head><body>
+<aside class="rail"><div class="brand"><i></i>MAGNUS</div><nav class="nav">
+<a>Overview</a><a class="on">Operations</a><a>Billing</a><a>Leads &amp; Customers</a><a>Team</a><a>Settings</a>
+<div class="g">Reports</div><a>Team Performance</a><a>Revenue</a><a>Pipeline Health</a><a>Leads &amp; Conversions</a><a>Activity Feed</a></nav>
+<div class="me">Claudio Vasquez<small>Owner</small></div></aside>
+<div class="app"><div class="bar">Operations › <b>Lead Gen</b><div class="search">Search people and deals <span style="margin-left:auto">⌘K</span></div></div>
+<main class="page">
+<section class="band"><div class="bt"><div><h1>Lead Gen</h1><p class="sum"><b>This week · Oct 27 – Nov 1</b> · <span class="live"></span>Today live · earlier days as of 2:31 PM · Days run 1:00 am to 1:00 am, America/Tegucigalpa time</p></div>
+<div class="pick"><div class="bseg"><span>Today</span><span class="on">This week</span><span>This month</span></div><span class="bbtn">▦ Custom range</span></div></div>
+<div class="tot"><div><p class="lb">Submissions</p><p class="f">412</p><p class="u">Duplicates included</p></div><div><p class="lb">Specialists active</p><p class="f">9</p><p class="u">With a submission this week</p></div><div><p class="lb">Scheduled hours</p><p class="f">186.5<small>h</small></p><p class="u">Across every specialist</p></div><div><p class="lb">Submissions per hour</p><p class="f">2.21<small>/h</small></p><p class="u">Submissions ÷ scheduled hours</p></div></div>
+<div class="tabs"><span class="on">All sources</span><span>Instagram</span><span>Meta Business</span><div class="r"><span class="bbtn s">↓ Export</span><span class="bbtn s">⚙ Schedules</span></div></div></section>
+<section class="card" style="flex:1"><div class="ct" style="gap:22px;height:44px">
+<span style="height:44px;display:flex;align-items:center;gap:6px;font:600 13px 'Barlow Condensed';letter-spacing:.12em;text-transform:uppercase;border-bottom:2px solid var(--ink)">Specialists <span style="font-size:12px;background:var(--muted);border-radius:99px;padding:0 6px;letter-spacing:0">9</span></span>
+<span style="height:44px;display:flex;align-items:center;gap:6px;font:600 13px 'Barlow Condensed';letter-spacing:.12em;text-transform:uppercase;color:var(--ink2)">Conversion</span>
+<span style="height:44px;display:flex;align-items:center;gap:6px;font:600 13px 'Barlow Condensed';letter-spacing:.12em;text-transform:uppercase;color:var(--ink2)">Respark</span>
+<span style="height:44px;display:flex;align-items:center;gap:6px;font:600 13px 'Barlow Condensed';letter-spacing:.12em;text-transform:uppercase;color:var(--ink2)">Posts <span style="font-size:12px;background:var(--muted);border-radius:99px;padding:0 6px;letter-spacing:0">14</span></span>
+<span style="height:44px;display:flex;align-items:center;gap:6px;font:600 13px 'Barlow Condensed';letter-spacing:.12em;text-transform:uppercase;color:var(--ink2)">Submissions</span>
+<span class="m">Grouped by team · busiest first</span></div>
+<table><colgroup><col><col style="width:140px"><col style="width:140px"><col style="width:160px"></colgroup>
+<thead><tr><th class="p">Specialist</th><th>Submissions</th><th>Scheduled</th><th>Per hour</th></tr></thead><tbody>
+<tr class="team"><td class="p" style="font:600 11px 'Barlow Condensed';letter-spacing:.14em">TEAM ALPHA · 4 SPECIALISTS</td><td class="f">275</td><td class="f">137 h</td><td class="f">2.01<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">MC</span><b>Mariela Cruz</b></span></td><td>92</td><td>36 h</td><td>2.56<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">JR</span><b>Josué Ramírez</b></span></td><td>78</td><td>36 h</td><td>2.17<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">DF</span><b>Daniela Flores</b></span></td><td>64</td><td>36 h</td><td>1.78<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">KM</span><b>Kevin Mejía</b> <span class="lbl" style="margin-left:6px">Inactive</span></span></td><td>41</td><td>30 h</td><td>1.37<small>/h</small></td></tr>
+<tr class="team"><td class="p" style="font:600 11px 'Barlow Condensed';letter-spacing:.14em">TEAM NORTE · 3 SPECIALISTS</td><td class="f">117</td><td class="f">48 h</td><td class="f">2.43<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">AZ</span><b>Andrea Zelaya</b></span></td><td>58</td><td>24 h</td><td>2.42<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">LB</span><b>Luis Banegas</b></span></td><td>37</td><td>24 h</td><td>1.54<small>/h</small></td></tr>
+<tr><td class="p"><span class="who"><span class="av">SP</span><b>Sofía Paz</b></span></td><td>22</td><td class="z">—</td><td class="z" style="font:400 13px Barlow">No schedule</td></tr>
+<tr class="total"><td class="p" style="font-weight:600">Total · 9 specialists</td><td>392</td><td>185 h</td><td>2.10<small>/h</small></td></tr>
+</tbody></table></section>
+</main></div></body></html>
