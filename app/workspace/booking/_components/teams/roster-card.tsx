@@ -320,9 +320,10 @@ function CloserEditor({
   campaign: { label: string; utmCampaign: string } | null;
 }) {
   const updateDmCloser = useMutation(api.attribution.dmClosers.updateDmCloser);
-  // The latest server row, and the fields this editor has set since (see update).
+  // The latest server row, and this editor's saves still in flight (see save).
   const latest = useRef(closer);
-  const pending = useRef<Partial<{ teamId: Id<"attributionTeams">; displayName: string; utmMedium: string; userId: Id<"users"> | null }>>({});
+  const pending = useRef(new Map<string, { value: unknown; token: number }>());
+  const nextToken = useRef(0);
   useEffect(() => {
     latest.current = closer;
   }, [closer]);
@@ -355,18 +356,33 @@ function CloserEditor({
 
   type Patch = { teamId?: Id<"attributionTeams">; displayName?: string; utmMedium?: string; userId?: Id<"users"> | null };
   // updateDmCloser saves the whole name/team/UTM snapshot, so each write is
-  // built from the latest server row plus every field this editor has already
-  // set (the row can lag behind quick edits). Undo puts back only the field it
-  // changed, on top of whatever is current then.
+  // built from the latest server row plus the fields still in flight from
+  // this editor. An in-flight field leaves `pending` when its own save settles
+  // (saved or rejected), unless a newer edit of that field has replaced it.
+  // Undo puts back only the field it changed, on top of what is current then.
   function snapshot() {
     const current = latest.current;
+    const inFlight: Patch = {};
+    for (const [key, entry] of pending.current) (inFlight as Record<string, unknown>)[key] = entry.value;
     return {
       dmCloserId: current._id,
       teamId: current.teamId,
       displayName: current.displayName,
       utmMedium: current.utmMedium,
-      ...pending.current,
+      ...inFlight,
     };
+  }
+  async function save(patch: Patch) {
+    const token = ++nextToken.current;
+    const keys = Object.keys(patch) as Array<keyof Patch>;
+    for (const key of keys) pending.current.set(key, { value: patch[key], token });
+    try {
+      await updateDmCloser(snapshot());
+    } finally {
+      for (const key of keys) {
+        if (pending.current.get(key)?.token === token) pending.current.delete(key);
+      }
+    }
   }
   function update(patch: Patch, message: string, field: string) {
     const current = snapshot();
@@ -375,18 +391,7 @@ function CloserEditor({
       if (key === "userId") previous.userId = latest.current.userId ?? null;
       else (previous as Record<string, unknown>)[key] = current[key];
     }
-    return withUndo(
-      async () => {
-        Object.assign(pending.current, patch);
-        await updateDmCloser({ ...snapshot(), ...patch });
-      },
-      message,
-      async () => {
-        Object.assign(pending.current, previous);
-        await updateDmCloser({ ...snapshot(), ...previous });
-      },
-      field,
-    );
+    return withUndo(() => save(patch), message, () => save(previous), field);
   }
 
   const members = teamMembers.filter((member) => member.isActive || member._id === closer.userId);

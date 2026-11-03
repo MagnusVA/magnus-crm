@@ -1,3 +1,4 @@
+import { expectedError } from "../lib/observability/errors";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx } from "../_generated/server";
@@ -19,22 +20,22 @@ function normalizeDmCloserInput(args: {
     maxLength: 120,
   });
   if (!displayNameValidation.valid) {
-    throw new Error(displayNameValidation.error);
+    throw expectedError("attribution.rejected", displayNameValidation.error);
   }
   const utmMediumValidation = validateRequiredString(utmMedium, {
     fieldName: "UTM medium",
     maxLength: 256,
   });
   if (!utmMediumValidation.valid) {
-    throw new Error(utmMediumValidation.error);
+    throw expectedError("attribution.rejected", utmMediumValidation.error);
   }
   const normalizedUtmMedium = normalizeUtmValue(utmMedium);
   if (!normalizedUtmMedium) {
-    throw new Error("UTM medium is required.");
+    throw expectedError("attribution.rejected", "UTM medium is required.");
   }
   const slug = slugifyAttributionLabel(displayName || utmMedium);
   if (!slug) {
-    throw new Error("DM closer name must contain at least one letter or number.");
+    throw expectedError("attribution.rejected", "DM closer name must contain at least one letter or number.");
   }
   return { displayName, utmMedium, normalizedUtmMedium, slug };
 }
@@ -48,7 +49,7 @@ async function getLinkedUserForWrite(
 
   const user = await ctx.db.get("users", userId);
   if (!user || user.tenantId !== tenantId) {
-    throw new Error("Linked user not found.");
+    throw expectedError("attribution.rejected", "Linked user not found.");
   }
 
   return user;
@@ -120,7 +121,7 @@ export const createDmCloser = mutation({
     ]);
     const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
-      throw new Error("Attribution team not found.");
+      throw expectedError("attribution.rejected", "Attribution team not found.");
     }
     const linkedUser = await getLinkedUserForWrite(
       ctx,
@@ -139,7 +140,7 @@ export const createDmCloser = mutation({
       )
       .take(5);
     if (existingActive.some((closer) => closer.isActive)) {
-      throw new Error("An active DM closer already uses this UTM medium.");
+      throw expectedError("attribution.rejected", "An active DM closer already uses this UTM medium.");
     }
 
     const dmCloserId = await ctx.db.insert("dmClosers", {
@@ -180,11 +181,11 @@ export const updateDmCloser = mutation({
     ]);
     const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
-      throw new Error("DM closer not found.");
+      throw expectedError("attribution.rejected", "DM closer not found.");
     }
     const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
-      throw new Error("Attribution team not found.");
+      throw expectedError("attribution.rejected", "Attribution team not found.");
     }
     const shouldPatchUserId = Object.hasOwn(args, "userId");
     const linkedUser = await getLinkedUserForWrite(
@@ -206,7 +207,7 @@ export const updateDmCloser = mutation({
         (candidate) => candidate.isActive && candidate._id !== args.dmCloserId,
       )
     ) {
-      throw new Error("An active DM closer already uses this UTM medium.");
+      throw expectedError("attribution.rejected", "An active DM closer already uses this UTM medium.");
     }
 
     await ctx.db.patch("dmClosers", args.dmCloserId, {
@@ -253,7 +254,7 @@ export const setDmCloserHourlyRate = mutation({
     ]);
     const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
-      throw new Error("DM closer not found.");
+      throw expectedError("attribution.rejected", "DM closer not found.");
     }
 
     if (
@@ -262,7 +263,7 @@ export const setDmCloserHourlyRate = mutation({
         args.hourlyRateMinor < 0 ||
         args.hourlyRateMinor > MAX_HOURLY_RATE_MINOR)
     ) {
-      throw new Error(
+      throw expectedError("attribution.rejected", 
         `Hourly rate must be an integer between 0 and ${MAX_HOURLY_RATE_MINOR} minor units.`,
       );
     }
@@ -287,7 +288,7 @@ export const setDmCloserActive = mutation({
     ]);
     const dmCloser = await ctx.db.get("dmClosers", dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
-      throw new Error("DM closer not found.");
+      throw expectedError("attribution.rejected", "DM closer not found.");
     }
     await ctx.db.patch("dmClosers", dmCloserId, { isActive, updatedAt: Date.now() });
     log.info("attribution.dm_closer.active_set", {

@@ -1,3 +1,4 @@
+import { expectedError } from "../observability/errors";
 import { normalizeUtmValue, slugifyAttributionLabel } from "./normalize";
 import { validateRequiredString } from "../validation";
 
@@ -14,25 +15,25 @@ export function normalizeAttributionTeamInput(args: {
     maxLength: 120,
   });
   if (!displayNameValidation.valid) {
-    throw new Error(displayNameValidation.error);
+    throw expectedError("attribution.rejected", displayNameValidation.error);
   }
   const utmSourceValidation = validateRequiredString(utmSource, {
     fieldName: "UTM source",
     maxLength: 256,
   });
   if (!utmSourceValidation.valid) {
-    throw new Error(utmSourceValidation.error);
+    throw expectedError("attribution.rejected", utmSourceValidation.error);
   }
   const normalizedUtmSource = normalizeUtmValue(utmSource);
   if (!normalizedUtmSource) {
-    throw new Error("UTM source is required.");
+    throw expectedError("attribution.rejected", "UTM source is required.");
   }
   if (normalizedUtmSource === RESERVED_UTM_SOURCE) {
-    throw new Error("UTM source ptdom is reserved for internal CRM links.");
+    throw expectedError("attribution.rejected", "UTM source ptdom is reserved for internal CRM links.");
   }
   const slug = slugifyAttributionLabel(displayName || utmSource);
   if (!slug) {
-    throw new Error("Team name must contain at least one letter or number.");
+    throw expectedError("attribution.rejected", "Team name must contain at least one letter or number.");
   }
   return { displayName, utmSource, normalizedUtmSource, slug };
 }
