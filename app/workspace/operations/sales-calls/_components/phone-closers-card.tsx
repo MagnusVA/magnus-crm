@@ -85,7 +85,6 @@ function CompactWords({ row, currency, partial }: { row: Row; currency: string; 
   const parts = [
     `${formatCount(row.booked)} booked`,
     `${formatCount(row.showed)} held`,
-    `${formatCount(row.noShows)} no-show`,
     `${formatRateOrDash(row.showUpRate)} show`,
     `${formatCloseRate(row)} close`,
     `${formatCount(money.paymentSales)} sale${money.paymentSales === 1 ? "" : "s"}`,
