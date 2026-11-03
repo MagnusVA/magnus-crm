@@ -14,7 +14,7 @@ import { isAwaitingOutcome, isDealWon } from "@/lib/deal-controls";
 import { CallStrip } from "./call-strip";
 import { DealCard } from "./deal-card";
 import { DealWonCard } from "./deal-won-card";
-import { FathomLinkField } from "./fathom-link-field";
+import { RecordingCard } from "@/components/fathom/recording-card";
 import { MeetingComments } from "./meeting-comments";
 import { OutcomeSection } from "./outcome-section";
 import { PaymentLinksPanel } from "./payment-links-panel";
@@ -177,7 +177,7 @@ export function MeetingDetailView({
         <div className="flex min-w-0 flex-col gap-3.5">
           <DealCard detail={detail} />
           <PersonCard detail={detail} />
-          <FathomLinkField
+          <RecordingCard
             meetingId={meeting._id}
             initialLink={meeting.fathomLink ?? ""}
             savedAt={meeting.fathomLinkSavedAt}

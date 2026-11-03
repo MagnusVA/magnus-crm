@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { UnmatchedRecordings } from "@/components/fathom/unmatched-recordings";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import { meetingAttendanceDisplay } from "@/lib/status-config";
@@ -120,6 +121,7 @@ export function NeedsOutcomeCard({
           ) : null}
         </>
       )}
+      <UnmatchedRecordings />
     </section>
   );
 }
