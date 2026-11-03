@@ -153,10 +153,11 @@ describe("Sales Calls historical UI", () => {
   it.each([true, false])("renders a saved snapshot qualifier when partial is %s", (partial) => {
     fixture.partial = partial;
     const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(SalesCallsPageClient)));
-    // The band's show rate, then the closer row and the total in the table,
-    // retain the snapshot flag; the folded phone list says it in short words.
-    expect(html.match(/past calls have a result/g)).toHaveLength(3);
-    expect(html.match(/\(partial\)/g) ?? []).toHaveLength(partial ? 3 : 0);
+    // The band's show rate, then the closer row and the total, each once in
+    // the table and once in the phone list's open rows, retain the snapshot
+    // flag; the phone list's short line says it too.
+    expect(html.match(/past calls have a result/g)).toHaveLength(5);
+    expect(html.match(/\(partial\)/g) ?? []).toHaveLength(partial ? 5 : 0);
     expect(html.match(/counts partial/g) ?? []).toHaveLength(partial ? 2 : 0);
     expect(html.includes(ATTENDANCE_COUNTS_PARTIAL_HELP)).toBe(partial);
     fixture.partial = false;
@@ -187,8 +188,8 @@ describe("Sales Calls historical UI", () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(SalesCallsPageClient)));
     expect(html).toContain("Close rate");
     expect(html).not.toContain("Payment close rate");
-    // The band, then the closer row and the total in the table.
-    expect(html.match(/1 of 4 deals won/g)).toHaveLength(3);
+    // The band, then the closer row and the total in the table and in the phone list.
+    expect(html.match(/1 of 4 deals won/g)).toHaveLength(5);
     expect(html.match(/25%/g)?.length).toBeGreaterThanOrEqual(3);
   });
 

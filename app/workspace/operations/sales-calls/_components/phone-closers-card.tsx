@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { ChevronDownIcon } from "lucide-react";
 import { DetailCard, DetailCardFooter, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { getMemberDisplayName } from "@/app/workspace/_components/member-avatar";
@@ -103,18 +104,43 @@ function CompactWords({ row, currency, partial }: { row: Row; currency: string; 
   );
 }
 
+/**
+ * One closer on a phone: name and revenue, then the short counts line. It
+ * opens in place to every figure the desktop table has, and the results line.
+ */
 function PhoneRow({ name, row, currency, partial, total }: { name: string; row: Row; currency: string; partial?: boolean; total?: boolean }) {
   const revenue = performanceMoneyForCurrency(row, currency).paymentRevenueMinor;
   return (
-    <>
-      <div className="flex items-baseline gap-3">
-        <p className="min-w-0 flex-1 truncate font-semibold">{name}</p>
-        <p className={cn(FIGURE_15, "shrink-0", !total && revenue === 0 && "text-muted-foreground")}>
-          {formatCash(revenue, currency)}
-        </p>
-      </div>
-      <CompactWords row={row} currency={currency} partial={partial} />
-    </>
+    <details className="group">
+      <summary className="-mx-4 -my-2.5 flex cursor-pointer list-none gap-2 px-4 py-2.5 outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-baseline gap-3">
+            <span className="min-w-0 flex-1 truncate font-semibold">{name}</span>
+            <span className={cn(FIGURE_15, "shrink-0", !total && revenue === 0 && "text-muted-foreground")}>
+              {formatCash(revenue, currency)}
+            </span>
+          </span>
+          <CompactWords row={row} currency={currency} partial={partial} />
+        </span>
+        <ChevronDownIcon
+          aria-hidden="true"
+          className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+        />
+      </summary>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
+        {COLUMNS.map((column) => (
+          <div key={column.key} className="flex items-baseline justify-between gap-2 border-b border-dashed py-0.5">
+            <dt className="text-muted-foreground">{column.head}</dt>
+            <dd className={cn(FIGURE_15, !total && column.quietAtZero?.(row, currency) && "text-muted-foreground")}>
+              {column.value(row, currency)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-[13px] text-muted-foreground" title={resultsTitle(partial)}>
+        {proofLine(row, partial)}
+      </p>
+    </details>
   );
 }
 
