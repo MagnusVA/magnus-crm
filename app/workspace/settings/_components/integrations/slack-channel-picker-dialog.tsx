@@ -10,7 +10,7 @@ import {
   LockIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
@@ -32,7 +32,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FieldGroup } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import {
   Form,
   FormDescription,
@@ -51,6 +57,7 @@ const channelPickerSchema = z.object({
   leadGenNotifyChannelId: z.string(),
   // Optional: empty turns booking review alerts off.
   bookingReviewChannelId: z.string(),
+  eodReportChannelId: z.string(),
 });
 
 type ChannelPickerValues = z.infer<typeof channelPickerSchema>;
@@ -79,6 +86,8 @@ type Props = {
   initialLeadGenChannelName?: string;
   initialBookingReviewChannelId?: string;
   initialBookingReviewChannelName?: string;
+  initialEodReportChannelId?: string;
+  initialEodReportChannelName?: string;
 };
 
 export function SlackChannelPickerDialog({
@@ -90,14 +99,21 @@ export function SlackChannelPickerDialog({
   initialLeadGenChannelName,
   initialBookingReviewChannelId,
   initialBookingReviewChannelName,
+  initialEodReportChannelId,
+  initialEodReportChannelName,
 }: Props) {
-  const listChannels = useAction(api.slack.channelsActions.listInstalledChannels);
+  const listChannels = useAction(
+    api.slack.channelsActions.listInstalledChannels,
+  );
   const saveChannels = useMutation(api.slack.channels.setSlackNotifyChannels);
   const [channels, setChannels] = useState<SlackChannel[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [unavailableLeadGenChannel, setUnavailableLeadGenChannel] =
     useState<SlackChannel | null>(null);
   const [unavailableBookingReviewChannel, setUnavailableBookingReviewChannel] =
+    useState<SlackChannel | null>(null);
+
+  const [unavailableEodReportChannel, setUnavailableEodReportChannel] =
     useState<SlackChannel | null>(null);
 
   const form = useForm({
@@ -107,6 +123,7 @@ export function SlackChannelPickerDialog({
       staleReminderChannelId: initialStaleChannelId ?? "",
       leadGenNotifyChannelId: initialLeadGenChannelId ?? "",
       bookingReviewChannelId: initialBookingReviewChannelId ?? "",
+      eodReportChannelId: initialEodReportChannelId ?? "",
     },
   });
   const notifyChannelId = useWatch({
@@ -126,6 +143,11 @@ export function SlackChannelPickerDialog({
     name: "bookingReviewChannelId",
   });
 
+  const eodReportChannelId = useWatch({
+    control: form.control,
+    name: "eodReportChannelId",
+  });
+
   useEffect(() => {
     if (!open) return;
     form.reset({
@@ -133,6 +155,7 @@ export function SlackChannelPickerDialog({
       staleReminderChannelId: initialStaleChannelId ?? "",
       leadGenNotifyChannelId: initialLeadGenChannelId ?? "",
       bookingReviewChannelId: initialBookingReviewChannelId ?? "",
+      eodReportChannelId: initialEodReportChannelId ?? "",
     });
   }, [
     form,
@@ -140,6 +163,7 @@ export function SlackChannelPickerDialog({
     initialStaleChannelId,
     initialLeadGenChannelId,
     initialBookingReviewChannelId,
+    initialEodReportChannelId,
     open,
   ]);
 
@@ -155,6 +179,7 @@ export function SlackChannelPickerDialog({
         setListError(null);
         setUnavailableLeadGenChannel(null);
         setUnavailableBookingReviewChannel(null);
+        setUnavailableEodReportChannel(null);
         return listChannels({});
       })
       .then((rows) => {
@@ -181,16 +206,23 @@ export function SlackChannelPickerDialog({
         const savedBookingReviewId = form.getValues("bookingReviewChannelId");
         if (savedBookingReviewId && !visibleIds.has(savedBookingReviewId)) {
           setUnavailableBookingReviewChannel(
-            unavailableChannel(savedBookingReviewId, initialBookingReviewChannelName),
+            unavailableChannel(
+              savedBookingReviewId,
+              initialBookingReviewChannelName,
+            ),
+          );
+        }
+        const savedEodId = form.getValues("eodReportChannelId");
+        if (savedEodId && !visibleIds.has(savedEodId)) {
+          setUnavailableEodReportChannel(
+            unavailableChannel(savedEodId, initialEodReportChannelName),
           );
         }
         setChannels(rows);
       })
       .catch((error) => {
         if (!cancelled) {
-          setListError(
-            getErrorMessage(error, "Failed to list channels."),
-          );
+          setListError(getErrorMessage(error, "Failed to list channels."));
         }
       });
 
@@ -201,6 +233,7 @@ export function SlackChannelPickerDialog({
     form,
     initialLeadGenChannelName,
     initialBookingReviewChannelName,
+    initialEodReportChannelName,
     listChannels,
     open,
   ]);
@@ -241,11 +274,26 @@ export function SlackChannelPickerDialog({
   const bookingReviewUnchangedAndUnavailable =
     unavailableBookingReviewChannel !== null &&
     bookingReviewChannelId === unavailableBookingReviewChannel.id;
+  const selectedEodReport = useMemo(
+    () => channels?.find((channel) => channel.id === eodReportChannelId),
+    [channels, eodReportChannelId],
+  );
+  const eodReportChannels = useMemo(
+    () =>
+      channels && unavailableEodReportChannel
+        ? [unavailableEodReportChannel, ...channels]
+        : channels,
+    [channels, unavailableEodReportChannel],
+  );
+  const eodReportUnchangedAndUnavailable =
+    unavailableEodReportChannel !== null &&
+    eodReportChannelId === unavailableEodReportChannel.id;
   const privateChannels = [
     selectedNotify,
     selectedStale,
     selectedLeadGen,
     selectedBookingReview,
+    selectedEodReport,
   ].filter((channel): channel is SlackChannel => Boolean(channel?.isPrivate));
 
   async function onSubmit(values: ChannelPickerValues) {
@@ -260,16 +308,33 @@ export function SlackChannelPickerDialog({
       values.leadGenNotifyChannelId === unavailableLeadGenChannel.id;
     const leadGen =
       values.leadGenNotifyChannelId && !keepUnavailableLeadGen
-        ? channels?.find((channel) => channel.id === values.leadGenNotifyChannelId)
+        ? channels?.find(
+            (channel) => channel.id === values.leadGenNotifyChannelId,
+          )
         : null;
     const keepUnavailableBookingReview =
       unavailableBookingReviewChannel !== null &&
       values.bookingReviewChannelId === unavailableBookingReviewChannel.id;
     const bookingReview =
       values.bookingReviewChannelId && !keepUnavailableBookingReview
-        ? channels?.find((channel) => channel.id === values.bookingReviewChannelId)
+        ? channels?.find(
+            (channel) => channel.id === values.bookingReviewChannelId,
+          )
         : null;
-    if (!notify || !stale || leadGen === undefined || bookingReview === undefined) {
+    const keepUnavailableEodReport =
+      unavailableEodReportChannel !== null &&
+      values.eodReportChannelId === unavailableEodReportChannel.id;
+    const eodReport =
+      values.eodReportChannelId && !keepUnavailableEodReport
+        ? channels?.find((channel) => channel.id === values.eodReportChannelId)
+        : null;
+    if (
+      !notify ||
+      !stale ||
+      leadGen === undefined ||
+      bookingReview === undefined ||
+      eodReport === undefined
+    ) {
       toast.error("Pick valid Slack channels.");
       return;
     }
@@ -277,7 +342,8 @@ export function SlackChannelPickerDialog({
       notify.isArchived ||
       stale.isArchived ||
       leadGen?.isArchived ||
-      bookingReview?.isArchived
+      bookingReview?.isArchived ||
+      eodReport?.isArchived
     ) {
       toast.error("Archived channels cannot receive Slack messages.");
       return;
@@ -285,6 +351,11 @@ export function SlackChannelPickerDialog({
 
     try {
       await saveChannels({
+        eodReportChannel: keepUnavailableEodReport
+          ? undefined
+          : eodReport
+            ? { channelId: eodReport.id, channelName: eodReport.name }
+            : null,
         notifyChannelId: notify.id,
         notifyChannelName: notify.name,
         staleReminderChannelId: stale.id,
@@ -306,9 +377,7 @@ export function SlackChannelPickerDialog({
       toast.success("Slack channels saved.");
       onOpenChange(false);
     } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Failed to save channels."),
-      );
+      toast.error(getErrorMessage(error, "Failed to save channels."));
     }
   }
 
@@ -319,8 +388,8 @@ export function SlackChannelPickerDialog({
           <DialogTitle>Pick Slack Channels</DialogTitle>
           <DialogDescription>
             New-lead confirmations and stale-lead digests post to these
-            channels. Lead gen submissions post only if you pick a channel
-            for them, and so do booking reviews.
+            channels. Lead gen submissions post only if you pick a channel for
+            them, and so do booking reviews.
           </DialogDescription>
         </DialogHeader>
 
@@ -427,6 +496,31 @@ export function SlackChannelPickerDialog({
                   )}
                 />
 
+                <Controller
+                  control={form.control}
+                  name="eodReportChannelId"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="eod-report-channel">
+                        End-of-day reports
+                      </FieldLabel>
+                      <ChannelCombobox
+                        id="eod-report-channel"
+                        channels={eodReportChannels ?? channels}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Off - search channels…"
+                      />
+                      <FieldDescription>
+                        {eodReportUnchangedAndUnavailable
+                          ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to turn these posts off."
+                          : "Each closer's report posts here when they end their day. No fallback channel."}
+                      </FieldDescription>
+                      <FieldError errors={[fieldState.error]} />
+                    </Field>
+                  )}
+                />
+
                 {privateChannels.length > 0 && (
                   <Alert>
                     <LockIcon aria-hidden="true" />
@@ -463,11 +557,13 @@ export function SlackChannelPickerDialog({
 }
 
 function ChannelCombobox({
+  id,
   channels,
   value,
   onValueChange,
   placeholder,
 }: {
+  id?: string;
   channels: SlackChannel[];
   value: string;
   onValueChange: (value: string) => void;
@@ -486,7 +582,7 @@ function ChannelCombobox({
       itemToStringValue={(channel: SlackChannel) => channel.name}
       autoHighlight
     >
-      <ComboboxInput placeholder={placeholder} showClear />
+      <ComboboxInput id={id} placeholder={placeholder} showClear />
       <ComboboxContent>
         <ComboboxEmpty>No channels found.</ComboboxEmpty>
         <ComboboxList>
@@ -519,7 +615,10 @@ function ChannelCombobox({
   );
 }
 
-function unavailableChannel(id: string, name: string | undefined): SlackChannel {
+function unavailableChannel(
+  id: string,
+  name: string | undefined,
+): SlackChannel {
   return {
     id,
     name: name ?? id,
@@ -531,7 +630,9 @@ function unavailableChannel(id: string, name: string | undefined): SlackChannel 
 }
 
 function formatPrivateChannelCopy(channels: SlackChannel[]) {
-  const uniqueNames = Array.from(new Set(channels.map((channel) => channel.name)));
+  const uniqueNames = Array.from(
+    new Set(channels.map((channel) => channel.name)),
+  );
   if (uniqueNames.length === 1) {
     return `#${uniqueNames[0]} is private - run /invite @Magnus in that channel after saving.`;
   }

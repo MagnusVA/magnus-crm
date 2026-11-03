@@ -98,6 +98,7 @@ import type * as calendly_webhookSetupMutations from "../calendly/webhookSetupMu
 import type * as closer_additionalPayment from "../closer/additionalPayment.js";
 import type * as closer_calendar from "../closer/calendar.js";
 import type * as closer_dashboard from "../closer/dashboard.js";
+import type * as closer_endOfDay from "../closer/endOfDay.js";
 import type * as closer_endOfDaySchema from "../closer/endOfDaySchema.js";
 import type * as closer_followUp from "../closer/followUp.js";
 import type * as closer_followUpMutations from "../closer/followUpMutations.js";
@@ -408,6 +409,8 @@ import type * as slack_cleanup from "../slack/cleanup.js";
 import type * as slack_commands from "../slack/commands.js";
 import type * as slack_createQualifiedLead from "../slack/createQualifiedLead.js";
 import type * as slack_deepLinks from "../slack/deepLinks.js";
+import type * as slack_eodMessage from "../slack/eodMessage.js";
+import type * as slack_eodReports from "../slack/eodReports.js";
 import type * as slack_events from "../slack/events.js";
 import type * as slack_inboundStubs from "../slack/inboundStubs.js";
 import type * as slack_installations from "../slack/installations.js";
@@ -448,6 +451,7 @@ import type * as users_assignPersonalEventType from "../users/assignPersonalEven
 import type * as users_linkCalendlyMember from "../users/linkCalendlyMember.js";
 import type * as users_profilePictures from "../users/profilePictures.js";
 import type * as users_queries from "../users/queries.js";
+import type * as users_timezone from "../users/timezone.js";
 import type * as webhooks_calendly from "../webhooks/calendly.js";
 import type * as webhooks_calendlyMutations from "../webhooks/calendlyMutations.js";
 import type * as webhooks_calendlyQueries from "../webhooks/calendlyQueries.js";
@@ -561,6 +565,7 @@ declare const fullApi: ApiFromModules<{
   "closer/additionalPayment": typeof closer_additionalPayment;
   "closer/calendar": typeof closer_calendar;
   "closer/dashboard": typeof closer_dashboard;
+  "closer/endOfDay": typeof closer_endOfDay;
   "closer/endOfDaySchema": typeof closer_endOfDaySchema;
   "closer/followUp": typeof closer_followUp;
   "closer/followUpMutations": typeof closer_followUpMutations;
@@ -871,6 +876,8 @@ declare const fullApi: ApiFromModules<{
   "slack/commands": typeof slack_commands;
   "slack/createQualifiedLead": typeof slack_createQualifiedLead;
   "slack/deepLinks": typeof slack_deepLinks;
+  "slack/eodMessage": typeof slack_eodMessage;
+  "slack/eodReports": typeof slack_eodReports;
   "slack/events": typeof slack_events;
   "slack/inboundStubs": typeof slack_inboundStubs;
   "slack/installations": typeof slack_installations;
@@ -911,6 +918,7 @@ declare const fullApi: ApiFromModules<{
   "users/linkCalendlyMember": typeof users_linkCalendlyMember;
   "users/profilePictures": typeof users_profilePictures;
   "users/queries": typeof users_queries;
+  "users/timezone": typeof users_timezone;
   "webhooks/calendly": typeof webhooks_calendly;
   "webhooks/calendlyMutations": typeof webhooks_calendlyMutations;
   "webhooks/calendlyQueries": typeof webhooks_calendlyQueries;

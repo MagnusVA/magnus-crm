@@ -30,7 +30,11 @@ export const endOfDayNumbersValidator = v.object({
       depositsMinor: v.number(),
     }),
   ),
-  callbacks: v.object({ due: v.number(), done: v.number(), pending: v.number() }),
+  callbacks: v.object({
+    due: v.number(),
+    done: v.number(),
+    pending: v.number(),
+  }),
   overran: v.number(),
   // One line per deal behind the window's calls: first name and last
   // initial only, under decision 10.
@@ -49,6 +53,17 @@ export const endOfDayNumbersValidator = v.object({
       amountMinor: v.optional(v.number()),
       currency: v.optional(v.string()),
       paymentType: v.optional(v.string()),
+      // Mixed currencies/programs stay separate, on the same person's line.
+      amounts: v.optional(
+        v.array(
+          v.object({
+            amountMinor: v.number(),
+            currency: v.string(),
+            program: v.string(),
+            paymentType: v.string(),
+          }),
+        ),
+      ),
     }),
   ),
 });
@@ -90,13 +105,23 @@ export const endOfDayTables = {
       v.literal("failed"),
     ),
     slackChannelId: v.optional(v.string()),
+    slackChannelName: v.optional(v.string()),
     slackTs: v.optional(v.string()),
     // A second report the same shift replies in the first one's thread.
     slackThreadTs: v.optional(v.string()),
+    // Stable root even when the first report's scheduled post is still pending.
+    slackThreadReportId: v.optional(v.id("endOfDayReports")),
     slackError: v.optional(v.string()),
+    // A short action lease prevents duplicate scheduled invocations posting twice.
+    slackPostStartedAt: v.optional(v.number()),
+    slackPostAttempt: v.optional(v.string()),
     postedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
-    .index("by_tenantId_and_userId_and_periodEnd", ["tenantId", "userId", "periodEnd"])
+    .index("by_tenantId_and_userId_and_periodEnd", [
+      "tenantId",
+      "userId",
+      "periodEnd",
+    ])
     .index("by_tenantId_and_periodEnd", ["tenantId", "periodEnd"]),
 };

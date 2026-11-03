@@ -40,6 +40,7 @@ import {
   UnplugIcon,
 } from "lucide-react";
 import { SlackChannelPickerDialog } from "./slack-channel-picker-dialog";
+import { SlackEodChannelStatus } from "./slack-eod-channel-status";
 import { getErrorMessage } from "@/lib/errors";
 
 type InstallationStatus = FunctionReturnType<
@@ -209,6 +210,7 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
           />
           <LifecycleAlert status={status.status} />
           <ChannelSummary status={status} />
+          <SlackEodChannelStatus status={status} />
         </CardContent>
 
         <CardFooter className="flex flex-wrap gap-2">
@@ -248,6 +250,8 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
         initialLeadGenChannelName={status.leadGenNotifyChannelName}
         initialBookingReviewChannelId={status.bookingReviewChannelId}
         initialBookingReviewChannelName={status.bookingReviewChannelName}
+        initialEodReportChannelId={status.eodReportChannelId}
+        initialEodReportChannelName={status.eodReportChannelName}
       />
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
