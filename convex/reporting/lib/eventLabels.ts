@@ -64,6 +64,7 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed a lead status",
     iconHint: "git-branch",
   },
+  "meeting.recording_matched": { verb: "matched a call recording", iconHint: "video" },
   "meeting.canceled": {
     verb: "canceled a meeting",
     iconHint: "calendar-x-2",

@@ -417,6 +417,15 @@ export const deleteOperationalDataBatch = internalMutation({
       case "paymentRecords":
         deleted = await deletePaymentRecordsBatch(ctx);
         break;
+      case "fathomWebhookEvents": {
+        const rows = await ctx.db.query("fathomWebhookEvents").take(BATCH_SIZE);
+        for (const row of rows) {
+          if (row.payloadStorageId) await ctx.storage.delete(row.payloadStorageId);
+          await ctx.db.delete("fathomWebhookEvents", row._id);
+        }
+        deleted = rows.length;
+        break;
+      }
       case "callRecordings": {
         const rows = await ctx.db.query("callRecordings").take(BATCH_SIZE);
         for (const row of rows) {

@@ -103,4 +103,7 @@ crons.interval("reporting-work-health", { minutes: 15 }, internal.operations.wor
 // the stale-sync alert (docs/plans/clickhouse-reporting.md §8.2).
 crons.interval("analytics-heartbeat", { minutes: 5 }, internal.analytics.sync.beat, {});
 
+crons.interval("fathom-reconcile-and-health", { minutes: 30 }, internal.fathom.maintenance.sweep, {});
+crons.cron("fathom-retention", "41 7 * * *", internal.fathom.maintenance.purge, {});
+
 export default crons;

@@ -38,6 +38,7 @@ type Env = {
   readonly CLICKHOUSE_PASSWORD: string | undefined;
   readonly CLICKHOUSE_URL: string | undefined;
   readonly CLICKHOUSE_USER: string | undefined;
+  readonly CONVEX_SITE_URL: string | undefined;
   readonly FIVETRAN_WEBHOOK_SECRET: string | undefined;
   readonly INVITE_SIGNING_SECRET: string;
   readonly LINK_PORTAL_PASSWORD_PEPPER: string | undefined;

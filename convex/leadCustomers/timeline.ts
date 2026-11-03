@@ -157,6 +157,7 @@ const TIMELINE_LABELS: Record<string, string> = {
   "invitee.canceled": "Canceled through Calendly",
   slack_qualified_lead_booked: "Booked after qualifying in Slack",
   "meeting.created": "Call booked",
+  "meeting.recording_matched": "Call recording matched",
   "meeting.started": "Call started",
   "meeting.held": "Call held",
   "meeting.completed": "Call held",

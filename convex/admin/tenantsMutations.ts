@@ -109,6 +109,11 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
       const lead = id && await ctx.db.get("leads", id);
       if (lead) await deleteResparkPoolEntry(ctx, lead);
     }
+    if (tableName === "fathomWebhookEvents") {
+      const id = ctx.db.normalizeId("fathomWebhookEvents", row._id);
+      const event = id && await ctx.db.get("fathomWebhookEvents", id);
+      if (event?.payloadStorageId) await ctx.storage.delete(event.payloadStorageId);
+    }
     if (tableName === "callRecordings") {
       const id = ctx.db.normalizeId("callRecordings", row._id);
       const recording = id && await ctx.db.get("callRecordings", id);
