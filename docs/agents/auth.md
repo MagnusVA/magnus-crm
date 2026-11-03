@@ -17,6 +17,7 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 
 - `convex/lib/roleMapping.ts` maps WorkOS slugs to CRM roles, and an unknown slug maps to `closer`.
 - `convex/lib/permissions.ts` defines the permission slugs (`reports:view`, `billing:*`, `lead-gen:capture`, and others) and which roles hold them. Gate new features on a permission slug when one fits.
+- AI assistants: `mcp:connect` (closers) lets a role use MCP tools once the tenant switches the role on; `second-opinion:review` (owners and admins) works the second-opinion queue; `second-opinion:manage` (owners only) turns the second opinion on, because it sends recorded calls to a model provider.
 - Closers see only records where they're the assigned or attributed closer; `convex/leadCustomers/permissions.ts` enforces this per record.
 - `lead-gen:respark` (lead generators and admins) covers the Respark screen, its queries and its actions. A lead generator also needs an active lead gen worker: turning their lead gen access off stops every respark read and action, held batch included. Lead generators can't open person pages; the respark person panel (`getResparkPersonPanel` in `convex/respark/queries.ts`) answers only for an item in the caller's own unexpired batch, returns null otherwise, and masks phone and email on the server.
 - DM closers (`dmClosers` table) and Slack qualifiers (`slackUsers` table) aren't CRM users and have no role.
@@ -32,13 +33,14 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 | System admin (`/admin`) | `requireSystemAdmin()` in Next.js and `requireSystemAdminSession(identity)` in Convex. Membership means the identity's org equals `SYSTEM_ADMIN_ORG_ID`, and `/workspace` redirects system admins to `/admin`. `convex/admin/` also holds tenant-admin code (`meetingActions.ts`), so check each function's guard rather than its folder. |
 | DM link portal (`/dm-links/[portalSlug]`) | Shared password, outside WorkOS. Public actions take a `sessionToken`, verify it in `"use node"` code, then call internal functions that run `assertActivePortalSession` (`convex/linkPortal/leadSession.ts`). The tenant comes from the token. |
 | Webhooks | Signature verification; see `docs/agents/convex.md` |
+| MCP tools (`/mcp`) | The mount verifies AuthKit access tokens (issuer `AUTHKIT_DOMAIN`, audience `MCP_RESOURCE_URL`); each tool runs `requireMcpUser(ctx, caller, roles)` from `convex/mcp/guard.ts` on the injected caller. See "AI assistants over MCP" in `docs/agents/convex.md` |
 | UI | `useRole()` and `<RequirePermission>` (`components/auth/`) only control what renders |
 
 ESLint's `@convex-dev/require-access-control` rule fails any public Convex function whose handler doesn't call a guard at its top level. The accepted guard names are listed in `CONVEX_ACCESS_GUARDS` in `eslint.config.mjs`; add a new guard there. A function that is public on purpose gets an `eslint-disable-next-line` comment that says why.
 
 ## Identity helpers
 
-- `users.workosUserId` holds either the canonical or the raw WorkOS ID, so look users up with every value from `getWorkosUserIdCandidates` (`convex/lib/workosUserId.ts`).
+- `users.workosUserId` holds either the canonical or the raw WorkOS ID, so look users up with every value from `getWorkosUserIdCandidates` (`convex/lib/workosUserId.ts`). The candidates always include the user-management form, so a token from another issuer, such as AuthKit's MCP tokens, finds the same user.
 - `getIdentityOrgId(identity)` (`convex/lib/identity.ts`) reads the org claim under each name WorkOS uses.
 
 ## Routing

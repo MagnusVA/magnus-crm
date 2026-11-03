@@ -81,6 +81,24 @@ Find an existing mutation that writes the same table and match its side-effect c
 - **Slack**: `convex/lib/slackSignature.ts` verifies requests and accepts `SLACK_SIGNING_SECRET_PREVIOUS` during secret rotation. Events are stored redacted in `rawSlackEvents`, and the tenant comes from `team_id` through `slackInstallations`. CI requires token rotation to stay on in `slack-manifest.prod.yaml`; `runbooks/slack-token-refresh-write-failure.md` covers failed token refreshes.
 - **WorkOS**: `authKit.registerRoutes(http)` in `convex/http.ts` mounts the AuthKit component's routes.
 
+## AI assistants over MCP
+
+Closers connect Claude, ChatGPT, Hermes and other MCP clients to `https://<deployment>.convex.site/mcp` (`docs/plans/closer-assistant.md`). The pieces:
+
+- **The mount**, `convex/mcp/http.ts`, verifies AuthKit access tokens against `${AUTHKIT_DOMAIN}/oauth2/jwks` with `MCP_RESOURCE_URL` as the audience, then hands the verified caller to `convex-mcp-gateway`. It doesn't use `auth.config.ts`, because Convex refuses an auth config that reads an unset variable and both variables stay optional. Without both, every MCP route answers 404.
+- **Tools** are internal functions listed in `convex/mcp/toolsets/<role>.ts`. They run inside the gateway component, where `ctx.auth` is empty: the gateway injects the verified caller into the `caller` argument (`identityArg: "caller"`), and each tool starts with `requireMcpUser(ctx, caller, roles)` from `convex/mcp/guard.ts`. Never read `ctx.auth` in a tool, and never accept a user or tenant ID as a tool argument.
+- **Access** needs four things: the role holds `mcp:connect`, a toolset exists for the role (`MCP_TOOLSET_ROLES`), the tenant switched the role on (`tenants.mcpAccess`), and the user isn't blocked (`users.mcpBlockedAt`). `tools/list` and every call check the same conditions.
+- **Errors** the agent should read go out as `rejectRequest` (a `ConvexError`); the gateway sends any other error as a generic message and keeps the detail in its audit log.
+- **Writes that last**, such as payments, no-shows and losses, preview first and commit with a token from `convex/mcp/confirm.ts` (decision 17). A used token returns its first result, so a retried commit never writes twice.
+- **Provenance**: an agent's writes keep the user's own `source` and add `via: "mcp"` and `agentClient` to the action's event metadata. The mount records each session's client name from `initialize` and forwards it in the caller's claims (`MCP_CLIENT_CLAIM`).
+- **Upkeep**: the daily `mcp-prune` cron prunes idle gateway sessions, audit rows after 90 days and used preview tokens.
+
+Tests use `tests/mcpHarness.ts`, which signs AuthKit-shaped tokens with a local key and calls `/mcp` through `t.fetch`.
+
+## Convex AI Gateway
+
+The second opinion calls Jev through `POST https://ai-gateway.convex.dev/alpha/decisions` from an internal action, with a fresh `getServiceToken("ai-gateway")` per request; never store or log the token. Decisions is in alpha: check every response against the expected shape (`convex/secondOpinion/jev.ts`) and fail as `format_changed` rather than use a half-read answer. Convex never retries an action, so retries are scheduled explicitly. Magnus keeps its own monthly cap per tenant from each answer's `usage.cost`; leave Convex's AI Gateway usage limit unset or far above it, because reaching that limit disables the whole deployment.
+
 ## Environment variables
 
 Read environment variables through `env` from `_generated/server`, not `process.env`; ESLint enforces this. Declare each variable in `convex/convex.config.ts`. A deploy fails if a required variable isn't set, so set a new required variable on every deployment before deploying code that declares it. `convex/auth.config.ts` and `convex/lib/constants.ts`, which Next.js also imports, still read `process.env`.
