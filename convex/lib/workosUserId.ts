@@ -57,6 +57,10 @@ export function getCanonicalIdentityWorkosUserId(
 export function getWorkosUserIdCandidates(workosUserId: string): string[] {
   const canonical = canonicalizeWorkosUserId(workosUserId);
   const raw = getRawWorkosUserId(workosUserId);
-  const userManagement = raw ? `${getUserManagementIssuer()}|${raw}` : raw;
+  // Every deployment declares WORKOS_CLIENT_ID as required. convex-test runs
+  // without it, and an identity that already names its issuer must still
+  // resolve there, so the form is skipped rather than thrown on.
+  const userManagement =
+    raw && env.WORKOS_CLIENT_ID ? `${getUserManagementIssuer()}|${raw}` : "";
   return [...new Set([canonical, userManagement, raw])].filter(Boolean);
 }
