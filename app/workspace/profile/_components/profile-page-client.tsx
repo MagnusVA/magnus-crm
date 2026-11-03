@@ -17,6 +17,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
 import ProfileLoading from "../loading";
+import { ProfileTimezoneRow } from "./profile-timezone-row";
 
 const allowedProfilePictureTypes = new Set([
   "image/jpeg",
@@ -67,6 +68,7 @@ export function ProfilePageClient() {
       <Card className="w-full gap-0 py-0">
         <div className="divide-y [&>dl]:py-1">
           <ProfilePictureControl user={user} />
+          <ProfileTimezoneRow />
           <dl>
             <Fact label="Name">
               {user.fullName ? (
