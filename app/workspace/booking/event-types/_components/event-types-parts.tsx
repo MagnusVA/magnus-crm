@@ -77,7 +77,7 @@ export function EventTypeTools({
           className="min-w-0 flex-1 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-muted-foreground"
         />
       </label>
-      <div role="tablist" aria-label="Show" className="flex flex-wrap gap-x-[18px] self-stretch">
+      <div role="group" aria-label="Show" className="flex flex-wrap gap-x-[18px] self-stretch">
         {TABS.map((tab) => {
           const count = tab.id === "looks" ? (counts.fold > 0 ? `${counts.fold} to fold` : counts.looks) : counts[tab.id];
           const amber = (tab.id === "unsorted" && counts.unsorted > 0) || (tab.id === "looks" && counts.fold > 0);
@@ -86,8 +86,7 @@ export function EventTypeTools({
             <button
               key={tab.id}
               type="button"
-              role="tab"
-              aria-selected={on}
+              aria-pressed={on}
               onClick={() => onFilter(tab.id)}
               className={cn(
                 "flex h-[46px] items-center gap-1.5 border-b-2 font-condensed text-[13px] font-semibold tracking-[0.12em] whitespace-nowrap uppercase outline-none focus-visible:ring-3 focus-visible:ring-ring/50",

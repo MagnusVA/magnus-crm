@@ -261,7 +261,8 @@ function InboxDesk({
       const programId = await upsertProgram({ name });
       setCreatedNames((names) => ({ ...names, [programId]: name.trim() }));
       posthog.capture("booking_program_created", { source: "inbox_palette" });
-      const mode: IntelMode = /\b(extended|standard)\b/i.test(name) ? "extended" : "normal";
+      // A new program gets the event type in Priority, as the palette says.
+      const mode: IntelMode = "normal";
       await file(top, { kind: "program", programId, mode }, { suggested: false, source: "inbox" }, `${name.trim()} · ${modeLabel(mode)}`);
     } catch (error) {
       reportClientError(error, { flow: "booking_inbox_create_program" });

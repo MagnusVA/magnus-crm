@@ -242,6 +242,7 @@ function GoalCell({ team }: { team: CoverageTeam }) {
     <button
       type="button"
       onClick={() => {
+        cancelled.current = false;
         setDraft(goal === undefined ? "" : String(goal));
         setEditing(true);
       }}

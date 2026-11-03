@@ -164,6 +164,17 @@ export const setTeamActive = mutation({
     if (!team || team.tenantId !== tenantId) {
       throw expectedError("attribution.rejected", "Attribution team not found.");
     }
+    if (isActive && !team.isActive) {
+      const sameSource = await ctx.db
+        .query("attributionTeams")
+        .withIndex("by_tenantId_and_normalizedUtmSource", (q) =>
+          q.eq("tenantId", tenantId).eq("normalizedUtmSource", team.normalizedUtmSource),
+        )
+        .take(5);
+      if (sameSource.some((candidate) => candidate._id !== teamId && candidate.isActive)) {
+        throw expectedError("attribution.rejected", "An active attribution team already uses this UTM source.");
+      }
+    }
     await ctx.db.patch("attributionTeams", teamId, { isActive, updatedAt: Date.now() });
     log.info("attribution.team.active_set", {
       tenantId,

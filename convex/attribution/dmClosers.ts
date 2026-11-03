@@ -290,6 +290,17 @@ export const setDmCloserActive = mutation({
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
       throw expectedError("attribution.rejected", "DM closer not found.");
     }
+    if (isActive && !dmCloser.isActive) {
+      const sameMedium = await ctx.db
+        .query("dmClosers")
+        .withIndex("by_tenantId_and_normalizedUtmMedium", (q) =>
+          q.eq("tenantId", tenantId).eq("normalizedUtmMedium", dmCloser.normalizedUtmMedium),
+        )
+        .take(5);
+      if (sameMedium.some((closer) => closer._id !== dmCloserId && closer.isActive)) {
+        throw expectedError("attribution.rejected", "An active DM closer already uses this UTM medium.");
+      }
+    }
     await ctx.db.patch("dmClosers", dmCloserId, { isActive, updatedAt: Date.now() });
     log.info("attribution.dm_closer.active_set", {
       tenantId,

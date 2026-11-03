@@ -152,6 +152,10 @@ function PickerBody({ cellRef }: { cellRef: CellRef }) {
     return (
       <div
         key={eventType._id}
+        id={`cell-opt-${eventType._id}`}
+        role="option"
+        aria-selected={isActive}
+        aria-disabled={option?.run ? undefined : true}
         data-opt={eventType._id}
         onMouseMove={() => {
           const index = usable.findIndex((candidate) => candidate.id === eventType._id);
@@ -220,6 +224,10 @@ function PickerBody({ cellRef }: { cellRef: CellRef }) {
             setActive(0);
           }}
           onKeyDown={onSearchKey}
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="cell-picker-options"
+          aria-activedescendant={activeId ? `cell-opt-${activeId}` : undefined}
           placeholder="Search event types by name"
           aria-label="Search event types"
           autoComplete="off"
@@ -227,7 +235,7 @@ function PickerBody({ cellRef }: { cellRef: CellRef }) {
         />
       </label>
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-auto pt-1 pb-2" role="listbox" aria-label="Event types">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-auto pt-1 pb-2" role="listbox" id="cell-picker-options" aria-label="Event types">
         {sections.ready.length > 0 ? (
           <>
             <div className={SECTION}>Counts for {programName} · Ready</div>
