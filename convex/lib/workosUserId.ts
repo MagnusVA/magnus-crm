@@ -57,6 +57,10 @@ export function getCanonicalIdentityWorkosUserId(
 export function getWorkosUserIdCandidates(workosUserId: string): string[] {
   const canonical = canonicalizeWorkosUserId(workosUserId);
   const raw = getRawWorkosUserId(workosUserId);
-  const userManagement = raw ? `${getUserManagementIssuer()}|${raw}` : raw;
+  // Skipped when the client ID isn't configured, as in tests that never
+  // set it; a deployment always has it.
+  const clientId = env.WORKOS_CLIENT_ID;
+  const userManagement =
+    raw && clientId ? `https://api.workos.com/user_management/${clientId}|${raw}` : raw;
   return [...new Set([canonical, userManagement, raw])].filter(Boolean);
 }

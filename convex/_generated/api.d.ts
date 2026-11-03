@@ -398,6 +398,10 @@ import type * as requireTenantUserFromAction from "../requireTenantUserFromActio
 import type * as respark_batches from "../respark/batches.js";
 import type * as respark_queries from "../respark/queries.js";
 import type * as respark_settings from "../respark/settings.js";
+import type * as secondOpinion_jev from "../secondOpinion/jev.js";
+import type * as secondOpinion_questions from "../secondOpinion/questions.js";
+import type * as secondOpinion_transcript from "../secondOpinion/transcript.js";
+import type * as secondOpinion_verdict from "../secondOpinion/verdict.js";
 import type * as sideDeals_deleteEmptyOpportunity from "../sideDeals/deleteEmptyOpportunity.js";
 import type * as sideDeals_logPayment from "../sideDeals/logPayment.js";
 import type * as sideDeals_markLost from "../sideDeals/markLost.js";
@@ -865,6 +869,10 @@ declare const fullApi: ApiFromModules<{
   "respark/batches": typeof respark_batches;
   "respark/queries": typeof respark_queries;
   "respark/settings": typeof respark_settings;
+  "secondOpinion/jev": typeof secondOpinion_jev;
+  "secondOpinion/questions": typeof secondOpinion_questions;
+  "secondOpinion/transcript": typeof secondOpinion_transcript;
+  "secondOpinion/verdict": typeof secondOpinion_verdict;
   "sideDeals/deleteEmptyOpportunity": typeof sideDeals_deleteEmptyOpportunity;
   "sideDeals/logPayment": typeof sideDeals_logPayment;
   "sideDeals/markLost": typeof sideDeals_markLost;
