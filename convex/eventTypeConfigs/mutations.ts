@@ -172,6 +172,7 @@ export const upsertEventTypeConfig = mutation({
           bookingProgramId: program._id,
           bookingProgramName: program.name,
           bookingProgramMappingStatus: "mapped" as const,
+          notSalesCallAt: undefined,
         }
       : {
           bookingProgramId: undefined,

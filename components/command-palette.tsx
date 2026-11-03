@@ -40,12 +40,11 @@ const adminPages = [
   { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
   { label: "Respark", href: RESPARK_HREF, icon: RefreshCwIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
+  { label: "Booking setup", href: "/workspace/booking", icon: TargetIcon },
+  { label: "Booking inbox", href: "/workspace/booking/inbox", icon: TargetIcon },
+  { label: "DM teams", href: "/workspace/booking/teams", icon: TargetIcon },
+  { label: "Link portal", href: "/workspace/booking/portal", icon: TargetIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
-  {
-    label: "Attribution",
-    href: "/workspace/operations/booked-calls/attribution",
-    icon: TargetIcon,
-  },
 ];
 
 const billingPage = {

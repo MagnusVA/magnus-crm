@@ -147,7 +147,6 @@ type PortalBootstrap = {
 		teamId: string;
 		teamDisplayName: string;
 		teamUtmSource: string;
-		teamHasEventTypeRoutes: boolean;
 	}>;
 	bookablePrograms: Array<BookableProgramEventType>;
 };

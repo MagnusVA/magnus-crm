@@ -22,7 +22,6 @@ type PortalBootstrap = {
 		teamId: string;
 		teamDisplayName: string;
 		teamUtmSource: string;
-		teamHasEventTypeRoutes: boolean;
 	}>;
 	bookablePrograms: Array<{
 		eventTypeConfigId: string;
@@ -31,8 +30,8 @@ type PortalBootstrap = {
 		bookingProgramName: string;
 		bookingBaseUrl: string;
 		isExtended: boolean;
-		isShared: boolean;
-		routedTeamIds: string[];
+		// Active teams whose DM closers get this event type.
+		teamIds: string[];
 	}>;
 };
 

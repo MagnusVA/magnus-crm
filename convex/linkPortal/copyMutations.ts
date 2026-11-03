@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { canTeamUseEventType } from "../lib/attribution/teamEventTypeRoutes";
 import { isPortalBookable } from "../lib/eventTypeBookability";
+import { linkIssue } from "../lib/bookingSetup/coverage";
+import {
+  canTeamLinkEventType,
+  isCoverageMigrated,
+} from "../lib/bookingSetup/coverageData";
 import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 
@@ -46,16 +51,23 @@ export const insertCopyEvent = internalMutation({
       throw new Error("Portal session is no longer valid.");
     }
 
-    const [eventTypeConfig, dmCloser, campaign] = await Promise.all([
+    const [tenant, eventTypeConfig, dmCloser, campaign] = await Promise.all([
+      ctx.db.get("tenants", args.tenantId),
       ctx.db.get("eventTypeConfigs", args.eventTypeConfigId),
       ctx.db.get("dmClosers", args.dmCloserId),
       ctx.db.get("linkPortalCampaignPresets", args.campaignPresetId),
     ]);
+    const onCoverage = tenant !== null && isCoverageMigrated(tenant);
 
     if (
       !eventTypeConfig ||
       eventTypeConfig.tenantId !== args.tenantId ||
-      !isPortalBookable(eventTypeConfig)
+      // On booking coverage a cell publishes the event type; the team check
+      // below decides. linkPortalEnabled is the legacy switch.
+      (onCoverage
+        ? linkIssue(eventTypeConfig) !== null ||
+          eventTypeConfig.bookingProgramMappingStatus !== "mapped"
+        : !isPortalBookable(eventTypeConfig))
     ) {
       throw new Error("Portal event type is not available.");
     }
@@ -83,13 +95,18 @@ export const insertCopyEvent = internalMutation({
       throw new Error("Attribution team is not available.");
     }
 
-    if (
-      !(await canTeamUseEventType(ctx, {
-        tenantId: args.tenantId,
-        teamId: team._id,
-        eventTypeConfig,
-      }))
-    ) {
+    const teamCanUse = onCoverage
+      ? await canTeamLinkEventType(ctx, {
+          tenantId: args.tenantId,
+          team,
+          eventTypeConfig,
+        })
+      : await canTeamUseEventType(ctx, {
+          tenantId: args.tenantId,
+          teamId: team._id,
+          eventTypeConfig,
+        });
+    if (!teamCanUse) {
       log.warn("link_portal.copy.team_event_type_rejected", {
         tenantId: args.tenantId,
         teamId: team._id,

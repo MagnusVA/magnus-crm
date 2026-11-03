@@ -402,8 +402,9 @@ export function EventTypeConfigDialog({
                   {mappingsAvailable ? (
                     <>
                       Map Calendly form questions to CRM identity fields.{" "}
-                      {config.bookingCount ?? 0} booking
-                      {(config.bookingCount ?? 0) === 1 ? "" : "s"} ·{" "}
+                      {config.bookingCount !== undefined
+                        ? `${config.bookingCount} booking${config.bookingCount === 1 ? "" : "s"} · `
+                        : null}
                       {fieldCount} form field{fieldCount === 1 ? "" : "s"}{" "}
                       discovered.
                     </>

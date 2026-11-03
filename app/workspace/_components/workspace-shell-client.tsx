@@ -52,6 +52,7 @@ import {
   PhoneCallIcon,
   RefreshCwIcon,
   SettingsIcon,
+  CalendarCogIcon,
   TargetIcon,
   TrendingUpIcon,
   type LucideIcon,
@@ -146,6 +147,7 @@ const adminNavItems: NavItem[] = [
   operationsNavItem,
   leadsCustomersNavItem,
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
+  { href: "/workspace/booking", label: "Booking setup", icon: CalendarCogIcon },
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
 

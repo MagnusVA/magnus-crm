@@ -200,9 +200,9 @@ export function BookedCallsPageClient() {
               Schedules
             </Button>
             <Button variant="outline" size="sm" className={boardButton} asChild>
-              <Link href="/workspace/operations/booked-calls/attribution">
+              <Link href="/workspace/booking/teams">
                 <Settings2Icon data-icon="inline-start" aria-hidden="true" />
-                Configuration
+                DM teams & links
               </Link>
             </Button>
             <OperationsReportExportMenu reportKind="booked-calls" range={queryRange} />
