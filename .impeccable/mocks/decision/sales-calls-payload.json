@@ -1,0 +1,46 @@
+{
+  "title": "Sales Calls: choose the structure",
+  "question": "Same content and data, in the Overview's family (navy band with the range words, freshness and picker; white ruled cards). Sketch figures are illustrative of a busier week, not real. Lock one, steer, or re-roll.",
+  "options": [
+    {
+      "id": "sc-band-figures",
+      "kind": "assigned",
+      "label": "Figures in the band",
+      "kicker": "THE ROLL",
+      "lineage": "The book panel's month zone, carried into the page band",
+      "thesis": "The band answers 'how did the floor do' before any card: the five headline figures (calls, show rate, cash, close rate, average sale) sit inside the navy band as one ruled figure row under the title, each with its proof line. The paper below holds the detail: Phone closers full width, then Programs (bar / pie / table) beside Meetings.",
+      "palette": ["#141a28", "#1d2536", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band with a figure row", "white ruled cards", "condensed tabular figures"],
+      "viewport": "Navy band: 'Sales calls', 'This week · Oct 27 – Nov 2 · ● Today live · earlier days as of 2:31 PM'; picker and Export right. Under a board rule, five zones: CALLS 86 / SHOW RATE 71% '41 of 58 past calls have a result' / CASH COLLECTED $18,400 in lime with 'MXN 42,000' beside it / CLOSE RATE 24% '6 of 25 deals won' / AVERAGE SALE $3,067 '$18,400 ÷ 6 payment sales'. Paper: Phone closers table (closers with calls first, the quiet ones folded into one line), Programs card with its toggle beside Meetings.",
+      "risk": "A tall band: on a short laptop the closers table starts near the fold, and two navy-looking surfaces (sidebar, band) frame the top.",
+      "html": ".impeccable/mocks/decision/sc-band-figures.html"
+    },
+    {
+      "id": "sc-tabs",
+      "kind": "dealt",
+      "label": "One card, three tabs",
+      "lineage": "A report with its detail behind tabs",
+      "thesis": "A white strip of the five figures under the band, then one large card whose tabs switch between Phone closers, Programs and Meetings, so the page fits one screen and the admin picks the lens.",
+      "palette": ["#141a28", "#84b135", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band", "white figure strip", "tabbed card"],
+      "viewport": "Navy band with the range words, freshness, picker and Export; a white ruled strip of five figure cells; a card with PHONE CLOSERS · PROGRAMS · MEETINGS tabs (counts beside each), the closers table open by default, the bar / pie / table toggle appearing only on Programs.",
+      "risk": "Hides two of the three sections at any time: an admin who doesn't click never sees programs or meetings, and the tab choice has to live in the URL.",
+      "html": ".impeccable/mocks/decision/sc-tabs.html"
+    },
+    {
+      "id": "sc-board",
+      "kind": "dealt",
+      "label": "Calls on the board",
+      "lineage": "Today's departures board, for the whole floor",
+      "thesis": "The calls themselves lead: under the band, the range's meetings sit on a navy board (TIME, PERSON, CLOSER, PROGRAM, STATUS) with condensed status words (NOT RECORDED in amber, HELD, NO-SHOW, CANCELED), searchable and filterable by closer. Figures, programs and closers follow on the paper.",
+      "palette": ["#141a28", "#1d2536", "#f5b700", "#f5f6f8", "#ffffff", "#4f596b"],
+      "materials": ["navy band", "navy board of meetings", "white ruled cards"],
+      "viewport": "Navy band with the picker; a white strip of the five figures; then a navy board titled 'Calls · 86' with search and the closer select in its header, 44px rows of meetings, newest first; Programs and Phone closers below the fold.",
+      "risk": "Two navy surfaces stacked; the board is the closer's Today signature, and on This month it becomes a long list. The meetings query loads one row per page today, so the board fills slowly until that changes.",
+      "html": ".impeccable/mocks/decision/sc-board.html"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": {"value": "code"}
+}

@@ -20,21 +20,12 @@ export function formatCloseRate(row: SalesCloseRate) {
   return closeRate === null ? "—" : percentFormatter.format(closeRate);
 }
 
-/** "N of M deals won" under a close rate; nothing when the counts are unknown. */
-export function DealsWon({
-  row,
-  hideWhenEmpty = false,
-}: {
-  row: SalesCloseRate;
-  hideWhenEmpty?: boolean;
-}) {
+/**
+ * "N of M deals won" for a close rate; null when the counts are unknown, or
+ * (with `hideWhenEmpty`) when no deal counts.
+ */
+export function dealsWonWords(row: SalesCloseRate, hideWhenEmpty = false) {
   const counts = closeRateOfRow(row);
   if (!counts || (hideWhenEmpty && counts.cohortDeals === 0)) return null;
-  return (
-    <p className="mt-1 text-xs font-normal text-muted-foreground">
-      {counts.wonDeals.toLocaleString()} of{" "}
-      {counts.cohortDeals.toLocaleString()} deal
-      {counts.cohortDeals === 1 ? "" : "s"} won
-    </p>
-  );
+  return `${counts.wonDeals.toLocaleString()} of ${counts.cohortDeals.toLocaleString()} deal${counts.cohortDeals === 1 ? "" : "s"} won`;
 }

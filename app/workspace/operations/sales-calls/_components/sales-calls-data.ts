@@ -345,3 +345,34 @@ export function summaryMoneyForCurrency(
     avgCashPerSaleMinor: null,
   };
 }
+
+/**
+ * The currency the page leads with: the one with the most payment sales,
+ * never the one with the larger amount (DESIGN.md, The Main Currency Rule).
+ * Ties go to USD, then alphabetical; with no sales at all, the first
+ * currency listed (USD when there is none).
+ */
+export function mainSalesCurrency(
+  stats: SalesCallsStats | undefined,
+  currencies: string[],
+) {
+  const ranked = [...(stats?.moneyByCurrency ?? [])]
+    .filter((money) => money.paymentSalesCount > 0)
+    .sort(
+      (left, right) =>
+        right.paymentSalesCount - left.paymentSalesCount ||
+        Number(right.currency === "USD") - Number(left.currency === "USD") ||
+        left.currency.localeCompare(right.currency),
+    );
+  return ranked[0]?.currency.toUpperCase() ?? defaultSalesCurrency(currencies);
+}
+
+/** A closer with no calls, no deals to count and no payments in the range. */
+export function isQuietCloser(row: SalesCloserRow) {
+  return (
+    row.booked === 0 &&
+    row.pastCalls === 0 &&
+    (row.cohortDeals ?? 0) === 0 &&
+    row.moneyByCurrency.every((money) => money.paymentSales === 0)
+  );
+}
