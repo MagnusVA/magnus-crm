@@ -340,6 +340,7 @@ function reduceBookedMeeting(
     // raw list of DM-closer bookings.
     return [
       teamProgress,
+      metric("booking_team", teamKey, "teamOnlyBooked", "sum", 1),
       metric("booked_calls_summary", "main", "teamOnlyBooked", "sum", 1),
     ];
   }
@@ -614,6 +615,9 @@ export function reduceReportSourcePage(args: {
             teamId: row.teamId,
             label: row.label,
             isActive: row.isActive,
+            // Jobs from before the per-team team-only count lack this, so
+            // their teams can't say how much of progress has no DM closer.
+            teamOnlyTracked: true,
             dailyQuota: row.bookingDailyQuota,
             target:
               row.bookingDailyQuota === null
@@ -859,6 +863,9 @@ export function finalizeAggregateRecord(args: {
       const progress = numberField(payload, "progress");
       if (payload.isActive !== true && progress === 0) return null;
       payload.progress = progress;
+      if (payload.teamOnlyTracked === true) {
+        payload.teamOnlyBooked = numberField(payload, "teamOnlyBooked");
+      }
       break;
     }
     case "sales_calls_summary": {

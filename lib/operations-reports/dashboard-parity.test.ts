@@ -352,10 +352,24 @@ describe(
         teams: teams.page,
       });
       expect(snapshot.error).toBeNull();
+      // The snapshot counts each team's team-only bookings but can't name
+      // their UTMs, so it matches the live answer without the sources.
+      const liveView = bookedCallsDashboardFromLive(live);
+      const withoutSources = {
+        ...liveView,
+        goal: {
+          ...liveView.goal,
+          teams: liveView.goal.teams.map((team) => ({
+            ...team,
+            teamOnly: team.teamOnly && { booked: team.teamOnly.booked, sources: null },
+          })),
+        },
+      };
+      expect(
+        Object.fromEntries(snapshot.data!.goal.teams.map((team) => [team.label, team.teamOnly?.booked])),
+      ).toEqual({ "North Team": 0, "South Team": 1 });
       // Rows that tie on their count can come back in another order.
-      expect(inStableOrder(snapshot.data!)).toEqual(
-        inStableOrder(bookedCallsDashboardFromLive(live)),
-      );
+      expect(inStableOrder(snapshot.data!)).toEqual(inStableOrder(withoutSources));
     });
   },
 );

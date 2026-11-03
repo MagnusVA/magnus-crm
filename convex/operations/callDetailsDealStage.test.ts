@@ -85,6 +85,7 @@ describe("the call details' deal stage", () => {
       [fixture.meetings.firstNorthA]: ["booked", null],
       [fixture.meetings.firstNorthA2]: ["won", null],
       [fixture.meetings.legacyNorthB]: ["lost", "no_show"],
+      [fixture.meetings.teamOnlySouth]: ["booked", null],
     });
     const search = await admin.query(api.operations.bookedCallsDashboard.searchBookedCallsDetails, {
       searchTerm: "golf",

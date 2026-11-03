@@ -29,6 +29,8 @@ import { cn } from "@/lib/utils";
 // same booked-at window as the numbers above it.
 
 const PAGE_SIZE = 25;
+// The DM closer select's value for team-only bookings.
+const NO_DM_CLOSER = "none";
 const SEARCH_DEBOUNCE_MS = 300;
 
 function useDebounced(value: string) {
@@ -127,7 +129,8 @@ function BookingRow({
           <span className="font-condensed text-sm font-semibold text-foreground tabular-nums">
             {whenLabel(row.scheduledAt, setting, today)}
           </span>{" "}
-          · {row.dmCloserLabel ?? "No DM closer"} · {row.programName ?? "No program"}
+          · {row.dmCloserId === null ? <NoCloserWords row={row} /> : (row.dmCloserLabel ?? "Removed DM closer")} ·{" "}
+          {row.programName ?? "No program"}
         </span>
         <span className="flex justify-end">
           {row.dealPosition ? <StageChip position={row.dealPosition} systemLoss={row.dealSystemLoss} /> : null}
@@ -151,7 +154,12 @@ function BookingRow({
               </Fact>
               <Fact label="Program">{row.programName ?? "None"}</Fact>
               <Fact label="DM team">{row.attributionTeamLabel ?? "None"}</Fact>
-              <Fact label="DM closer">{row.dmCloserLabel ?? "None"}</Fact>
+              <Fact label="DM closer">
+                {row.dmCloserId === null ? "None: the link named no DM closer" : (row.dmCloserLabel ?? "Removed DM closer")}
+              </Fact>
+              <Fact label="UTMs">
+                <UtmWords row={row} />
+              </Fact>
               <Fact label="Deal">
                 {row.dealPosition ? <StageChip position={row.dealPosition} systemLoss={row.dealSystemLoss} /> : "Not linked"}
               </Fact>
@@ -179,6 +187,35 @@ function BookingRow({
         </div>
       </div>
     </li>
+  );
+}
+
+function UtmWords({ row }: { row: BookedCallRow }) {
+  const parts = [
+    ["source", row.utmSource],
+    ["medium", row.utmMedium],
+    ["campaign", row.utmCampaign],
+  ] as const;
+  if (parts.every(([, value]) => value === null)) return <>None recorded</>;
+  return (
+    <span className="flex flex-wrap gap-x-2">
+      {parts.map(([label, value]) => (
+        <span key={label} className="whitespace-nowrap">
+          <span className="text-muted-foreground">{label}</span>{" "}
+          {value === null ? <span className="text-muted-foreground">none</span> : <span className="font-mono text-[12px]">{value}</span>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** "No DM closer (masterclass)": a team-only booking, with the medium it came with. */
+function NoCloserWords({ row }: { row: BookedCallRow }) {
+  return (
+    <span className="text-foreground">
+      No DM closer
+      {row.utmMedium ? <span className="text-muted-foreground"> ({row.utmMedium})</span> : null}
+    </span>
   );
 }
 
@@ -223,7 +260,11 @@ export function BookedCallsDetailsList({
         : {
             start: window.start,
             end: window.end,
-            ...(dmCloser === "all" ? {} : { dmCloserId: dmCloser as Id<"dmClosers"> }),
+            ...(dmCloser === "all"
+              ? {}
+              : dmCloser === NO_DM_CLOSER
+                ? { teamOnly: true }
+                : { dmCloserId: dmCloser as Id<"dmClosers"> }),
           },
     [window, dmCloser],
   );
@@ -237,6 +278,21 @@ export function BookedCallsDetailsList({
     baseArgs !== undefined && isSearching ? { ...baseArgs, searchTerm: debounced } : "skip",
   );
 
+  // The list query reads two meetings a page, so the list asks for pages
+  // until it holds the target or the range runs out; Show more raises it.
+  const [target, setTarget] = useState(PAGE_SIZE);
+  const argsKey = JSON.stringify(baseArgs ?? null);
+  const [targetKey, setTargetKey] = useState(argsKey);
+  if (targetKey !== argsKey) {
+    setTargetKey(argsKey);
+    setTarget(PAGE_SIZE);
+  }
+  const filling = !isSearching && paginated.status === "CanLoadMore" && paginated.results.length < target;
+  const { loadMore } = paginated;
+  useEffect(() => {
+    if (filling) loadMore(PAGE_SIZE);
+  }, [filling, loadMore, paginated.results.length]);
+
   const fresh: BookedCallRow[] | undefined = isSearching
     ? searchResults
     : paginated.status === "LoadingFirstPage"
@@ -248,13 +304,17 @@ export function BookedCallsDetailsList({
   if (fresh !== undefined && fresh !== kept) setKept(fresh);
   const rows = fresh ?? kept;
   const reloading = fresh === undefined && kept !== undefined;
-  const filterName = dmCloserOptions?.find((option) => option.key === dmCloser)?.label;
+  const filterName =
+    dmCloser === NO_DM_CLOSER ? null : dmCloserOptions?.find((option) => option.key === dmCloser)?.label;
+  const filtered = dmCloser !== "all";
 
   const emptyTitle = isSearching
     ? `No bookings match “${debounced}” ${rangePhrase}.`
-    : filterName
-      ? `No bookings through ${filterName} ${rangePhrase}.`
-      : `No calls booked ${rangePhrase}.`;
+    : dmCloser === NO_DM_CLOSER
+      ? `No bookings came in without a DM closer ${rangePhrase}.`
+      : filterName
+        ? `No bookings through ${filterName} ${rangePhrase}.`
+        : `No calls booked ${rangePhrase}.`;
 
   return (
     <DetailCard
@@ -293,6 +353,7 @@ export function BookedCallsDetailsList({
             <SelectContent>
               <SelectGroup>
                 <SelectItem value="all">All DM closers</SelectItem>
+                <SelectItem value={NO_DM_CLOSER}>No DM closer</SelectItem>
                 {(dmCloserOptions ?? []).map((option) => (
                   <SelectItem key={option.key} value={option.key}>
                     {option.label}
@@ -309,7 +370,7 @@ export function BookedCallsDetailsList({
           <BookingRowsSkeleton />
         ) : rows.length === 0 ? (
           <SectionEmpty title={emptyTitle}>
-            {isSearching || filterName ? (
+            {isSearching || filtered ? (
               <button
                 type="button"
                 className={detailLinkClass}
@@ -350,16 +411,11 @@ export function BookedCallsDetailsList({
                 ? `${formatWholeNumber(rows.length)} ${rows.length === 1 ? "match" : "matches"}`
                 : paginated.status === "Exhausted"
                   ? `${formatWholeNumber(rows.length)} ${rows.length === 1 ? "booking" : "bookings"}`
-                  : `Showing ${formatWholeNumber(rows.length)}`}
+                  : `Showing ${formatWholeNumber(rows.length)}${filling || paginated.status === "LoadingMore" ? " · loading more…" : ""}`}
             </span>
-            {!isSearching && (paginated.status === "CanLoadMore" || paginated.status === "LoadingMore") ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={paginated.status === "LoadingMore"}
-                onClick={() => paginated.loadMore(PAGE_SIZE)}
-              >
-                {paginated.status === "LoadingMore" ? "Loading…" : `Show ${PAGE_SIZE} more`}
+            {!isSearching && !filling && paginated.status === "CanLoadMore" ? (
+              <Button size="sm" variant="outline" onClick={() => setTarget(paginated.results.length + PAGE_SIZE)}>
+                Show {PAGE_SIZE} more
               </Button>
             ) : null}
           </DetailCardFooter>

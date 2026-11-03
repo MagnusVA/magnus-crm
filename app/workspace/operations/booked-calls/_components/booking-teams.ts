@@ -1,5 +1,6 @@
 import type {
   BookedCallsDashboardViewModel,
+  BookingGoalTeamViewModel,
   DmCloserViewModel,
 } from "@/lib/operations-reports/booked-dashboard";
 import { bookingPace, type BookingPace, type BookingPaceKind } from "@/lib/operations-reports/booking-pace";
@@ -16,6 +17,11 @@ export type BookingTeam = {
   pace: BookingPace;
   /** The team's DM closers, most booked first. */
   closers: DmCloserViewModel[];
+  /**
+   * Bookings through the team's links that no DM closer is credited with,
+   * by UTM. Null when the answer predates the breakdown.
+   */
+  teamOnly: BookingGoalTeamViewModel["teamOnly"];
 };
 
 const NO_TEAM = "No team";
@@ -55,6 +61,7 @@ export function bookingTeams(
       dailyQuota: team.dailyQuota,
       unassigned: false,
       closers,
+      teamOnly: team.teamOnly,
       pace: bookingPace({
         booked: team.progress,
         dailyQuota: team.dailyQuota,
@@ -75,6 +82,7 @@ export function bookingTeams(
       dailyQuota: null,
       unassigned: label === NO_TEAM,
       closers,
+      teamOnly: null,
       pace: bookingPace({
         booked: closers.reduce((sum, closer) => sum + closer.booked, 0),
         dailyQuota: null,

@@ -2,8 +2,11 @@ import type { Id } from "../../_generated/dataModel";
 import { addBusinessDays, businessDateForInstant, countBusinessDays } from "../../../lib/businessDay";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import {
+  addTeamOnlySource,
   buildDmCloserRowsFromCounts,
+  utmValue,
   type BookedMeetingCounts,
+  type TeamOnlySourcesByTeam,
 } from "../../dashboard/overviewLeaderboardBuilders";
 import type { MeetingStatsCount } from "../../operations/meetingStats";
 import {
@@ -150,20 +153,27 @@ WITH credits AS (
     AND JSONExtractString(source_json, 'kind') = 'booking_utm'
   GROUP BY meeting_id
 )
-SELECT c.credit_team_id AS team_id, c.credit_dm_closer_id AS dm_closer_id, count() AS booked
+SELECT
+  c.credit_team_id AS team_id,
+  c.credit_dm_closer_id AS dm_closer_id,
+  if(ifNull(c.credit_dm_closer_id, '') = '', nullIf(trim(JSONExtractString(ifNull(m.utm_params_json, '{}'), 'utm_source')), ''), NULL) AS utm_source,
+  if(ifNull(c.credit_dm_closer_id, '') = '', nullIf(trim(JSONExtractString(ifNull(m.utm_params_json, '{}'), 'utm_medium')), ''), NULL) AS utm_medium,
+  if(ifNull(c.credit_dm_closer_id, '') = '', nullIf(trim(JSONExtractString(ifNull(m.utm_params_json, '{}'), 'utm_campaign')), ''), NULL) AS utm_campaign,
+  count() AS booked
 FROM analytics.meetings AS m
 INNER JOIN credits AS c ON c.meeting_id = m.id
 WHERE m.tenant_id = {tenant_id:String}
   AND m.created_at_ms >= {from_ms:Int64}
   AND m.created_at_ms < {to_ms:Int64}
   AND ifNull(m.call_classification, '') != 'follow_up'
-GROUP BY team_id, dm_closer_id
-ORDER BY team_id, dm_closer_id`;
+GROUP BY team_id, dm_closer_id, utm_source, utm_medium, utm_campaign
+ORDER BY team_id, dm_closer_id, utm_source, utm_medium, utm_campaign`;
 
 export function bookedMeetingCounts(rows: SqlRow[] | undefined): BookedMeetingCounts {
   const byDmCloser = new Map<Id<"dmClosers">, number>();
   const byAttributionTeam = new Map<Id<"attributionTeams">, number>();
   let teamOnlyBooked = 0;
+  const teamOnlySources: TeamOnlySourcesByTeam = new Map();
   for (const row of rows ?? []) {
     const teamId = str(row.team_id) as Id<"attributionTeams"> | null;
     const dmCloserId = str(row.dm_closer_id) as Id<"dmClosers"> | null;
@@ -171,10 +181,22 @@ export function bookedMeetingCounts(rows: SqlRow[] | undefined): BookedMeetingCo
     if (dmCloserId) byDmCloser.set(dmCloserId, (byDmCloser.get(dmCloserId) ?? 0) + booked);
     if (teamId) {
       byAttributionTeam.set(teamId, (byAttributionTeam.get(teamId) ?? 0) + booked);
-      if (!dmCloserId) teamOnlyBooked += booked;
+      if (!dmCloserId) {
+        teamOnlyBooked += booked;
+        addTeamOnlySource(
+          teamOnlySources,
+          teamId,
+          {
+            utmSource: utmValue(str(row.utm_source)),
+            utmMedium: utmValue(str(row.utm_medium)),
+            utmCampaign: utmValue(str(row.utm_campaign)),
+          },
+          booked,
+        );
+      }
     }
   }
-  return { byDmCloser, byAttributionTeam, teamOnlyBooked };
+  return { byDmCloser, byAttributionTeam, teamOnlyBooked, teamOnlySources };
 }
 
 // Each opener's events in the range, in the order the reader first meets

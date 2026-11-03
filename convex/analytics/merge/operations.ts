@@ -19,6 +19,36 @@ function compareIds(left: string | null, right: string | null) {
   return left < right ? -1 : 1;
 }
 
+type TeamOnly = NonNullable<BookedCalls["goal"]["teams"][number]["teamOnly"]>;
+type TeamOnlySource = NonNullable<TeamOnly["sources"]>[number];
+
+/** Most booked first, then by medium, campaign and source. The reader sorts the same way. */
+export function compareTeamOnlySources(left: TeamOnlySource, right: TeamOnlySource) {
+  return (
+    right.booked - left.booked ||
+    (left.utmMedium ?? "").localeCompare(right.utmMedium ?? "") ||
+    (left.utmCampaign ?? "").localeCompare(right.utmCampaign ?? "") ||
+    (left.utmSource ?? "").localeCompare(right.utmSource ?? "")
+  );
+}
+
+function mergeTeamOnly(past: TeamOnly | undefined, current: TeamOnly | undefined): TeamOnly | undefined {
+  // An answer cached before the breakdown existed can't say its part.
+  if (past === undefined || current === undefined) return undefined;
+  return {
+    booked: past.booked + current.booked,
+    sources:
+      past.sources === null || current.sources === null
+        ? null
+        : mergeRows(
+            past.sources,
+            current.sources,
+            (source) => JSON.stringify([source.utmSource, source.utmMedium, source.utmCampaign]),
+            (before, now) => ({ ...now, booked: before.booked + now.booked }),
+          ).sort(compareTeamOnlySources),
+  };
+}
+
 function addFields<Row, Key extends keyof Row>(past: Row, current: Row, keys: readonly Key[]): Row {
   const result = { ...current };
   for (const key of keys) {
@@ -152,6 +182,7 @@ export function mergeBookedCallsDashboard(history: BookedCalls, today: BookedCal
     (past, current) => ({
       ...current,
       progress: past.progress + current.progress,
+      teamOnly: mergeTeamOnly(past.teamOnly, current.teamOnly),
     }),
   )
     .map((team) => ({
