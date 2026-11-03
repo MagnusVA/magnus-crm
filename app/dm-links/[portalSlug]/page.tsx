@@ -1,5 +1,6 @@
 import { fetchAction } from "convex/nextjs";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { reportServerError } from "@/lib/observability/report-server-error";
 import { DmLinkPortalClient } from "./_components/dm-link-portal-client";
@@ -31,6 +32,11 @@ export default async function DmLinksPage({ params }: Props) {
 	const sessionToken = portalSlug
 		? (await cookies()).get(portalSessionCookieName(portalSlug))?.value
 		: undefined;
+
+	// The Convex client calls Math.random() as it starts. Wait for the request
+	// so Cache Components doesn't flag that as an unstable value during
+	// prerendering (the same reason lib/auth.ts waits before withAuth).
+	if (portalSlug && sessionToken) await connection();
 
 	const bootstrap =
 		portalSlug && sessionToken
