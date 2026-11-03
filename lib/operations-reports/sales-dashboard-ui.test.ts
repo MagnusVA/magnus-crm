@@ -102,9 +102,9 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
 }));
 
 import { SalesCallsPageClient } from "@/app/workspace/operations/sales-calls/_components/sales-calls-page-client";
-import { PerProgramStatCard } from "@/app/workspace/operations/sales-calls/_components/per-program-stat-card";
-import { PhoneCloserTable } from "@/app/workspace/operations/sales-calls/_components/phone-closer-table";
-import { SalesCallsStatCards } from "@/app/workspace/operations/sales-calls/_components/sales-calls-stat-cards";
+import { PhoneClosersCard } from "@/app/workspace/operations/sales-calls/_components/phone-closers-card";
+import { ProgramsCard } from "@/app/workspace/operations/sales-calls/_components/programs-card";
+import { SalesFigures } from "@/app/workspace/operations/sales-calls/_components/sales-figures";
 
 describe("Sales Calls historical UI", () => {
   it.each([
@@ -134,7 +134,7 @@ describe("Sales Calls historical UI", () => {
     try {
       const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(SalesCallsPageClient)));
       expect(html).toContain("Day totals are being rebuilt after a business day change.");
-      expect(html).not.toContain("Total Calls");
+      expect(html).not.toContain("Headline figures");
       expect(html).not.toContain("4 of 6 past calls have a result");
     } finally {
       fixture.rebuilding = false;
@@ -153,14 +153,17 @@ describe("Sales Calls historical UI", () => {
   it.each([true, false])("renders a saved snapshot qualifier when partial is %s", (partial) => {
     fixture.partial = partial;
     const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(SalesCallsPageClient)));
-    // The stat card, closer row, and table total retain the snapshot flag.
-    expect(html.match(/past calls have a result/g)).toHaveLength(3);
-    expect(html.match(/\(partial\)/g) ?? []).toHaveLength(partial ? 3 : 0);
+    // The band's show rate, then the closer row and the total, each once in
+    // the table and once in the phone list's open rows, retain the snapshot
+    // flag; the phone list's short line says it too.
+    expect(html.match(/past calls have a result/g)).toHaveLength(5);
+    expect(html.match(/\(partial\)/g) ?? []).toHaveLength(partial ? 5 : 0);
+    expect(html.match(/counts partial/g) ?? []).toHaveLength(partial ? 2 : 0);
     expect(html.includes(ATTENDANCE_COUNTS_PARTIAL_HELP)).toBe(partial);
     fixture.partial = false;
   });
 
-  it("keeps the original cards, chart, closer table, and meeting list", () => {
+  it("keeps the figures, closers, programs, meetings and their definitions", () => {
     const html = renderToStaticMarkup(
       createElement(
         TooltipProvider,
@@ -168,22 +171,25 @@ describe("Sales Calls historical UI", () => {
         createElement(SalesCallsPageClient),
       ),
     );
-    expect(html).toContain("Total Calls");
+    expect(html).toContain("Calls");
     expect(html).toContain("4 of 6 past calls have a result");
-    expect(html).toContain("Cash Collected");
-    expect(html).toContain("Per Program Statistic");
-    expect(html).toContain("Phone Closers");
+    expect(html).toContain("Cash collected");
+    expect(html).toContain("Average sale");
+    expect(html).toContain("Programs");
+    expect(html).toContain("Phone closers");
     expect(html).toContain("Meetings");
-    expect(html).toContain("Money values: HNL");
+    expect(html).toContain("How these are counted");
+    // The one currency leads the band and sets the tables' money.
+    expect(html).toContain("Ranked by revenue in HNL");
     expect(html).not.toContain("Historical sales-call summary");
   });
 
   it("shows one currency-independent close rate with its deal counts", () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(SalesCallsPageClient)));
-    expect(html).toContain("Close Rate");
-    expect(html).not.toContain("Payment Close Rate");
-    // The stat card, the closer row and the team total.
-    expect(html.match(/1 of 4 deals won/g)).toHaveLength(3);
+    expect(html).toContain("Close rate");
+    expect(html).not.toContain("Payment close rate");
+    // The band, then the closer row and the total in the table and in the phone list.
+    expect(html.match(/1 of 4 deals won/g)).toHaveLength(5);
     expect(html.match(/25%/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
@@ -203,11 +209,11 @@ describe("Sales Calls historical UI", () => {
       resultsRecorded: 4, pastCalls: 6, showUpRate: 0.75, moneyByCurrency: [],
     };
     const html = renderToStaticMarkup(createElement(TooltipProvider, null,
-      createElement(SalesCallsStatCards, { stats, currency: "USD" }),
-      createElement(PhoneCloserTable, { rows: [closer], teamTotal: closer, currency: "USD" }),
-      createElement(PerProgramStatCard, { data: [program], rangeLabel: "Today", currency: "USD" }),
+      createElement(SalesFigures, { stats, mainCurrency: "USD" }),
+      createElement(PhoneClosersCard, { rows: [closer], teamTotal: closer, currency: "USD", unattributedMinor: 0, rangePhrase: "today" }),
+      createElement(ProgramsCard, { data: [program], currency: "USD", rangePhrase: "today" }),
     ));
-    expect(html).toContain("Close Rate");
+    expect(html).toContain("Close rate");
     expect(html).not.toMatch(/(^|[^\d.])0(\.0)?%/);
     expect(html).not.toContain("deals won");
     expect(html).not.toContain("NaN");
