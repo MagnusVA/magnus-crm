@@ -24,13 +24,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -116,6 +109,12 @@ type PortalLeadsPanelProps = {
 	portalSlug: string;
 	closerId: string;
 	closerName: string;
+	/** Starts the search with this term (e.g. the pinned lead's handle). */
+	initialSearch?: string;
+	/** The lead the closer is copying links for, if any. Opens expanded. */
+	pinnedLeadId?: string | null;
+	/** Pins (or, with null, unpins) the lead the closer is copying links for. */
+	onPin?: (row: PortalLeadRow | null) => void;
 	searchPortalLeads: (
 		portalSlug: string,
 		searchTerm: string,
@@ -138,18 +137,23 @@ export function PortalLeadsPanel({
 	portalSlug,
 	closerId,
 	closerName,
+	initialSearch = "",
+	pinnedLeadId = null,
+	onPin,
 	searchPortalLeads,
 	updatePortalLeadProfile,
 	addPortalLeadNote,
 	listPortalLeadNotes,
 }: PortalLeadsPanelProps) {
-	const [searchInput, setSearchInput] = useState("");
+	const [searchInput, setSearchInput] = useState(initialSearch);
 	const [debouncedTerm, setDebouncedTerm] = useState("");
 	const [results, setResults] = useState<PortalLeadRow[] | null>(null);
 	const [searching, setSearching] = useState(false);
 	const [searchError, setSearchError] = useState<string | null>(null);
 	const [sessionExpired, setSessionExpired] = useState(false);
-	const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
+	const [expandedLeadId, setExpandedLeadId] = useState<string | null>(
+		pinnedLeadId,
+	);
 	const requestIdRef = useRef(0);
 
 	useEffect(() => {
@@ -227,16 +231,13 @@ export function PortalLeadsPanel({
 	}
 
 	return (
-		<Card className="rounded-lg">
-			<CardHeader>
-				<CardTitle>Lead Search</CardTitle>
-				<CardDescription>
-					Find a lead to set their initial source, self-reported income, and
-					notes. Changes are saved as{" "}
-					<span className="font-medium text-foreground">{closerName}</span>.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className="flex flex-col gap-4">
+		<div className="flex flex-col gap-4">
+			<p className="text-[13px] text-muted-foreground">
+				Find the prospect you’re messaging to pin them above your links, set
+				their initial source and income, or add notes. Changes are saved as{" "}
+				<span className="font-medium text-foreground">{closerName}</span>.
+			</p>
+			<div className="flex flex-col gap-4">
 				<div className="flex flex-col gap-1.5">
 					<div className="relative">
 						<SearchIcon
@@ -298,6 +299,8 @@ export function PortalLeadsPanel({
 								portalSlug={portalSlug}
 								closerId={closerId}
 								closerName={closerName}
+								pinned={pinnedLeadId === row.leadId}
+								onPin={onPin}
 								updatePortalLeadProfile={updatePortalLeadProfile}
 								addPortalLeadNote={addPortalLeadNote}
 								listPortalLeadNotes={listPortalLeadNotes}
@@ -307,8 +310,8 @@ export function PortalLeadsPanel({
 						))}
 					</ul>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</div>
 	);
 }
 
@@ -319,6 +322,8 @@ function LeadResultCard({
 	portalSlug,
 	closerId,
 	closerName,
+	pinned,
+	onPin,
 	updatePortalLeadProfile,
 	addPortalLeadNote,
 	listPortalLeadNotes,
@@ -331,6 +336,8 @@ function LeadResultCard({
 	portalSlug: string;
 	closerId: string;
 	closerName: string;
+	pinned: boolean;
+	onPin?: (row: PortalLeadRow | null) => void;
 	updatePortalLeadProfile: PortalLeadsPanelProps["updatePortalLeadProfile"];
 	addPortalLeadNote: PortalLeadsPanelProps["addPortalLeadNote"];
 	listPortalLeadNotes: PortalLeadsPanelProps["listPortalLeadNotes"];
@@ -343,7 +350,7 @@ function LeadResultCard({
 		: null;
 
 	return (
-		<li className="rounded-lg border bg-background">
+		<li className={cn("rounded-lg border bg-card", pinned && "border-foreground")}>
 			<button
 				type="button"
 				onClick={onToggle}
@@ -408,6 +415,23 @@ function LeadResultCard({
 			</button>
 			{expanded ? (
 				<div id={detailId} className="flex flex-col gap-4 border-t p-3">
+					{onPin ? (
+						<div className="flex flex-wrap items-center gap-2">
+							<Button
+								type="button"
+								size="sm"
+								variant={pinned ? "outline" : "default"}
+								onClick={() => onPin(pinned ? null : row)}
+							>
+								{pinned ? "Unpin" : "Copy links for this lead"}
+							</Button>
+							<span className="text-xs text-muted-foreground">
+								{pinned
+									? "Pinned above your links."
+									: "Pins them above your links while you work."}
+							</span>
+						</div>
+					) : null}
 					<LeadProfileEditor
 						row={row}
 						portalSlug={portalSlug}

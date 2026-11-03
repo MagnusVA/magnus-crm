@@ -14,7 +14,14 @@ export default async function SettingsPage({
   const { tab } = await searchParams;
   // Legacy deep links to tabs that moved out of Settings.
   if (tab === "attribution") {
-    redirect("/workspace/operations/booked-calls/attribution");
+    redirect("/workspace/booking/teams");
+  }
+  // Event types and programs moved to Booking setup.
+  if (tab === "event-types" || tab === "field-mappings") {
+    redirect("/workspace/booking/event-types");
+  }
+  if (tab === "programs") {
+    redirect("/workspace/booking");
   }
   if (tab === "schedules") {
     redirect("/workspace/operations/booked-calls");

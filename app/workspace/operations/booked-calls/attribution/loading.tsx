@@ -1,5 +1,10 @@
-import { AttributionPageSkeleton } from "./_components/attribution-page-skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function AttributionLoading() {
-  return <AttributionPageSkeleton />;
+  return (
+    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6" role="status" aria-label="Loading attribution checks">
+      <Skeleton className="h-[104px] rounded-xl" />
+      <Skeleton className="h-64 rounded-xl" />
+    </div>
+  );
 }

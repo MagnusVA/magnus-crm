@@ -73,6 +73,7 @@ Find an existing mutation that writes the same table and match its side-effect c
 - Change the schema with widen, migrate, narrow, following the `convex-migration-helper` skill.
 - Define migrations in `convex/migrations.ts` with `migrations.define`, each paired with an `assert*` migration that verifies the result. Run one with `npx convex run migrations:run '{"fn":"migrations:<name>"}'`.
 - One-off backfills are `internalMutation`s, or guarded by system admin when they must be callable from the admin UI.
+- Booking coverage: a tenant moves to it (`tenants.bookingCoverageMigratedAt`) when an admin first opens Booking setup, or through `migrateBookingCoverage`. Until then the portal keeps the legacy routing rule in `lib/attribution/teamEventTypeRoutes.ts`; preview a tenant's move with `bookingSetup/queries:previewCoverageMigration`.
 
 ## Webhooks and integrations
 

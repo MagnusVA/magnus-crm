@@ -81,6 +81,10 @@ import {
   openDealAging,
   personLosses,
 } from "./reporting/pipelineHealthAggregates";
+import {
+  assertTenantOnCoverage,
+  migrateTenantToCoverage,
+} from "./lib/bookingSetup/coverageData";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -1301,4 +1305,16 @@ export const assertMeetingAttendance = migrations.define({
       (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
     ) throw new Error(meeting._id);
   },
+});
+
+// Booking coverage (explicit Shared cells and a per-team Shared fallback).
+// The booking setup page also migrates its tenant on first load. Preview one
+// tenant with bookingSetup/queries:previewCoverageMigration.
+export const migrateBookingCoverage = migrations.define({
+  table: "tenants", batchSize: 1,
+  migrateOne: async (ctx, tenant) => { await migrateTenantToCoverage(ctx, tenant._id); },
+});
+export const assertBookingCoverageMigrated = migrations.define({
+  table: "tenants", batchSize: 1,
+  migrateOne: async (ctx, tenant) => { await assertTenantOnCoverage(ctx, tenant._id); },
 });

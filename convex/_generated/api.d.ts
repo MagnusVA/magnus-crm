@@ -77,6 +77,8 @@ import type * as billing_queries from "../billing/queries.js";
 import type * as billing_queryBuilder from "../billing/queryBuilder.js";
 import type * as billing_types from "../billing/types.js";
 import type * as billing_validators from "../billing/validators.js";
+import type * as bookingSetup_mutations from "../bookingSetup/mutations.js";
+import type * as bookingSetup_queries from "../bookingSetup/queries.js";
 import type * as businessDaySchema from "../businessDaySchema.js";
 import type * as businessDays from "../businessDays.js";
 import type * as calendly_apiErrors from "../calendly/apiErrors.js";
@@ -189,6 +191,8 @@ import type * as lib_attribution_resolveAttribution from "../lib/attribution/res
 import type * as lib_attribution_teamEventTypeRoutes from "../lib/attribution/teamEventTypeRoutes.js";
 import type * as lib_attribution_teamInput from "../lib/attribution/teamInput.js";
 import type * as lib_attribution_validators from "../lib/attribution/validators.js";
+import type * as lib_bookingSetup_coverage from "../lib/bookingSetup/coverage.js";
+import type * as lib_bookingSetup_coverageData from "../lib/bookingSetup/coverageData.js";
 import type * as lib_businessDayRebuildState from "../lib/businessDayRebuildState.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_dealNextStep from "../lib/dealNextStep.js";
@@ -529,6 +533,8 @@ declare const fullApi: ApiFromModules<{
   "billing/queryBuilder": typeof billing_queryBuilder;
   "billing/types": typeof billing_types;
   "billing/validators": typeof billing_validators;
+  "bookingSetup/mutations": typeof bookingSetup_mutations;
+  "bookingSetup/queries": typeof bookingSetup_queries;
   businessDaySchema: typeof businessDaySchema;
   businessDays: typeof businessDays;
   "calendly/apiErrors": typeof calendly_apiErrors;
@@ -641,6 +647,8 @@ declare const fullApi: ApiFromModules<{
   "lib/attribution/teamEventTypeRoutes": typeof lib_attribution_teamEventTypeRoutes;
   "lib/attribution/teamInput": typeof lib_attribution_teamInput;
   "lib/attribution/validators": typeof lib_attribution_validators;
+  "lib/bookingSetup/coverage": typeof lib_bookingSetup_coverage;
+  "lib/bookingSetup/coverageData": typeof lib_bookingSetup_coverageData;
   "lib/businessDayRebuildState": typeof lib_businessDayRebuildState;
   "lib/constants": typeof lib_constants;
   "lib/dealNextStep": typeof lib_dealNextStep;
