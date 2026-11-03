@@ -10,6 +10,7 @@ import {
   twoPrograms as programs,
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 // Every payment write path keeps the person's enrollments current, and the
 // first one makes the person a customer (docs/plans/phase-4-customers.md
@@ -48,6 +49,7 @@ describe("enrollments beside each payment", () => {
     vi.setSystemTime(new Date(CALL_LOGGED));
 
     const paymentId = await harness.closer.mutation(api.closer.payments.logPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId, meetingId, amount: 1000, currency: "USD", programId: programA, paymentType: "pif",
     });
 
@@ -90,6 +92,7 @@ describe("enrollments beside each payment", () => {
     vi.setSystemTime(new Date(CALL_LOGGED));
 
     await harness.closer.mutation(api.closer.reminderOutcomes.logReminderPayment, {
+      proofFileId: await storeProofFile(harness.t),
       followUpId, amount: 100, currency: "USD", programId: programA, paymentType: "deposit",
     });
 
@@ -105,12 +108,14 @@ describe("enrollments beside each payment", () => {
     const { opportunityId, meetingId, leadId } = await book(harness, "two-programs");
     vi.setSystemTime(new Date(CALL_LOGGED));
     await harness.closer.mutation(api.closer.payments.logPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId, meetingId, amount: 1000, currency: "USD", programId: programA, paymentType: "deposit",
     });
     const [enrolledA] = await enrollmentsOf(harness, leadId);
 
     vi.setSystemTime(new Date(CALL_LOGGED + DAY_MS));
     await harness.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId, amount: 500, currency: "USD", paymentType: "split",
     });
     expect(await enrollmentsOf(harness, leadId)).toEqual([enrolledA]);
@@ -258,6 +263,7 @@ describe("billing corrections", () => {
     const firstPayment = await paySideDeal(harness, created.opportunityId, programA, start);
     vi.setSystemTime(new Date(start + DAY_MS));
     const { paymentId: laterPayment } = await harness.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId: created.opportunityId, amount: 200, currency: "USD", paymentType: "split",
     });
 

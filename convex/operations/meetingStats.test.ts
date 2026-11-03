@@ -5,6 +5,7 @@ import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { meetingStatsTotals } from "../../tests/reportStageFixtures";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { bucketKey, requestMeetingProjection } from "./meetingStats";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -386,6 +387,7 @@ it("keeps a paid meeting held and counted once when a late cancellation arrives"
     });
   });
   await closer.mutation(api.closer.payments.logPayment, {
+    proofFileId: await storeProofFile(t),
     opportunityId: delivery.opportunityId,
     meetingId: delivery.meetingId,
     amount: 100,

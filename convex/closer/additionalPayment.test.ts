@@ -9,6 +9,7 @@ import {
   sideDeal,
   twoPrograms as programs,
 } from "../../tests/enrollmentFixtures";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -30,6 +31,7 @@ describe("additional payments on a deal with no sold program", () => {
     expect(detail?.permissions).toMatchObject({ canRecordAdditionalPayment: true, additionalPaymentProgramName: "Program A" });
 
     const { paymentId } = await harness.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId: created.opportunityId, amount: 200, currency: "USD", paymentType: "split",
     });
 
@@ -51,6 +53,7 @@ describe("additional payments on a deal with no sold program", () => {
 
     await expect(
       harness.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+        proofFileId: await storeProofFile(harness.t),
         opportunityId, amount: 200, currency: "USD", paymentType: "split",
       }),
     ).rejects.toThrow("no sold program or payment");

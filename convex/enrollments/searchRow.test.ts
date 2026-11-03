@@ -9,6 +9,7 @@ import {
   twoPrograms as programs,
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 // The search row reads the enrollments and payments, so every payment write
 // leaves it current after syncPersonEnrollments (docs/plans/phase-4-customers.md §6.1).
@@ -35,6 +36,7 @@ describe("the search row after a payment write", () => {
     vi.setSystemTime(new Date(CALL_LOGGED));
 
     await harness.closer.mutation(api.closer.payments.logPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId, meetingId, amount: 1000, currency: "USD", programId: programA, paymentType: "pif",
     });
 
@@ -56,6 +58,7 @@ describe("the search row after a payment write", () => {
     vi.setSystemTime(new Date(CALL_LOGGED + DAY_MS));
 
     await harness.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId: created.opportunityId, amount: 200, currency: "USD", paymentType: "split",
     });
 

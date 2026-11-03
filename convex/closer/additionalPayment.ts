@@ -13,6 +13,8 @@ import {
   assertPaymentRow,
   type PaymentOrigin,
 } from "../lib/paymentHelpers";
+import { WEB } from "../lib/outcomeCores";
+import { checkPaymentProof, newPaymentFields } from "../lib/paymentProof";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
@@ -145,6 +147,8 @@ export const recordAdditionalPayment = mutation({
       programId: program._id,
       paymentType,
     });
+    const proof = await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
+    const recordedFields = await newPaymentFields(ctx, tenantId, proof, WEB);
 
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
@@ -164,6 +168,7 @@ export const recordAdditionalPayment = mutation({
       statusChangedAt: now,
       recordedAt: now,
       origin,
+      ...recordedFields,
     });
     await recordPayment(ctx, paymentId);
 

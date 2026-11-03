@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
@@ -44,6 +44,9 @@ import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 import { ProofFileInput } from "@/app/workspace/closer/meetings/_components/proof-file-input";
 import { getErrorMessage } from "@/lib/errors";
+import type { PaymentLinkValues } from "@/lib/paymentLink";
+import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import { useProofRequired } from "@/hooks/use-proof-required";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -109,6 +112,8 @@ type Props = {
   defaultProgramId: Id<"tenantPrograms"> | null;
   /** On the admin twin, the closer the payment is credited to. */
   actingFor?: string | null;
+  /** Values from a payment link, filled in when the dialog opens. */
+  prefill?: PaymentLinkValues;
 };
 
 /**
@@ -125,8 +130,11 @@ export function ReminderPaymentDialog({
   leadName,
   defaultProgramId,
   actingFor,
+  prefill,
 }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Closers must attach proof; the mutation refuses a payment without it.
+  const proofRequired = useProofRequired();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -170,10 +178,32 @@ export function ReminderPaymentDialog({
     if (bookedCurrency) form.setValue("currency", bookedCurrency);
   }, [bookedProgram, bookedCurrency, form]);
 
+  // A payment link's values (lib/paymentLink.ts) fill the form once each time
+  // it opens, after the programs load, so a link's program can be checked.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      prefilled.current = false;
+      return;
+    }
+    if (!prefill || prefilled.current || programs === undefined) return;
+    prefilled.current = true;
+    if (prefill.amount !== undefined) form.setValue("amount", String(prefill.amount));
+    const currency = CURRENCIES.find((code) => code === prefill.currency);
+    if (currency) form.setValue("currency", currency);
+    if (prefill.paymentType) form.setValue("paymentType", prefill.paymentType);
+    const program = programs.find((item) => item._id === prefill.programId);
+    if (program) form.setValue("programId", program._id);
+  }, [open, prefill, programs, form]);
+
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logReminderPayment = useMutation(api.closer.reminderOutcomes.logReminderPayment);
 
   const onSubmit = async (values: PaymentFormValues) => {
+    if (proofRequired && !values.proofFile) {
+      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+      return;
+    }
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -385,7 +415,10 @@ export function ReminderPaymentDialog({
                 name="proofFile"
                 render={({ field: { value, onChange, onBlur, name } }) => (
                   <FormItem>
-                    <FormLabel>Proof file</FormLabel>
+                    <FormLabel>
+                      Proof file{" "}
+                      {proofRequired ? <span className="text-destructive">*</span> : null}
+                    </FormLabel>
                     <FormControl>
                       <ProofFileInput
                         value={value}

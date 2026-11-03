@@ -1,5 +1,5 @@
 import type { Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { AssertablePaymentShape } from "./paymentTypes";
 
 export type {
@@ -21,7 +21,7 @@ export function assertPaymentRow(row: AssertablePaymentShape): void {
 }
 
 export async function requireActiveProgram(
-  ctx: MutationCtx,
+  ctx: QueryCtx | MutationCtx,
   tenantId: Id<"tenants">,
   programId: Id<"tenantPrograms">,
 ) {
@@ -38,7 +38,7 @@ export async function requireActiveProgram(
 }
 
 export async function resolveProgramForWrite(
-  ctx: MutationCtx,
+  ctx: QueryCtx | MutationCtx,
   tenantId: Id<"tenants">,
   programId: Id<"tenantPrograms">,
 ) {

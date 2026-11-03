@@ -54,6 +54,27 @@ export type BillingDmAttribution = {
   rawMedium: string | null;
 };
 
+/**
+ * How a payment was entered, and whether its proof file also backs another
+ * payment (docs/plans/closer-assistant.md §6.3, §7 Billing).
+ */
+export type BillingPaymentProvenance = {
+  recordedVia: "web" | "mcp" | null;
+  /** The MCP client's name, for a payment an agent logged. */
+  agentClient: string | null;
+  proofReused: boolean;
+};
+
+/** Another payment in the tenant whose proof file has the same hash. */
+export type BillingProofMatch = {
+  id: Id<"paymentRecords">;
+  recordedAt: number;
+  amountMinor: number;
+  currency: string;
+  status: BillingPaymentStatus;
+  programName: string;
+};
+
 export type BillingPaymentListRow = {
   payment: {
     id: Id<"paymentRecords">;
@@ -64,7 +85,7 @@ export type BillingPaymentListRow = {
     paymentType: PaymentType;
     programName: string;
     hasProofFile: boolean;
-  };
+  } & BillingPaymentProvenance;
   customer: {
     fullName: string | null;
     email: string | null;
@@ -87,7 +108,7 @@ export type BillingPaymentRow = {
     note: string | null;
     hasProofFile: boolean;
     fathomLink: string | null;
-  };
+  } & BillingPaymentProvenance;
   // The person the payment's deal belongs to.
   customer: {
     leadId: Id<"leads"> | null;
@@ -159,6 +180,8 @@ export type BillingPaymentDetail = BillingPaymentRow & {
   };
   events: BillingPaymentEvent[];
   slackContributorTimeline: BillingSlackContributorTimelineEntry[];
+  /** Up to five other payments whose proof has this one's hash, newest first. */
+  proofMatches: BillingProofMatch[];
 };
 
 export type BillingExportRow = {
