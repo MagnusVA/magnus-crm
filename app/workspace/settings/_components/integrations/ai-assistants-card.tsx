@@ -72,7 +72,7 @@ function AiAssistantsSettings() {
                   Closers
                 </label>
                 <p className="text-sm text-muted-foreground">
-                  14 tools · their own meetings, people, deals and payments
+                  16 tools · their own meetings, people, deals, payments and recordings
                 </p>
               </div>
               <Switch
