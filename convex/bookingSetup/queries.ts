@@ -132,6 +132,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // "partial" when `capped` is set.
 const ACTIVITY_MAX_MEETINGS = 4000;
 const ACTIVITY_BYTE_BUDGET = 3 * 1024 * 1024;
+const MAX_COPIES = 2000;
 
 // Booking activity for the booking setup screens: bookings made in the last
 // 30 days per event type, DM team and DM closer (matched by utm_source and
@@ -153,7 +154,9 @@ export const getBookingActivity = query({
           .query("meetings")
           .withIndex("by_tenantId_and_createdAt", (q) =>
             q.eq("tenantId", tenantId).gte("createdAt", now - 30 * DAY_MS),
-          ),
+          )
+          // Newest first, so a capped read keeps the most recent bookings.
+          .order("desc"),
         ACTIVITY_MAX_MEETINGS,
         state,
         ACTIVITY_BYTE_BUDGET,
@@ -171,14 +174,19 @@ export const getBookingActivity = query({
         .withIndex("by_tenantId_and_copiedAt", (q) =>
           q.eq("tenantId", tenantId).gte("copiedAt", now - 7 * DAY_MS),
         )
-        .take(2000),
+        .order("desc")
+        .take(MAX_COPIES + 1),
     ]);
+    const copiesCapped = copies.length > MAX_COPIES;
+    const recentCopies = copiesCapped ? copies.slice(0, MAX_COPIES) : copies;
 
     const opportunityIds = [...new Set(meetings.rows.map((meeting) => meeting.opportunityId))];
+    // Its own budget: a capped meeting read must still resolve the event
+    // types of the meetings it did read.
     const opportunities = await readLiveDocuments(
       opportunityIds,
       (opportunityId) => ctx.db.get("opportunities", opportunityId),
-      state,
+      createLiveReadState(),
       ACTIVITY_BYTE_BUDGET,
     );
     const eventTypeByOpportunity = new Map(
@@ -233,7 +241,7 @@ export const getBookingActivity = query({
     }
 
     const copies7d: Record<string, number> = {};
-    for (const copy of copies) {
+    for (const copy of recentCopies) {
       copies7d[copy.attributionTeamId] = (copies7d[copy.attributionTeamId] ?? 0) + 1;
     }
 
@@ -244,11 +252,11 @@ export const getBookingActivity = query({
         dmClosers: closersCount,
         total: meetings.rows.length,
       },
-      copies7d: { teams: copies7d, total: copies.length },
+      copies7d: { teams: copies7d, total: recentCopies.length },
       unmatchedUtms: [...unmatched.values()]
         .sort((left, right) => right.bookings - left.bookings || right.lastBookedAt - left.lastBookedAt)
         .slice(0, 50),
-      capped: meetings.capped || opportunities.capped,
+      capped: meetings.capped || opportunities.capped || copiesCapped,
     };
   },
 });

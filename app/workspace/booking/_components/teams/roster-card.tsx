@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
@@ -320,6 +320,12 @@ function CloserEditor({
   campaign: { label: string; utmCampaign: string } | null;
 }) {
   const updateDmCloser = useMutation(api.attribution.dmClosers.updateDmCloser);
+  // The latest server row, and the fields this editor has set since (see update).
+  const latest = useRef(closer);
+  const pending = useRef<Partial<{ teamId: Id<"attributionTeams">; displayName: string; utmMedium: string; userId: Id<"users"> | null }>>({});
+  useEffect(() => {
+    latest.current = closer;
+  }, [closer]);
   const setRate = useMutation(api.attribution.dmClosers.setDmCloserHourlyRate);
   const setActive = useMutation(api.attribution.dmClosers.setDmCloserActive);
   const first = firstName(closer.displayName);
@@ -348,18 +354,37 @@ function CloserEditor({
   }
 
   type Patch = { teamId?: Id<"attributionTeams">; displayName?: string; utmMedium?: string; userId?: Id<"users"> | null };
-  function update(patch: Patch, message: string, field: string) {
-    const base = {
-      dmCloserId: closer._id,
-      teamId: closer.teamId,
-      displayName: closer.displayName,
-      utmMedium: closer.utmMedium,
+  // updateDmCloser saves the whole name/team/UTM snapshot, so each write is
+  // built from the latest server row plus every field this editor has already
+  // set (the row can lag behind quick edits). Undo puts back only the field it
+  // changed, on top of whatever is current then.
+  function snapshot() {
+    const current = latest.current;
+    return {
+      dmCloserId: current._id,
+      teamId: current.teamId,
+      displayName: current.displayName,
+      utmMedium: current.utmMedium,
+      ...pending.current,
     };
-    const before = "userId" in patch ? { ...base, userId: closer.userId ?? null } : base;
+  }
+  function update(patch: Patch, message: string, field: string) {
+    const current = snapshot();
+    const previous: Patch = {};
+    for (const key of Object.keys(patch) as Array<keyof Patch>) {
+      if (key === "userId") previous.userId = latest.current.userId ?? null;
+      else (previous as Record<string, unknown>)[key] = current[key];
+    }
     return withUndo(
-      () => updateDmCloser({ ...base, ...patch }),
+      async () => {
+        Object.assign(pending.current, patch);
+        await updateDmCloser({ ...snapshot(), ...patch });
+      },
       message,
-      () => updateDmCloser(before),
+      async () => {
+        Object.assign(pending.current, previous);
+        await updateDmCloser({ ...snapshot(), ...previous });
+      },
       field,
     );
   }

@@ -273,14 +273,23 @@ export const sortEventType = mutation({
 });
 
 // Sets (or clears) an event type's booking URL from the coverage picker or
-// the event type sheet, without touching its other details.
+// the event type sheet, without touching its other details. An admin's URL is
+// `admin_entered`; Undo passes `restoreSource` to put back where the old URL
+// came from (a Calendly-synced URL keeps syncing).
 export const setEventTypeBookingUrl = mutation({
   args: {
     eventTypeConfigId: v.id("eventTypeConfigs"),
     bookingBaseUrl: v.union(v.string(), v.null()),
+    restoreSource: v.optional(
+      v.union(
+        v.literal("admin_entered"),
+        v.literal("imported_sheet"),
+        v.literal("calendly_synced"),
+      ),
+    ),
   },
   returns: v.null(),
-  handler: async (ctx, { eventTypeConfigId, bookingBaseUrl }) => {
+  handler: async (ctx, { eventTypeConfigId, bookingBaseUrl, restoreSource }) => {
     const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
     if (!config || config.tenantId !== tenantId) {
@@ -306,7 +315,7 @@ export const setEventTypeBookingUrl = mutation({
     }
     await ctx.db.patch("eventTypeConfigs", eventTypeConfigId, {
       bookingBaseUrl: trimmed,
-      bookingUrlSource: trimmed ? "admin_entered" : undefined,
+      bookingUrlSource: trimmed ? (restoreSource ?? "admin_entered") : undefined,
       updatedAt: Date.now(),
     });
     log.info("booking_setup.event_type.booking_url_set", {

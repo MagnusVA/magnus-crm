@@ -24,6 +24,9 @@ export type IntelEventType = {
   programId?: string;
   mode: IntelMode;
   bookings30d: number;
+  // False while the counts are loading or were cut short (a capped read): a
+  // zero then isn't "unused", so nothing is offered for folding on it.
+  bookingsKnown?: boolean;
   /** Whether a coverage cell points at it. */
   inUse?: boolean;
   /** Who owns it in Calendly, when known (a person's or a team's name). */
@@ -288,6 +291,7 @@ export function lookalikeGroups(eventTypes: readonly IntelEventType[]): Lookalik
       // new unsorted look-alike is a new pool until someone says otherwise.
       const canFold =
         !eventType.inUse &&
+        eventType.bookingsKnown !== false &&
         eventType.bookings30d <= 2 &&
         (eventType.status === "sorted" || (eventType.status === "unsorted" && looksLikeCopy(eventType.name))) &&
         used.length > 0;
@@ -470,7 +474,7 @@ function notSalesSignals(target: IntelEventType, others: readonly IntelEventType
       reason: "duplicate",
       score: original ? 8 : 3.5,
       reasons: original
-        ? [`“Copy of” in the name: a copy of “${original.name}”.`, ...(target.bookings30d === 0 ? ["No bookings in the last 30 days."] : [])]
+        ? [`“Copy of” in the name: a copy of “${original.name}”.`, ...(target.bookings30d === 0 && target.bookingsKnown !== false ? ["No bookings in the last 30 days."] : [])]
         : ["The name says it’s a copy."],
       duplicateOfId: original?.id,
     });

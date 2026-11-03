@@ -13,7 +13,12 @@ function storageKey(portalSlug: string, name: "closer" | "session-seconds" | "te
 	return `dm-links:${portalSlug}:${name}`;
 }
 
+// This page's own copy of what it wrote, so a choice holds for this visit
+// even when localStorage refuses the write (private mode, storage full).
+const memory = new Map<string, string | null>();
+
 function read(key: string) {
+	if (memory.has(key)) return memory.get(key) ?? null;
 	try {
 		return window.localStorage.getItem(key);
 	} catch {
@@ -22,6 +27,7 @@ function read(key: string) {
 }
 
 function write(key: string, value: string | null) {
+	memory.set(key, value);
 	try {
 		if (value === null) window.localStorage.removeItem(key);
 		else window.localStorage.setItem(key, value);
@@ -32,10 +38,16 @@ function write(key: string, value: string | null) {
 }
 
 function subscribe(onChange: () => void) {
-	window.addEventListener("storage", onChange);
+	// Another tab changed storage: its value wins over this page's copy.
+	const onStorage = (event: StorageEvent) => {
+		if (event.key === null) memory.clear();
+		else memory.delete(event.key);
+		onChange();
+	};
+	window.addEventListener("storage", onStorage);
 	window.addEventListener(CHANGE_EVENT, onChange);
 	return () => {
-		window.removeEventListener("storage", onChange);
+		window.removeEventListener("storage", onStorage);
 		window.removeEventListener(CHANGE_EVENT, onChange);
 	};
 }

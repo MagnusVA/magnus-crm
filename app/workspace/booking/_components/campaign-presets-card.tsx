@@ -100,6 +100,7 @@ export function CampaignPresetsCard() {
   }
 
   function remove(campaign: CampaignPreset) {
+    const wasDefault = campaign.isDefault;
     void run(
       campaign._id,
       async () => {
@@ -109,7 +110,11 @@ export function CampaignPresetsCard() {
           action: {
             label: "Undo",
             onClick: () => {
-              void setActive({ campaignPresetId: campaign._id, isActive: true }).catch((error: unknown) => {
+              // Removing the default promoted another preset; put it back too.
+              void (async () => {
+                await setActive({ campaignPresetId: campaign._id, isActive: true });
+                if (wasDefault) await setDefault({ campaignPresetId: campaign._id });
+              })().catch((error: unknown) => {
                 reportClientError(error, { flow: "link_portal_campaign_remove_undo" });
                 toast.error(getErrorMessage(error, "Could not undo"));
               });

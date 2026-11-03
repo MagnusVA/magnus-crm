@@ -336,6 +336,9 @@ function BookingUrlField({ row }: { row: EventTypeRow }) {
   const dirty = value.trim() !== saved;
 
   async function save(next: string | null, previous: string | null) {
+    // Undo restores where the old URL came from too, so a Calendly-synced
+    // URL keeps syncing after an undone edit.
+    const previousSource = eventType.bookingUrlSource;
     setSaving(true);
     try {
       await setUrl({ eventTypeConfigId: eventType._id as Id<"eventTypeConfigs">, bookingBaseUrl: next });
@@ -345,7 +348,11 @@ function BookingUrlField({ row }: { row: EventTypeRow }) {
           label: "Undo",
           onClick: () => {
             setValue(previous ?? "");
-            void setUrl({ eventTypeConfigId: eventType._id as Id<"eventTypeConfigs">, bookingBaseUrl: previous }).catch((error: unknown) => {
+            void setUrl({
+              eventTypeConfigId: eventType._id as Id<"eventTypeConfigs">,
+              bookingBaseUrl: previous,
+              restoreSource: previous ? previousSource : undefined,
+            }).catch((error: unknown) => {
               reportClientError(error, { flow: "booking_event_type_url_undo" });
               toast.error(getErrorMessage(error, "Couldn't undo. Set the URL again."));
             });

@@ -249,6 +249,7 @@ export function closerLinks(board: Board, team: CoverageTeam): CloserProgramLink
 export type PickerFix =
   | { kind: "set_url" }
   | { kind: "switch_mode" }
+  // Nothing to do from here: the reason says why.
   | { kind: "in_use" }
   | { kind: "calendly" };
 
@@ -297,6 +298,14 @@ export function pickerSections(
         return { eventType, fix: { kind: "calendly" } as const, why: ISSUE_WHY.calendly_unavailable };
       }
       if (issue === "missing_url") {
+        // Saving a URL and then assigning only works in its own mode.
+        if (modeOf(eventType) !== ref.mode) {
+          return {
+            eventType,
+            fix: { kind: "in_use" } as const,
+            why: `${ISSUE_WHY.missing_url}, and it is a ${modeLabel(modeOf(eventType))} event type`,
+          };
+        }
         return { eventType, fix: { kind: "set_url" } as const, why: ISSUE_WHY.missing_url };
       }
       const why = `it is a ${modeLabel(modeOf(eventType))} event type`;

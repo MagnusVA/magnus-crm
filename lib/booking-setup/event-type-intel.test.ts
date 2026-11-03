@@ -138,6 +138,18 @@ describe("lookalikeGroups", () => {
     expect(group?.foldable.map((member) => member.eventType.id)).toEqual([copy.id]);
     expect(group?.foldable[0].foldInto?.id).toBe(filed[2].id);
   });
+
+  it("folds nothing while booking counts are loading or cut short", () => {
+    const copy = et("Complete Strategy Meeting With PT-Domination.", {
+      status: "sorted",
+      programId: "p25k",
+      mode: "extended",
+      bookings30d: 0,
+      bookingsKnown: false,
+    });
+    const group = lookalikeGroups([...filed, copy]).find((candidate) => candidate.label === "Complete Strategy Meeting");
+    expect(group?.foldable).toEqual([]);
+  });
 });
 
 describe("modeWarning", () => {

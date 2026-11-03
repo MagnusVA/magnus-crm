@@ -50,6 +50,7 @@ function toIntel(
     programId: eventType.bookingProgramId ?? undefined,
     mode: modeOf(eventType),
     bookings30d: activity?.bookings30d.eventTypes[eventType._id] ?? 0,
+    bookingsKnown: activity !== undefined && !activity.capped,
     inUse: (board.placements.get(eventType._id)?.length ?? 0) > 0,
     ownerName: extras?.get(eventType._id)?.ownerName,
     color: eventType.calendlyColor,
