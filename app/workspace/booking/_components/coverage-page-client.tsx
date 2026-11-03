@@ -342,7 +342,7 @@ function ArchivedPrograms({ programs }: { programs: CoverageProgram[] }) {
 
 export function CoverageSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
+    <div className="overflow-hidden rounded-xl border border-border bg-card" role="status" aria-label="Loading coverage">
       <div className="h-11 border-b border-border" />
       {Array.from({ length: 6 }, (_, index) => (
         <div key={index} className="flex h-[88px] items-center gap-4 border-b border-border px-4">
