@@ -242,22 +242,31 @@ describe("booking coverage", () => {
     ).toBe(fixture.poolA);
   });
 
-  it("refuses to migrate from a partial read", async () => {
+  it("migrates at exactly the team limit and refuses above it", async () => {
     const fixture = await createFixture();
-    await fixture.t.run(async (ctx) => {
-      for (let index = 0; index < 200; index += 1) {
-        await ctx.db.insert("attributionTeams", {
-          tenantId: fixture.tenantId,
-          slug: `extra-${index}`,
-          displayName: `extra-${index}`,
-          utmSource: `extra-${index}`,
-          normalizedUtmSource: `extra-${index}`,
-          isActive: false,
-          createdAt: 0,
-          updatedAt: 0,
-        });
-      }
+    // The fixture has 2 teams; 198 more is exactly the limit of 200.
+    const addTeams = (from: number, count: number) =>
+      fixture.t.run(async (ctx) => {
+        for (let index = from; index < from + count; index += 1) {
+          await ctx.db.insert("attributionTeams", {
+            tenantId: fixture.tenantId,
+            slug: `extra-${index}`,
+            displayName: `extra-${index}`,
+            utmSource: `extra-${index}`,
+            normalizedUtmSource: `extra-${index}`,
+            isActive: false,
+            createdAt: 0,
+            updatedAt: 0,
+          });
+        }
+      });
+    await addTeams(0, 198);
+    const atLimit = await fixture.t.query(internal.bookingSetup.queries.previewCoverageMigration, {
+      tenantId: fixture.tenantId,
     });
+    expect(atLimit.teamsUsingShared).toHaveLength(200);
+
+    await addTeams(198, 1);
     await expect(
       fixture.admin.mutation(api.bookingSetup.mutations.ensureCoverage, {}),
     ).rejects.toThrow("too many teams");

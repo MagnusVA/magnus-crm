@@ -146,32 +146,33 @@ export async function planCoverageMigration(
     ctx.db
       .query("attributionTeams")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(MAX_TEAMS),
+      .take(MAX_TEAMS + 1),
     ctx.db
       .query("teamProgramEventTypes")
       .withIndex("by_tenantId_and_teamId_and_programId_and_mode", (q) =>
         q.eq("tenantId", tenantId),
       )
-      .take(MAX_TEAM_ROUTES),
+      .take(MAX_TEAM_ROUTES + 1),
     ctx.db
       .query("eventTypeConfigs")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(MAX_EVENT_TYPES),
+      .take(MAX_EVENT_TYPES + 1),
     ctx.db
       .query("tenantPrograms")
       .withIndex("by_tenantId_and_archivedAt", (q) =>
         q.eq("tenantId", tenantId).eq("archivedAt", undefined),
       )
-      .take(MAX_PROGRAMS),
+      .take(MAX_PROGRAMS + 1),
   ]);
 
   // The plan must see the whole tenant: a route whose event type it didn't
-  // read would be removed. Refuse rather than plan from a partial read.
+  // read would be removed. Each read takes one extra row; refuse when it
+  // comes back, rather than plan from a partial read.
   if (
-    teams.length >= MAX_TEAMS ||
-    routes.length >= MAX_TEAM_ROUTES ||
-    eventTypes.length >= MAX_EVENT_TYPES ||
-    programs.length >= MAX_PROGRAMS
+    teams.length > MAX_TEAMS ||
+    routes.length > MAX_TEAM_ROUTES ||
+    eventTypes.length > MAX_EVENT_TYPES ||
+    programs.length > MAX_PROGRAMS
   ) {
     throw new Error(
       "This workspace has too many teams, routes, event types or programs to move to booking coverage in one step.",
