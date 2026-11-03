@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
+import { AgentPaymentChip, ReusedProofIcon } from "./payment-provenance-markers";
 
 type BillingPaymentRow =
   FunctionReturnType<typeof api.billing.queries.listPayments>["page"][number];
@@ -205,6 +206,11 @@ export function BillingQueueTable({
                           <TooltipContent>Proof file attached</TooltipContent>
                         </Tooltip>
                       ) : null}
+                      <ReusedProofIcon proofReused={row.payment.proofReused} />
+                      <AgentPaymentChip
+                        recordedVia={row.payment.recordedVia}
+                        agentClient={row.payment.agentClient}
+                      />
                     </div>
                   </TableCell>
                   <TableCell className="text-right">

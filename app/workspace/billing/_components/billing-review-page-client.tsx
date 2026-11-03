@@ -29,6 +29,7 @@ import { BillingProofPreview } from "./billing-proof-preview";
 import { BillingReviewActions } from "./billing-review-actions";
 import { CopyBillingPayloadButton } from "./copy-billing-payload-button";
 import { CorrectionDialog } from "./correction-dialog";
+import { PaymentProvenanceNotice } from "./payment-provenance-markers";
 import { SlackContributorTimeline } from "./slack-contributor-timeline";
 
 function BillingMeetingComments({
@@ -136,6 +137,7 @@ export function BillingReviewPageClient({
 			</div>
 
 			<BillingPaymentSummary detail={detail} />
+			<PaymentProvenanceNotice detail={detail} />
 
 			{/* Comments + proof preview */}
 			<div className="grid items-start gap-x-6 gap-y-5 py-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:divide-x xl:divide-border">

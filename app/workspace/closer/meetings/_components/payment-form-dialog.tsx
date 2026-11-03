@@ -45,6 +45,8 @@ import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 import { ProofFileInput } from "./proof-file-input";
 import { getErrorMessage } from "@/lib/errors";
+import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import { useProofRequired } from "@/hooks/use-proof-required";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -129,7 +131,7 @@ type PaymentFormDialogProps = {
  * - Currency (required, defaults to USD)
  * - Program (required)
  * - Payment Type (required)
- * - Proof File (optional, image or PDF up to 10 MB)
+ * - Proof File (image or PDF up to 10 MB; required for closers)
  *
  * The program starts at the booked program when it is still active, with
  * that program's default currency.
@@ -152,6 +154,8 @@ export function PaymentFormDialog({
     onOpenChange?.(value);
   };
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Closers must attach proof; the mutation refuses a payment without it.
+  const proofRequired = useProofRequired();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -198,6 +202,10 @@ export function PaymentFormDialog({
   const logPayment = useMutation(api.closer.payments.logPayment);
 
   const onSubmit = async (values: PaymentFormValues) => {
+    if (proofRequired && !values.proofFile) {
+      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+      return;
+    }
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -433,7 +441,10 @@ export function PaymentFormDialog({
                 name="proofFile"
                 render={({ field: { value, onChange, onBlur, name } }) => (
                   <FormItem>
-                    <FormLabel>Proof file</FormLabel>
+                    <FormLabel>
+                      Proof file{" "}
+                      {proofRequired ? <span className="text-destructive">*</span> : null}
+                    </FormLabel>
                     <FormControl>
                       <ProofFileInput
                         value={value}

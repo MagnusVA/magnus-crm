@@ -28,6 +28,11 @@ import {
   resolvePaymentType,
   type PaymentType,
 } from "../lib/paymentTypes";
+import {
+  checkPaymentProof,
+  newPaymentFields,
+  type ProofCheckOptions,
+} from "../lib/paymentProof";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -79,6 +84,7 @@ async function checkMeetingPayment(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: MeetingPaymentArgs,
+  options: ProofCheckOptions = {},
 ) {
   assertCoreRole(actor, MEETING_PAYMENT_ROLES);
   const { userId, tenantId, role } = actor;
@@ -134,8 +140,13 @@ async function checkMeetingPayment(
     programId: program._id,
     paymentType,
   });
+  const proof =
+    options.proof === "skip"
+      ? null
+      : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
 
   return {
+    proof,
     userId,
     tenantId,
     role,
@@ -161,6 +172,7 @@ export async function checkMeetingPaymentAllowed(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: MeetingPaymentArgs,
+  options: ProofCheckOptions = {},
 ): Promise<
   CheckResult<{
     opportunityId: Id<"opportunities">;
@@ -174,7 +186,7 @@ export async function checkMeetingPaymentAllowed(
   }>
 > {
   return await toCheckResult(async () => {
-    const checked = await checkMeetingPayment(ctx, actor, args);
+    const checked = await checkMeetingPayment(ctx, actor, args, options);
     return {
       opportunityId: checked.opportunity._id,
       meetingId: checked.meeting._id,
@@ -213,8 +225,10 @@ export async function recordMeetingPayment(
     paymentType,
     attributedCloserId,
     origin,
+    proof,
   } = await checkMeetingPayment(ctx, actor, args);
 
+  const recordedFields = await newPaymentFields(ctx, tenantId, proof, provenance);
   const paymentId = await ctx.db.insert("paymentRecords", {
     tenantId,
     opportunityId: args.opportunityId,
@@ -231,6 +245,7 @@ export async function recordMeetingPayment(
     statusChangedAt: now,
     recordedAt: now,
     origin,
+    ...recordedFields,
   });
   await recordPayment(ctx, paymentId);
   await insertPaymentAggregate(ctx, paymentId);

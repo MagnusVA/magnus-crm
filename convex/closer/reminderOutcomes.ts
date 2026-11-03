@@ -27,6 +27,11 @@ import {
   resolvePaymentType,
   type PaymentType,
 } from "../lib/paymentTypes";
+import {
+  checkPaymentProof,
+  newPaymentFields,
+  type ProofCheckOptions,
+} from "../lib/paymentProof";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import {
   canMarkLost,
@@ -169,6 +174,7 @@ async function checkTaskPayment(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: TaskPaymentArgs,
+  options: ProofCheckOptions = {},
 ) {
   assertCoreRole(actor, TASK_PAYMENT_ROLES);
   const { followUp, opportunity, tenantId, userId, role } =
@@ -203,8 +209,13 @@ async function checkTaskPayment(
     programId: program._id,
     paymentType,
   });
+  const proof =
+    options.proof === "skip"
+      ? null
+      : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
 
   return {
+    proof,
     followUp,
     opportunity,
     tenantId,
@@ -230,6 +241,7 @@ export async function checkTaskPaymentAllowed(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: TaskPaymentArgs,
+  options: ProofCheckOptions = {},
 ): Promise<
   CheckResult<{
     followUpId: Id<"followUps">;
@@ -243,7 +255,7 @@ export async function checkTaskPaymentAllowed(
   }>
 > {
   return await toCheckResult(async () => {
-    const checked = await checkTaskPayment(ctx, actor, args);
+    const checked = await checkTaskPayment(ctx, actor, args, options);
     return {
       followUpId: checked.followUp._id,
       opportunityId: checked.opportunity._id,
@@ -283,8 +295,10 @@ export async function recordTaskPayment(
     meetingId,
     attributedCloserId,
     origin,
+    proof,
   } = await checkTaskPayment(ctx, actor, args);
 
+  const recordedFields = await newPaymentFields(ctx, tenantId, proof, provenance);
   const paymentId = await ctx.db.insert("paymentRecords", {
     tenantId,
     opportunityId: opportunity._id,
@@ -301,6 +315,7 @@ export async function recordTaskPayment(
     statusChangedAt: now,
     recordedAt: now,
     origin,
+    ...recordedFields,
   });
   await recordPayment(ctx, paymentId);
   await insertPaymentAggregate(ctx, paymentId);

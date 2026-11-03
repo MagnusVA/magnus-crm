@@ -44,6 +44,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getErrorMessage } from "@/lib/errors";
+import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import { useProofRequired } from "@/hooks/use-proof-required";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const VALID_FILE_TYPES = [
@@ -125,6 +127,8 @@ export function AddOpportunityPaymentDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Closers must attach proof; the mutation refuses a payment without it.
+  const proofRequired = useProofRequired();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const recordAdditionalPayment = useMutation(
@@ -144,6 +148,10 @@ export function AddOpportunityPaymentDialog({
   });
 
   const onSubmit = async (values: PaymentValues) => {
+    if (proofRequired && !values.proofFile) {
+      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+      return;
+    }
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -347,7 +355,10 @@ export function AddOpportunityPaymentDialog({
                   name="proofFile"
                   render={({ field: { value, onChange, ...fieldProps } }) => (
                     <FormItem>
-                      <FormLabel>Proof file</FormLabel>
+                      <FormLabel>
+                        Proof file{" "}
+                        {proofRequired ? <span className="text-destructive">*</span> : null}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           type="file"
@@ -371,7 +382,8 @@ export function AddOpportunityPaymentDialog({
                         </div>
                       ) : null}
                       <FormDescription>
-                        Optional. Max 10 MB. Allowed: PNG, JPEG, GIF, PDF.
+                        {proofRequired ? "A receipt or screenshot." : "Optional."} Max
+                        10 MB. Allowed: PNG, JPEG, GIF, PDF.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
