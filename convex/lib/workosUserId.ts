@@ -46,8 +46,17 @@ export function getCanonicalIdentityWorkosUserId(
   return null;
 }
 
+/**
+ * Every stored form a user's WorkOS ID may take, most specific first: the
+ * identity's own `<issuer>|<id>`, the user-management form, then the raw ID.
+ *
+ * A token from another issuer, such as AuthKit's MCP tokens, yields
+ * `<authkit>|<id>`. Users stored in the user-management form would match
+ * neither that nor the raw ID, so the user-management form is always tried.
+ */
 export function getWorkosUserIdCandidates(workosUserId: string): string[] {
   const canonical = canonicalizeWorkosUserId(workosUserId);
   const raw = getRawWorkosUserId(workosUserId);
-  return canonical === raw ? [canonical] : [canonical, raw];
+  const userManagement = raw ? `${getUserManagementIssuer()}|${raw}` : raw;
+  return [...new Set([canonical, userManagement, raw])].filter(Boolean);
 }
