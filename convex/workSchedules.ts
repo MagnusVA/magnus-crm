@@ -1,3 +1,4 @@
+import { expectedError } from "./lib/observability/errors";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { weekdays, type Weekday } from "./lib/workSchedule";
@@ -17,7 +18,7 @@ type WeeklyScheduledHours = Record<Weekday, number>;
 
 function validateScheduledHours(hours: number) {
   if (!Number.isFinite(hours) || hours < 0 || hours > 24) {
-    throw new Error("Scheduled hours must be between 0 and 24");
+    throw expectedError("work_schedule.rejected", "Scheduled hours must be between 0 and 24");
   }
 }
 
@@ -68,7 +69,7 @@ export const setSlackQualifierWeeklySchedule = mutation({
         q.eq("tenantId", tenantId).eq("slackUserId", args.slackUserId),
       )
       .unique();
-    if (!slackUser) throw new Error("Slack qualifier not found.");
+    if (!slackUser) throw expectedError("work_schedule.rejected", "Slack qualifier not found.");
 
     const now = Date.now();
     let changedRows = 0;
@@ -152,7 +153,7 @@ export const setDmCloserWeeklySchedule = mutation({
 
     const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
-      throw new Error("DM closer not found.");
+      throw expectedError("work_schedule.rejected", "DM closer not found.");
     }
 
     const now = Date.now();

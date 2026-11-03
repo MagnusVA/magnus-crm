@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { CalendlyDot } from "../calendly-dot";
-import { ACCESS_TONE, ACCESS_WORD, type LaneAccess, type ProgramAccess } from "./team-access";
-import { LABEL } from "./team-ui";
+import { ACCESS_TIP, ACCESS_TONE, ACCESS_WORD, type LaneAccess, type ProgramAccess } from "./team-access";
+import { HelpTip, LABEL } from "./team-ui";
 
 const ROW = "grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)] items-start gap-2.5 px-3 py-[7px] text-[13px]";
 
@@ -17,7 +17,9 @@ function LaneCell({ access }: { access: LaneAccess }) {
           ACCESS_TONE[access.word],
         )}
       >
-        {ACCESS_WORD[access.word]}
+        <HelpTip tip={ACCESS_TIP[access.word]} className="no-underline">
+          {ACCESS_WORD[access.word]}
+        </HelpTip>
       </span>
       {access.word === "broken" ? (
         <small className="mt-0.5 block truncate text-[12px] text-danger-ink" title={access.reason}>
@@ -54,8 +56,12 @@ export function GetsRows({
       {showHead ? (
         <div role="row" className={cn(ROW, "pt-2.5")}>
           <span role="columnheader" className={LABEL}>Program</span>
-          <span role="columnheader" className={LABEL}>Priority</span>
-          <span role="columnheader" className={LABEL}>Standard</span>
+          <span role="columnheader" className={LABEL}>
+            <HelpTip tip="The link for the program's Priority event type (any event type not marked Standard).">Priority</HelpTip>
+          </span>
+          <span role="columnheader" className={LABEL}>
+            <HelpTip tip="The link for the program's Standard event type, the one marked Standard (usually the Extended pool that books further out).">Standard</HelpTip>
+          </span>
         </div>
       ) : null}
       {rows.map((row) => (

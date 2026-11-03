@@ -15,7 +15,7 @@ import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
 import type { Board, Coverage, CoverageTeam } from "../booking-model";
 import { routesLine, teamAccess } from "./team-access";
-import { ActiveWord, CARD, FIGURE, Initials, LABEL } from "./team-ui";
+import { ActiveWord, CARD, FIGURE, HelpTip, Initials, LABEL } from "./team-ui";
 
 // Mirrors MAX_BOOKING_DAILY_QUOTA in convex/attribution/teams.ts.
 const MAX_DAILY_GOAL = 5000;
@@ -46,13 +46,31 @@ export function TeamsTable({
 
   return (
     <section className={CARD} aria-label="DM teams">
-      <div aria-hidden="true" className={cn(GRID, "min-h-[34px] border-b border-border pt-3 pb-2")}>
-        <span className={LABEL}>DM team</span>
-        <span className={cn(LABEL, "hidden @2xl:block")}>Goal</span>
-        <span className={cn(LABEL, "hidden @2xl:block")}>Roster</span>
-        <span className={cn(LABEL, "hidden @5xl:block")}>Can book</span>
-        <span className={cn(LABEL, "text-right")}>Booked 30d</span>
-        <span className={LABEL}>Status</span>
+      <div className={cn(GRID, "relative z-10 min-h-[34px] border-b border-border pt-3 pb-2")}>
+        <span className={LABEL}>
+          <HelpTip tip="A DM team is one utm_source: every link its DM closers copy carries it, and bookings with it are credited to the team.">
+            DM team
+          </HelpTip>
+        </span>
+        <span className={cn(LABEL, "hidden @2xl:block")}>
+          <HelpTip tip="Booked calls the team should make each business day. Booked Calls draws the team's goal ring from it. Click a goal to change it.">
+            Goal
+          </HelpTip>
+        </span>
+        <span className={cn(LABEL, "hidden @2xl:block")}>
+          <HelpTip tip="The team's DM closers: active ones can copy links in the portal; disabled ones keep their history.">Roster</HelpTip>
+        </span>
+        <span className={cn(LABEL, "hidden @5xl:block")}>
+          <HelpTip tip="How many programs the team's DM closers can get a working link for, and where those links come from (its own routes or Shared). Set on Coverage.">
+            Can book
+          </HelpTip>
+        </span>
+        <span className={cn(LABEL, "text-right")}>
+          <HelpTip tip="Bookings made in the last 30 days through links with this team's utm_source.">Booked 30d</HelpTip>
+        </span>
+        <span className={LABEL}>
+          <HelpTip tip="Active teams appear in the link portal and get credit for bookings. Disabled teams keep their history.">Status</HelpTip>
+        </span>
       </div>
       {teams.length === 0 ? (
         <p className="px-4 py-5 text-[14px] text-muted-foreground">

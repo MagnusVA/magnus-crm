@@ -23,8 +23,9 @@ import { CalendlyDot } from "../calendly-dot";
 import { DmCloserDialog } from "../dm-closer-dialog";
 import { GetsRows } from "./gets-table";
 import { RosterCard } from "./roster-card";
+import { EMPTY_WEEK, type WeekHours } from "./schedule-editor";
 import { teamAccess, type TeamAccess } from "./team-access";
-import { CardHead, CARD, daysAgo, Initials, teamShortName } from "./team-ui";
+import { CardHead, CARD, daysAgo, Initials, teamShortName, HelpTip } from "./team-ui";
 
 type CopyEvent = FunctionReturnType<typeof api.linkPortal.copyQueries.listRecentCopyEvents>[number];
 
@@ -43,6 +44,7 @@ export function TeamPageClient() {
   const activity = useQuery(api.bookingSetup.queries.getBookingActivity, {});
   const teams = useQuery(api.attribution.teams.listTeams, {});
   const closers = useQuery(api.attribution.dmClosers.listDmClosers, {});
+  const scheduleRows = useQuery(api.workSchedules.listDmCloserSchedules, {});
   const teamMembers = useQuery(api.users.queries.listTeamMembers, {});
   const presets = useQuery(api.linkPortal.campaignQueries.listCampaignPresetsForSettings, {});
   const copies = useQuery(api.linkPortal.copyQueries.listRecentCopyEvents, { limit: COPY_LIMIT });
@@ -61,13 +63,31 @@ export function TeamPageClient() {
   );
 
   const openId = searchParams.get("closer");
+  // `?closer=<id>&schedule=1` lands on that DM closer with the schedule open.
+  const scheduleOpen = searchParams.get("schedule") === "1";
   const [creating, setCreating] = useState(false);
+  const schedules = useMemo(() => {
+    const byCloser = new Map<string, WeekHours>();
+    for (const row of scheduleRows?.schedules ?? []) {
+      const week = byCloser.get(row.dmCloserId) ?? { ...EMPTY_WEEK };
+      week[row.weekday] = row.scheduledHours;
+      byCloser.set(row.dmCloserId, week);
+    }
+    return byCloser;
+  }, [scheduleRows]);
 
-  function setOpen(dmCloserId: string | null) {
-    window.history.replaceState(null, "", dmCloserId ? `${pathname}?closer=${dmCloserId}` : pathname);
+  function setOpen(dmCloserId: string | null, schedule = false) {
+    const query = dmCloserId ? `?closer=${dmCloserId}${schedule ? "&schedule=1" : ""}` : "";
+    window.history.replaceState(null, "", `${pathname}${query}`);
   }
 
-  const loaded = coverage !== undefined && activity !== undefined && closers !== undefined && teams !== undefined && board !== null;
+  const loaded =
+    coverage !== undefined &&
+    activity !== undefined &&
+    closers !== undefined &&
+    teams !== undefined &&
+    scheduleRows !== undefined &&
+    board !== null;
 
   // Arriving with ?closer=, bring that row into view once.
   const scrolled = useRef(false);
@@ -97,7 +117,10 @@ export function TeamPageClient() {
         campaign={campaign}
         unmatched={activity.unmatchedUtms}
         openId={openId}
+        scheduleOpen={scheduleOpen}
+        schedules={schedules}
         onToggle={(dmCloserId) => setOpen(openId === dmCloserId ? null : dmCloserId)}
+        onScheduleChange={(dmCloserId, open) => setOpen(dmCloserId, open)}
         onNew={() => setCreating(true)}
       />
       <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
@@ -171,7 +194,11 @@ function TeamGetsCard({ team, access }: { team: CoverageTeam; access: TeamAccess
             className="mt-0.5 data-checked:bg-foreground"
           />
           <span className="min-w-0">
-            <span className="block text-[13.5px] font-medium">Uses Shared</span>
+            <span className="block text-[13.5px] font-medium">
+              <HelpTip tip="Shared is Coverage's fallback column. With this on, any program and lane where the team has no event type of its own uses the Shared cell's event type instead.">
+                Uses Shared
+              </HelpTip>
+            </span>
             <span className="block text-[12.5px] text-muted-foreground">
               {team.usesShared
                 ? "A program and lane without its own route gets the Shared link."
