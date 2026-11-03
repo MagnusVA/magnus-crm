@@ -2,7 +2,7 @@ export const SHOW_RATE_HELP =
   "Held calls ÷ (held + no-show). Canceled and not-recorded calls are left out.";
 
 export const ATTENDANCE_COUNTS_PARTIAL_HELP =
-  "Too many calls in the last day to check every end time; the count is a lower bound.";
+  "Too many calls in the last day to check every end time, so the past-call count is a lower bound.";
 
 export function ResultsRecorded({
   resultsRecorded,

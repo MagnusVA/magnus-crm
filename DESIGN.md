@@ -656,7 +656,7 @@ Booked-call outcomes per phone closer (`phone-closer-operations-section.tsx`), a
 - **Rows:** ruled; the closer's name in semibold over the results line, "7 of 7 past calls have a result" in 13px slate ("(partial)" appended when attendance counts are partial). Figures are 15px condensed tabular, right-aligned; a zero No-show or Review is slate. Rates read "—" when nothing was held or missed.
 - **Total row:** last, on a 40% muted fill, "Total" with its own results line, every figure in ink.
 - **The fold:** below `@xl/closers` the table becomes a list of two-line rows: the name, then the counts in words ("**13** booked · **8** held · **1** no-show · **0** to review · **89%** show rate · **11%** no-show rate"), figures in condensed ink, words in 13px slate. The Total row keeps the muted fill and moves its results line under the counts.
-- **Partial:** when attendance counts are partial, one 13px ruled line above the rows, in the table and the fold alike: "**Partial.** Too many calls in the last day to check every end time; the count is a lower bound." Help is always said on the page, never only in a hover `title`.
+- **Partial:** when attendance counts are partial, one 13px ruled line above the rows, in the table and the fold alike: "**Partial.** Too many calls in the last day to check every end time, so the past-call count is a lower bound." Help is always said on the page, never only in a hover `title`.
 - **Empty:** "No calls booked with phone closers today." (or this week, or in this range).
 
 ### The Top Posts Row
