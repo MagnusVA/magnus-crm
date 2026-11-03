@@ -55,6 +55,15 @@ async function getLinkedUserForWrite(
   return user;
 }
 
+// Every row sharing one normalised UTM value. The range is tiny (one value),
+// and the uniqueness checks must see all of it: an active row can sit behind
+// any number of disabled ones.
+async function allWithUtmMedium<T>(query: AsyncIterable<T>): Promise<T[]> {
+  const rows: T[] = [];
+  for await (const row of query) rows.push(row);
+  return rows;
+}
+
 export const listDmClosers = query({
   args: {},
   handler: async (ctx) => {
@@ -131,14 +140,13 @@ export const createDmCloser = mutation({
     const normalized = normalizeDmCloserInput(args);
     const now = Date.now();
 
-    const existingActive = await ctx.db
+    const existingActive = await allWithUtmMedium(ctx.db
       .query("dmClosers")
       .withIndex("by_tenantId_and_normalizedUtmMedium", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("normalizedUtmMedium", normalized.normalizedUtmMedium),
-      )
-      .take(5);
+      ));
     if (existingActive.some((closer) => closer.isActive)) {
       throw expectedError("attribution.rejected", "An active DM closer already uses this UTM medium.");
     }
@@ -194,14 +202,13 @@ export const updateDmCloser = mutation({
       shouldPatchUserId ? args.userId : dmCloser.userId,
     );
     const normalized = normalizeDmCloserInput(args);
-    const existingActive = await ctx.db
+    const existingActive = await allWithUtmMedium(ctx.db
       .query("dmClosers")
       .withIndex("by_tenantId_and_normalizedUtmMedium", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("normalizedUtmMedium", normalized.normalizedUtmMedium),
-      )
-      .take(5);
+      ));
     if (
       existingActive.some(
         (candidate) => candidate.isActive && candidate._id !== args.dmCloserId,
@@ -291,12 +298,11 @@ export const setDmCloserActive = mutation({
       throw expectedError("attribution.rejected", "DM closer not found.");
     }
     if (isActive && !dmCloser.isActive) {
-      const sameMedium = await ctx.db
+      const sameMedium = await allWithUtmMedium(ctx.db
         .query("dmClosers")
         .withIndex("by_tenantId_and_normalizedUtmMedium", (q) =>
           q.eq("tenantId", tenantId).eq("normalizedUtmMedium", dmCloser.normalizedUtmMedium),
-        )
-        .take(5);
+        ));
       if (sameMedium.some((closer) => closer._id !== dmCloserId && closer.isActive)) {
         throw expectedError("attribution.rejected", "An active DM closer already uses this UTM medium.");
       }
