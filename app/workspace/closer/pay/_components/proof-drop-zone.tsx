@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { FileCheckIcon, UploadIcon, XIcon } from "lucide-react";
+import { AlertCircleIcon, FileCheckIcon, UploadIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PROOF_CONTENT_TYPES, PROOF_MAX_BYTES } from "@/lib/paymentProof";
 import { cn } from "@/lib/utils";
@@ -41,25 +41,43 @@ export function ProofDropZone({
 	};
 
 	if (file) {
+		// A file that can't be the proof keeps its name on screen, with the
+		// reason under it, so the closer sees why Log payment did nothing.
 		return (
-			<div className="flex min-w-0 items-center gap-3 rounded-xl border bg-muted/40 p-3">
-				<FileCheckIcon aria-hidden="true" className="size-5 shrink-0 text-emerald-600" />
-				<div className="flex min-w-0 flex-1 flex-col">
-					<span className="truncate font-medium">{file.name}</span>
-					<span className="text-sm text-muted-foreground tabular-nums">
-						{(file.size / 1024).toFixed(1)} KB
-					</span>
-				</div>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					disabled={disabled}
-					onClick={clear}
-					aria-label={`Remove ${file.name}`}
+			<div className="flex flex-col gap-1.5">
+				<div
+					className={cn(
+						"flex min-w-0 items-center gap-3 rounded-xl border bg-muted/40 p-3",
+						error && "border-destructive",
+					)}
 				>
-					<XIcon />
-				</Button>
+					{error ? (
+						<AlertCircleIcon aria-hidden="true" className="size-5 shrink-0 text-destructive" />
+					) : (
+						<FileCheckIcon aria-hidden="true" className="size-5 shrink-0 text-emerald-600" />
+					)}
+					<div className="flex min-w-0 flex-1 flex-col">
+						<span className="truncate font-medium">{file.name}</span>
+						<span className="text-sm text-muted-foreground tabular-nums">
+							{(file.size / 1024).toFixed(1)} KB
+						</span>
+					</div>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						disabled={disabled}
+						onClick={clear}
+						aria-label={`Remove ${file.name}`}
+					>
+						<XIcon />
+					</Button>
+				</div>
+				{error ? (
+					<p id={errorId} role="alert" className="text-sm text-destructive">
+						{error}
+					</p>
+				) : null}
 			</div>
 		);
 	}

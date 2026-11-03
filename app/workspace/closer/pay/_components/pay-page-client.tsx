@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Component, type ReactNode, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { AlertCircleIcon, CheckCircle2Icon, PencilIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,17 +68,53 @@ export function PayPageClient() {
 	}
 
 	return (
-		<SectionErrorBoundary
-			sectionName="payment link"
-			fallback={
-				<PayNotice title="This link doesn't open a payment">
-					The call or task it names doesn&apos;t exist, or isn&apos;t yours.
-				</PayNotice>
-			}
-		>
+		<PayLinkErrorBoundary>
 			<PayTarget link={link} />
-		</SectionErrorBoundary>
+		</PayLinkErrorBoundary>
 	);
+}
+
+/**
+ * Tells a sign-in that hasn't settled apart from a link the closer can't use.
+ * Right after a navigation a query can briefly run without the session's
+ * token; that is worth a reload, not "this link isn't yours".
+ */
+class PayLinkErrorBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+	state: { error: unknown } = { error: null };
+
+	static getDerivedStateFromError(error: unknown) {
+		return { error };
+	}
+
+	componentDidCatch(error: unknown) {
+		const code = (error as { data?: { code?: unknown } }).data?.code;
+		if (typeof code === "string" && code.startsWith("auth.")) return;
+		posthog.captureException(error, {
+			error_origin: "section_error_boundary",
+			error_boundary: "payment link",
+		});
+	}
+
+	render() {
+		const { error } = this.state;
+		if (!error) return this.props.children;
+		const code = (error as { data?: { code?: unknown } }).data?.code;
+		if (typeof code === "string" && code.startsWith("auth.")) {
+			return (
+				<PayNotice title="Your sign-in is still loading">
+					Reload the page to open the payment.{" "}
+					<button type="button" className="font-medium underline" onClick={() => window.location.reload()}>
+						Reload
+					</button>
+				</PayNotice>
+			);
+		}
+		return (
+			<PayNotice title="This link doesn't open a payment">
+				The call or task it names doesn&apos;t exist, or isn&apos;t yours.
+			</PayNotice>
+		);
+	}
 }
 
 /** What the payment is for, read from the call or task the link names. */
