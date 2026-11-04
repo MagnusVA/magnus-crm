@@ -173,8 +173,23 @@ export function mergeSalesCallsDashboard(history: SalesCalls, today: SalesCalls)
   };
 }
 
+/**
+ * A goal's days over both windows: each window's goal days, or its day count
+ * when the answer predates goal days (or, for a team, lacks the team).
+ */
+function mergedGoalDays(
+  history: { goalDayCount?: number } | undefined,
+  historyDayCount: number,
+  today: { goalDayCount?: number } | undefined,
+  todayDayCount: number,
+) {
+  return (history?.goalDayCount ?? historyDayCount) + (today?.goalDayCount ?? todayDayCount);
+}
+
 export function mergeBookedCallsDashboard(history: BookedCalls, today: BookedCalls): BookedCalls {
   const businessDayCount = history.goal.businessDayCount + today.goal.businessDayCount;
+  const historyTeams = new Map(history.goal.teams.map((team) => [team.teamId, team]));
+  const todayTeams = new Map(today.goal.teams.map((team) => [team.teamId, team]));
   const teams = mergeRows(
     history.goal.teams,
     today.goal.teams,
@@ -185,10 +200,19 @@ export function mergeBookedCallsDashboard(history: BookedCalls, today: BookedCal
       teamOnly: mergeTeamOnly(past.teamOnly, current.teamOnly),
     }),
   )
-    .map((team) => ({
-      ...team,
-      target: team.dailyQuota === null ? null : team.dailyQuota * businessDayCount,
-    }))
+    .map((team) => {
+      const goalDayCount = mergedGoalDays(
+        historyTeams.get(team.teamId),
+        history.goal.businessDayCount,
+        todayTeams.get(team.teamId),
+        today.goal.businessDayCount,
+      );
+      return {
+        ...team,
+        goalDayCount,
+        target: team.dailyQuota === null ? null : team.dailyQuota * goalDayCount,
+      };
+    })
     .sort((left, right) => compareLabels(left.label, right.label));
   const targets = teams.flatMap((team) => (team.target === null ? [] : [team.target]));
   return {
@@ -224,6 +248,12 @@ export function mergeQualificationsDashboard(
   today: Qualifications,
 ): Qualifications {
   const businessDayCount = history.goal.businessDayCount + today.goal.businessDayCount;
+  const goalDayCount = mergedGoalDays(
+    history.goal,
+    history.goal.businessDayCount,
+    today.goal,
+    today.goal.businessDayCount,
+  );
   return {
     totalQualified: history.totalQualified + today.totalQualified,
     openers: mergeRows(
@@ -253,7 +283,8 @@ export function mergeQualificationsDashboard(
     goal: {
       ...today.goal,
       businessDayCount,
-      target: today.goal.dailyQuota === null ? null : today.goal.dailyQuota * businessDayCount,
+      goalDayCount,
+      target: today.goal.dailyQuota === null ? null : today.goal.dailyQuota * goalDayCount,
       progress: history.goal.progress + today.goal.progress,
     },
     window: {

@@ -14,8 +14,12 @@ export function AttributionPageClient() {
         title="Attribution checks"
         description={
           <>
-            Bookings the pipeline couldn’t process. DM teams, unmatched UTMs and the link portal are in{" "}
-            <Link href="/workspace/booking/teams" className="font-semibold text-board-foreground underline decoration-board-foreground/40 underline-offset-2 hover:decoration-board-foreground">
+            Bookings the pipeline couldn’t process. DM teams and unmatched UTMs are in{" "}
+            <Link href="/workspace/team/teams" className="rounded-[3px] font-semibold text-board-foreground underline decoration-board-foreground/40 underline-offset-2 outline-none hover:decoration-board-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              Team › Teams
+            </Link>
+            , the link portal in{" "}
+            <Link href="/workspace/booking/portal" className="rounded-[3px] font-semibold text-board-foreground underline decoration-board-foreground/40 underline-offset-2 outline-none hover:decoration-board-foreground focus-visible:ring-2 focus-visible:ring-ring">
               Booking setup
             </Link>
             .

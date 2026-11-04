@@ -9,6 +9,7 @@ import {
 } from "./aggregates";
 import type { BusinessDaySetting } from "../../lib/businessDay";
 import {
+  addBusinessDays,
   buildBusinessPeriods,
   businessDateToUtcStart,
   countBusinessDays,
@@ -26,6 +27,10 @@ import {
   slackMemberIdentity,
   type MemberAvatarIdentity,
 } from "../lib/memberIdentity";
+import {
+  loadQualifiedGoalGroup,
+  qualifiedGoalDayCount,
+} from "../workSchedules/goalDays";
 
 const MAX_SLACK_SETTERS = 500;
 const MAX_DAILY_TEAM_GOAL = 5000;
@@ -223,8 +228,10 @@ export async function buildQualificationReport(
     : setterResult.setters;
   const isTeamView = selectedSlackUserId === undefined;
 
+  // A period's goalDays are the days in it some qualifier works.
+  const goalPeriods = await withGoalDays(ctx, tenantId, args, setting, periods);
   const periodCounts = countPeriods({
-    periods,
+    periods: goalPeriods,
     teamDailyGoal,
     byPeriodStart: counts.byPeriodStart,
   });
@@ -294,6 +301,39 @@ export const setTeamDailyGoal = mutation({
     };
   },
 });
+
+/**
+ * The periods with `goalDays` counted as the qualified-leads goal counts them:
+ * the days some Slack qualifier works (qualifiedGoalDayCount). Every day
+ * counts when the group is too large to read.
+ */
+async function withGoalDays(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  args: QualificationReportArgs,
+  setting: BusinessDaySetting,
+  periods: BusinessPeriod[],
+): Promise<BusinessPeriod[]> {
+  const group = await loadQualifiedGoalGroup(ctx, tenantId);
+  if (!group) return periods;
+  const daysByPeriodStart = new Map<number, string[]>();
+  for (let day = args.startBusinessDate; day < args.endBusinessDateExclusive; day = addBusinessDays(day, 1)) {
+    const start = businessDateToUtcStart(day, setting);
+    const period = periods.find((candidate) => start >= candidate.start && start < candidate.end);
+    if (!period) continue;
+    const days = daysByPeriodStart.get(period.start) ?? [];
+    days.push(day);
+    daysByPeriodStart.set(period.start, days);
+  }
+  return periods.map((period) => ({
+    ...period,
+    goalDays: qualifiedGoalDayCount(
+      group.slackUsers,
+      group.scheduleRowsBySlackUserId,
+      daysByPeriodStart.get(period.start) ?? [],
+    ),
+  }));
+}
 
 const EMPTY_SUMMARY: QualificationEventSummary = {
   qualificationEventCount: 0,
@@ -465,9 +505,11 @@ function summarizeReport(args: {
     (sum, period) => sum + period.qualifiedCount,
     0,
   );
+  // The days some qualifier works, summed over the periods.
+  const goalDayCount = args.periodCounts.reduce((sum, period) => sum + period.goalDays, 0);
   const expectedTeamQualified =
     args.isTeamView && args.teamDailyGoal !== null
-      ? args.teamDailyGoal * args.businessDayCount
+      ? args.teamDailyGoal * goalDayCount
       : null;
   const underGoalPeriods = args.isTeamView
     ? args.periodCounts.filter(
@@ -480,6 +522,7 @@ function summarizeReport(args: {
   return {
     totalQualified,
     businessDayCount: args.businessDayCount,
+    goalDayCount,
     averagePerBusinessDay:
       args.businessDayCount > 0 ? totalQualified / args.businessDayCount : null,
     dailyTeamQualificationGoal: args.teamDailyGoal,

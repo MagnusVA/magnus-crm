@@ -26,6 +26,7 @@ import type {
 import { formatDecimal, formatWholeNumber } from "./overview-formatters";
 import { OverviewPartialNote, OverviewSectionState } from "./overview-section-state";
 import { SectionErrorBoundary } from "./section-error-boundary";
+import { ScheduleHoursLink, teamHref } from "@/app/workspace/operations/_components/team-links";
 
 // Overview's three rankings (DESIGN.md, The Ranking Card): each names its
 // leader at full size, then the rest as ruled rows, ranked per scheduled
@@ -38,18 +39,31 @@ type RankedPerson = {
   id: string;
   name: string;
   avatar: (size: "default" | "lg") => ReactNode;
-  /** "42 submissions · 6 h scheduled" */
+  /** "42 submissions"; the hours follow as a link to the person's week. */
   meta: string;
+  /** Scheduled hours in the range; 0 when the person has no schedule. */
+  hours: number;
+  /** The person's week in Team (a member-card alias). */
+  scheduleHref: string;
   /** Output per scheduled hour; null when the person has no schedule. */
   rate: number | null;
 };
 
 const MAX_TOP_ROWS = 5;
 
-/** "6 h scheduled", or nothing when there is no schedule (the rate says so). */
-function hoursScheduled(hours: number) {
-  if (hours <= 0) return null;
-  return `${Number.isInteger(hours) ? hours : formatDecimal(hours)} h scheduled`;
+/** The meta line: what they did, then "6 h scheduled" linked to their week (nothing when there's no schedule; the rate says so). */
+function PersonMeta({ person }: { person: RankedPerson }) {
+  return (
+    <>
+      {person.meta}
+      {person.hours > 0 ? (
+        <>
+          {" · "}
+          <ScheduleHoursLink href={person.scheduleHref} hours={person.hours} name={person.name} />
+        </>
+      ) : null}
+    </>
+  );
 }
 
 function count(value: number, one: string, many = one) {
@@ -84,9 +98,9 @@ function leadGenPerson(worker: LeadGenWorker): RankedPerson {
     id: worker.workerId,
     name: worker.displayName,
     avatar: crmAvatar(worker.workerId, worker.displayName, "crm_user"),
-    meta: [count(worker.submissions, "submission", "submissions"), hoursScheduled(worker.scheduledHours)]
-      .filter(Boolean)
-      .join(" · "),
+    meta: count(worker.submissions, "submission", "submissions"),
+    hours: worker.scheduledHours,
+    scheduleHref: teamHref.worker(worker.workerId, null),
     rate: worker.leadsPerHour,
   };
 }
@@ -97,13 +111,9 @@ function qualifierPerson(row: QualifierRow): RankedPerson {
     id: row.slackUserId,
     name,
     avatar: slackAvatar(name, row.avatarUrl),
-    meta: [
-      `${formatWholeNumber(row.uniqueOpportunityCount)} qualified`,
-      `${formatWholeNumber(row.booked)} booked`,
-      hoursScheduled(row.scheduledHours),
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    meta: `${formatWholeNumber(row.uniqueOpportunityCount)} qualified · ${formatWholeNumber(row.booked)} booked`,
+    hours: row.scheduledHours,
+    scheduleHref: teamHref.slackUser(row.slackUserId, null),
     rate: row.qualifiedPerHour,
   };
 }
@@ -113,9 +123,9 @@ function dmCloserPerson(row: DmCloserRow): RankedPerson {
     id: row.dmCloserId,
     name: row.displayName,
     avatar: crmAvatar(row.dmCloserId, row.displayName, "dm_closer"),
-    meta: [row.teamName, `${formatWholeNumber(row.booked)} booked`, hoursScheduled(row.scheduledHours)]
-      .filter(Boolean)
-      .join(" · "),
+    meta: [row.teamName, `${formatWholeNumber(row.booked)} booked`].filter(Boolean).join(" · "),
+    hours: row.scheduledHours,
+    scheduleHref: teamHref.dmCloser(row.dmCloserId, null),
     rate: row.bookedPerHour,
   };
 }
@@ -157,7 +167,9 @@ function RankingList({ people, label }: { people: RankedPerson[]; label: string 
                 <span className="sr-only">1. </span>
                 {person.name}
               </p>
-              <p className="text-[13px] text-muted-foreground">{person.meta}</p>
+              <p className="text-[13px] text-muted-foreground">
+                <PersonMeta person={person} />
+              </p>
             </div>
             <Rate rate={person.rate} size="lead" />
           </li>
@@ -171,7 +183,9 @@ function RankingList({ people, label }: { people: RankedPerson[]; label: string 
             </span>
             <div className="min-w-0">
               <p className="truncate font-medium">{person.name}</p>
-              <p className="truncate text-[13px] text-muted-foreground">{person.meta}</p>
+              <p className="truncate text-[13px] text-muted-foreground">
+                <PersonMeta person={person} />
+              </p>
             </div>
             <Rate rate={person.rate} size="row" />
           </li>

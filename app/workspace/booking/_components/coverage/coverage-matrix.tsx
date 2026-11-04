@@ -141,8 +141,8 @@ export function CoverageMatrix({ onOpenPreview }: { onOpenPreview: () => void })
               <TeamHead key={team._id} team={team} />
             ))}
             <Link
-              href="/workspace/booking/teams?new=team"
-              title="Add a DM team"
+              href="/workspace/team/teams?new=team"
+              title="Add a team (Team › Teams)"
               className="grid place-items-center border-l border-dashed border-input text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             >
               <span className={cn(LABEL, "flex rotate-180 items-center gap-1.5 [writing-mode:vertical-rl]")}>

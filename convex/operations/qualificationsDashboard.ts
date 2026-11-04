@@ -18,10 +18,14 @@ import {
 } from "../lib/liveQueryBounds";
 import { listQualificationEventsForRange } from "../reporting/lib/slackQualificationLedger";
 import { requireTenantUser } from "../requireTenantUser";
-import { loadSlackQualifierScheduledHoursForRange } from "../workSchedules/rangeHours";
+import { hoursOverDays } from "../lib/workSchedule";
+import { qualifiedGoalDayCount } from "../workSchedules/goalDays";
+import {
+  businessDatesInInclusiveRange,
+  loadScheduleRowsByOwner,
+} from "../workSchedules/rangeHours";
 
 const SLACK_USER_REGISTRY_LIMIT = 300;
-const SLACK_QUALIFIER_SCHEDULE_LIMIT = 2_100;
 const LIVE_QUALIFIER_CANDIDATE_LIMIT = 300;
 
 const openerRowValidator = v.object({
@@ -98,6 +102,9 @@ export const getQualificationsDashboard = query({
       target: v.union(v.number(), v.null()),
       progress: v.number(),
       businessDayCount: v.number(),
+      // Days in the range some qualifier works; target = dailyQuota x this.
+      // Optional: answers cached before goals counted work days lack it.
+      goalDayCount: v.optional(v.number()),
     }),
     capped: v.boolean(),
     // Epoch-ms window matching the derived range; pass straight into the
@@ -149,45 +156,37 @@ export async function buildQualificationsDashboard(
   events: QualifiedEvents,
 ) {
   const tenantId = tenant._id;
-  const [slackUserScan, qualifierScheduleScan] = await Promise.all([
-    readLiveQueryRows(
-      ctx.db
-        .query("slackUsers")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
-      SLACK_USER_REGISTRY_LIMIT,
-    ),
-    readLiveQueryRows(
-      ctx.db
-        .query("slackQualifierSchedules")
-        .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", tenantId)),
-      SLACK_QUALIFIER_SCHEDULE_LIMIT,
-    ),
-  ]);
-  const slackUsers = slackUserScan.rows;
-  const qualifierSchedules = qualifierScheduleScan.rows;
+  const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
+  const cappedAnswer = () => ({
+    totalQualified: 0,
+    openers: [],
+    goal: qualifiedGoal(dailyQuota, range.dayCount, 0, range.dayCount),
+    capped: true,
+    window: {
+      qualifiedAfter: range.slackWindowStart,
+      qualifiedBefore: range.slackWindowEnd,
+    },
+  });
 
-  const capped =
-    events.truncated ||
-    slackUserScan.capped ||
-    qualifierScheduleScan.capped;
-  if (capped) {
-    const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
-    return {
-      totalQualified: 0,
-      openers: [],
-      goal: {
-        dailyQuota,
-        target: dailyQuota === null ? null : dailyQuota * range.dayCount,
-        progress: 0,
-        businessDayCount: range.dayCount,
-      },
-      capped: true,
-      window: {
-        qualifiedAfter: range.slackWindowStart,
-        qualifiedBefore: range.slackWindowEnd,
-      },
-    };
-  }
+  const slackUserScan = await readLiveQueryRows(
+    ctx.db
+      .query("slackUsers")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+    SLACK_USER_REGISTRY_LIMIT,
+  );
+  if (events.truncated || slackUserScan.capped) return cappedAnswer();
+  const slackUsers = slackUserScan.rows;
+
+  // Each qualifier's schedule rows, every date: a day's hours are the ones in
+  // force that day (convex/lib/workSchedule.ts, "Dated schedules").
+  const scheduleReadState = createLiveReadState();
+  const scheduleRowsBySlackUserId = await loadScheduleRowsByOwner(ctx, {
+    tenantId,
+    keys: slackUsers.map((user) => user.slackUserId),
+    owner: (slackUserId) => ({ table: "slackQualifierSchedules", slackUserId }),
+    liveReadState: scheduleReadState,
+  });
+  if (scheduleReadState.capped) return cappedAnswer();
 
   const slackUserById = new Map(
     slackUsers.map((user) => [user.slackUserId, user]),
@@ -196,8 +195,8 @@ export async function buildQualificationsDashboard(
   // Candidates: everyone with a qualifier schedule (so scheduled openers
   // show up at zero) plus everyone who logged an event in range.
   const scheduledSlackUserIds = new Set<string>();
-  for (const schedule of qualifierSchedules) {
-    scheduledSlackUserIds.add(schedule.slackUserId);
+  for (const [slackUserId, rows] of scheduleRowsBySlackUserId) {
+    if (rows.length > 0) scheduledSlackUserIds.add(slackUserId);
   }
   const candidateSlackUserIds = new Set<string>(scheduledSlackUserIds);
   const eventsBySlackUserId = new Map<string, QualifiedBySlackUser>();
@@ -206,52 +205,17 @@ export async function buildQualificationsDashboard(
     eventsBySlackUserId.set(opener.slackUserId, opener);
   }
 
-  if (candidateSlackUserIds.size > LIVE_QUALIFIER_CANDIDATE_LIMIT) {
-    const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
-    return {
-      totalQualified: 0,
-      openers: [],
-      goal: {
-        dailyQuota,
-        target: dailyQuota === null ? null : dailyQuota * range.dayCount,
-        progress: 0,
-        businessDayCount: range.dayCount,
-      },
-      capped: true,
-      window: {
-        qualifiedAfter: range.slackWindowStart,
-        qualifiedBefore: range.slackWindowEnd,
-      },
-    };
-  }
+  if (candidateSlackUserIds.size > LIVE_QUALIFIER_CANDIDATE_LIMIT) return cappedAnswer();
 
-  const scheduleReadState = createLiveReadState();
-  const scheduledHoursBySlackUserId =
-    await loadSlackQualifierScheduledHoursForRange(ctx, {
-      tenantId,
-      slackUserIds: [...candidateSlackUserIds],
-      startBusinessDate: range.startBusinessDate,
-      endBusinessDateInclusive: range.endBusinessDateInclusive,
-      liveReadState: scheduleReadState,
-    });
-  if (scheduleReadState.capped) {
-    const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
-    return {
-      totalQualified: 0,
-      openers: [],
-      goal: {
-        dailyQuota,
-        target: dailyQuota === null ? null : dailyQuota * range.dayCount,
-        progress: 0,
-        businessDayCount: range.dayCount,
-      },
-      capped: true,
-      window: {
-        qualifiedAfter: range.slackWindowStart,
-        qualifiedBefore: range.slackWindowEnd,
-      },
-    };
+  const rangeDays = businessDatesInInclusiveRange(range);
+  const scheduledHoursBySlackUserId = new Map<string, number>();
+  for (const slackUserId of scheduledSlackUserIds) {
+    scheduledHoursBySlackUserId.set(
+      slackUserId,
+      hoursOverDays(scheduleRowsBySlackUserId.get(slackUserId) ?? [], rangeDays),
+    );
   }
+  const goalDays = qualifiedGoalDayCount(slackUsers, scheduleRowsBySlackUserId, rangeDays);
 
   const openers: OpenerRow[] = [];
   for (const slackUserId of candidateSlackUserIds) {
@@ -286,28 +250,31 @@ export async function buildQualificationsDashboard(
     });
   });
 
-  // Same semantics as getQualificationReport's expectedTeamQualified:
-  // daily team quota x business days in the range (range.dayCount is
-  // countBusinessDays(startBusinessDate, endBusinessDateExclusive)).
+  // The daily team quota times the days some qualifier works in the range
+  // (qualifiedGoalDayCount), as getQualificationReport's period goals do.
   const totalQualified = events.bySlackUser.reduce(
     (sum, opener) => sum + opener.qualified,
     0,
   );
-  const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
 
   return {
     totalQualified,
     openers,
-    goal: {
-      dailyQuota,
-      target: dailyQuota === null ? null : dailyQuota * range.dayCount,
-      progress: totalQualified,
-      businessDayCount: range.dayCount,
-    },
+    goal: qualifiedGoal(dailyQuota, goalDays, totalQualified, range.dayCount),
     capped: false,
     window: {
       qualifiedAfter: range.slackWindowStart,
       qualifiedBefore: range.slackWindowEnd,
     },
+  };
+}
+
+function qualifiedGoal(dailyQuota: number | null, goalDays: number, progress: number, businessDayCount: number) {
+  return {
+    dailyQuota,
+    target: dailyQuota === null ? null : dailyQuota * goalDays,
+    progress,
+    businessDayCount,
+    goalDayCount: goalDays,
   };
 }

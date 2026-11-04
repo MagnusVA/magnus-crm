@@ -25,6 +25,31 @@ const nextConfig: NextConfig = {
 		// lucide-react, date-fns, and recharts are optimized by default.
 		optimizePackageImports: ["zod"],
 	},
+	// Old URLs of screens that moved into Team. Not permanent: the hub may
+	// still move. Next passes the request's query through (?closer=…&schedule=1).
+	async redirects() {
+		const leadGenSettings = "/workspace/lead-gen/settings";
+		const tab = (value: string) => [{ type: "query" as const, key: "tab", value }];
+		return [
+			{ source: "/workspace/booking/teams", destination: "/workspace/team/teams", permanent: false },
+			{ source: "/workspace/booking/teams/:teamId", destination: "/workspace/team/teams/:teamId", permanent: false },
+			{ source: leadGenSettings, has: tab("teams"), destination: "/workspace/team/teams", permanent: false },
+			{
+				source: leadGenSettings,
+				has: tab("schedules"),
+				destination: "/workspace/team/schedules?role=lead_gen",
+				permanent: false,
+			},
+			{
+				source: leadGenSettings,
+				has: tab("rules"),
+				destination: "/workspace/settings#lead-gen-rules",
+				permanent: false,
+			},
+			// "workers", no tab, or anything else.
+			{ source: leadGenSettings, destination: "/workspace/team?role=lead_gen", permanent: false },
+		];
+	},
 	async rewrites() {
 		return [
 			{

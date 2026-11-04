@@ -185,6 +185,16 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_tenantId", ["tenantId"]),
 
+  // Team › Review items an admin closed without changing a record ("Not the
+  // same", "Keep both", "Leave Slack-only"), so they stay closed. `key` names
+  // the item (convex/team/review.ts). Deleting the row reopens it.
+  teamReviewDecisions: defineTable({
+    tenantId: v.id("tenants"),
+    key: v.string(),
+    decidedByUserId: v.id("users"),
+    decidedAt: v.number(),
+  }).index("by_tenantId_and_key", ["tenantId", "key"]),
+
   leadGenSettings: defineTable({
     tenantId: v.id("tenants"),
     correctionWindowMinutes: v.optional(v.number()),
@@ -223,13 +233,18 @@ export default defineSchema({
     userId: v.id("users"),
     weekday: leadGenWeekdayValidator,
     scheduledHours: v.number(),
+    // The business date this row applies from, until the next row for the
+    // same weekday (convex/lib/workSchedule.ts, "Dated schedules"). Unset on
+    // rows saved before schedules were dated: they apply from the beginning.
+    effectiveFrom: v.optional(v.string()),
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_workerId_and_weekday", [
+    .index("by_tenantId_and_workerId_and_weekday_and_effectiveFrom", [
       "tenantId",
       "workerId",
       "weekday",
+      "effectiveFrom",
     ]),
 
   slackQualifierSchedules: defineTable({
@@ -237,13 +252,18 @@ export default defineSchema({
     slackUserId: v.string(),
     weekday: weekdayValidator,
     scheduledHours: v.number(),
+    // The business date this row applies from, until the next row for the
+    // same weekday (convex/lib/workSchedule.ts, "Dated schedules"). Unset on
+    // rows saved before schedules were dated: they apply from the beginning.
+    effectiveFrom: v.optional(v.string()),
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_slackUserId_and_weekday", [
+    .index("by_tenantId_and_slackUserId_and_weekday_and_effectiveFrom", [
       "tenantId",
       "slackUserId",
       "weekday",
+      "effectiveFrom",
     ]),
 
   dmCloserSchedules: defineTable({
@@ -251,13 +271,18 @@ export default defineSchema({
     dmCloserId: v.id("dmClosers"),
     weekday: weekdayValidator,
     scheduledHours: v.number(),
+    // The business date this row applies from, until the next row for the
+    // same weekday (convex/lib/workSchedule.ts, "Dated schedules"). Unset on
+    // rows saved before schedules were dated: they apply from the beginning.
+    effectiveFrom: v.optional(v.string()),
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_dmCloserId_and_weekday", [
+    .index("by_tenantId_and_dmCloserId_and_weekday_and_effectiveFrom", [
       "tenantId",
       "dmCloserId",
       "weekday",
+      "effectiveFrom",
     ]),
 
   leadGenProspects: defineTable({

@@ -1,50 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
 import { formatDistanceToNowStrict } from "date-fns";
 import { toast } from "sonner";
-import { ChevronLeftIcon, PlusIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
-import { AttributionTeamDialog } from "./attribution-team-dialog";
-import { buildBoard, eventTypeStatus, SCHEDULING_MODES, type Board, type Coverage } from "./booking-model";
+import { buildBoard, eventTypeStatus, type Board, type Coverage } from "./booking-model";
 
 export { BOOKING_ROOT_CLASS as BOOKING_ROOT } from "./booking-layout";
 
-export type BookingSection = "coverage" | "inbox" | "event-types" | "teams" | "team" | "portal";
-type Activity = FunctionReturnType<typeof api.bookingSetup.queries.getBookingActivity>;
+export type BookingSection = "coverage" | "inbox" | "event-types" | "portal";
 
 export function sectionFromPath(pathname: string): BookingSection {
   if (pathname.startsWith("/workspace/booking/inbox")) return "inbox";
   if (pathname.startsWith("/workspace/booking/event-types")) return "event-types";
-  if (pathname.startsWith("/workspace/booking/teams/")) return "team";
-  if (pathname.startsWith("/workspace/booking/teams")) return "teams";
   if (pathname.startsWith("/workspace/booking/portal")) return "portal";
   return "coverage";
 }
 
-const TITLE: Record<Exclude<BookingSection, "team">, string> = {
+const TITLE: Record<BookingSection, string> = {
   coverage: "Booking setup",
   inbox: "Inbox",
   "event-types": "Booking setup",
-  teams: "DM teams",
   portal: "Booking setup",
 };
 
-const DESCRIPTION: Record<Exclude<BookingSection, "team">, string> = {
+const DESCRIPTION: Record<BookingSection, string> = {
   coverage: "Who can book what: every program against every DM team, and the exact link each DM closer gets.",
   inbox: "Calendly event types nobody has sorted yet. File each one under a program and lane, or set it aside as not a sales call.",
   "event-types": "Calendly’s event types, sorted: sales calls, the unsorted, look-alikes and the noise.",
-  teams: "External setters who send booking links: a team is a utm_source, each DM closer a utm_medium. Open a team to see exactly what its closers get.",
   portal: "The password-protected page where DM closers copy their links, and what they did with it.",
 };
 
@@ -52,7 +42,6 @@ const TABS: Array<{ section: BookingSection; href: string; label: string }> = [
   { section: "coverage", href: "/workspace/booking", label: "Coverage" },
   { section: "inbox", href: "/workspace/booking/inbox", label: "Inbox" },
   { section: "event-types", href: "/workspace/booking/event-types", label: "Event types" },
-  { section: "teams", href: "/workspace/booking/teams", label: "DM teams" },
   { section: "portal", href: "/workspace/booking/portal", label: "Link portal" },
 ];
 
@@ -63,17 +52,16 @@ const LABEL =
  * The booking setup band, rendered once by the section's layout so it stays
  * mounted while the tabs change. The title and figures follow the section
  * (concept C's band for Coverage, Event types and Link portal; concept B's
- * figures for the Inbox and DM teams), and the tab row never moves.
+ * figures for the Inbox), and the tab row never moves. DM teams moved to
+ * Team › Teams (/workspace/team/teams).
  *
  * It also moves a tenant onto booking coverage the first time an admin opens
  * any section (`ensureCoverage` does nothing after that).
  */
 export function BookingBand() {
   const pathname = usePathname();
-  const params = useParams<{ teamId?: string }>();
   const section = sectionFromPath(pathname);
   const coverage = useQuery(api.bookingSetup.queries.getCoverage, {});
-  const activity = useQuery(api.bookingSetup.queries.getBookingActivity, {});
   const board = useMemo(() => (coverage ? buildBoard(coverage) : null), [coverage]);
   useEnsureCoverage(coverage?.migrated);
 
@@ -82,66 +70,32 @@ export function BookingBand() {
   const lastSync = coverage
     ? Math.max(0, ...coverage.eventTypes.map((eventType) => eventType.lastCalendlySyncedAt ?? 0))
     : 0;
-  const team =
-    section === "team" && coverage ? coverage.teams.find((row) => row._id === params.teamId) : undefined;
 
   return (
     <header className="overflow-hidden rounded-xl bg-board text-board-foreground dark:ring-1 dark:ring-board-foreground/10">
       <div className="dark flex flex-col px-4 pt-3.5 @lg:px-[18px]">
         <div className="flex min-h-[78px] flex-wrap items-end gap-x-[18px] gap-y-3 pb-3">
           <div className="min-w-0 flex-[1_1_260px]">
-            {section === "team" ? (
-              <Link
-                href="/workspace/booking/teams"
-                className="-ml-1 mb-1.5 inline-flex min-h-6 items-center gap-1 rounded-sm pr-1.5 text-[13px] font-medium text-board-muted outline-none hover:text-board-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ChevronLeftIcon className="size-4" aria-hidden="true" />
-                DM teams
-              </Link>
-            ) : null}
             <h1 className="flex flex-wrap items-center gap-2.5 text-[26px] leading-[1.1] font-semibold tracking-[-0.01em]">
-              {section === "team" ? (team?.displayName ?? "DM team") : TITLE[section]}
-              {section === "team" && team ? (
-                <span
-                  className={cn(
-                    "rounded-[4px] border px-1.5 py-0.5 font-condensed text-[11px] font-bold tracking-[0.1em] uppercase",
-                    team.isActive
-                      ? "border-board-foreground/25 text-board-foreground"
-                      : "border-board-foreground/15 text-board-muted",
-                  )}
-                >
-                  {team.isActive ? "Active" : "Disabled"}
-                </span>
-              ) : null}
+              {TITLE[section]}
             </h1>
             <p className="mt-[5px] max-w-[520px] text-[13px] leading-[19px] text-board-muted @4xl:min-h-[38px]">
-              {section === "team" ? team ? <TeamMeta team={team} /> : " " : DESCRIPTION[section]}
+              {DESCRIPTION[section]}
             </p>
           </div>
-          {board && coverage && activity !== undefined ? (
-            <Figures section={section} board={board} coverage={coverage} activity={activity} teamId={team?._id} />
+          {board && coverage ? (
+            <Figures section={section} board={board} coverage={coverage} />
           ) : (
             <div className="h-[62px]" aria-hidden />
           )}
-          {section === "team" ? (
-            team ? <TeamActions team={team} /> : null
-          ) : section === "teams" ? (
-            <Button asChild className="self-start">
-              <Link href="/workspace/booking/teams?new=team">
-                <PlusIcon aria-hidden />
-                New DM team
-              </Link>
-            </Button>
-          ) : (
-            <PortalStatus />
-          )}
+          <PortalStatus />
         </div>
         <nav
           aria-label="Booking setup sections"
           className="-mx-4 flex items-center gap-[22px] overflow-x-auto border-t border-board-line px-4 [scrollbar-width:none] @lg:-mx-[18px] @lg:px-[18px]"
         >
           {TABS.map((tab) => {
-            const active = tab.section === section || (tab.section === "teams" && section === "team");
+            const active = tab.section === section;
             const count = tab.section === "coverage" ? problems : tab.section === "inbox" ? unsorted : 0;
             return (
               <Link
@@ -192,14 +146,6 @@ const FIGURE_TIP: Record<string, string> = {
   "On a program": "Event types filed under a program. Their bookings count as sales calls for it.",
   "Not a sales call": "Event types set aside as not sales calls. Bring one back from Event types.",
   Gone: "Unsorted event types Calendly no longer offers (switched off or deleted).",
-  "Active teams": "DM teams that appear in the link portal and get credit for bookings.",
-  "Active DM closers": "Active DM closers on active teams: the people who can copy links.",
-  "Booked via DM links · 30d": "Bookings in the last 30 days whose utm_source matched an active DM team.",
-  "Unmatched UTMs": "UTM values on bookings in the last 30 days that matched no team or DM closer, so nobody got credit. Fix them below.",
-  "Booked · 30 days": "Bookings in the last 30 days through links with this team's utm_source.",
-  "DM closers": "Active DM closers on this team.",
-  "Programs it can book": "Programs where this team's DM closers get at least one working link (Priority or Standard).",
-  "Link copies · 7 days": "Links this team's DM closers copied from the portal in the last 7 days.",
 };
 
 function Figure({
@@ -276,14 +222,10 @@ function Figures({
   section,
   board,
   coverage,
-  activity,
-  teamId,
 }: {
   section: BookingSection;
   board: Board;
   coverage: Coverage;
-  activity: Activity;
-  teamId?: Id<"attributionTeams">;
 }) {
   const { figures } = board;
   if (section === "inbox") {
@@ -308,57 +250,6 @@ function Figures({
           href="/workspace/booking/event-types?filter=not_sales_call"
         />
         <Figure label="Gone" value={counts.gone} caption="off in Calendly" href="/workspace/booking/event-types?filter=gone" />
-      </div>
-    );
-  }
-  if (section === "teams") {
-    const active = coverage.teams.filter((team) => team.isActive);
-    const closers = active.reduce((sum, team) => sum + team.activeDmClosers, 0);
-    const credited = Object.values(activity.bookings30d.teams).reduce((sum, count) => sum + count, 0);
-    const unmatchedBookings = activity.unmatchedUtms.reduce((sum, row) => sum + row.bookings, 0);
-    return (
-      <div className="flex flex-wrap">
-        <Figure label="Active teams" value={active.length} caption={`${coverage.teams.length - active.length} disabled`} />
-        <Figure label="Active DM closers" value={closers} caption="on active teams" />
-        <Figure label="Booked via DM links · 30d" value={credited} caption="credited by utm_source" />
-        <Figure
-          label="Unmatched UTMs"
-          value={activity.unmatchedUtms.length}
-          caption={`${unmatchedBookings} booking${unmatchedBookings === 1 ? "" : "s"} credited to nobody`}
-          tone={activity.unmatchedUtms.length ? "warning" : "default"}
-        />
-      </div>
-    );
-  }
-  if (section === "team") {
-    const team = coverage.teams.find((row) => row._id === teamId);
-    if (!team) return null;
-    let canBook = 0;
-    let firstGap: string | null = null;
-    for (const program of board.programs) {
-      const works = SCHEDULING_MODES.some((mode) => {
-        const cell = board.teamCell(team, program._id, mode);
-        return cell.kind !== "none" && cell.issue === null;
-      });
-      if (works) canBook += 1;
-      else firstGap ??= program.name;
-    }
-    return (
-      <div className="flex flex-wrap">
-        <Figure
-          label="Booked · 30 days"
-          value={activity.bookings30d.teams[team._id] ?? 0}
-          caption={team.bookingDailyQuota ? `goal ${team.bookingDailyQuota} a business day` : "No goal"}
-        />
-        <Figure label="DM closers" value={team.activeDmClosers} caption="active" />
-        <Figure
-          label="Programs it can book"
-          value={canBook}
-          of={board.programs.length}
-          caption={firstGap ? `${firstGap}: no link` : "Every program"}
-          tone={firstGap ? "warning" : "default"}
-        />
-        <Figure label="Link copies · 7 days" value={activity.copies7d.teams[team._id] ?? 0} caption="from the DM portal" />
       </div>
     );
   }
@@ -407,49 +298,6 @@ function PortalStatus() {
       <span className="text-[12px] whitespace-nowrap text-board-muted">
         {live ? "Changes reach DM closers right away" : "DM closers can’t copy links"}
       </span>
-    </div>
-  );
-}
-
-function TeamMeta({ team }: { team: Coverage["teams"][number] }) {
-  return (
-    <>
-      utm_source <span className="font-mono text-board-foreground">{team.utmSource}</span>
-      {" · "}
-      {team.bookingDailyQuota ? `goal ${team.bookingDailyQuota} booked calls a business day` : "no daily goal"}
-      {" · "}
-      {team.activeDmClosers} active DM {team.activeDmClosers === 1 ? "closer" : "closers"}
-    </>
-  );
-}
-
-function TeamActions({ team }: { team: Coverage["teams"][number] }) {
-  const [editing, setEditing] = useState(false);
-  const setTeamActive = useMutation(api.attribution.teams.setTeamActive);
-  const teams = useQuery(api.attribution.teams.listTeams, {});
-  const doc = teams?.find((row) => row._id === team._id) ?? null;
-  const boardButton =
-    "border-board-foreground/15 bg-board-raised text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10";
-
-  async function toggle() {
-    try {
-      await setTeamActive({ teamId: team._id, isActive: !team.isActive });
-      toast.success(team.isActive ? `${team.displayName} disabled` : `${team.displayName} enabled`);
-    } catch (error) {
-      reportClientError(error, { flow: "booking_team_active" });
-      toast.error(getErrorMessage(error, "Couldn’t change this team."));
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-2 self-start pt-1">
-      <Button variant="outline" size="sm" className={boardButton} onClick={() => setEditing(true)} disabled={!doc}>
-        Edit team
-      </Button>
-      <Button variant="outline" size="sm" className={boardButton} onClick={() => void toggle()}>
-        {team.isActive ? "Disable" : "Enable"}
-      </Button>
-      {doc ? <AttributionTeamDialog open={editing} onOpenChange={setEditing} team={doc} /> : null}
     </div>
   );
 }

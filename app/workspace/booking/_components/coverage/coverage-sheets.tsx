@@ -331,7 +331,7 @@ export function TeamSheet() {
           <span className="text-[12.5px] text-muted-foreground">DM closers don’t get CRM logins; they only carry UTM values.</span>
           <span className="flex-1" />
           <Button variant="outline" asChild>
-            <Link href={`/workspace/booking/teams/${team._id}`}>Edit team</Link>
+            <Link href={`/workspace/team/teams/${team._id}`}>Edit team</Link>
           </Button>
           <Button onClick={close} className="bg-foreground text-background hover:bg-foreground/85">
             Done
@@ -384,8 +384,8 @@ export function TeamSheet() {
       <Section
         title={`DM closers · ${roster.length}`}
         aside={
-          <Link href={`/workspace/booking/teams/${team._id}`} className="text-primary-ink hover:underline">
-            Manage on DM teams
+          <Link href={`/workspace/team/teams/${team._id}`} className="text-primary-ink hover:underline">
+            Manage on Team › Teams
           </Link>
         }
       >

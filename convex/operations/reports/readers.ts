@@ -3,7 +3,19 @@ import { withAttendanceCounts } from "../../lib/meetingAttendance";
 import { requireReportingReady } from "../reportingReadiness";
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import { v } from "convex/values";
+import type { Id } from "../../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../../_generated/server";
+import { addBusinessDays } from "../../../lib/businessDay";
+import { goalDayCount as countGoalDays, rowInForce, weekdayForBusinessDate } from "../../lib/workSchedule";
+import {
+  bookingGoalCountsDay,
+  loadBookingGoalGroups,
+  loadQualifiedGoalGroup,
+  qualifiedGoalDayCount,
+} from "../../workSchedules/goalDays";
+import type { ScheduleOwner, ScheduleRow } from "../../workSchedules/datedRows";
+import { loadScheduleRowsByOwner } from "../../workSchedules/rangeHours";
+import { createLiveReadState } from "../../lib/liveQueryBounds";
 import { bookingCreditForMeeting } from "../../lib/attribution/dealAttributions";
 import { leadDisplayFromShape } from "../../lib/leadDisplay";
 import {
@@ -32,6 +44,9 @@ import {
   type ReportSourcePageRequest,
   type ReportSourceRow,
 } from "./model";
+
+// Matches the live dashboards' DM closer registry bound.
+const DM_CLOSERS_PER_TEAM_LIMIT = 300;
 
 const pageResultValidator = v.object({
   attendanceCountsPartial: v.optional(v.boolean()),
@@ -170,18 +185,13 @@ async function readLeadGenDaily(ctx: QueryCtx, args: ReportSourcePageRequest) {
       (!args.workerId || row.workerId === args.workerId) &&
       (args.sourceFilter === "all" || row.source === args.sourceFilter),
   );
-  const hoursByWorkerDay = new Map<string, number>();
-  for (const workerId of [...new Set(filtered.map((row) => row.workerId))]) {
-    const schedules = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-        q.eq("tenantId", args.tenantId).eq("workerId", workerId),
-      )
-      .take(7);
-    for (const schedule of schedules) {
-      hoursByWorkerDay.set(`${workerId}:${schedule.weekday}`, schedule.scheduledHours);
-    }
-  }
+  // Each day under the worker's schedule in force that day; the bucket's
+  // snapshot when none was.
+  const scheduleRowsByWorker = await loadScheduleRowsByOwner(ctx, {
+    tenantId: args.tenantId,
+    keys: filtered.map((row) => row.workerId),
+    owner: (workerId) => ({ table: "leadGenWorkerSchedules", workerId }),
+  });
   const page: ReportSourceRow[] = filtered.map((row) => ({
     kind: "lead_gen_daily",
     statKey: row.statKey,
@@ -194,14 +204,77 @@ async function readLeadGenDaily(ctx: QueryCtx, args: ReportSourcePageRequest) {
     uniqueProspects: row.uniqueProspectsSubmitted,
     duplicates: row.duplicateProspectSubmissions,
     scheduledHours:
-      hoursByWorkerDay.get(`${row.workerId}:${weekday(row.dayKey)}`) ?? row.scheduledHours,
+      rowInForce(scheduleRowsByWorker.get(row.workerId) ?? [], weekdayForBusinessDate(row.dayKey), row.dayKey)
+        ?.scheduledHours ?? row.scheduledHours,
   }));
   return projectedPage(result, page);
 }
 
-function weekday(dayKey: string) {
-  const names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
-  return names[new Date(`${dayKey}T12:00:00.000Z`).getUTCDay()];
+function rangeDayKeys(args: Pick<ReportSourcePageRequest, "startDayKey" | "endDayKeyExclusive">) {
+  const days: string[] = [];
+  for (let day = args.startDayKey; day < args.endDayKeyExclusive; day = addBusinessDays(day, 1)) days.push(day);
+  return days;
+}
+
+/**
+ * Schedule rows with the days of the range each was in force (`occurrences`):
+ * a dated row counts only from its date until the owner's next row for the
+ * weekday (convex/lib/workSchedule.ts, "Dated schedules").
+ */
+async function scheduleRowsWithOccurrences<Row extends ScheduleRow, Key>(
+  ctx: QueryCtx,
+  args: ReportSourcePageRequest,
+  rows: readonly Row[],
+  keyOf: (row: Row) => Key,
+  owner: (key: Key) => ScheduleOwner,
+) {
+  const state = createLiveReadState();
+  const ownerRows = await loadScheduleRowsByOwner(ctx, {
+    tenantId: args.tenantId,
+    keys: rows.map(keyOf),
+    owner,
+    liveReadState: state,
+  });
+  if (state.capped) throw new Error("Schedules exceed the report's read budget.");
+  const days = rangeDayKeys(args);
+  return rows.map((row) => {
+    const all = ownerRows.get(keyOf(row)) ?? [row];
+    const occurrences = days.filter(
+      (day) => weekdayForBusinessDate(day) === row.weekday && rowInForce(all, row.weekday, day)?._id === row._id,
+    ).length;
+    return { row, occurrences };
+  });
+}
+
+/**
+ * The days of the range a goal counts for each team: the days one of its
+ * active DM closers works (bookingGoalDayCounts).
+ */
+async function teamGoalDayCounts(ctx: QueryCtx, args: ReportSourcePageRequest, teamIds: Id<"attributionTeams">[]) {
+  const closers = [];
+  for (const teamId of teamIds) {
+    closers.push(
+      ...(await ctx.db
+        .query("dmClosers")
+        .withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", args.tenantId).eq("teamId", teamId))
+        .take(DM_CLOSERS_PER_TEAM_LIMIT)),
+    );
+  }
+  const groups = await loadBookingGoalGroups(ctx, { tenantId: args.tenantId, teamIds, dmClosers: closers });
+  if (!groups) return null;
+  const days = rangeDayKeys(args);
+  const last = days[days.length - 1];
+  return new Map([...groups].map(([teamId, group]) => [teamId, {
+    count: countGoalDays(group, days),
+    countsLastDay: last ? bookingGoalCountsDay(group, last) : true,
+  }]));
+}
+
+/** The days of the range the qualified-leads goal counts (qualifiedGoalDayCount); null if the reads ran out. */
+async function qualifiedGoalDays(ctx: QueryCtx, args: ReportSourcePageRequest) {
+  const group = await loadQualifiedGoalGroup(ctx, args.tenantId);
+  if (!group) return null;
+  return qualifiedGoalDayCount(group.slackUsers, group.scheduleRowsBySlackUserId, rangeDayKeys(args));
 }
 
 async function readLeadGenOrigins(ctx: QueryCtx, args: ReportSourcePageRequest, teamScoped: boolean) {
@@ -282,12 +355,16 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return syntheticPage(sources, args.cursor);
   }
   if (args.sourceKey === "teams") {
-    const result = await ctx.db.query("attributionTeams").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "team", teamId: row._id, label: row.displayName, isActive: row.isActive, bookingDailyQuota: row.bookingDailyQuota ?? null })));
+    const result = await ctx.db.query("attributionTeams").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(args.reportKind === "booked-calls" ? pagination(args.cursor, 8) : opts);
+    // Only Booked Calls has team goals.
+    const goalDays = args.reportKind === "booked-calls" ? await teamGoalDayCounts(ctx, args, result.page.map((row) => row._id)) : null;
+    if (args.reportKind === "booked-calls" && goalDays === null) throw new Error("Team schedules exceed the report's read budget.");
+    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "team", teamId: row._id, label: row.displayName, isActive: row.isActive, bookingDailyQuota: row.bookingDailyQuota ?? null, goalDayCount: goalDays?.get(row._id)?.count ?? null, goalCountsLastDay: goalDays?.get(row._id)?.countsLastDay })));
   }
   if (args.sourceKey === "lead_gen_worker_schedules") {
-    const result = await ctx.db.query("leadGenWorkerSchedules").withIndex("by_tenantId_and_workerId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "lead_gen_schedule", workerId: row.workerId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
+    const result = await ctx.db.query("leadGenWorkerSchedules").withIndex("by_tenantId_and_workerId_and_weekday_and_effectiveFrom", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const rows = await scheduleRowsWithOccurrences(ctx, args, result.page, (row) => row.workerId, (workerId) => ({ table: "leadGenWorkerSchedules", workerId }));
+    return projectedPage(result, rows.map(({ row, occurrences }): ReportSourceRow => ({ kind: "lead_gen_schedule", workerId: row.workerId, weekday: row.weekday, scheduledHours: row.scheduledHours, occurrences })));
   }
   if (args.sourceKey === "slack_users") {
     const result = await ctx.db.query("slackUsers").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
@@ -297,8 +374,9 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     }));
   }
   if (args.sourceKey === "qualifier_schedules") {
-    const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "qualifier_schedule", slackUserId: row.slackUserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
+    const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId_and_slackUserId_and_weekday_and_effectiveFrom", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const rows = await scheduleRowsWithOccurrences(ctx, args, result.page, (row) => row.slackUserId, (slackUserId) => ({ table: "slackQualifierSchedules", slackUserId }));
+    return projectedPage(result, rows.map(({ row, occurrences }): ReportSourceRow => ({ kind: "qualifier_schedule", slackUserId: row.slackUserId, weekday: row.weekday, scheduledHours: row.scheduledHours, occurrences })));
   }
   if (args.sourceKey === "dm_closers") {
     // Each primary row can hydrate one linked user (including a storage URL),
@@ -313,8 +391,9 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, page);
   }
   if (args.sourceKey === "dm_closer_schedules") {
-    const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "dm_closer_schedule", dmCloserId: row.dmCloserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
+    const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId_and_dmCloserId_and_weekday_and_effectiveFrom", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const rows = await scheduleRowsWithOccurrences(ctx, args, result.page, (row) => row.dmCloserId, (dmCloserId) => ({ table: "dmCloserSchedules", dmCloserId }));
+    return projectedPage(result, rows.map(({ row, occurrences }): ReportSourceRow => ({ kind: "dm_closer_schedule", dmCloserId: row.dmCloserId, weekday: row.weekday, scheduledHours: row.scheduledHours, occurrences })));
   }
   if (args.sourceKey === "users") {
     const result = await ctx.db.query("users").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
@@ -415,7 +494,9 @@ export async function readSourcePage(ctx: QueryCtx, args: ReportSourcePageReques
   switch (args.sourceKey) {
     case "tenant": {
       const tenant = await ctx.db.get("tenants", args.tenantId);
-      return syntheticPage(tenant ? [{ kind: "tenant", slackQualificationDailyTeamQuota: tenant.slackQualificationDailyTeamQuota ?? null }] : [], args.cursor);
+      const goalDayCount = tenant ? await qualifiedGoalDays(ctx, args) : null;
+      if (tenant && goalDayCount === null) throw new Error("Qualifier schedules exceed the report's read budget.");
+      return syntheticPage(tenant ? [{ kind: "tenant", slackQualificationDailyTeamQuota: tenant.slackQualificationDailyTeamQuota ?? null, goalDayCount }] : [], args.cursor);
     }
     case "lead_gen_daily": return await readLeadGenDaily(ctx, args);
     case "lead_gen_origins": return await readLeadGenOrigins(ctx, args, false);

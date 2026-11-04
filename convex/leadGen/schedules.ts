@@ -1,11 +1,9 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { businessDateToUtcStart } from "../reporting/lib/hondurasBusinessTime";
-import {
-  createLiveReadState,
-  readLiveQueryRows,
-  type LiveReadState,
-} from "../lib/liveQueryBounds";
+import { createLiveReadState, type LiveReadState } from "../lib/liveQueryBounds";
+import { rowInForce } from "../lib/workSchedule";
+import { loadScheduleRowsByOwner } from "../workSchedules/rangeHours";
 
 type LeadGenWeekday = Doc<"leadGenWorkerSchedules">["weekday"];
 type DailyStatScheduleRow = Pick<
@@ -56,7 +54,14 @@ export function scheduledHoursForDailyStat(
   );
 }
 
-export async function loadCurrentScheduledHoursByWorkerDay(
+/**
+ * Each daily row's scheduled hours: the worker's schedule in force on the
+ * row's day (convex/lib/workSchedule.ts, "Dated schedules"), so a change
+ * saved today leaves earlier days as they were. A worker-day with no row in
+ * force is missing from the map, and `scheduledHoursForDailyStat` falls back
+ * to the bucket's snapshot.
+ */
+export async function loadScheduledHoursByWorkerDay(
   ctx: QueryCtx,
   args: {
     tenantId: Id<"tenants">;
@@ -65,49 +70,26 @@ export async function loadCurrentScheduledHoursByWorkerDay(
   },
 ) {
   const workerIds = [...new Set(args.rows.map((row) => row.workerId))];
-  const dayKeys = [...new Set(args.rows.map((row) => row.dayKey))];
-  const weekdayByDayKey = new Map(
-    dayKeys.map((dayKey) => [dayKey, leadGenWeekdayForBusinessDate(dayKey)]),
-  );
-  const scheduledHoursByWorkerWeekday = new Map<string, number>();
-
-  const state = args.liveReadState ?? createLiveReadState();
-  for (const workerId of workerIds) {
-    const scan = await readLiveQueryRows(
-      ctx.db
-        .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-          q.eq("tenantId", args.tenantId).eq("workerId", workerId),
-        ),
-      7,
-      state,
-    );
-    if (scan.capped) break;
-
-    for (const schedule of scan.rows) {
-      scheduledHoursByWorkerWeekday.set(
-        `${workerId}:${schedule.weekday}`,
-        schedule.scheduledHours,
-      );
-    }
-  }
+  const scheduleRowsByWorker = await loadScheduleRowsByOwner(ctx, {
+    tenantId: args.tenantId,
+    keys: workerIds,
+    owner: (workerId) => ({ table: "leadGenWorkerSchedules", workerId }),
+    liveReadState: args.liveReadState ?? createLiveReadState(),
+  });
 
   const scheduledHoursByWorkerDay = new Map<string, number>();
   for (const row of args.rows) {
-    const weekday = weekdayByDayKey.get(row.dayKey);
-    if (!weekday) continue;
-
-    const scheduledHours = scheduledHoursByWorkerWeekday.get(
-      `${row.workerId}:${weekday}`,
-    );
-    if (scheduledHours === undefined) continue;
+    const scheduleRows = scheduleRowsByWorker.get(row.workerId);
+    if (!scheduleRows) continue;
+    const schedule = rowInForce(scheduleRows, leadGenWeekdayForBusinessDate(row.dayKey), row.dayKey);
+    if (!schedule) continue;
 
     scheduledHoursByWorkerDay.set(
       leadGenScheduledHoursKey({
         workerId: row.workerId,
         dayKey: row.dayKey,
       }),
-      scheduledHours,
+      schedule.scheduledHours,
     );
   }
 

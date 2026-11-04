@@ -13,12 +13,13 @@ import {
   loadLeadGenTeamsForRows,
   readLeadGenDailyRowsForDashboard,
 } from "../leadGen/reportReaders";
-import { loadCurrentScheduledHoursByWorkerDay } from "../leadGen/schedules";
+import { loadScheduledHoursByWorkerDay } from "../leadGen/schedules";
 import {
   loadDmCloserScheduledHoursForRange,
   loadLeadGenScheduledHoursForRange,
   loadSlackQualifierScheduledHoursForRange,
 } from "../workSchedules/rangeHours";
+import { hasScheduleRows } from "../workSchedules/datedRows";
 import { compareNullableEfficiency } from "./efficiencySort";
 import {
   bookingCreditsInWindow,
@@ -74,18 +75,14 @@ async function loadLeadGenWorkerSchedulesForTenant(
     .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
     .take(LEAD_GEN_WORKER_REGISTRY_LIMIT);
 
-  const schedules: Doc<"leadGenWorkerSchedules">[] = [];
+  const scheduledWorkerIds = new Set<Id<"leadGenWorkers">>();
   for (const worker of workers) {
-    const rows = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-        q.eq("tenantId", tenantId).eq("workerId", worker._id),
-      )
-      .take(7);
-    schedules.push(...rows);
+    if (await hasScheduleRows(ctx, tenantId, { table: "leadGenWorkerSchedules", workerId: worker._id })) {
+      scheduledWorkerIds.add(worker._id);
+    }
   }
 
-  return { workers, schedules };
+  return { workers, scheduledWorkerIds };
 }
 
 function countBookedSlackOpportunities(
@@ -226,17 +223,17 @@ export async function buildLeadGenEfficiencyRowsFromDaily(
   rows: LeadGenDailyStatInput[],
 ): Promise<LeadGenOverview["topWorkers"]> {
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, {
+    await loadScheduledHoursByWorkerDay(ctx, {
       tenantId: args.tenantId,
       rows,
     });
-  const { workers: tenantWorkers, schedules: leadGenSchedules } =
+  const { workers: tenantWorkers, scheduledWorkerIds } =
     await loadLeadGenWorkerSchedulesForTenant(ctx, args.tenantId);
 
   const candidateWorkerIds = new Set<Id<"leadGenWorkers">>();
   for (const row of rows) candidateWorkerIds.add(row.workerId);
-  for (const schedule of leadGenSchedules) {
-    candidateWorkerIds.add(schedule.workerId);
+  for (const workerId of scheduledWorkerIds) {
+    candidateWorkerIds.add(workerId);
   }
   if (args.includeAllCandidates) {
     for (const worker of tenantWorkers) candidateWorkerIds.add(worker._id);
@@ -387,22 +384,23 @@ export async function buildQualifierRowsFromActivity(
   },
   activity: QualifierActivity,
 ): Promise<{ rows: TopQualifierRow[]; truncated: boolean }> {
-  const [slackUsers, qualifierSchedules] = await Promise.all([
-    ctx.db
-      .query("slackUsers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
-      .take(SLACK_USER_REGISTRY_LIMIT),
-    ctx.db
-      .query("slackQualifierSchedules")
-      .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId))
-      .take(2_100),
-  ]);
+  const slackUsers = await ctx.db
+    .query("slackUsers")
+    .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+    .take(SLACK_USER_REGISTRY_LIMIT);
 
   const candidateSlackUserIds = new Set<string>();
   const scheduledSlackUserIds = new Set<string>();
-  for (const schedule of qualifierSchedules) {
-    candidateSlackUserIds.add(schedule.slackUserId);
-    scheduledSlackUserIds.add(schedule.slackUserId);
+  for (const user of slackUsers) {
+    if (
+      await hasScheduleRows(ctx, args.tenantId, {
+        table: "slackQualifierSchedules",
+        slackUserId: user.slackUserId,
+      })
+    ) {
+      candidateSlackUserIds.add(user.slackUserId);
+      scheduledSlackUserIds.add(user.slackUserId);
+    }
   }
   for (const slackUserId of activity.bySlackUserId.keys()) {
     candidateSlackUserIds.add(slackUserId);
@@ -561,39 +559,31 @@ export async function buildDmCloserRowsFromCounts(
     teamOnlySources,
   };
 
-  const [dmCloserScan, dmCloserScheduleScan] = await Promise.all([
-    readLiveQueryRows(
-      ctx.db
-        .query("dmClosers")
-        .withIndex("by_tenantId_and_teamId", (q) =>
-          q.eq("tenantId", args.tenantId),
-        ),
-      DM_CLOSER_REGISTRY_LIMIT,
-    ),
-    readLiveQueryRows(
-      ctx.db
-        .query("dmCloserSchedules")
-        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)),
-      2_100,
-    ),
-  ]);
+  const dmCloserScan = await readLiveQueryRows(
+    ctx.db
+      .query("dmClosers")
+      .withIndex("by_tenantId_and_teamId", (q) =>
+        q.eq("tenantId", args.tenantId),
+      ),
+    DM_CLOSER_REGISTRY_LIMIT,
+  );
   const dmClosers = dmCloserScan.rows;
-  const dmCloserSchedules = dmCloserScheduleScan.rows;
 
   const candidateDmCloserIds = new Set<Id<"dmClosers">>();
   for (const dmCloserId of byDmCloser.keys()) {
     candidateDmCloserIds.add(dmCloserId);
   }
-  for (const schedule of dmCloserSchedules) {
-    candidateDmCloserIds.add(schedule.dmCloserId);
-  }
-  if (args.includeAllCandidates) {
-    for (const closer of dmClosers) candidateDmCloserIds.add(closer._id);
+  for (const closer of dmClosers) {
+    if (
+      args.includeAllCandidates ||
+      (await hasScheduleRows(ctx, args.tenantId, { table: "dmCloserSchedules", dmCloserId: closer._id }))
+    ) {
+      candidateDmCloserIds.add(closer._id);
+    }
   }
 
   if (
     dmCloserScan.capped ||
-    dmCloserScheduleScan.capped ||
     candidateDmCloserIds.size > DM_CLOSER_LIVE_CANDIDATE_LIMIT
   ) {
     return truncatedResult;

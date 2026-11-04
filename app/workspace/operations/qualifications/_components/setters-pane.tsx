@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { MemberAvatar } from "@/app/workspace/_components/member-avatar";
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import type { QualificationOpenerViewModel } from "@/lib/operations-reports/qualification-dashboard";
+import { ScheduleHoursLink, teamHref } from "../../_components/team-links";
 import { eventTime, formatPerHour } from "./qualifications-format";
 
 // The desk's left pane: every setter by what they qualified, "All setters"
@@ -15,14 +16,22 @@ import { eventTime, formatPerHour } from "./qualifications-format";
 const ROW =
   "relative flex w-full flex-col gap-1.5 border-b px-4 py-2.5 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-pressed:bg-muted/80 aria-pressed:shadow-[inset_3px_0_0_var(--color-foreground)]";
 
+/**
+ * A setter's row: the filter button, then their hours as a link to their
+ * week in Team. A link can't sit inside a button, so the item carries the
+ * rule, the hover and the pressed fill for both.
+ */
+const SETTER_ITEM =
+  "border-b transition-colors hover:bg-muted/60 has-[>button[aria-pressed=true]]:bg-muted/80 has-[>button[aria-pressed=true]]:shadow-[inset_3px_0_0_var(--color-foreground)]";
+const SETTER_BUTTON =
+  "relative flex w-full flex-col gap-1.5 px-4 pt-2.5 pb-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
+
 function RateLine({ setter }: { setter: QualificationOpenerViewModel }) {
   const { setting } = useBusinessDay();
   const now = useNow();
   return (
     <span className="truncate text-[13px] text-muted-foreground">
-      {setter.qualifiedPerHour === null ? (
-        "No schedule"
-      ) : (
+      {setter.qualifiedPerHour === null ? null : (
         <>
           <span className="font-condensed text-[15px] font-semibold text-foreground tabular-nums">
             {formatPerHour(setter.qualifiedPerHour)}
@@ -30,7 +39,9 @@ function RateLine({ setter }: { setter: QualificationOpenerViewModel }) {
           /h
         </>
       )}
-      {setter.lastEventAt !== null ? ` · ${eventTime(setter.lastEventAt, now, setting)}` : null}
+      {setter.lastEventAt !== null
+        ? `${setter.qualifiedPerHour === null ? "" : " · "}${eventTime(setter.lastEventAt, now, setting)}`
+        : null}
     </span>
   );
 }
@@ -83,12 +94,12 @@ export function SettersPane({
         </button>
       </li>
       {active.map((setter) => (
-        <li key={setter.key}>
+        <li key={setter.key} className={SETTER_ITEM}>
           <button
             type="button"
             aria-pressed={selected === setter.key}
             onClick={() => onSelect(selected === setter.key ? null : setter.key)}
-            className={ROW}
+            className={SETTER_BUTTON}
           >
             <span className="flex items-center gap-2.5">
               <MemberAvatar identity={setter.avatar} size="sm" />
@@ -111,6 +122,13 @@ export function SettersPane({
               <RateLine setter={setter} />
             </span>
           </button>
+          <p className="truncate pr-4 pb-2.5 pl-[50px] text-[13px] text-muted-foreground">
+            <ScheduleHoursLink
+              href={teamHref.slackUser(setter.key)}
+              hours={setter.scheduledHours}
+              name={setter.label}
+            />
+          </p>
         </li>
       ))}
       {quiet.length > 0 ? (

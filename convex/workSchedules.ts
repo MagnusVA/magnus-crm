@@ -1,8 +1,11 @@
 import { expectedError } from "./lib/observability/errors";
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { weekdays, type Weekday } from "./lib/workSchedule";
+import { rowsInForce } from "./lib/workSchedule";
 import { requireTenantUser } from "./requireTenantUser";
+import { tenantBusinessToday } from "./lib/tenantBusinessDay";
+import { createLiveReadState } from "./lib/liveQueryBounds";
+import { readScheduleRows, validateWeeklyScheduledHours, writeDatedWeek } from "./workSchedules/datedRows";
 
 const weeklyScheduledHoursValidator = v.object({
   monday: v.number(),
@@ -14,19 +17,12 @@ const weeklyScheduledHoursValidator = v.object({
   sunday: v.number(),
 });
 
-type WeeklyScheduledHours = Record<Weekday, number>;
-
-function validateScheduledHours(hours: number) {
-  if (!Number.isFinite(hours) || hours < 0 || hours > 24) {
-    throw expectedError("work_schedule.rejected", "Scheduled hours must be between 0 and 24");
-  }
-}
-
-function validateWeeklyScheduledHours(schedule: WeeklyScheduledHours) {
-  for (const weekday of weekdays) {
-    validateScheduledHours(schedule[weekday]);
-  }
-}
+// A save takes the whole week, or null to drop today's change and go back to
+// the week in force before today (Undo of a first schedule passes null).
+// Every save returns the business date the change applies from. Rows are
+// dated (convex/lib/workSchedule.ts, "Dated schedules"); `writeDatedWeek`
+// in convex/workSchedules/datedRows.ts holds the rule.
+const weekOrNullValidator = v.union(weeklyScheduledHoursValidator, v.null());
 
 export const listSlackQualifierSchedules = query({
   args: {},
@@ -36,16 +32,25 @@ export const listSlackQualifierSchedules = query({
       "tenant_admin",
     ]);
 
-    const [slackUsers, schedules] = await Promise.all([
-      ctx.db
-        .query("slackUsers")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-        .take(300),
-      ctx.db
-        .query("slackQualifierSchedules")
-        .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", tenantId))
-        .take(2_100),
-    ]);
+    const slackUsers = await ctx.db
+      .query("slackUsers")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(300);
+
+    // The week in force today, one row per weekday, as before rows were dated.
+    const today = await tenantBusinessToday(ctx, tenantId);
+    const state = createLiveReadState();
+    const schedules = [];
+    for (const slackUser of slackUsers) {
+      const scan = await readScheduleRows(
+        ctx,
+        tenantId,
+        { table: "slackQualifierSchedules", slackUserId: slackUser.slackUserId },
+        state,
+      );
+      schedules.push(...rowsInForce(scan.rows, today));
+      if (scan.capped) break;
+    }
 
     return { slackUsers, schedules };
   },
@@ -54,14 +59,14 @@ export const listSlackQualifierSchedules = query({
 export const setSlackQualifierWeeklySchedule = mutation({
   args: {
     slackUserId: v.string(),
-    scheduledHours: weeklyScheduledHoursValidator,
+    scheduledHours: weekOrNullValidator,
   },
   handler: async (ctx, args) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-    validateWeeklyScheduledHours(args.scheduledHours);
+    if (args.scheduledHours) validateWeeklyScheduledHours(args.scheduledHours);
 
     const slackUser = await ctx.db
       .query("slackUsers")
@@ -71,44 +76,12 @@ export const setSlackQualifierWeeklySchedule = mutation({
       .unique();
     if (!slackUser) throw expectedError("work_schedule.rejected", "Slack qualifier not found.");
 
-    const now = Date.now();
-    let changedRows = 0;
-
-    for (const weekday of weekdays) {
-      const scheduledHours = args.scheduledHours[weekday];
-      const existing = await ctx.db
-        .query("slackQualifierSchedules")
-        .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("slackUserId", args.slackUserId)
-            .eq("weekday", weekday),
-        )
-        .unique();
-
-      if (existing && existing.scheduledHours === scheduledHours) continue;
-
-      const patch = {
-        scheduledHours,
-        updatedByUserId: userId,
-        updatedAt: now,
-      };
-
-      if (existing) {
-        await ctx.db.patch("slackQualifierSchedules", existing._id, patch);
-      } else {
-        await ctx.db.insert("slackQualifierSchedules", {
-          tenantId,
-          slackUserId: args.slackUserId,
-          weekday,
-          ...patch,
-        });
-      }
-
-      changedRows += 1;
-    }
-
-    return { changedRows };
+    return await writeDatedWeek(ctx, {
+      tenantId,
+      userId,
+      owner: { table: "slackQualifierSchedules", slackUserId: args.slackUserId },
+      scheduledHours: args.scheduledHours,
+    });
   },
 });
 
@@ -120,7 +93,7 @@ export const listDmCloserSchedules = query({
       "tenant_admin",
     ]);
 
-    const [dmClosers, attributionTeams, schedules] = await Promise.all([
+    const [dmClosers, attributionTeams] = await Promise.all([
       ctx.db
         .query("dmClosers")
         .withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", tenantId))
@@ -129,11 +102,22 @@ export const listDmCloserSchedules = query({
         .query("attributionTeams")
         .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
         .take(300),
-      ctx.db
-        .query("dmCloserSchedules")
-        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", tenantId))
-        .take(2_100),
     ]);
+
+    // The week in force today, one row per weekday, as before rows were dated.
+    const today = await tenantBusinessToday(ctx, tenantId);
+    const state = createLiveReadState();
+    const schedules = [];
+    for (const dmCloser of dmClosers) {
+      const scan = await readScheduleRows(
+        ctx,
+        tenantId,
+        { table: "dmCloserSchedules", dmCloserId: dmCloser._id },
+        state,
+      );
+      schedules.push(...rowsInForce(scan.rows, today));
+      if (scan.capped) break;
+    }
 
     return { dmClosers, attributionTeams, schedules };
   },
@@ -142,57 +126,52 @@ export const listDmCloserSchedules = query({
 export const setDmCloserWeeklySchedule = mutation({
   args: {
     dmCloserId: v.id("dmClosers"),
-    scheduledHours: weeklyScheduledHoursValidator,
+    scheduledHours: weekOrNullValidator,
   },
   handler: async (ctx, args) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-    validateWeeklyScheduledHours(args.scheduledHours);
+    if (args.scheduledHours) validateWeeklyScheduledHours(args.scheduledHours);
 
     const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
       throw expectedError("work_schedule.rejected", "DM closer not found.");
     }
 
-    const now = Date.now();
-    let changedRows = 0;
+    return await writeDatedWeek(ctx, {
+      tenantId,
+      userId,
+      owner: { table: "dmCloserSchedules", dmCloserId: dmCloser._id },
+      scheduledHours: args.scheduledHours,
+    });
+  },
+});
 
-    for (const weekday of weekdays) {
-      const scheduledHours = args.scheduledHours[weekday];
-      const existing = await ctx.db
-        .query("dmCloserSchedules")
-        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("dmCloserId", args.dmCloserId)
-            .eq("weekday", weekday),
-        )
-        .unique();
+export const setLeadGenWeeklySchedule = mutation({
+  args: {
+    workerId: v.id("leadGenWorkers"),
+    scheduledHours: weekOrNullValidator,
+  },
+  handler: async (ctx, args) => {
+    const { tenantId, userId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    if (args.scheduledHours) validateWeeklyScheduledHours(args.scheduledHours);
 
-      if (existing && existing.scheduledHours === scheduledHours) continue;
-
-      const patch = {
-        scheduledHours,
-        updatedByUserId: userId,
-        updatedAt: now,
-      };
-
-      if (existing) {
-        await ctx.db.patch("dmCloserSchedules", existing._id, patch);
-      } else {
-        await ctx.db.insert("dmCloserSchedules", {
-          tenantId,
-          dmCloserId: args.dmCloserId,
-          weekday,
-          ...patch,
-        });
-      }
-
-      changedRows += 1;
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
+    if (!worker || worker.tenantId !== tenantId) {
+      throw expectedError("work_schedule.rejected", "Lead gen worker not found.");
     }
 
-    return { changedRows };
+    return await writeDatedWeek(ctx, {
+      tenantId,
+      userId,
+      owner: { table: "leadGenWorkerSchedules", workerId: worker._id },
+      workerUserId: worker.userId,
+      scheduledHours: args.scheduledHours,
+    });
   },
 });

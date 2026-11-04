@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ClockIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { mergeQualificationsDashboard } from "@/convex/analytics/merge/operations";
 import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
@@ -10,7 +9,6 @@ import { cn } from "@/lib/utils";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   AnalyticsFreshnessAlert,
@@ -33,7 +31,6 @@ import { PageBand } from "@/app/workspace/_components/page-band";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { SectionError } from "@/app/workspace/closer/_components/section-state";
-import { TeamGoalDialog } from "@/app/workspace/reports/slack-qualifications/_components/team-goal-dialog";
 import {
   qualificationDashboardFromLive,
   qualificationDashboardFromSnapshot,
@@ -43,8 +40,8 @@ import { OperationsHealthBanner } from "../../_components/operations-health-bann
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
 import { useAllOperationsReportRows, useOperationsDashboardReport } from "../../_components/use-operations-report-job";
-import { BAND_BUTTON_CLASS, QualificationsGoalRow } from "./qualifications-goal-row";
-import { QualifierSchedulesDialog } from "./qualifier-schedules-dialog";
+import { TipLink, teamHref } from "../../_components/team-links";
+import { QualificationsGoalRow } from "./qualifications-goal-row";
 import { SettersPane } from "./setters-pane";
 import { SubmissionsPane, type StageFilter } from "./submissions-pane";
 
@@ -58,6 +55,19 @@ function rangeWords(range: DashboardRangeInput, now: number, setting: ReturnType
   return range.kind === "custom" ? dates : `${PRESET_WORDS[range.preset]} · ${dates}`;
 }
 
+/** The setters header's "per scheduled hour", linked to everyone's weeks. */
+function ScheduleCaptionLink() {
+  return (
+    <TipLink
+      href={teamHref.schedules("slack")}
+      tip="Qualified leads ÷ each setter's scheduled hours, from their week in Team › Schedules."
+      className="underline decoration-current/40 decoration-dotted underline-offset-[3px] hover:text-foreground hover:decoration-current"
+    >
+      per scheduled hour
+    </TipLink>
+  );
+}
+
 export function QualificationsPageClient() {
   usePageTitle("Qualified Leads");
   const { setting } = useBusinessDay();
@@ -67,8 +77,6 @@ export function QualificationsPageClient() {
     defaultRange: { kind: "preset", preset: "today" },
     validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
   });
-  const [goalDialogOpen, setGoalDialogOpen] = useState(false);
-  const [schedulesOpen, setSchedulesOpen] = useState(false);
   // The submissions query takes one primary filter, so a setter and a stage
   // never apply together: choosing one clears the other.
   const [setter, setSetter] = useState<{ key: string; label: string } | null>(null);
@@ -183,10 +191,6 @@ export function QualificationsPageClient() {
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" className={BAND_BUTTON_CLASS} onClick={() => setSchedulesOpen(true)}>
-              <ClockIcon data-icon="inline-start" aria-hidden="true" />
-              Schedules
-            </Button>
             {/* The shared export menu draws a small outline button; the band sets it in its board tone. */}
             <div className="contents [&>button]:h-[34px] [&>button]:rounded-[7px] [&>button]:border-board-foreground/15 [&>button]:bg-board-raised [&>button]:px-3 [&>button]:text-[13px] [&>button]:text-board-foreground [&>button:hover]:bg-board-foreground/10 [&>button:hover]:text-board-foreground">
               <OperationsReportExportMenu reportKind="qualifications" range={queryRange} />
@@ -207,7 +211,9 @@ export function QualificationsPageClient() {
           failed={failed}
           setters={setters}
           selectedSetter={setter?.key ?? null}
-          onEditGoal={() => setGoalDialogOpen(true)}
+          // TODO(team-hub): read it from the view model once
+          // lib/operations-reports/qualification-dashboard.ts carries it.
+          goalDayCount={displayDashboard !== undefined && !needsSnapshot ? dashboard?.goal.goalDayCount : undefined}
         />
       </PageBand>
 
@@ -232,7 +238,10 @@ export function QualificationsPageClient() {
             <h2 id="qualifications-setters" className="text-[0.9375rem] font-semibold">
               Setters
             </h2>
-            <span className="ml-auto text-[13px] text-muted-foreground">Qualified · per scheduled hour</span>
+            <span className="ml-auto text-[13px] text-muted-foreground">
+              Qualified ·{" "}
+              <ScheduleCaptionLink />
+            </span>
           </div>
           <div
             aria-busy={reloading}
@@ -272,9 +281,6 @@ export function QualificationsPageClient() {
           </SectionErrorBoundary>
         </section>
       </Card>
-
-      <TeamGoalDialog currentGoal={shown?.goal.dailyQuota ?? null} open={goalDialogOpen} onOpenChange={setGoalDialogOpen} />
-      <QualifierSchedulesDialog open={schedulesOpen} onOpenChange={setSchedulesOpen} />
     </div>
   );
 }

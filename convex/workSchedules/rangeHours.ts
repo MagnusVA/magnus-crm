@@ -1,12 +1,9 @@
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { addBusinessDays } from "../reporting/lib/hondurasBusinessTime";
-import { type Weekday, weekdayForBusinessDate } from "../lib/workSchedule";
-import {
-  createLiveReadState,
-  readLiveQueryRows,
-  type LiveReadState,
-} from "../lib/liveQueryBounds";
+import { hoursOverDays } from "../lib/workSchedule";
+import { createLiveReadState, type LiveReadState } from "../lib/liveQueryBounds";
+import { readScheduleRows, type ScheduleOwner, type ScheduleRow } from "./datedRows";
 
 export function businessDatesInInclusiveRange(args: {
   startBusinessDate: string;
@@ -23,15 +20,50 @@ export function businessDatesInInclusiveRange(args: {
   return days;
 }
 
-function sumHoursForWeekdayRows(
-  rows: Array<{ weekday: Weekday; scheduledHours: number }>,
-  businessDates: string[],
+/**
+ * Every schedule row of each owner, read per owner. Stops at the first
+ * owner whose read is capped (`liveReadState.capped` tells the caller), so a
+ * returned owner's rows are always complete.
+ */
+export async function loadScheduleRowsByOwner<Key>(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    keys: Iterable<Key>;
+    owner: (key: Key) => ScheduleOwner;
+    liveReadState?: LiveReadState;
+  },
+): Promise<Map<Key, ScheduleRow[]>> {
+  const state = args.liveReadState ?? createLiveReadState();
+  const result = new Map<Key, ScheduleRow[]>();
+  for (const key of args.keys) {
+    if (result.has(key)) continue;
+    const scan = await readScheduleRows(ctx, args.tenantId, args.owner(key), state);
+    if (scan.capped) break;
+    result.set(key, scan.rows);
+  }
+  return result;
+}
+
+async function loadHoursForRange<Key>(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    keys: Key[];
+    owner: (key: Key) => ScheduleOwner;
+    startBusinessDate: string;
+    endBusinessDateInclusive: string;
+    liveReadState?: LiveReadState;
+  },
 ) {
-  const byWeekday = new Map(rows.map((row) => [row.weekday, row.scheduledHours]));
-  return businessDates.reduce((sum, dayKey) => {
-    const weekday = weekdayForBusinessDate(dayKey);
-    return sum + (byWeekday.get(weekday) ?? 0);
-  }, 0);
+  const businessDates = businessDatesInInclusiveRange(args);
+  const rowsByOwner = await loadScheduleRowsByOwner(ctx, args);
+  const result = new Map<Key, number>();
+  for (const [key, rows] of rowsByOwner) {
+    // Each day under the schedule in force that day.
+    result.set(key, hoursOverDays(rows, businessDates));
+  }
+  return result;
 }
 
 export async function loadLeadGenScheduledHoursForRange(
@@ -44,25 +76,11 @@ export async function loadLeadGenScheduledHoursForRange(
     liveReadState?: LiveReadState;
   },
 ) {
-  const businessDates = businessDatesInInclusiveRange(args);
-  const result = new Map<Id<"leadGenWorkers">, number>();
-
-  const state = args.liveReadState ?? createLiveReadState();
-  for (const workerId of args.workerIds) {
-    const scan = await readLiveQueryRows(
-      ctx.db
-        .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-          q.eq("tenantId", args.tenantId).eq("workerId", workerId),
-        ),
-      7,
-      state,
-    );
-    if (scan.capped) break;
-    result.set(workerId, sumHoursForWeekdayRows(scan.rows, businessDates));
-  }
-
-  return result;
+  return await loadHoursForRange(ctx, {
+    ...args,
+    keys: args.workerIds,
+    owner: (workerId) => ({ table: "leadGenWorkerSchedules", workerId }),
+  });
 }
 
 export async function loadSlackQualifierScheduledHoursForRange(
@@ -75,25 +93,11 @@ export async function loadSlackQualifierScheduledHoursForRange(
     liveReadState?: LiveReadState;
   },
 ) {
-  const businessDates = businessDatesInInclusiveRange(args);
-  const result = new Map<string, number>();
-
-  const state = args.liveReadState ?? createLiveReadState();
-  for (const slackUserId of args.slackUserIds) {
-    const scan = await readLiveQueryRows(
-      ctx.db
-        .query("slackQualifierSchedules")
-        .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) =>
-          q.eq("tenantId", args.tenantId).eq("slackUserId", slackUserId),
-        ),
-      7,
-      state,
-    );
-    if (scan.capped) break;
-    result.set(slackUserId, sumHoursForWeekdayRows(scan.rows, businessDates));
-  }
-
-  return result;
+  return await loadHoursForRange(ctx, {
+    ...args,
+    keys: args.slackUserIds,
+    owner: (slackUserId) => ({ table: "slackQualifierSchedules", slackUserId }),
+  });
 }
 
 export async function loadDmCloserScheduledHoursForRange(
@@ -106,23 +110,9 @@ export async function loadDmCloserScheduledHoursForRange(
     liveReadState?: LiveReadState;
   },
 ) {
-  const businessDates = businessDatesInInclusiveRange(args);
-  const result = new Map<Id<"dmClosers">, number>();
-
-  const state = args.liveReadState ?? createLiveReadState();
-  for (const dmCloserId of args.dmCloserIds) {
-    const scan = await readLiveQueryRows(
-      ctx.db
-        .query("dmCloserSchedules")
-        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) =>
-          q.eq("tenantId", args.tenantId).eq("dmCloserId", dmCloserId),
-        ),
-      7,
-      state,
-    );
-    if (scan.capped) break;
-    result.set(dmCloserId, sumHoursForWeekdayRows(scan.rows, businessDates));
-  }
-
-  return result;
+  return await loadHoursForRange(ctx, {
+    ...args,
+    keys: args.dmCloserIds,
+    owner: (dmCloserId) => ({ table: "dmCloserSchedules", dmCloserId }),
+  });
 }

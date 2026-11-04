@@ -29,6 +29,9 @@ import {
   readLiveDocuments,
   readLiveQueryRows,
 } from "../lib/liveQueryBounds";
+import { bookingGoalCountsDay, loadBookingGoalGroups } from "../workSchedules/goalDays";
+import { goalDayCount } from "../lib/workSchedule";
+import { businessDatesInInclusiveRange } from "../workSchedules/rangeHours";
 import {
   dmCloserMemberIdentity,
   memberAvatarIdentityValidator,
@@ -71,6 +74,10 @@ const goalTeamValidator = v.object({
   label: v.string(),
   dailyQuota: v.union(v.number(), v.null()),
   target: v.union(v.number(), v.null()),
+  // Days in the range someone on the team works; target = dailyQuota x
+  // this. Optional: answers cached before goals counted work days lack it.
+  goalDayCount: v.optional(v.number()),
+  goalCountsLastDay: v.optional(v.boolean()),
   progress: v.number(),
   // The part of progress no DM closer is credited with (D9), and the UTMs
   // it came with, most booked first. Sources are null where the path can't
@@ -392,7 +399,10 @@ export const getBookedCallsDashboard = query({
 export async function buildBookedCallsDashboard(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
-  range: Pick<DerivedOverviewRange, "dayCount" | "slackWindowStart" | "slackWindowEnd">,
+  range: Pick<
+    DerivedOverviewRange,
+    "dayCount" | "slackWindowStart" | "slackWindowEnd" | "startBusinessDate" | "endBusinessDateInclusive"
+  >,
   builderResult: DmCloserEfficiencyResult,
 ) {
   const { rows, truncated, bookedByTeam, teamOnlyBooked, teamOnlySources } = builderResult;
@@ -545,20 +555,50 @@ export async function buildBookedCallsDashboard(
       right.booked - left.booked || compareLabels(left.label, right.label),
   );
 
-  // Per-team goal: dailyQuota x business days in range. A team's progress
-  // is the first bookings its dm_team row names, with or without a DM
-  // closer (D9).
-  const goalTeams = teams
-    .filter(
-      (team) => team.isActive || (bookedByTeam.get(team._id) ?? 0) > 0,
-    )
+  // Per-team goal: dailyQuota x the days in range someone on the team works
+  // (bookingGoalDayCounts). A team's progress is the first bookings its
+  // dm_team row names, with or without a DM closer (D9).
+  const shownTeams = teams.filter(
+    (team) => team.isActive || (bookedByTeam.get(team._id) ?? 0) > 0,
+  );
+  const goalGroups = await loadBookingGoalGroups(ctx, {
+    tenantId,
+    teamIds: shownTeams.map((team) => team._id),
+    dmClosers: registryClosers,
+  });
+  const rangeDays = businessDatesInInclusiveRange(range);
+  const lastDay = rangeDays[rangeDays.length - 1];
+  if (goalGroups === null) {
+    return {
+      totalBooked: 0,
+      dmClosers: [],
+      goal: {
+        totalTarget: null,
+        progress: 0,
+        businessDayCount: range.dayCount,
+        teams: [],
+      },
+      window: {
+        start: range.slackWindowStart,
+        end: range.slackWindowEnd,
+      },
+      capped: true,
+    };
+  }
+  const goalTeams = shownTeams
     .map((team) => {
       const dailyQuota = team.bookingDailyQuota ?? null;
+      const group = goalGroups.get(team._id);
+      const goalDays = group ? goalDayCount(group, rangeDays) : range.dayCount;
       return {
         teamId: team._id,
         label: team.displayName,
         dailyQuota,
-        target: dailyQuota === null ? null : dailyQuota * range.dayCount,
+        target: dailyQuota === null ? null : dailyQuota * goalDays,
+        goalDayCount: goalDays,
+        // Whether the range's last day (today, on a range that runs through
+        // today) is one of the goal's days, for the pace.
+        goalCountsLastDay: lastDay ? bookingGoalCountsDay(group, lastDay) : true,
         progress: bookedByTeam.get(team._id) ?? 0,
         teamOnly: teamOnlyOf(teamOnlySources.get(team._id)),
       };
