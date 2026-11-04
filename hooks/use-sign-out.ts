@@ -16,7 +16,7 @@ export function useSignOut() {
     posthog.capture("user_signed_out");
     posthog.reset();
     // PostHog loads after the page; a reset still queued would be lost
-    // with the navigation.
+    // with the navigation. The wait is capped, so sign-out never hangs.
     await postHogSettled();
     return signOut();
   }, [signOut]);

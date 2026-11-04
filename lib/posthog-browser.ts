@@ -26,13 +26,14 @@ function settle() {
 	for (const resolve of waiters.splice(0)) resolve();
 }
 
-function run(call: Call) {
+/** `always` queues past the cap, for calls that must not be dropped. */
+function run(call: Call, always = false) {
 	if (!isPostHogEnabled()) return;
 	if (client) {
 		call(client);
 		return;
 	}
-	if (pending.length < MAX_PENDING) pending.push(call);
+	if (always || pending.length < MAX_PENDING) pending.push(call);
 }
 
 /** Called once by `instrumentation-client.ts` after `posthog.init`. */
@@ -49,12 +50,16 @@ export function postHogUnavailable() {
 }
 
 /**
- * Resolves once queued calls have run, or PostHog failed to load. Await it
- * before navigating away, so a queued reset isn't lost with the page.
+ * Resolves once queued calls have run, PostHog failed to load, or
+ * `timeoutMs` passed. Await it before navigating away, so a queued reset
+ * isn't lost with the page.
  */
-export function postHogSettled(): Promise<void> {
+export function postHogSettled(timeoutMs = 3_000): Promise<void> {
 	if (!isPostHogEnabled() || settled) return Promise.resolve();
-	return new Promise((resolve) => waiters.push(resolve));
+	return new Promise((resolve) => {
+		waiters.push(resolve);
+		setTimeout(resolve, timeoutMs);
+	});
 }
 
 const posthog = {
@@ -69,7 +74,7 @@ const posthog = {
 	identify: (...args: Parameters<PostHog["identify"]>) =>
 		run((c) => c.identify(...args)),
 	group: (...args: Parameters<PostHog["group"]>) => run((c) => c.group(...args)),
-	reset: (...args: Parameters<PostHog["reset"]>) => run((c) => c.reset(...args)),
+	reset: (...args: Parameters<PostHog["reset"]>) => run((c) => c.reset(...args), true),
 	logger: {
 		warn: (...args: Parameters<PostHog["logger"]["warn"]>) =>
 			run((c) => c.logger.warn(...args)),
