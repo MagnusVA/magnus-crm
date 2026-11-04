@@ -75,7 +75,7 @@ export async function POST(request: Request) {
 		}
 		// Another tab may have spent this refresh token a moment ago, and its
 		// response carries the new cookie. The current token still works.
-		if (user && accessToken && exp > now) {
+		if (user && accessToken && exp > Date.now() / 1000) {
 			return tokenResponse(accessToken);
 		}
 		return tokenResponse(null, 401);
