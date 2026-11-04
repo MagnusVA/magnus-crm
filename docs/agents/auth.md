@@ -44,3 +44,5 @@ ESLint's `@convex-dev/require-access-control` rule fails any public Convex funct
 ## Routing
 
 - `proxy.ts` is Next.js 16's replacement for middleware: it runs AuthKit, gates `/admin`, and lists unauthenticated routes in `PUBLIC_PREFIXES`. Add new public routes there.
+- The proxy's matcher skips router prefetches (the `next-router-prefetch` header) and the Convex log stream. Prefetches fetch static shells, so a page must read the session behind `connection()`, as `verifySession` does, never in its static shell.
+- The browser's Convex token comes from `app/api/auth/token/route.ts`, not AuthKit's `useAccessToken`. Don't write a cookie from a server action on a timer: Next then clears the client's prefetch cache and re-renders the page on the server.

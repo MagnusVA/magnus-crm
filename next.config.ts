@@ -17,6 +17,17 @@ if (process.env.NODE_ENV === "production" && !posthogSourcemapsEnabled) {
 	);
 }
 
+// Icons the browser asks for on every page. Public files default to
+// max-age=0, so each request reached Vercel. A week in the browser cache
+// stops that; give a changed icon a new file name.
+const ICON_FILES = [
+	"/favicon.ico",
+	"/favicon.svg",
+	"/apple-touch-icon.png",
+	"/magnus-icon.svg",
+	"/magnus-white.svg",
+];
+
 const nextConfig: NextConfig = {
 	cacheComponents: true,
 	partialPrefetching: true,
@@ -50,20 +61,17 @@ const nextConfig: NextConfig = {
 			{ source: leadGenSettings, destination: "/workspace/team?role=lead_gen", permanent: false },
 		];
 	},
-	async rewrites() {
-		return [
-			{
-				source: "/ingest/static/:path*",
-				destination: "https://us-assets.i.posthog.com/static/:path*",
-			},
-			{
-				source: "/ingest/:path*",
-				destination: "https://us.i.posthog.com/:path*",
-			},
-		];
+	async headers() {
+		return ICON_FILES.map((source) => ({
+			source,
+			headers: [
+				{
+					key: "Cache-Control",
+					value: "public, max-age=604800, stale-while-revalidate=86400",
+				},
+			],
+		}));
 	},
-	// Required to support PostHog trailing slash API requests
-	skipTrailingSlashRedirect: true,
 };
 
 export default withPostHogConfig(nextConfig, {

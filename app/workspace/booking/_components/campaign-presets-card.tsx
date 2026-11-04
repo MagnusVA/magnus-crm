@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { PlusIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";

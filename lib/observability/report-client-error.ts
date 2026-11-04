@@ -1,5 +1,5 @@
 import { ConvexError } from "convex/values";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 
 export type ClientErrorContext = {

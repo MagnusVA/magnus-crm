@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AdminReminderDetailPageClient } from "./_components/admin-reminder-detail-page-client";
+import { ContentReveal } from "@/components/page-transitions";
 
 // PPR-ready architecture marker — see AGENTS.md §RSC three-layer page
 // pattern. The static shell renders before dynamic data.
@@ -35,9 +36,11 @@ export default async function AdminReminderDetailPage({
   );
 
   return (
-    <AdminReminderDetailPageClient
-      preloadedDetail={preloadedDetail}
-      followUpId={typedFollowUpId}
-    />
+    <ContentReveal>
+      <AdminReminderDetailPageClient
+        preloadedDetail={preloadedDetail}
+        followUpId={typedFollowUpId}
+      />
+    </ContentReveal>
   );
 }

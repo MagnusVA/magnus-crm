@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { useMutation } from "convex/react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { ExternalLinkIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";

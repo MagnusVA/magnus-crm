@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 import {
 	useHydrated,

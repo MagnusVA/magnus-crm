@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";

@@ -18,7 +18,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";

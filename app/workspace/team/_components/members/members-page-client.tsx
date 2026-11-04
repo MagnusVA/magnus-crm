@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { format } from "date-fns";
 import { DownloadIcon, SearchIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { ChevronRightIcon, PlusIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";

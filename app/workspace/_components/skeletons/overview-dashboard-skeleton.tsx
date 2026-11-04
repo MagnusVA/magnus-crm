@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { PageBand } from "../page-band";
-import { RankingSkeleton } from "../overview-rankings";
+import { RankingSkeleton } from "./ranking-skeleton";
 
 // Overview's first load, at the page's real layout and heights.
 

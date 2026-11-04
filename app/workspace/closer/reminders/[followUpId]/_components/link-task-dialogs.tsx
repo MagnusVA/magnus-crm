@@ -7,7 +7,7 @@ import { z } from "zod";
 import { useMutation } from "convex/react";
 import { AlertTriangleIcon, Link2OffIcon } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {

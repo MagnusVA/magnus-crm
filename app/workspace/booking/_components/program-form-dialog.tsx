@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { AlertCircleIcon } from "lucide-react";
 

@@ -2,7 +2,7 @@
 
 import { useMutation } from "convex/react";
 import type { OptimisticLocalStore } from "convex/browser";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";

@@ -1,4 +1,4 @@
-import { fetchAction } from "convex/nextjs";
+import { fetchQuery } from "convex/nextjs";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { api } from "@/convex/_generated/api";
@@ -40,7 +40,7 @@ export default async function DmLinksPage({ params }: Props) {
 
 	const bootstrap =
 		portalSlug && sessionToken
-			? await fetchAction(api.linkPortal.portalActions.getPortalBootstrap, {
+			? await fetchQuery(api.linkPortal.portalQueries.getPortalBootstrap, {
 					portalSlug,
 					sessionToken,
 				}).catch(async (error: unknown) => {

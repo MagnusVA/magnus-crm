@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MeetingDetailPageClient } from "./_components/meeting-detail-page-client";
+import { ContentReveal } from "@/components/page-transitions";
 
 export default async function MeetingDetailPage({
 	params,
@@ -24,9 +25,11 @@ export default async function MeetingDetailPage({
 	);
 
 	return (
-		<MeetingDetailPageClient
-			preloadedDetail={preloadedDetail}
-			viewerRole={crmUser.role}
-		/>
+		<ContentReveal>
+			<MeetingDetailPageClient
+				preloadedDetail={preloadedDetail}
+				viewerRole={crmUser.role}
+			/>
+		</ContentReveal>
 	);
 }

@@ -12,7 +12,7 @@ import type {
 } from "../actions";
 import type { BookableProgramEventType } from "./group-bookable-programs";
 
-/** What `linkPortal.portalActions.getPortalBootstrap` returns for a live session. */
+/** What `linkPortal.portalQueries.getPortalBootstrap` returns for a live session. */
 export type PortalBootstrap = {
 	tenantName: string;
 	campaignPresets: Array<{

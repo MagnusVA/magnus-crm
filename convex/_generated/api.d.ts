@@ -276,7 +276,6 @@ import type * as linkPortal_leadMutations from "../linkPortal/leadMutations.js";
 import type * as linkPortal_leadQueries from "../linkPortal/leadQueries.js";
 import type * as linkPortal_leadSession from "../linkPortal/leadSession.js";
 import type * as linkPortal_passwordActions from "../linkPortal/passwordActions.js";
-import type * as linkPortal_portalActions from "../linkPortal/portalActions.js";
 import type * as linkPortal_portalQueries from "../linkPortal/portalQueries.js";
 import type * as linkPortal_portalTouches from "../linkPortal/portalTouches.js";
 import type * as linkPortal_rateLimitMutations from "../linkPortal/rateLimitMutations.js";
@@ -463,6 +462,7 @@ import type * as workos_roles from "../workos/roles.js";
 import type * as workos_userActions from "../workos/userActions.js";
 import type * as workos_userManagement from "../workos/userManagement.js";
 import type * as workos_userMutations from "../workos/userMutations.js";
+import type * as workspaceAccess from "../workspaceAccess.js";
 
 import type {
   ApiFromModules,
@@ -739,7 +739,6 @@ declare const fullApi: ApiFromModules<{
   "linkPortal/leadQueries": typeof linkPortal_leadQueries;
   "linkPortal/leadSession": typeof linkPortal_leadSession;
   "linkPortal/passwordActions": typeof linkPortal_passwordActions;
-  "linkPortal/portalActions": typeof linkPortal_portalActions;
   "linkPortal/portalQueries": typeof linkPortal_portalQueries;
   "linkPortal/portalTouches": typeof linkPortal_portalTouches;
   "linkPortal/rateLimitMutations": typeof linkPortal_rateLimitMutations;
@@ -926,6 +925,7 @@ declare const fullApi: ApiFromModules<{
   "workos/userActions": typeof workos_userActions;
   "workos/userManagement": typeof workos_userManagement;
   "workos/userMutations": typeof workos_userMutations;
+  workspaceAccess: typeof workspaceAccess;
 }>;
 
 /**

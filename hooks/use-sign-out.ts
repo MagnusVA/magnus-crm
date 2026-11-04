@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 
 /**
  * Signs out of WorkOS after recording the sign-out and resetting PostHog,

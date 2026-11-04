@@ -14,7 +14,6 @@ import { useNow } from "@/hooks/use-now";
 import { ScrollMoreHint } from "@/app/workspace/closer/_components/scroll-more-hint";
 import { useExpandInPlace } from "@/app/workspace/closer/_components/use-expand-in-place";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { rangePhrase, type DashboardRangeInput } from "./date-range-picker";
 import { MemberAvatar } from "./member-avatar";
@@ -26,6 +25,7 @@ import type {
 import { formatDecimal, formatWholeNumber } from "./overview-formatters";
 import { OverviewPartialNote, OverviewSectionState } from "./overview-section-state";
 import { SectionErrorBoundary } from "./section-error-boundary";
+import { RankingSkeleton } from "./skeletons/ranking-skeleton";
 import { ScheduleHoursLink, teamHref } from "@/app/workspace/operations/_components/team-links";
 
 // Overview's three rankings (DESIGN.md, The Ranking Card): each names its
@@ -192,31 +192,6 @@ function RankingList({ people, label }: { people: RankedPerson[]; label: string 
         ),
       )}
     </ol>
-  );
-}
-
-export function RankingSkeleton({ rows = MAX_TOP_ROWS }: { rows?: number }) {
-  return (
-    <div role="status" aria-label="Loading the ranking" className="flex flex-col">
-      <div className="flex items-center gap-3 border-b px-4 py-3.5 last:border-b-0">
-        <Skeleton className="size-10 rounded-full" />
-        <div className="flex flex-1 flex-col gap-1.5">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-44" />
-        </div>
-        <Skeleton className="h-8 w-14" />
-      </div>
-      {Array.from({ length: rows - 1 }, (_, index) => (
-        <div key={index} className="flex h-[52px] items-center gap-2.5 border-b px-4 last:border-b-0">
-          <Skeleton className="h-3 w-3" />
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Skeleton className="h-3.5 w-28" />
-            <Skeleton className="h-3 w-40" />
-          </div>
-          <Skeleton className="h-4 w-10" />
-        </div>
-      ))}
-    </div>
   );
 }
 

@@ -1,0 +1,1055 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnus CRM · Where the Vercel usage goes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --paper: #f5f6f8; --card: #ffffff; --ink: #141a28; --ink-muted: #4f596b; --rule: #e3e7ed; --muted-fill: #eef1f5;
+  --navy: #141a28; --navy-raised: #1d2536; --board-fg: #eef1f6; --board-muted: #9aa4b6; --board-line: rgb(242 244 247 / 0.08);
+  --lime: #84b135; --lime-ink: #4a7212; --warn-ink: #7a5200; --warn-surface: #fff4cc; --danger: #d93a40; --danger-ink: #b42328;
+  --s-page: #2a78d6; --s-posthog: #eb6834; --s-icons: #1baf7a; --s-log: #eda100; --s-auth: #e87ba4; --s-static: #008300;
+  --track: #eef1f5; --code-bg: #0f1420; --code-fg: #dfe5ee;
+  --font: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cond: "Barlow Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --paper: #090d14; --card: #121826; --ink: #eef1f6; --ink-muted: #98a2b3; --rule: rgb(255 255 255 / 0.09); --muted-fill: #171e2d;
+    --navy: #0d121c; --navy-raised: #1b2336; --lime-ink: #a6cf5e; --warn-ink: #ffd666; --warn-surface: #3a2f0a; --danger-ink: #ff8a8e;
+    --s-page: #3987e5; --s-posthog: #d95926; --s-icons: #199e70; --s-log: #c98500; --s-auth: #d55181; --s-static: #008300;
+    --track: #1b2336; --code-bg: #0b0f18;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #090d14; --card: #121826; --ink: #eef1f6; --ink-muted: #98a2b3; --rule: rgb(255 255 255 / 0.09); --muted-fill: #171e2d;
+  --navy: #0d121c; --navy-raised: #1b2336; --lime-ink: #a6cf5e; --warn-ink: #ffd666; --warn-surface: #3a2f0a; --danger-ink: #ff8a8e;
+  --s-page: #3987e5; --s-posthog: #d95926; --s-icons: #199e70; --s-log: #c98500; --s-auth: #d55181; --s-static: #008300;
+  --track: #1b2336; --code-bg: #0b0f18;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+code, pre { font-family: var(--mono); font-size: 0.86em; }
+:not(pre) > code { background: var(--muted-fill); padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+.narrow { max-width: 720px; }
+
+/* masthead + board */
+.masthead { background: var(--navy); color: var(--board-fg); padding: 28px 0 72px; position: relative; overflow: hidden; }
+.topline { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--cond); letter-spacing: 0.14em; text-transform: uppercase; font-size: 13px; color: var(--board-muted); }
+.topline .brand { color: var(--board-fg); font-weight: 700; letter-spacing: 0.22em; }
+.theme-btn { background: transparent; border: 1px solid var(--board-line); color: var(--board-muted); font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.theme-btn:hover { color: var(--board-fg); border-color: var(--board-muted); }
+h1 { font-family: var(--cond); font-weight: 700; font-size: clamp(40px, 6vw, 68px); line-height: 1.02; letter-spacing: -0.01em; margin: 56px 0 18px; max-width: 16ch; }
+h1 .lime { color: var(--lime); }
+.dek { color: var(--board-muted); font-size: 19px; max-width: 62ch; margin: 0; }
+.dek strong { color: var(--board-fg); font-weight: 600; }
+.board { margin-top: 44px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--board-line); border: 1px solid var(--board-line); border-radius: 10px; overflow: hidden; }
+.cell { background: var(--navy-raised); padding: 20px 20px 22px; min-height: 176px; display: flex; flex-direction: column; min-width: 0; }
+.cell .lab { font-family: var(--cond); font-size: 12.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--board-muted); }
+.cell .num { font-family: var(--cond); font-weight: 700; font-size: 52px; line-height: 1; margin: 14px 0 10px; font-variant-numeric: tabular-nums; color: var(--board-fg); }
+.cell .num small { font-size: 0.45em; color: var(--board-muted); font-weight: 600; margin-left: 2px; }
+.cell .sub { font-size: 14.5px; color: var(--board-muted); line-height: 1.45; margin-top: auto; }
+.cell.alert .num { color: #ff8a8e; }
+.meter { position: relative; height: 6px; background: rgb(255 255 255 / 0.08); border-radius: 3px; margin: 2px 0 12px; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #ff8a8e; width: 0; transition: width 1.6s cubic-bezier(.2,.8,.2,1); }
+.meter b { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--board-fg); }
+.meter-cap { position: relative; height: 16px; font-family: var(--cond); font-size: 12px; letter-spacing: 0.08em; color: var(--board-muted); text-transform: uppercase; }
+.meter-cap span { position: absolute; white-space: nowrap; }
+.flap { display: inline-block; animation: flap .7s cubic-bezier(.3,.7,.2,1) both; transform-origin: 50% 60%; }
+@keyframes flap { 0% { transform: rotateX(80deg); opacity: 0; } 60% { transform: rotateX(-10deg); opacity: 1; } 100% { transform: rotateX(0); } }
+
+.changed { margin-top: 26px; border: 1px solid var(--board-line); border-radius: 10px; padding: 14px 18px; font-size: 15px; color: var(--board-muted); max-width: 820px; }
+.changed b { color: var(--board-fg); font-family: var(--cond); letter-spacing: 0.1em; text-transform: uppercase; font-size: 12.5px; margin-right: 8px; }
+
+/* sections */
+section { padding: 76px 0 8px; }
+.eyebrow { font-family: var(--cond); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; font-size: 13px; color: var(--ink-muted); display: flex; align-items: center; gap: 10px; }
+.eyebrow::before { content: ""; width: 18px; height: 2px; background: var(--lime); }
+h2 { font-family: var(--cond); font-weight: 700; font-size: clamp(30px, 3.6vw, 42px); line-height: 1.08; margin: 10px 0 18px; max-width: 26ch; }
+h3 { font-family: var(--cond); font-weight: 700; font-size: 24px; line-height: 1.15; margin: 0 0 8px; }
+p { margin: 0 0 16px; }
+.lede { font-size: 19px; }
+.muted { color: var(--ink-muted); }
+.card { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 26px 28px; margin: 28px 0; overflow-x: auto; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; flex-wrap: wrap; margin-bottom: 18px; }
+.card-head .t { font-family: var(--cond); font-weight: 700; font-size: 20px; }
+.card-head .n { color: var(--ink-muted); font-size: 14px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.two > *, .rrow > *, .db-row > * { min-width: 0; }
+.two .card { margin: 0; }
+.two { margin: 28px 0; }
+.wf-val { z-index: 3; }
+.wf-val span { background: var(--card); padding: 0 5px; border-radius: 4px; }
+
+/* ranked bars */
+.ranked { display: grid; gap: 12px; }
+.rrow { display: grid; grid-template-columns: 230px 1fr 132px; align-items: center; gap: 16px; }
+.rrow .rl { font-size: 15.5px; line-height: 1.25; }
+.rrow .rl small { display: block; color: var(--ink-muted); font-size: 13px; }
+.rtrack { height: 22px; position: relative; }
+.rbar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(.2,.8,.2,1); }
+.rrow:hover .rbar { filter: brightness(1.08); }
+.rv { text-align: right; font-family: var(--cond); font-weight: 600; font-size: 19px; font-variant-numeric: tabular-nums; }
+.rv small { display: block; font-family: var(--font); font-weight: 400; color: var(--ink-muted); font-size: 12.5px; }
+.ranked.compact .rrow { grid-template-columns: 200px 1fr 92px; }
+.ranked.compact .rtrack { height: 16px; }
+.ranked.compact .rv { font-size: 17px; }
+
+/* stacked */
+.stack { display: flex; gap: 2px; height: 46px; margin-top: 8px; }
+.seg { height: 100%; width: 0; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.seg:first-child { border-radius: 4px 0 0 4px; }
+.seg:last-child { border-radius: 0 4px 4px 0; }
+.stack-labels { display: flex; gap: 2px; margin-top: 10px; }
+.stack-labels div { font-size: 14px; line-height: 1.3; overflow: hidden; }
+.stack-labels b { display: block; font-family: var(--cond); font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 16px; font-size: 14px; color: var(--ink-muted); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+/* loop */
+.loop svg { width: 100%; height: auto; display: block; }
+.loop .axis { stroke: var(--rule); stroke-width: 2; }
+.loop .tick { font-family: var(--cond); font-size: 13px; fill: var(--ink-muted); }
+.loop .post { fill: var(--s-auth); }
+.loop .pf { fill: var(--s-page); }
+.loop .play { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.loop .lbl { font-family: var(--cond); font-weight: 600; font-size: 13px; fill: var(--ink-muted); }
+.counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; margin-top: 14px; }
+.counters div { background: var(--card); padding: 12px 16px; }
+.counters b { display: block; font-family: var(--cond); font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.counters span { font-size: 13px; color: var(--ink-muted); }
+
+/* grouped bars (real data) */
+.gb { display: grid; grid-template-columns: repeat(17, 1fr); gap: 6px; align-items: end; height: 190px; padding-top: 18px; position: relative; }
+.gb .g { display: flex; gap: 2px; align-items: end; height: 100%; position: relative; }
+.gb .g i { flex: 1; border-radius: 3px 3px 0 0; height: 0; transition: height .9s cubic-bezier(.2,.8,.2,1); position: relative; }
+.gb .gap { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ink-muted); font-size: 12px; writing-mode: vertical-rl; font-family: var(--cond); letter-spacing: 0.1em; text-transform: uppercase; }
+.gb-x { display: grid; grid-template-columns: repeat(17, 1fr); gap: 6px; margin-top: 8px; font-size: 11.5px; color: var(--ink-muted); text-align: center; font-variant-numeric: tabular-nums; }
+.gb-note { position: absolute; top: 0; font-family: var(--cond); font-size: 12.5px; color: var(--ink-muted); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* chain */
+.chain { list-style: none; padding: 0; margin: 10px 0 0; counter-reset: c; }
+.chain li { counter-increment: c; display: grid; grid-template-columns: 44px 1fr; gap: 14px; padding: 14px 0; border-top: 1px solid var(--rule); opacity: 0; transform: translateX(-10px); transition: opacity .5s ease, transform .5s cubic-bezier(.2,.8,.2,1); }
+.chain.in li { opacity: 1; transform: none; }
+.chain li::before { content: counter(c, decimal-leading-zero); font-family: var(--cond); font-weight: 700; font-size: 26px; color: var(--s-auth); line-height: 1.1; }
+.chain li:last-child::before { color: var(--s-page); }
+.chain .ev { display: block; font-family: var(--mono); font-size: 12.5px; color: var(--ink-muted); margin-top: 4px; }
+
+/* flow diagram */
+.flow-card { padding: 18px 10px 8px; }
+.flow svg { width: 100%; height: auto; display: block; }
+.flow .node rect { fill: var(--muted-fill); stroke: var(--rule); }
+.flow .node.vercel rect { fill: var(--navy); stroke: var(--navy); }
+.flow .node.vercel text { fill: var(--board-fg); }
+.flow .node text { font-family: var(--cond); font-weight: 700; font-size: 17px; fill: var(--ink); letter-spacing: 0.02em; }
+.flow .node text.s { font-family: var(--font); font-weight: 400; font-size: 12.5px; fill: var(--ink-muted); letter-spacing: 0; }
+.flow .node.vercel text.s { fill: var(--board-muted); }
+.flow path.wire { fill: none; stroke: var(--rule); stroke-width: 2; }
+.flow path.wire.free { stroke-dasharray: 5 6; }
+.flow .lbl { font-family: var(--cond); font-weight: 600; font-size: 13.5px; fill: var(--ink-muted); }
+.flow .vzone { fill: none; stroke: var(--lime); stroke-width: 1.5; stroke-dasharray: 4 6; }
+.flow .vzone-t { font-family: var(--cond); font-weight: 700; font-size: 12px; letter-spacing: 0.16em; fill: var(--lime-ink); }
+
+/* fixes */
+.fix { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; margin: 18px 0; overflow: hidden; opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s cubic-bezier(.2,.8,.2,1); }
+.fix.in { opacity: 1; transform: none; }
+.fix.lead { border: 2px solid var(--lime); }
+.fix-top { display: grid; grid-template-columns: 56px 1fr auto; gap: 18px; padding: 22px 26px; align-items: start; }
+.fix-top > * { min-width: 0; }
+.rank { font-family: var(--cond); font-weight: 700; font-size: 40px; line-height: 1; color: var(--ink-muted); }
+.fix.top3 .rank { color: var(--lime-ink); }
+.fix h3 { margin-bottom: 6px; }
+.fix p { margin: 0 0 8px; }
+.tags { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.tag { font-family: var(--cond); font-weight: 600; font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 9px; border-radius: 5px; background: var(--muted-fill); color: var(--ink-muted); white-space: nowrap; }
+.tag.hi { background: #84b13522; color: var(--lime-ink); }
+.tag.warn { background: var(--warn-surface); color: var(--warn-ink); }
+.saves { display: flex; gap: 10px 26px; flex-wrap: wrap; padding: 0 26px 18px 100px; font-size: 14px; color: var(--ink-muted); }
+.saves b { font-family: var(--cond); font-size: 19px; color: var(--ink); font-weight: 700; margin-right: 4px; }
+details.code { border-top: 1px solid var(--rule); }
+details.code summary { cursor: pointer; padding: 13px 26px 13px 100px; font-family: var(--cond); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; color: var(--ink-muted); list-style: none; }
+details.code summary::-webkit-details-marker { display: none; }
+details.code summary::before { content: "+"; display: inline-block; width: 16px; color: var(--lime-ink); }
+details.code[open] summary::before { content: "−"; }
+pre { margin: 0; background: var(--code-bg); color: var(--code-fg); padding: 20px 26px 20px 100px; overflow-x: auto; line-height: 1.55; font-size: 13.2px; }
+pre .c { color: #7f8aa0; } pre .k { color: #a6cf5e; } pre .s { color: #f5c97a; } pre .d { color: #ff8a8e; } pre .a { color: #9db4f2; }
+.file { display: block; color: #7f8aa0; margin-bottom: 8px; font-size: 12px; }
+
+/* waterfall */
+.wf { position: relative; height: 340px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; align-items: end; margin-top: 30px; }
+.wf-col { position: relative; height: 100%; }
+.wf-bar { position: absolute; left: 8%; right: 8%; border-radius: 4px; transform: scaleY(0); transform-origin: top; transition: transform .7s cubic-bezier(.2,.8,.2,1); }
+.wf-bar.total { background: var(--ink); transform-origin: bottom; }
+.wf-bar.est { background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.4) 0 3px, transparent 3px 8px); }
+.wf-val { position: absolute; left: 0; right: 0; text-align: center; font-family: var(--cond); font-weight: 700; font-size: 18px; opacity: 0; transition: opacity .4s ease .5s; font-variant-numeric: tabular-nums; }
+.wf.go .wf-val { opacity: 1; }
+.wf-x { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-top: 10px; font-size: 13.5px; text-align: center; color: var(--ink-muted); line-height: 1.3; }
+.wf-limit { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--danger); z-index: 2; }
+.wf-limit span { position: absolute; left: 21%; top: 6px; font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--danger-ink); background: var(--card); padding: 0 4px; }
+
+/* before/after pair */
+.ba { display: grid; gap: 14px; margin-top: 6px; }
+.ba-row { display: grid; grid-template-columns: 70px 1fr 90px; gap: 12px; align-items: center; }
+.ba-row .l { font-size: 14px; color: var(--ink-muted); }
+.ba-track { position: relative; height: 26px; }
+.ba-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 0 4px 4px 0; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.ba-bar.now { background: var(--ink-muted); }
+.ba-bar.after { background: var(--lime); }
+.ba-bar.est { background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.4) 0 3px, transparent 3px 8px); }
+.ba-row .v { font-family: var(--cond); font-weight: 700; font-size: 19px; text-align: right; font-variant-numeric: tabular-nums; }
+.ba-limit { position: absolute; top: -6px; bottom: -6px; border-left: 2px dashed var(--danger); }
+.ba-limit span { position: absolute; top: -18px; left: 4px; font-family: var(--cond); font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--danger-ink); white-space: nowrap; text-transform: uppercase; }
+
+/* stat tiles */
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tile { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 18px 16px; min-width: 0; }
+.tile .k { font-family: var(--cond); font-size: 12.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); }
+.tile .v { font-family: var(--cond); font-weight: 700; font-size: 34px; line-height: 1.05; margin: 8px 0 4px; font-variant-numeric: tabular-nums; }
+.tile .v small { font-size: 0.5em; color: var(--ink-muted); }
+.tile .d { font-size: 13.5px; color: var(--ink-muted); line-height: 1.4; }
+.tile.bad .v { color: var(--danger-ink); }
+
+/* dumbbell */
+.db { display: grid; gap: 16px; margin-top: 8px; }
+.db-row { display: grid; grid-template-columns: 250px 1fr 70px; gap: 16px; align-items: center; }
+.db-row .rl { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.db-track { position: relative; height: 22px; }
+.db-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--rule); }
+.db-line { position: absolute; top: 50%; height: 3px; margin-top: -1.5px; background: var(--rule); left: 0; width: 0; transition: width 1s cubic-bezier(.2,.8,.2,1) .2s, left 1s cubic-bezier(.2,.8,.2,1) .2s; }
+.db-dot { position: absolute; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; box-shadow: 0 0 0 2px var(--card); transition: left 1s cubic-bezier(.2,.8,.2,1) .2s; left: 0; }
+.db-axis { display: grid; grid-template-columns: 250px 1fr 70px; gap: 16px; font-size: 12px; color: var(--ink-muted); }
+.db-axis .ticks { position: relative; height: 16px; }
+.db-axis .ticks span { position: absolute; transform: translateX(-50%); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th { text-align: left; font-family: var(--cond); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12.5px; color: var(--ink-muted); padding: 10px 14px 10px 0; border-bottom: 1px solid var(--rule); }
+td { padding: 14px 14px 14px 0; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.45; }
+.strategy td:first-child { font-weight: 600; width: 22%; }
+.pill { display: inline-block; font-family: var(--cond); font-weight: 700; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 9px; border-radius: 5px; white-space: nowrap; margin: 0 4px 4px 0; }
+.pill.static { background: #2a78d622; color: var(--s-page); }
+.pill.client { background: #84b13526; color: var(--lime-ink); }
+.pill.server { background: var(--warn-surface); color: var(--warn-ink); }
+.pill.none { background: var(--muted-fill); color: var(--ink-muted); }
+details.table { margin-top: 18px; font-size: 14px; }
+details.table summary { cursor: pointer; color: var(--ink-muted); font-family: var(--cond); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12.5px; }
+details.table table { margin-top: 10px; font-size: 14px; }
+details.table td, details.table th { padding: 7px 10px 7px 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.callout { border-left: 3px solid var(--lime); padding: 4px 0 4px 18px; margin: 22px 0; font-size: 18px; }
+.checked { columns: 2; column-gap: 40px; font-size: 15px; padding-left: 20px; }
+.checked li { break-inside: avoid; margin-bottom: 12px; }
+footer { margin-top: 90px; padding: 34px 0 60px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--ink-muted); }
+
+#tip { position: fixed; pointer-events: none; z-index: 50; background: var(--navy); color: var(--board-fg); padding: 9px 12px; border-radius: 7px; font-size: 13.5px; line-height: 1.4; max-width: 300px; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); }
+#tip.on { opacity: 1; transform: none; }
+#tip b { font-family: var(--cond); font-size: 17px; display: block; }
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1); }
+.reveal.in { opacity: 1; transform: none; }
+
+@media (max-width: 860px) {
+  .wrap { padding: 0 18px; }
+  .board { grid-template-columns: 1fr 1fr; }
+  .cell .num { font-size: 40px; }
+  .card { padding: 20px 16px; }
+  .two, .tiles { grid-template-columns: 1fr 1fr; }
+  .two { grid-template-columns: 1fr; }
+  .rrow, .db-row, .db-axis, .ranked.compact .rrow { grid-template-columns: 1fr; gap: 6px; }
+  .rv { text-align: left; }
+  .fix-top { grid-template-columns: 40px 1fr; }
+  .tags { flex-direction: row; grid-column: 2; align-items: flex-start; flex-wrap: wrap; }
+  .saves, details.code summary, pre { padding-left: 22px; }
+  .checked { columns: 1; }
+  .wf-x { font-size: 11.5px; }
+  .counters { grid-template-columns: 1fr 1fr; }
+  .gb-x { font-size: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .reveal, .fix, .chain li { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="topline">
+      <span class="brand">MAGNUS CRM</span>
+      <span>Vercel usage audit · Oct 21 to Nov 4, 2026</span>
+      <button class="theme-btn" id="themeBtn" type="button">Theme</button>
+    </div>
+    <h1>Every five minutes, <span class="lime">each open tab throws its cache away.</span></h1>
+    <p class="dek">I went through 14 days of production metrics, sliced them down to single clients in 5-minute windows, and traced the cause through the Next.js and AuthKit source. <strong>Most of the usage comes from one loop.</strong> AuthKit refreshes the access token with a server action that writes a cookie. Next 16 treats that as a full revalidation, clears every prefetched route in the tab, re-renders the page on the server, and lets the sidebar prefetch everything again. Favicons, the PostHog proxy and a log webhook make up most of the rest.</p>
+
+    <div class="board" id="board">
+      <div class="cell alert">
+        <span class="lab">CDN requests a month</span>
+        <span class="num" data-count="1.78" data-dec="2" data-suffix="M">0</span>
+        <div class="meter"><i data-w="100"></i><b style="left:56%"></b></div>
+        <div class="meter-cap"><span style="left:0">0</span><span style="left:56%;transform:translateX(-50%)">Hobby 1M</span><span style="right:0">1.78M</span></div>
+      </div>
+      <div class="cell alert">
+        <span class="lab">Active CPU-hours a month</span>
+        <span class="num" data-count="6.2" data-dec="1" data-suffix="h">0</span>
+        <div class="meter"><i data-w="100"></i><b style="left:65%"></b></div>
+        <div class="meter-cap"><span style="left:0">0</span><span style="left:65%;transform:translateX(-50%)">Hobby 4h</span><span style="right:0">6.2h</span></div>
+      </div>
+      <div class="cell">
+        <span class="lab">Prefetches per real navigation</span>
+        <span class="num" data-count="55" data-dec="0" data-suffix="×">0</span>
+        <span class="sub">175,907 prefetches against 3,218 page loads and navigations on workspace routes in the last 7 days.</span>
+      </div>
+      <div class="cell">
+        <span class="lab">Requests from one idle tab per hour</span>
+        <span class="num" data-count="144" data-dec="0">0</span>
+        <span class="sub">12 token refresh POSTs, then about 11 sidebar prefetches after each one. Every request runs the WorkOS proxy.</span>
+      </div>
+    </div>
+
+    <div class="changed"><b>Changed from the first version</b>The token refresh loop is now the top finding and fix. I withdrew two earlier fixes. Raising <code style="background:transparent;color:inherit">staleTimes</code> wouldn't help, because Next doesn't re-prefetch a visible link on expiry alone. Bot protection would have challenged the Convex log stream itself. It's one refresh per 5 minutes, not two.</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="short">
+  <div class="narrow">
+    <div class="eyebrow">The short version</div>
+    <h2>Two Hobby limits broke, and one loop drives both</h2>
+    <p class="lede">At the current pace the app makes about 1.78 million CDN requests and burns about 6.2 active CPU-hours a month. Hobby includes 1 million requests and 4 CPU-hours. Pro's flat-rate CDN tier also starts at 1 million requests, so this matters after the upgrade too.</p>
+    <p>The rendering setup isn't the problem. With <code>cacheComponents</code> and <code>partialPrefetching</code> on, 98% of workspace page requests come out of the CDN cache, and Convex moves all live data over its own WebSocket, which Vercel never sees. The problem is what keeps asking for those cached shells, and how much it costs to ask. Each prefetch is a cache hit, but the WorkOS proxy runs before the cache, and every proxy run costs at least 10 ms of CPU. Middleware burned 109 CPU-minutes in two weeks. All functions together burned 63.</p>
+    <p>Moving the token refresh into a Route Handler kills the loop. With that, the favicon fix and the log webhook fix, you'd land around 865,000 requests and 2.4 CPU-hours a month. Take PostHog off the proxy too and requests drop near 500,000.</p>
+  </div>
+</section>
+
+<section id="loop">
+  <div class="eyebrow">The five-minute loop</div>
+  <h2>What one idle tab does while nobody touches it</h2>
+  <p class="narrow muted">A simulation of one lead-gen worker's tab sitting on the capture page for 30 minutes, built from the measured rates below.</p>
+  <div class="card reveal loop">
+    <svg viewBox="0 0 1000 250" id="loopSvg" aria-label="Animated timeline of an idle tab">
+      <line class="axis" x1="60" y1="200" x2="960" y2="200"/>
+      <g id="loopTicks"></g>
+      <g id="loopMarks"></g>
+      <g id="loopDots"></g>
+      <line class="play" id="loopPlay" x1="60" y1="20" x2="60" y2="205"/>
+      <text class="lbl" x="60" y="240">minutes</text>
+    </svg>
+    <div class="counters">
+      <div><b id="cPost">0</b><span>token refresh POSTs</span></div>
+      <div><b id="cPf">0</b><span>sidebar prefetches</span></div>
+      <div><b id="cMw">0</b><span>proxy.ts runs</span></div>
+      <div><b id="cRender">0</b><span>server page re-renders</span></div>
+    </div>
+    <div class="legend"><span><i style="background:var(--s-auth)"></i>Token refresh, a server action that writes the session cookie</span><span><i style="background:var(--s-page)"></i>Prefetch of a sidebar route after the cache is cleared</span></div>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head"><span class="t">One office IP on Nov 3, in 5-minute buckets</span><span class="n">UTC · Vercel Observability</span></div>
+    <div class="gb" id="gb"></div>
+    <div class="gb-x" id="gbx"></div>
+    <div class="legend"><span><i style="background:var(--s-auth)"></i>POSTs to workspace pages</span><span><i style="background:var(--s-page)"></i>Prefetches</span></div>
+    <details class="table"><summary>Show as table</summary><table id="gbTable"></table></details>
+  </div>
+
+  <div class="narrow">
+    <p>With one tab open there's 1 POST and 11 prefetches per window. When a second tab opens, both numbers double. Real navigations in these windows were zero. Across the four busiest clients that day, there wasn't a single window with prefetches and no POST. Over the whole app, about 18,000 token refreshes a week line up with 175,907 prefetches, roughly 10 per refresh.</p>
+  </div>
+
+  <div class="card reveal">
+    <div class="card-head"><span class="t">How a token refresh turns into a prefetch storm</span><span class="n">Verified in installed source</span></div>
+    <ol class="chain" id="chain">
+      <li><div>Convex asks for a fresh token about 10 seconds before the 5-minute WorkOS token expires. AuthKit's token store also schedules its own refresh. Both run through <code>useAccessToken()</code>, which <code>ConvexClientProvider</code> mounts on every page.<span class="ev">app/ConvexClientProvider.tsx:56 · authkit-nextjs/components/tokenStore.js:75-93</span></div></li>
+      <li><div>AuthKit calls <code>refreshAccessTokenAction</code>. It's a server action, so the browser POSTs to whatever page you're on, and the proxy runs first.<span class="ev">authkit-nextjs/actions.js:83 · next/client/.../server-action-reducer.js:52-79</span></div></li>
+      <li><div>The action calls <code>refreshSession</code>, which exchanges the refresh token with WorkOS and calls <code>saveSession</code>. That writes the session cookie with <code>cookies().set()</code>.<span class="ev">authkit-nextjs/session.js:281-303, 572-577</span></div></li>
+      <li><div>Next sees a cookie written inside an action and flags the response as a full static and dynamic revalidation.<span class="ev">next/server/app-render/action-handler.js:123-126</span></div></li>
+      <li><div>Because the path counts as revalidated, the server renders the whole page into the action response. <code>WorkspaceAuth</code> runs WorkOS and two Convex queries again for a page nobody is looking at. The capture route alone made 23,926 Convex queries and 10,636 WorkOS calls this way last week.<span class="ev">next/server/web/spec-extension/adapters/request-cookies.js:125 · action-handler.js:926</span></div></li>
+      <li><div>The browser receives the revalidation flag and clears its entire prefetch cache.<span class="ev">next/client/components/router-reducer/reducers/server-action-reducer.js:228-229</span></div></li>
+      <li><div>Every visible sidebar link schedules a new prefetch. With Partial Prefetching each route needs about two segment requests, so 6 links make about 11 requests, each one through <code>proxy.ts</code>.<span class="ev">next/client/components/links.js:250-305 · segment-cache/cache.js:1415-1443</span></div></li>
+    </ol>
+  </div>
+</section>
+
+<section id="sources">
+  <div class="eyebrow">Where the requests come from</div>
+  <h2>Six sources make up every CDN request</h2>
+  <p class="narrow muted">14-day totals. Monthly figures multiply by 30/14. Hover a bar for detail.</p>
+  <div class="card reveal">
+    <div class="card-head"><span class="t">CDN requests by source, 14 days</span><span class="n">832,590 total</span></div>
+    <div class="ranked" id="ranked"></div>
+    <details class="table"><summary>Show as table</summary><table id="rankedTable"></table></details>
+  </div>
+  <div class="narrow">
+    <p>The top bar is mostly the loop above. 98% of those GETs were prefetches. The favicons have their own spike. They hit 34,053 and 44,586 a day on Oct 14 and 15, and 99.6% of all favicon requests are <code>304</code> revalidations, because Vercel serves <code>public/</code> files with <code>max-age=0, must-revalidate</code>. Next also remounts the head metadata on navigation, which removes and re-inserts all nine icon links from <code>app/layout.tsx:44-58</code>, and each one gets re-checked.</p>
+    <p>PostHog session replay posted 103,409 chunks to <code>/ingest/s/</code> through the rewrite in <code>next.config.ts</code>.</p>
+  </div>
+</section>
+
+<section id="functions">
+  <div class="eyebrow">What the compute pays for</div>
+  <h2>Middleware outspends every function combined</h2>
+  <div class="two">
+    <div class="card reveal">
+      <div class="card-head"><span class="t">Middleware runs</span><span class="n">519,743 in 14 days</span></div>
+      <div data-stack="mw"></div>
+      <div class="legend" data-legend="mw"></div>
+    </div>
+    <div class="card reveal">
+      <div class="card-head"><span class="t">Function invocations</span><span class="n">168,459 in 14 days</span></div>
+      <div data-stack="fn"></div>
+      <div class="legend" data-legend="fn"></div>
+    </div>
+  </div>
+  <div class="card reveal">
+    <div class="card-head"><span class="t">Active CPU, 14 days</span><span class="n">minutes</span></div>
+    <div class="ranked compact" id="cpuBars"></div>
+    <details class="table"><summary>Show as table</summary><table id="cpuTable"></table></details>
+  </div>
+  <div class="narrow">
+    <p>Middleware CPU is 10 ms at the median and the 75th percentile on every path, including the log webhook, which carries no cookie at all. That's a per-run floor, not your code, so the only way to spend less is to run it less. Rewriting <code>proxy.ts</code> won't help.</p>
+    <p>The log webhook at <code>app/api/observability/convex/route.ts</code> ran 84,700 times. It's half of all function invocations and 46% of provisioned memory, because each call waits about 316 ms for PostHog's logs endpoint before it answers Convex. It also runs through the proxy, which does nothing for it.</p>
+  </div>
+</section>
+
+<section id="path">
+  <div class="eyebrow">How a request travels</div>
+  <h2>What Vercel pays for, and what goes straight to Convex</h2>
+  <p class="narrow muted">Moving dots are traffic, roughly scaled to volume. Dashed wires never touch Vercel.</p>
+  <div class="card flow-card reveal flow">
+    <svg viewBox="0 0 1000 440" id="flow" aria-label="Request flow diagram">
+      <rect class="vzone" x="262" y="56" width="406" height="366" rx="14"/>
+      <text class="vzone-t" x="278" y="76">BILLED BY VERCEL</text>
+      <path id="p-ws" class="wire free" d="M90 88 C 90 8, 890 8, 890 150"/>
+      <path id="p-page" class="wire" d="M150 118 L290 118"/>
+      <path id="p-page2" class="wire" d="M410 118 L520 118"/>
+      <path id="p-icons" class="wire" d="M150 205 L290 205"/>
+      <path id="p-auth" class="wire" d="M150 290 L520 290"/>
+      <path id="p-fn-cx" class="wire" d="M640 282 C 740 282, 760 200, 830 196"/>
+      <path id="p-log" class="wire" d="M860 222 C 845 290, 730 300, 640 298"/>
+      <path id="p-log2" class="wire" d="M640 306 C 730 318, 760 372, 830 375"/>
+      <path id="p-ph" class="wire" d="M150 380 L290 380"/>
+      <path id="p-ph2" class="wire" d="M410 380 L830 380"/>
+      <g class="node"><rect x="30" y="88" width="120" height="318" rx="10"/><text x="90" y="232" text-anchor="middle">Browser</text><text class="s" x="90" y="254" text-anchor="middle">closers, lead gen,</text><text class="s" x="90" y="270" text-anchor="middle">admins</text></g>
+      <g class="node vercel"><rect x="290" y="88" width="120" height="60" rx="10"/><text x="350" y="116" text-anchor="middle">proxy.ts</text><text class="s" x="350" y="135" text-anchor="middle">10 ms CPU floor</text></g>
+      <g class="node vercel"><rect x="520" y="88" width="120" height="60" rx="10"/><text x="580" y="116" text-anchor="middle">CDN cache</text><text class="s" x="580" y="135" text-anchor="middle">98% shell hits</text></g>
+      <g class="node vercel"><rect x="290" y="180" width="120" height="50" rx="10"/><text x="350" y="203" text-anchor="middle">Icons</text><text class="s" x="350" y="220" text-anchor="middle">max-age=0</text></g>
+      <g class="node vercel"><rect x="520" y="262" width="120" height="58" rx="10"/><text x="580" y="288" text-anchor="middle">Functions</text><text class="s" x="580" y="307" text-anchor="middle">re-render on refresh</text></g>
+      <g class="node vercel"><rect x="290" y="352" width="120" height="56" rx="10"/><text x="350" y="378" text-anchor="middle">/ingest</text><text class="s" x="350" y="396" text-anchor="middle">rewrite</text></g>
+      <g class="node"><rect x="830" y="150" width="120" height="72" rx="10"/><text x="890" y="182" text-anchor="middle">Convex</text><text class="s" x="890" y="202" text-anchor="middle">37 ms median</text></g>
+      <g class="node"><rect x="830" y="352" width="120" height="56" rx="10"/><text x="890" y="385" text-anchor="middle">PostHog</text></g>
+      <text class="lbl" x="490" y="22" text-anchor="middle">Convex WebSocket · all live data · $0 on Vercel</text>
+      <text class="lbl" x="220" y="108" text-anchor="middle">prefetch 357k</text>
+      <text class="lbl" x="220" y="195" text-anchor="middle">icons 121k</text>
+      <text class="lbl" x="335" y="280" text-anchor="middle">AuthKit actions 75k, through proxy.ts</text>
+      <text class="lbl" x="220" y="370" text-anchor="middle">PostHog 174k</text>
+      <text class="lbl" x="995" y="252" text-anchor="end">log stream 85k</text>
+      <g id="dots"></g>
+    </svg>
+  </div>
+</section>
+
+<section id="fixes">
+  <div class="eyebrow">The fixes, ranked by what they save</div>
+  <h2>Eight changes, and the first one does most of the work</h2>
+  <p class="narrow muted">Savings are monthly at current traffic. Estimates say so. Savings overlap, so don't add them up blindly. The waterfall further down does the arithmetic in order.</p>
+
+  <article class="fix lead top3">
+    <div class="fix-top">
+      <div class="rank">01</div>
+      <div><h3>Refresh the token through a Route Handler, not a server action</h3>
+        <p>Add <code>app/api/auth/token/route.ts</code>, have <code>fetchAccessToken</code> call it, and drop <code>useAccessToken()</code> so AuthKit's own refresh timer and focus listeners never start. Pass <code>onSessionExpired={false}</code> to <code>AuthKitProvider</code> as well, so a tab switch stops costing a <code>checkSessionAction</code> POST. A cookie written by a Route Handler doesn't trigger Next's action revalidation. So the prefetch cache survives, and the server stops re-rendering the page every five minutes. Convex already schedules a refresh before expiry, and a failed refresh is your signal to show the session-expired toast.</p></div>
+      <div class="tags"><span class="tag hi">Biggest impact</span><span class="tag">Medium effort</span><span class="tag warn">Test sign-out</span></div>
+    </div>
+    <div class="saves"><span><b>~686k</b>CDN requests</span><span><b>~686k</b>proxy runs</span><span><b>~3 h</b>active CPU</span><span><b>most</b>server-side Convex queries</span><span>estimate</span></div>
+    <details class="code"><summary>Show the change</summary>
+<pre><span class="file">app/api/auth/token/route.ts · new</span><span class="k">import</span> { refreshSession, withAuth } <span class="k">from</span> <span class="s">"@workos-inc/authkit-nextjs"</span>;
+
+<span class="k">const</span> NO_STORE = { <span class="s">"Cache-Control"</span>: <span class="s">"no-store"</span> };
+
+<span class="k">function</span> secondsLeft(jwt: string) {
+  <span class="k">const</span> { exp } = JSON.parse(Buffer.from(jwt.split(<span class="s">"."</span>)[1], <span class="s">"base64url"</span>).toString());
+  <span class="k">return</span> exp - Date.now() / 1000;
+}
+
+<span class="c">// A Route Handler, not a server action. A cookie written here doesn't make</span>
+<span class="c">// Next clear the client's prefetch cache or re-render the current page.</span>
+<span class="k">export async function</span> POST(request: Request) {
+  <span class="k">if</span> (request.headers.get(<span class="s">"sec-fetch-site"</span>) !== <span class="s">"same-origin"</span>) {
+    <span class="k">return new</span> Response(null, { status: 403 });
+  }
+  <span class="k">const</span> { force = false } = <span class="k">await</span> request.json().catch(() =&gt; ({}));
+  <span class="k">const</span> { user, accessToken } = <span class="k">await</span> withAuth();
+  <span class="k">if</span> (!user || !accessToken) <span class="k">return</span> Response.json({ accessToken: null }, { status: 401, headers: NO_STORE });
+  <span class="k">if</span> (!force &amp;&amp; secondsLeft(accessToken) &gt; 60) <span class="k">return</span> Response.json({ accessToken }, { headers: NO_STORE });
+  <span class="k">try</span> {
+    <span class="k">const</span> refreshed = <span class="k">await</span> refreshSession();
+    <span class="k">return</span> Response.json({ accessToken: refreshed.accessToken ?? null }, { headers: NO_STORE });
+  } <span class="k">catch</span> {
+    <span class="k">return</span> Response.json({ accessToken: null }, { status: 401, headers: NO_STORE });
+  }
+}
+
+<span class="file">app/ConvexClientProvider.tsx</span><span class="d">- import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";</span>
+<span class="a">+ import { AuthKitProvider, useAuth } from "@workos-inc/authkit-nextjs/components";</span>
+<span class="d">-   &lt;AuthKitProvider&gt;</span>
+<span class="a">+   &lt;AuthKitProvider onSessionExpired={false}&gt;</span>
+
+  <span class="k">function</span> useAuthFromAuthKit() {
+    <span class="k">const</span> { user, loading: isLoading } = useAuth();
+<span class="d">-   const { getAccessToken, refresh } = useAccessToken();</span>
+    <span class="k">const</span> fetchAccessToken = useCallback(<span class="k">async</span> ({ forceRefreshToken } = {}) =&gt; {
+      <span class="k">if</span> (!user) <span class="k">return</span> null;
+<span class="a">+     const res = await fetch("/api/auth/token", {</span>
+<span class="a">+       method: "POST",</span>
+<span class="a">+       headers: { "content-type": "application/json" },</span>
+<span class="a">+       body: JSON.stringify({ force: Boolean(forceRefreshToken) }),</span>
+<span class="a">+     });</span>
+<span class="a">+     if (res.status === 401) { showSessionExpiredToast(); return null; }</span>
+<span class="a">+     if (!res.ok) { logTokenRefreshFailure(Boolean(forceRefreshToken)); return null; }</span>
+<span class="a">+     return (await res.json()).accessToken ?? null;</span>
+    }, [user]);</pre>
+    </details>
+  </article>
+
+  <article class="fix top3">
+    <div class="fix-top">
+      <div class="rank">02</div>
+      <div><h3>Let browsers cache the favicons</h3>
+        <p>Give the icon files a week-long <code>Cache-Control</code> through <code>headers()</code> in <code>next.config.ts</code>. Trim the icon list in <code>app/layout.tsx</code> to the three files browsers use, and delete one of the two <code>favicon.ico</code> copies, <code>app/favicon.ico</code> or <code>public/favicon.ico</code>. With a real max-age, the remounted icon links hit the browser's cache and never reach Vercel. Rename the file if you ever change the icon.</p></div>
+      <div class="tags"><span class="tag hi">High impact</span><span class="tag">Low effort</span><span class="tag">No risk</span></div>
+    </div>
+    <div class="saves"><span><b>~233k</b>CDN requests</span><span><b>~1.1 GB</b>data transfer</span></div>
+    <details class="code"><summary>Show the change</summary>
+<pre><span class="file">next.config.ts</span><span class="k">const</span> ICON_FILES = [<span class="s">"/favicon.ico"</span>, <span class="s">"/favicon.svg"</span>, <span class="s">"/apple-touch-icon.png"</span>, <span class="s">"/favicon-:size.png"</span>, <span class="s">"/magnus-icon.svg"</span>, <span class="s">"/magnus-white.svg"</span>];
+
+  <span class="k">async</span> headers() {
+    <span class="k">return</span> ICON_FILES.map((source) =&gt; ({
+      source,
+      headers: [{ key: <span class="s">"Cache-Control"</span>, value: <span class="s">"public, max-age=604800, stale-while-revalidate=86400"</span> }],
+    }));
+  },
+
+<span class="file">app/layout.tsx</span>  icons: {
+<span class="a">+   icon: [{ url: "/favicon.ico", sizes: "any" }, { url: "/favicon.svg", type: "image/svg+xml" }],</span>
+<span class="a">+   apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],</span>
+  },</pre>
+    </details>
+  </article>
+
+  <article class="fix top3">
+    <div class="fix-top">
+      <div class="rank">03</div>
+      <div><h3>Keep the log webhook out of the proxy</h3>
+        <p>The route verifies the Convex HMAC itself at <code>route.ts:39</code> and never reads a session, so the WorkOS proxy adds nothing. Exclude it from the matcher. Leave the function where it is. 84,700 invocations cost pennies on Pro, and its retry behavior depends on waiting for PostHog.</p></div>
+      <div class="tags"><span class="tag">Medium impact</span><span class="tag">Low effort</span><span class="tag">No risk</span></div>
+    </div>
+    <div class="saves"><span><b>~181k</b>proxy runs</span><span><b>~38 min</b>active CPU</span></div>
+    <details class="code"><summary>Show the change</summary>
+<pre><span class="file">proxy.ts</span>  matcher: [
+<span class="d">-   "/((?!_next|ingest|[^?]*\\.(?:html?|css|...)).*)",</span>
+<span class="d">-   "/(api|trpc)(.*)",</span>
+<span class="a">+   "/((?!_next|ingest|api/observability/convex|[^?]*\\.(?:html?|css|...)).*)",</span>
+<span class="a">+   "/api/((?!observability/convex(?:/|$)).*)",</span>
+<span class="a">+   "/trpc(.*)",</span>
+  ],</pre>
+    </details>
+  </article>
+
+  <article class="fix">
+    <div class="fix-top">
+      <div class="rank">04</div>
+      <div><h3>Take PostHog traffic off the Vercel proxy</h3>
+        <p>The <code>/ingest</code> rewrite exists to get past ad blockers. For an internal tool your own staff use, that matters less. You can point <code>api_host</code> at <code>https://us.i.posthog.com</code> directly. You can use PostHog's managed reverse proxy once the app has a custom domain. Or you can keep the proxy and sample replay in PostHog's project settings. Recording lead-gen sessions at 20% removes most of the 103k replay chunks.</p></div>
+      <div class="tags"><span class="tag hi">High impact</span><span class="tag">Low effort</span><span class="tag warn">Trade-off</span></div>
+    </div>
+    <div class="saves"><span><b>up to 373k</b>CDN requests</span><span><b>~4.8 GB</b>data transfer</span><span><b>~150k</b>if you only sample replay</span></div>
+    <details class="code"><summary>Show the change</summary>
+<pre><span class="file">instrumentation-client.ts</span><span class="d">-   api_host: "/ingest",</span>
+<span class="a">+   api_host: "https://us.i.posthog.com",</span>
+<span class="file">next.config.ts</span><span class="c">  // then delete the two /ingest rewrites and skipTrailingSlashRedirect</span></pre>
+    </details>
+  </article>
+
+  <article class="fix">
+    <div class="fix-top">
+      <div class="rank">05</div>
+      <div><h3>Skip the proxy for prefetch requests</h3>
+        <p>Every static prefetch carries <code>next-router-prefetch: 1</code>, and the matcher's <code>missing</code> condition is honored at runtime. I checked that against the installed matcher code: the header's absence matches, and values 1, 2 and 3 don't. Your shells contain no session data, because <code>verifySession</code> calls <code>connection()</code>, so they need no auth. After fix 01 this only covers the prefetches people trigger by navigating, so it's a smaller win. If a route ever reads cookies inside its shell, revisit this.</p></div>
+      <div class="tags"><span class="tag">Medium impact</span><span class="tag">Low effort</span><span class="tag warn">Test in preview</span></div>
+    </div>
+    <div class="saves"><span><b>~150k</b>proxy runs, after fix 01</span><span>estimate</span></div>
+    <details class="code"><summary>Show the change</summary>
+<pre><span class="file">proxy.ts</span>  matcher: [
+    {
+      source: <span class="s">"/((?!_next|ingest|api/observability/convex|[^?]*\\.(?:...)).*)"</span>,
+<span class="a">+     missing: [{ type: "header", key: "next-router-prefetch" }],</span>
+    },
+<span class="c">    // matcher entries are alternatives, so no other entry may match /workspace</span>
+  ],</pre>
+    </details>
+  </article>
+
+  <article class="fix">
+    <div class="fix-top">
+      <div class="rank">06</div>
+      <div><h3>Make workspace auth one Convex round trip, not two</h3>
+        <p><code>getWorkspaceAccess</code> in <code>lib/auth.ts</code> awaits <code>getCurrentTenant</code> at line 123, then <code>getCurrentUser</code> at line 85. Convex queries from iad1 take 37 ms at the median and about 130 ms at the 95th percentile, so the second wait costs that much on every workspace document load. One query that returns tenant and user together removes it. Keep <code>claimInvitedAccount</code> after the tenant check, since it writes.</p></div>
+      <div class="tags"><span class="tag">Speed</span><span class="tag">Medium effort</span></div>
+    </div>
+    <div class="saves"><span><b>~37 ms</b>median</span><span><b>~130 ms</b>95th percentile, every workspace load</span></div>
+  </article>
+
+  <article class="fix">
+    <div class="fix-top">
+      <div class="rank">07</div>
+      <div><h3>Load the DM portal with a query instead of an action</h3>
+        <p><code>/dm-links/[portalSlug]</code> waits on <code>fetchAction(getPortalBootstrap)</code> at <code>page.tsx:43</code>. Convex actions from this route take 210 ms at the median and 1,749 ms at the 95th percentile. Workspace queries take 37 ms and 130 ms. If the bootstrap only reads data after checking the portal session, make it a query. The page's own 95th percentile is 4,048 ms, ranging from 1,487 to 9,259 ms across deployments.</p></div>
+      <div class="tags"><span class="tag">Speed</span><span class="tag">Medium effort</span></div>
+    </div>
+    <div class="saves"><span><b>up to ~1.6 s</b>at the 95th percentile</span><span>estimate</span></div>
+  </article>
+
+  <article class="fix">
+    <div class="fix-top">
+      <div class="rank">08</div>
+      <div><h3>Cut first-load weight on every workspace page</h3>
+        <p>Three things load on every route that most routes don't need. First, <code>app/workspace/loading.tsx</code> renders a skeleton that imports <code>RankingSkeleton</code> from <code>overview-rankings.tsx</code>, which imports <code>rangePhrase</code> from the date-range picker. That pulls <code>react-day-picker</code> and date-fns into every workspace route's first load. Move the skeleton and the helper into plain modules. Second, <code>public/Aceh-Light.ttf</code> is a 168 KB TTF preloaded on every page, used for the logo, the landing page and one billing amount. Subset it to WOFF2 and turn off its global preload. Third, <code>posthog-js</code> is about 314 KB raw on every route. Loading it after hydration is possible but needs care with early events and exception capture.</p></div>
+      <div class="tags"><span class="tag">Speed</span><span class="tag">Low to medium effort</span></div>
+    </div>
+    <div class="saves"><span><b>70-90 KB</b>raw JS, skeleton chain</span><span><b>~150 KB</b>font preload</span><span><b>~100 KB</b>gzip, PostHog</span></div>
+  </article>
+</section>
+
+<section id="after">
+  <div class="eyebrow">After the fixes</div>
+  <h2>Monthly numbers, before and after</h2>
+  <div class="card reveal">
+    <div class="card-head"><span class="t">Projected CDN requests per month</span><span class="n">Hatched bars are estimates</span></div>
+    <div class="wf" id="wf"></div>
+    <div class="wf-x" id="wfx"></div>
+    <details class="table"><summary>Show as table</summary><table id="wfTable"></table></details>
+  </div>
+  <div class="two">
+    <div class="card reveal">
+      <div class="card-head"><span class="t">Proxy runs a month</span><span class="n">fixes 01 and 03</span></div>
+      <div class="ba" data-ba="mw"></div>
+    </div>
+    <div class="card reveal">
+      <div class="card-head"><span class="t">Active CPU-hours a month</span><span class="n">middleware and functions</span></div>
+      <div class="ba" data-ba="cpu"></div>
+    </div>
+  </div>
+  <p class="narrow">Fix 01 and fix 02 bring CDN requests under 1 million on their own. The PostHog change is optional. CPU drops below the Hobby line mostly because the proxy stops running for prefetch storms.</p>
+</section>
+
+<section id="speed">
+  <div class="eyebrow">Speed</div>
+  <h2>Slow routes are waiting, not working</h2>
+  <p class="narrow muted">Measured from Vercel's side over 7 days: how long each upstream call took from the functions in iad1.</p>
+  <div class="tiles reveal">
+    <div class="tile"><div class="k">Convex query</div><div class="v">37<small> ms</small></div><div class="d">median, 130 ms at the 95th percentile. 43,891 calls a week.</div></div>
+    <div class="tile"><div class="k">WorkOS</div><div class="v">139<small> ms</small></div><div class="d">median, 320 ms at the 95th. 33,075 calls a week, 7,805 of them signing-key fetches from the proxy.</div></div>
+    <div class="tile bad"><div class="k">Convex action, DM portal</div><div class="v">210<small> ms</small></div><div class="d">median, 1,749 ms at the 95th.</div></div>
+    <div class="tile"><div class="k">PostHog logs</div><div class="v">316<small> ms</small></div><div class="d">median per log batch the webhook forwards. That's why it holds memory.</div></div>
+  </div>
+  <div class="card reveal">
+    <div class="legend" style="margin:0 0 18px"><span><i style="background:var(--s-page)"></i>CPU time, 95th percentile</span><span><i style="background:var(--s-posthog)"></i>Total duration, 95th percentile</span></div>
+    <div class="db" id="db"></div>
+    <div class="db-axis" style="margin-top:10px"><span></span><div class="ticks" id="dbTicks"></div><span></span></div>
+    <details class="table"><summary>Show as table</summary><table id="dbTable"></table></details>
+  </div>
+</section>
+
+<section id="weight">
+  <div class="eyebrow">Page weight</div>
+  <h2>What the browser downloads before a workspace page works</h2>
+  <p class="narrow muted">From a local production build and Next's Turbopack analyzer. Cold cache, JS only, gzip.</p>
+  <div class="two">
+    <div class="card reveal">
+      <div class="card-head"><span class="t">First-load JS by route</span><span class="n">KB gzip</span></div>
+      <div class="ranked compact" id="jsBars"></div>
+    </div>
+    <div class="card reveal">
+      <div class="card-head"><span class="t">Biggest contributors</span><span class="n">KB raw, approximate</span></div>
+      <div class="legend" style="margin:-6px 0 14px"><span><i style="background:var(--s-posthog)"></i>Deferrable</span><span><i style="background:var(--s-auth)"></i>Pulled in by the loading skeleton</span><span><i style="background:var(--ink-muted)"></i>Needed</span></div>
+      <div class="ranked compact" id="depBars"></div>
+    </div>
+  </div>
+  <div class="card reveal">
+    <div class="card-head"><span class="t">Fonts preloaded on every page</span><span class="n">316 KB raw across 9 files</span></div>
+    <div data-stack="fonts"></div>
+    <div class="legend" data-legend="fonts"></div>
+  </div>
+  <p class="narrow">These pages need to be client-heavy. They hold Convex subscriptions, filters and forms, and I found no case for turning them into server components. The waste is narrower. A loading skeleton drags in a calendar, and a display font used in three places is preloaded on all of them.</p>
+</section>
+
+<section id="strategy">
+  <div class="narrow">
+    <div class="eyebrow">SSR, ISR and server actions</div>
+    <h2>What each kind of page should do</h2>
+    <p class="lede">You asked whether Convex being client-heavy means you're using Next wrong. Mostly no. Convex is the reason this app can be cheap on Vercel.</p>
+    <p>Every Convex query and mutation in the browser goes over a WebSocket straight to Convex, and Vercel never bills for it. So Next has a narrow job here. It serves a static shell from the CDN, checks auth once per document load, and gets out of the way. ISR and <code>"use cache"</code> are built for shared content that changes rarely. Tenant data in a CRM is neither, so keep them away from it. The one server action in the hot path that you didn't write, AuthKit's refresh, turned out to be the most expensive thing in the app. That's the lesson. On Next 16, any server action that writes a cookie clears the client cache.</p>
+  </div>
+  <div class="card reveal">
+    <table class="strategy">
+      <thead><tr><th>Kind of route</th><th>Render</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Workspace lists and dashboards</td><td><span class="pill static">Static shell</span><span class="pill client">Client data</span></td><td>Keep what you have. The prerendered shell comes from the CDN, auth streams in through <code>WorkspaceAuth</code>, and the data comes from <code>useQuery</code>.</td></tr>
+        <tr><td>Detail pages opened from a list</td><td><span class="pill static">Static shell</span><span class="pill client">Client data</span></td><td>Eight pages use <code>preloadQuery</code>. On a client navigation the WebSocket is already open, so <code>useQuery</code> behind a skeleton is about one 37 ms Convex hop away. The server path adds a function run, the auth chain, and then the same query again over the WebSocket. Keep <code>preloadQuery</code> only where people land from outside links.</td></tr>
+        <tr><td>Marketing and legal pages</td><td><span class="pill static">Fully static</span></td><td>Already prerendered. The only POSTs to <code>/</code> are AuthKit's.</td></tr>
+        <tr><td>Reports on ClickHouse</td><td><span class="pill server">Cached server data</span></td><td>This is the one place <code>"use cache"</code> fits. Key it by tenant and date range, with a <code>cacheLife</code> of minutes and a tag per tenant, if a report reads ClickHouse on the server.</td></tr>
+        <tr><td>DM portal</td><td><span class="pill server">Server actions</span></td><td>A legitimate use, because it needs a portal cookie only the server can read. Watch for actions that write cookies, though, because each one clears the client cache and re-renders the page. Load its data with a query, see fix 07.</td></tr>
+        <tr><td>Signed-in writes</td><td><span class="pill client">Convex mutations</span></td><td>Keep using <code>useMutation</code>. A server action that only calls Convex adds a function run, a proxy run and a hop for nothing.</td></tr>
+        <tr><td>Session and token work</td><td><span class="pill server">Route Handler</span></td><td>Anything that rotates a cookie on a timer belongs in a Route Handler, never a server action. See fix 01.</td></tr>
+        <tr><td>Webhooks</td><td><span class="pill none">Convex HTTP actions</span></td><td>Send third-party webhooks to Convex HTTP actions when the logic lives in Convex. The log stream is the exception, since a Convex endpoint receiving its own logs would log itself in a loop.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="motion">
+  <div class="narrow">
+    <div class="eyebrow">Transitions</div>
+    <h2>The page transition CSS is there, but nothing triggers it</h2>
+    <p><code>app/globals.css:257-285</code> defines a <code>page-transition</code> cross-fade, and its comment says <code>workspace-shell-client.tsx</code> triggers it with <code>&lt;ViewTransition default="page-transition"&gt;</code>. That component isn't in the file anymore, so the CSS never runs. React 19.3 ships <code>&lt;ViewTransition&gt;</code>, and the Next 16 guide says it works in the App Router with no config, because route navigations are already transitions.</p>
+    <p>Here's what I'd add, in order. First, wrap the page slot in the shell with <code>&lt;ViewTransition default="page-transition"&gt;</code>, which brings back the cross-fade between workspace pages. Second, wrap the <code>Suspense</code> boundaries on lists so the skeleton fades into content instead of popping. Third, give the meeting row and the meeting detail header the same <code>name</code> so the row grows into the page when a closer opens a meeting. Your reduced-motion rule at <code>globals.css:388</code> already turns all of it off for people who ask.</p>
+    <p class="callout">Fix 01 matters for speed too. Today a navigation that lands right after a refresh finds the prefetch cache empty and waits for the network. With the loop gone, the shell is already in memory when someone clicks.</p>
+  </div>
+</section>
+
+<section id="checked">
+  <div class="narrow">
+    <div class="eyebrow">Checked and withdrawn, or ruled out</div>
+    <h2>What I got wrong, and what I ruled out</h2>
+  </div>
+  <ul class="checked">
+    <li>I withdrew raising <code>staleTimes.static</code>. It does set shell freshness, but expiry is checked lazily, and a link that stays visible never re-prefetches on its own. The metrics agree. No client ever had a prefetch burst without a POST.</li>
+    <li>I withdrew bot protection. 1,036 MB of the "unknown bot" traffic is the Convex log stream, user agent <code>Convex/1.0</code>. A challenge rule would have broken error tracking. The rest is a few crawlers on public pages.</li>
+    <li>I corrected the token refresh to one per 5 minutes, not two. AuthKit's token store deduplicates the in-flight refresh with Convex's request.</li>
+    <li>Rewriting <code>proxy.ts</code> for speed won't help. Middleware CPU sits at a 10 ms floor on every path.</li>
+    <li>The proxy fetched WorkOS signing keys 7,805 times in a week, because each new instance starts with an empty key cache. It's annoying but small, and it shrinks with fix 01.</li>
+    <li>Lead-gen capture, meeting detail and the home page looked like caching gaps. Every uncached request on them is a POST, and every GET already hits the CDN.</li>
+    <li>I didn't recommend Fluid compute, memory or region changes. Fluid is on, memory is the 2 GB default, and functions run in iad1 next to Convex.</li>
+    <li>ISR writes are zero across the app, so there's no revalidation to tune.</li>
+  </ul>
+</section>
+
+<section id="data">
+  <div class="narrow">
+    <div class="eyebrow">Method</div>
+    <h2>Where these numbers come from</h2>
+    <p>Usage totals are 14-day sums from Vercel Observability Plus for project <code>magnus-crm</code>, collected Nov 4, 2026, multiplied by 30/14 for monthly figures. The loop analysis used the <code>is_prefetch_request</code>, <code>client_ip</code> and <code>request_method</code> dimensions at 5-minute resolution, and upstream latency came from the external API metrics. I traced the cause through the installed source of <code>next</code> 16.4.3 and <code>@workos-inc/authkit-nextjs</code> 4.4.0. A second, independent read of the Next source confirmed it and checked the prefetch header and matcher behavior. Page weight comes from a local production build and Next's analyzer. Plan limits come from vercel.com/docs/plans/hobby. Raw data is in <code>.vercel/optimize-run/</code>.</p>
+  </div>
+</section>
+
+<footer><div>Magnus CRM · Vercel usage audit · Nov 2026</div></footer>
+</main>
+
+<script>
+const fmt = (n) => n.toLocaleString("en-US");
+const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k";
+const M = 30 / 14;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const tip = document.getElementById("tip");
+function bindTip(el, html) {
+  el.addEventListener("mousemove", (e) => {
+    tip.innerHTML = html; tip.classList.add("on");
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 320) + "px"; tip.style.top = (e.clientY + 16) + "px";
+  });
+  el.addEventListener("mouseleave", () => tip.classList.remove("on"));
+}
+
+const SOURCES = [
+  { label: "Sidebar prefetches and page loads", sub: "GET, 98% prefetch, all CDN hits", v: 364398, color: "--s-page", tip: "175,907 of the last 7 days' workspace GETs were prefetches, against 3,218 real loads and navigations. Most follow a token refresh." },
+  { label: "PostHog proxy", sub: "/ingest rewrite", v: 174146, color: "--s-posthog", tip: "Session replay 103,409 · events 55,248 · flags 10,327 · other 5,162" },
+  { label: "Favicons and icons", sub: "99.6% are 304s", v: 121169, color: "--s-icons", tip: "favicon.svg 71,635 · favicon.ico 46,450 · other icons 3,084. Spiked to 78k on Oct 15." },
+  { label: "Convex log webhook", sub: "/api/observability/convex", v: 84688, color: "--s-log", tip: "One batch every 14 seconds, forwarded to PostHog." },
+  { label: "AuthKit server actions", sub: "POST to the open page", v: 74685, color: "--s-auth", tip: "About half are token refreshes that write a cookie. The rest are focus checks and initial auth reads." },
+  { label: "JS, CSS, fonts, other", sub: "/_next/static", v: 13504, color: "--s-static", tip: "Immutable assets. Fine as they are." },
+];
+const STACKS = {
+  mw: [
+    { label: "Prefetches and page GETs", v: 360358, color: "--s-page" },
+    { label: "Log webhook", v: 84700, color: "--s-log" },
+    { label: "AuthKit actions", v: 74685, color: "--s-auth" },
+  ],
+  fn: [
+    { label: "Log webhook", v: 84700, color: "--s-log" },
+    { label: "AuthKit actions", v: 74685, color: "--s-auth" },
+    { label: "Page renders", v: 9074, color: "--s-page" },
+  ],
+  fonts: [
+    { label: "Aceh Light, TTF", v: 168276, color: "--s-auth", unit: "B" },
+    { label: "Barlow, 4 weights", v: 62872, color: "--s-page", unit: "B" },
+    { label: "Barlow Condensed, 3 weights", v: 44412, color: "--s-icons", unit: "B" },
+    { label: "JetBrains Mono", v: 40480, color: "--s-log", unit: "B" },
+  ],
+};
+const CPU = [
+  { label: "Middleware, all paths", v: 109.1, color: "--s-page", note: "519,743 runs × 12.6 ms average" },
+  { label: "Capture page functions", v: 23.3, color: "--s-auth", note: "mostly refresh actions re-rendering the page" },
+  { label: "Log webhook", v: 20.6, color: "--s-log", note: "84,700 invocations" },
+  { label: "Every other function", v: 19.6, color: "--s-static", note: "real page renders and other actions" },
+];
+const WF = [
+  { label: "Today", v: 1784121, kind: "total" },
+  { label: "Fix 01 · token route", v: -686000, color: "--s-auth", est: true },
+  { label: "Fix 02 · favicons", v: -233000, color: "--s-icons" },
+  { label: "Fix 04 · PostHog", v: -373170, color: "--s-posthog" },
+  { label: "After", v: 0, kind: "end" },
+];
+const BA = {
+  mw: { max: 1200000, limit: null, fmt: (v) => k(v), rows: [{ l: "Today", v: 1113735, c: "now" }, { l: "After", v: 247000, c: "after", est: true }] },
+  cpu: { max: 7, limit: 4, fmt: (v) => v.toFixed(1) + " h", rows: [{ l: "Today", v: 6.2, c: "now" }, { l: "After", v: 2.4, c: "after", est: true }] },
+};
+const LAT = [
+  { r: "/dm-links/[portalSlug]", cpu: 110, dur: 4048 },
+  { r: "/workspace/operations/booked-calls/attribution", cpu: 110, dur: 593 },
+  { r: "/workspace/billing", cpu: 140, dur: 592 },
+  { r: "/workspace/leads-customers/[leadId]", cpu: 114, dur: 590 },
+  { r: "/workspace/operations/missed-meetings", cpu: 90, dur: 540 },
+  { r: "/workspace/closer/pipeline", cpu: 100, dur: 530 },
+  { r: "/workspace/closer/meetings/[meetingId]", cpu: 100, dur: 515 },
+];
+const JS = [
+  ["closer/pipeline", 493], ["lead-gen/capture", 467], ["closer/meetings/[id]", 451],
+  ["lead-gen/my-activity", 429], ["leads-customers", 420], ["lead-gen/respark", 419],
+];
+const DEPS = [
+  ["Next.js runtime", 473, "--ink-muted"], ["posthog-js", 314, "--s-posthog"], ["zod", 106, "--ink-muted"],
+  ["convex", 90, "--ink-muted"], ["react-day-picker", 43, "--s-auth"], ["date-fns", 37, "--s-auth"], ["react-hook-form", 36, "--ink-muted"],
+];
+// one client, Nov 3 UTC, 5-minute buckets: [time, POSTs, prefetches]
+const GB = [
+  ["18:55", 3, 11], ["19:00", 1, 11], ["19:05", 1, 11], ["19:10", 1, 11], ["19:15", 1, 11], ["19:20", 1, 11], ["19:25", 3, 11], ["19:30", 0, 0],
+  null,
+  ["20:55", 4, 23], ["21:00", 2, 22], ["21:05", 2, 22], ["21:10", 2, 22], ["21:15", 2, 22], ["21:20", 2, 22], ["21:25", 2, 22], ["21:30", 2, 17],
+];
+
+// ranked bars
+function ranked(root, rows, opts = {}) {
+  const max = Math.max(...rows.map((r) => r.v));
+  rows.forEach((s) => {
+    const row = document.createElement("div"); row.className = "rrow";
+    row.innerHTML = `<div class="rl">${s.label}${s.sub ? `<small>${s.sub}</small>` : ""}</div>
+      <div class="rtrack"><div class="rbar" style="background:var(${s.color})" data-w="${(s.v / max) * 100}"></div></div>
+      <div class="rv">${s.display ?? fmt(s.v)}${s.small ? `<small>${s.small}</small>` : ""}</div>`;
+    if (s.tip) bindTip(row, `<b>${s.label}</b>${s.tip}`);
+    root.appendChild(row);
+  });
+}
+ranked(document.getElementById("ranked"), SOURCES.map((s) => ({ ...s, small: `${k(s.v * M)} a month · ${((s.v / 832590) * 100).toFixed(1)}%`, tip: `${fmt(s.v)} in 14 days<br>${s.tip}` })));
+document.getElementById("rankedTable").innerHTML = `<tr><th>Source</th><th class="num">14 days</th><th class="num">Per month</th><th class="num">Share</th></tr>` +
+  SOURCES.map((s) => `<tr><td>${s.label}</td><td class="num">${fmt(s.v)}</td><td class="num">${fmt(Math.round(s.v * M))}</td><td class="num">${((s.v / 832590) * 100).toFixed(1)}%</td></tr>`).join("");
+ranked(document.getElementById("cpuBars"), CPU.map((c) => ({ label: c.label, v: c.v, color: c.color, display: c.v.toFixed(1), tip: c.note })));
+document.getElementById("cpuTable").innerHTML = `<tr><th>Where</th><th class="num">CPU minutes, 14 days</th><th>Note</th></tr>` + CPU.map((c) => `<tr><td>${c.label}</td><td class="num">${c.v}</td><td>${c.note}</td></tr>`).join("");
+ranked(document.getElementById("jsBars"), JS.map(([r, v]) => ({ label: r, v, color: "--s-page", display: v + " KB" })));
+ranked(document.getElementById("depBars"), DEPS.map(([r, v, c]) => ({ label: r, v, color: c, display: v + " KB" })));
+
+// stacks
+document.querySelectorAll("[data-stack]").forEach((wrap) => {
+  const items = STACKS[wrap.dataset.stack];
+  const total = items.reduce((a, b) => a + b.v, 0);
+  const bar = document.createElement("div"); bar.className = "stack";
+  const labels = document.createElement("div"); labels.className = "stack-labels";
+  items.forEach((it) => {
+    const pct = (it.v / total) * 100;
+    const val = it.unit === "B" ? Math.round(it.v / 1000) + " KB" : fmt(it.v);
+    const seg = document.createElement("div"); seg.className = "seg"; seg.style.background = `var(${it.color})`; seg.dataset.w = pct;
+    bindTip(seg, `<b>${it.label}</b>${val} · ${pct.toFixed(1)}%`);
+    bar.appendChild(seg);
+    const l = document.createElement("div"); l.style.flex = `${pct} 1 0`; l.style.minWidth = "86px";
+    l.innerHTML = `<b>${pct.toFixed(0)}%</b>${it.label}`; labels.appendChild(l);
+  });
+  wrap.append(bar, labels);
+  document.querySelector(`[data-legend="${wrap.dataset.stack}"]`).innerHTML =
+    items.map((it) => `<span><i style="background:var(${it.color})"></i>${it.label} · ${it.unit === "B" ? Math.round(it.v / 1000) + " KB" : fmt(it.v)}</span>`).join("");
+});
+
+// grouped bars
+(function () {
+  const root = document.getElementById("gb"), x = document.getElementById("gbx"), max = 23;
+  GB.forEach((g) => {
+    const xl = document.createElement("div");
+    if (!g) { const gap = document.createElement("div"); gap.className = "gap"; gap.textContent = "tab 2 opens"; root.appendChild(gap); xl.textContent = ""; x.appendChild(xl); return; }
+    const [t, p, f] = g;
+    const col = document.createElement("div"); col.className = "g";
+    col.innerHTML = `<i style="background:var(--s-auth)" data-h="${(p / max) * 100}"></i><i style="background:var(--s-page)" data-h="${(f / max) * 100}"></i>`;
+    bindTip(col, `<b>${t} UTC</b>${p} POST${p === 1 ? "" : "s"} · ${f} prefetches · 0 navigations`);
+    root.appendChild(col); xl.textContent = t; x.appendChild(xl);
+  });
+  const n1 = document.createElement("div"); n1.className = "gb-note"; n1.style.left = "0"; n1.textContent = "one tab"; root.appendChild(n1);
+  const n2 = document.createElement("div"); n2.className = "gb-note"; n2.style.left = "53%"; n2.textContent = "two tabs"; root.appendChild(n2);
+  document.getElementById("gbTable").innerHTML = `<tr><th>UTC</th><th class="num">POSTs</th><th class="num">Prefetches</th></tr>` +
+    GB.filter(Boolean).map(([t, p, f]) => `<tr><td>${t}</td><td class="num">${p}</td><td class="num">${f}</td></tr>`).join("");
+})();
+
+// waterfall
+(function () {
+  const root = document.getElementById("wf"), x = document.getElementById("wfx");
+  const top = 1900000, H = 300, px = (v) => (v / top) * H;
+  let run = WF[0].v; const rows = [];
+  WF.forEach((s, i) => {
+    const col = document.createElement("div"); col.className = "wf-col";
+    const bar = document.createElement("div"); const val = document.createElement("div");
+    bar.className = "wf-bar"; val.className = "wf-val";
+    let bottom, height, label;
+    if (s.kind === "total") { bottom = 0; height = px(run); label = k(run); bar.classList.add("total"); }
+    else if (s.kind === "end") { bottom = 0; height = px(run); label = k(run); bar.classList.add("total"); bar.style.backgroundColor = "var(--lime)"; }
+    else { const next = run + s.v; bottom = px(next); height = px(-s.v); label = "−" + k(-s.v); bar.style.backgroundColor = `var(${s.color})`; if (s.est) bar.classList.add("est"); run = next; }
+    bar.style.bottom = bottom + "px"; bar.style.height = height + "px"; bar.style.transitionDelay = (i * 0.28) + "s";
+    val.style.bottom = (bottom + height + 6) + "px"; val.innerHTML = `<span>${label}${s.est ? "*" : ""}</span>`; val.style.transitionDelay = (i * 0.28 + 0.4) + "s";
+    col.append(bar, val); root.appendChild(col);
+    const xl = document.createElement("div"); xl.textContent = s.label + (s.est ? " · estimate" : ""); x.appendChild(xl);
+    bindTip(col, `<b>${s.label}</b>${s.kind ? fmt(Math.round(run)) + " a month" : "saves about " + fmt(-s.v) + " a month"}${s.est ? "<br>Estimate: about 80% of prefetches go away, plus focus-check POSTs." : ""}`);
+    rows.push([s.label, s.kind ? Math.round(run) : s.v, s.est]);
+  });
+  const lim = document.createElement("div"); lim.className = "wf-limit"; lim.style.bottom = px(1000000) + "px";
+  lim.innerHTML = "<span>Hobby and Pro flat tier · 1M</span>"; root.appendChild(lim);
+  document.getElementById("wfTable").innerHTML = `<tr><th>Step</th><th class="num">Requests a month</th><th>Note</th></tr>` +
+    rows.map((r) => `<tr><td>${r[0]}</td><td class="num">${r[1] < 0 ? "−" + fmt(-r[1]) : fmt(r[1])}</td><td>${r[2] ? "estimate" : ""}</td></tr>`).join("");
+})();
+
+// before/after
+document.querySelectorAll("[data-ba]").forEach((root) => {
+  const cfg = BA[root.dataset.ba];
+  cfg.rows.forEach((r, i) => {
+    const row = document.createElement("div"); row.className = "ba-row";
+    row.innerHTML = `<div class="l">${r.l}</div><div class="ba-track"><div class="ba-bar ${r.c}${r.est ? " est" : ""}" data-w="${(r.v / cfg.max) * 100}"></div>${cfg.limit && i === 0 ? `<div class="ba-limit" style="left:${(cfg.limit / cfg.max) * 100}%"><span>Hobby ${cfg.limit}h</span></div>` : ""}</div><div class="v">${cfg.fmt(r.v)}${r.est ? "*" : ""}</div>`;
+    bindTip(row, `<b>${r.l}</b>${cfg.fmt(r.v)} a month${r.est ? "<br>Estimate" : ""}`);
+    root.appendChild(row);
+  });
+});
+
+// dumbbell
+(function () {
+  const root = document.getElementById("db"), ticks = document.getElementById("dbTicks"), max = 700;
+  LAT.forEach((d) => {
+    const row = document.createElement("div"); row.className = "db-row";
+    const durPct = Math.min(d.dur, max) / max * 100, cpuPct = d.cpu / max * 100;
+    row.innerHTML = `<div class="rl">${d.r}</div>
+      <div class="db-track"><div class="db-line" data-l="${cpuPct}" data-w="${durPct - cpuPct}"></div>
+      <div class="db-dot" style="background:var(--s-page)" data-x="${cpuPct}"></div>
+      <div class="db-dot" style="background:var(--s-posthog)" data-x="${durPct}"></div></div>
+      <div class="rv" style="font-size:16px">${fmt(d.dur)}<small>ms${d.dur > max ? " · off scale" : ""}</small></div>`;
+    bindTip(row, `<b>${d.r}</b>CPU ${d.cpu} ms · total ${fmt(d.dur)} ms<br>${Math.round(d.dur / d.cpu)}× more waiting than computing`);
+    root.appendChild(row);
+  });
+  [0, 100, 200, 300, 400, 500, 600, 700].forEach((t) => { const s = document.createElement("span"); s.style.left = (t / max * 100) + "%"; s.textContent = t === 700 ? "700 ms" : t; ticks.appendChild(s); });
+  document.getElementById("dbTable").innerHTML = `<tr><th>Route</th><th class="num">CPU p95, ms</th><th class="num">Duration p95, ms</th></tr>` +
+    LAT.map((d) => `<tr><td><code>${d.r}</code></td><td class="num">${d.cpu}</td><td class="num">${fmt(d.dur)}</td></tr>`).join("");
+})();
+
+// the loop simulation
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const X0 = 60, X1 = 960, MIN = 30, xOf = (m) => X0 + (m / MIN) * (X1 - X0);
+  const ticks = document.getElementById("loopTicks"), marks = document.getElementById("loopMarks"), dots = document.getElementById("loopDots"), play = document.getElementById("loopPlay");
+  for (let m = 0; m <= 30; m += 5) {
+    const t = document.createElementNS(NS, "text"); t.setAttribute("class", "tick"); t.setAttribute("x", xOf(m)); t.setAttribute("y", 222); t.setAttribute("text-anchor", "middle"); t.textContent = m; ticks.appendChild(t);
+  }
+  const posts = [4.5, 9.5, 14.5, 19.5, 24.5, 29.5];
+  const el = (id) => document.getElementById(id);
+  const counters = { post: 0, pf: 0 };
+  const paint = () => { el("cPost").textContent = counters.post; el("cPf").textContent = counters.pf; el("cMw").textContent = counters.post + counters.pf; el("cRender").textContent = counters.post; };
+  function burst(m, instant) {
+    const cx = xOf(m);
+    const p = document.createElementNS(NS, "circle"); p.setAttribute("class", "post"); p.setAttribute("cx", cx); p.setAttribute("cy", 200); p.setAttribute("r", instant ? 7 : 0);
+    marks.appendChild(p);
+    if (!instant) p.animate([{ r: 0 }, { r: 11 }, { r: 7 }], { duration: 500, fill: "forwards" });
+    counters.post++;
+    for (let i = 0; i < 11; i++) {
+      const col = i % 2, row = Math.floor(i / 2);
+      const s = document.createElementNS(NS, "rect");
+      s.setAttribute("class", "pf"); s.setAttribute("width", 9); s.setAttribute("height", 9); s.setAttribute("rx", 2);
+      s.setAttribute("x", cx - 10 + col * 11); s.setAttribute("y", 176 - row * 12);
+      dots.appendChild(s);
+      if (!instant) { s.style.opacity = 0; setTimeout(() => { s.style.opacity = 1; s.animate([{ transform: "translateY(10px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 300 }); counters.pf++; paint(); }, 300 + i * 70); }
+      else counters.pf++;
+    }
+    paint();
+  }
+  const label = document.createElementNS(NS, "text"); label.setAttribute("class", "lbl"); label.setAttribute("x", xOf(4.5) + 14); label.setAttribute("y", 196); label.textContent = "token refresh"; marks.appendChild(label);
+  if (reduce) { posts.forEach((m) => burst(m, true)); play.setAttribute("x1", X1); play.setAttribute("x2", X1); return; }
+  let started = false, t0 = 0, next = 0; const DUR = 15000;
+  function frame(t) {
+    if (!t0) t0 = t;
+    const m = ((t - t0) / DUR) * MIN;
+    if (m > MIN + 2) { t0 = t; next = 0; counters.post = 0; counters.pf = 0; marks.querySelectorAll("circle").forEach((c) => c.remove()); dots.innerHTML = ""; paint(); }
+    const mm = Math.min(m, MIN);
+    play.setAttribute("x1", xOf(mm)); play.setAttribute("x2", xOf(mm));
+    while (next < posts.length && mm >= posts[next]) { burst(posts[next], false); next++; }
+    requestAnimationFrame(frame);
+  }
+  new IntersectionObserver((es, o) => { if (es[0].isIntersecting && !started) { started = true; requestAnimationFrame(frame); o.disconnect(); } }, { threshold: 0.3 }).observe(document.getElementById("loopSvg"));
+})();
+
+// flow dots
+(function () {
+  if (reduce) return;
+  const g = document.getElementById("dots"), NS = "http://www.w3.org/2000/svg";
+  const flows = [
+    ["p-page", "--s-page", 6, 2.4], ["p-page2", "--s-page", 4, 1.6], ["p-icons", "--s-icons", 3, 2.6], ["p-auth", "--s-auth", 3, 3.0],
+    ["p-fn-cx", "--s-auth", 2, 2.2], ["p-ph", "--s-posthog", 4, 1.8], ["p-ph2", "--s-posthog", 5, 2.6], ["p-log", "--s-log", 2, 2.2],
+    ["p-log2", "--s-log", 2, 2.2], ["p-ws", "--lime", 9, 6, 3.2],
+  ];
+  flows.forEach(([pid, color, n, dur, r]) => {
+    for (let i = 0; i < n; i++) {
+      const c = document.createElementNS(NS, "circle"); c.setAttribute("r", r || 4.2); c.setAttribute("fill", `var(${color})`);
+      const a = document.createElementNS(NS, "animateMotion"); a.setAttribute("dur", dur + "s"); a.setAttribute("repeatCount", "indefinite"); a.setAttribute("begin", (-(dur / n) * i) + "s");
+      const mp = document.createElementNS(NS, "mpath"); mp.setAttribute("href", "#" + pid); a.appendChild(mp); c.appendChild(a); g.appendChild(c);
+    }
+  });
+})();
+
+// reveal + grow on scroll
+const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+  if (!e.isIntersecting) return;
+  const el = e.target; el.classList.add("in");
+  el.querySelectorAll(".rbar,.seg,.ba-bar").forEach((b, i) => setTimeout(() => (b.style.width = b.dataset.w + "%"), i * 110));
+  el.querySelectorAll(".gb i").forEach((b, i) => setTimeout(() => (b.style.height = b.dataset.h + "%"), i * 30));
+  el.querySelectorAll(".wf").forEach((w) => { w.classList.add("go"); w.querySelectorAll(".wf-bar").forEach((b) => (b.style.transform = "scaleY(1)")); });
+  el.querySelectorAll(".db-dot").forEach((d) => (d.style.left = d.dataset.x + "%"));
+  el.querySelectorAll(".db-line").forEach((l) => { l.style.left = l.dataset.l + "%"; l.style.width = l.dataset.w + "%"; });
+  el.querySelectorAll(".chain li").forEach((li, i) => (li.style.transitionDelay = (i * 0.12) + "s"));
+  if (el.querySelector(".chain")) el.querySelector(".chain").classList.add("in");
+  io.unobserve(el);
+}), { threshold: 0.15 });
+document.querySelectorAll(".reveal, .fix").forEach((el) => io.observe(el));
+
+// board count-up with flap
+document.querySelectorAll("[data-count]").forEach((el, i) => {
+  const target = parseFloat(el.dataset.count), dec = +el.dataset.dec, suf = el.dataset.suffix || "";
+  const render = (v) => (dec ? v.toFixed(dec) : fmt(Math.round(v))) + (suf ? `<small>${suf}</small>` : "");
+  if (reduce) { el.innerHTML = render(target); return; }
+  el.innerHTML = `<span class="flap" style="animation-delay:${i * 0.16}s">${render(0)}</span>`;
+  const inner = el.firstChild, t0 = performance.now() + i * 160, D = 1500;
+  const tick = (t) => { const p = Math.min(Math.max((t - t0) / D, 0), 1); inner.innerHTML = render(target * (1 - Math.pow(1 - p, 3))); if (p < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+});
+setTimeout(() => document.querySelectorAll(".meter i").forEach((m) => (m.style.width = m.dataset.w + "%")), 300);
+
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
+});
+</script>
+</body>
+</html>

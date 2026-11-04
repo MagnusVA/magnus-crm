@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 
 type ReportName =

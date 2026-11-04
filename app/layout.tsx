@@ -27,8 +27,11 @@ const barlowCondensed = Barlow_Condensed({
 	weight: ["500", "600", "700"],
 });
 
+// Latin subset of public/Aceh-Light.ttf as WOFF2: 25 KB instead of 168 KB.
+// pyftsubset public/Aceh-Light.ttf --flavor=woff2 --layout-features='*'
+//   --unicodes="U+0020-007E,U+00A0-00FF,U+2010-2027,U+2030-203A,U+20A0-20CF,U+2122,U+2212"
 const acehLight = localFont({
-	src: "../public/Aceh-Light.ttf",
+	src: "./fonts/Aceh-Light-latin.woff2",
 	variable: "--font-aceh",
 	weight: "300",
 	style: "normal",
@@ -43,20 +46,12 @@ export const metadata: Metadata = {
 	},
 	description: "Tenant onboarding and appointment operations control plane.",
 	icons: {
+		// The three files browsers use. next.config.ts caches them for a week.
 		icon: [
 			{ url: "/favicon.ico", sizes: "any" },
 			{ url: "/favicon.svg", type: "image/svg+xml" },
-			{ url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
-			{ url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-			{ url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
-			{ url: "/favicon-192x192.png", sizes: "192x192", type: "image/png" },
-			{ url: "/favicon-512x512.png", sizes: "512x512", type: "image/png" },
 		],
-		apple: [
-			{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-			{ url: "/favicon-180x180.png", sizes: "180x180", type: "image/png" },
-		],
-		shortcut: ["/favicon.ico"],
+		apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
 	},
 };
 

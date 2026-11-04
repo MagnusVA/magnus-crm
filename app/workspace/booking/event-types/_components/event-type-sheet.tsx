@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useMutation } from "convex/react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { CheckIcon, TriangleAlertIcon, XIcon } from "lucide-react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";

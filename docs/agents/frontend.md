@@ -85,7 +85,7 @@ rate to show how many past, non-canceled calls have a result.
 
 ## Analytics
 
-PostHog runs only in production with a token set (`lib/posthog-config.ts`). The client initializes in `instrumentation-client.ts` and sends through the `/ingest` proxy rewrites in `next.config.ts`. Only `usePostHogIdentify` and sign-out call `identify`. Server events use `getPostHogClient()` from `lib/posthog-server.ts`. `instrumentation.ts` reports server errors, and route error boundaries and `SectionErrorBoundary` report what they catch; `docs/agents/observability.md` covers error tracking and logs. For Convex and server-rendering patterns with Next.js, see `.docs/convex/nextjs.md`.
+PostHog runs only in production with a token set (`lib/posthog-config.ts`). The client loads `posthog-js` on its own chunk from `instrumentation-client.ts` and sends straight to `NEXT_PUBLIC_POSTHOG_HOST`. Import `posthog` from `lib/posthog-browser.ts`, never from `posthog-js`: calls made before the library loads wait there, and a static `posthog-js` import puts the library back in every page's first load. Only `usePostHogIdentify` and sign-out call `identify`. Server events use `getPostHogClient()` from `lib/posthog-server.ts`. `instrumentation.ts` reports server errors, and route error boundaries and `SectionErrorBoundary` report what they catch; `docs/agents/observability.md` covers error tracking and logs. For Convex and server-rendering patterns with Next.js, see `.docs/convex/nextjs.md`.
 
 ## Days on dated screens
 

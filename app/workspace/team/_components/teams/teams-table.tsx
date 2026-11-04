@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { PencilIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Input } from "@/components/ui/input";

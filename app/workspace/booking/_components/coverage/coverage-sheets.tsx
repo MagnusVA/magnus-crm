@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation } from "convex/react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
 import { AlertTriangleIcon, EyeIcon, XIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
