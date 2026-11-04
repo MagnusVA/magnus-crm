@@ -38,6 +38,31 @@ function showSessionExpiredToast() {
   });
 }
 
+/** Waits before each retry of a token request that failed on the network or with a 5xx. */
+const TOKEN_RETRY_DELAYS_MS = [1_000, 3_000];
+
+/**
+ * Asks the token route, retrying network failures and 5xx responses: Convex
+ * treats a null token as signed out until the page reloads.
+ */
+async function requestAccessToken(force: boolean): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const retryDelay = TOKEN_RETRY_DELAYS_MS[attempt];
+    try {
+      const response = await fetch("/api/auth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+        cache: "no-store",
+      });
+      if (response.status < 500 || retryDelay === undefined) return response;
+    } catch (error) {
+      if (retryDelay === undefined) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
+  }
+}
+
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) {
@@ -49,7 +74,11 @@ function getConvexUrl(): string {
 }
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
-  const [convex] = useState(() => new ConvexReactClient(getConvexUrl()));
+  // initialAuthTokenReuse: keep the page-load token and refresh it before it
+  // expires, instead of forcing a second token right after connecting.
+  const [convex] = useState(
+    () => new ConvexReactClient(getConvexUrl(), { initialAuthTokenReuse: true }),
+  );
 
   return (
     // onSessionExpired={false} stops AuthKit's checkSessionAction POST on
@@ -95,12 +124,7 @@ function useAuthFromAuthKit() {
 
       const forced = Boolean(forceRefreshToken);
       try {
-        const response = await fetch("/api/auth/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ force: forced }),
-          cache: "no-store",
-        });
+        const response = await requestAccessToken(forced);
         if (response.status === 401) {
           showSessionExpiredToast();
           return null;

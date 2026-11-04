@@ -13,11 +13,11 @@ import { reportServerError } from "@/lib/observability/report-server-error";
 // action, and a cookie written inside a server action makes Next clear the
 // client's prefetch cache and re-render the current page on the server. Each
 // open tab did that every five minutes. A cookie written here does neither.
+//
+// The proxy already refreshes a token that is about to expire, so most
+// requests just return the token it hands over.
 
 const NO_STORE = { "Cache-Control": "no-store" };
-
-/** Refresh once the token has less than this left. */
-const REFRESH_BEFORE_EXPIRY_SECONDS = 60;
 
 /**
  * A token this new was refreshed by the proxy on this same request. The proxy
@@ -44,18 +44,17 @@ export async function POST(request: Request) {
 		(body as { force?: unknown }).force === true;
 
 	const { user, accessToken } = await withAuth();
-	if (!user || !accessToken) {
-		return tokenResponse(null, 401);
-	}
-
-	const { exp = 0, iat = 0 } = await getTokenClaims(accessToken);
+	const claims = accessToken ? await getTokenClaims(accessToken) : null;
+	const exp = claims?.exp ?? 0;
+	const iat = claims?.iat ?? 0;
 	const now = Date.now() / 1000;
-	const nearExpiry = exp - now <= REFRESH_BEFORE_EXPIRY_SECONDS;
-	const justIssued = now - iat < JUST_ISSUED_SECONDS;
-	if (!nearExpiry && !(force && !justIssued)) {
+	if (user && accessToken && (!force || now - iat < JUST_ISSUED_SECONDS)) {
 		return tokenResponse(accessToken);
 	}
 
+	// Convex wants a new token, or the proxy found no usable session: no
+	// cookie, a dead refresh token, or WorkOS failing while the token had
+	// expired. Refreshing tells those apart.
 	try {
 		const refreshed = await refreshSession();
 		if (!refreshed.user || !refreshed.accessToken) {
@@ -63,8 +62,7 @@ export async function POST(request: Request) {
 		}
 		return tokenResponse(refreshed.accessToken);
 	} catch (error) {
-		// An expired or revoked session is routine. A WorkOS outage isn't,
-		// and it shouldn't sign anyone out.
+		// A WorkOS outage shouldn't sign anyone out.
 		if (error instanceof TokenRefreshError && error.isTransient) {
 			await reportServerError(error, {
 				event: "auth.token_refresh.failed",
@@ -74,6 +72,11 @@ export async function POST(request: Request) {
 				fingerprint: "auth.token_refresh.failed:transient",
 			});
 			return tokenResponse(null, 503);
+		}
+		// Another tab may have spent this refresh token a moment ago, and its
+		// response carries the new cookie. The current token still works.
+		if (user && accessToken && exp > now) {
+			return tokenResponse(accessToken);
 		}
 		return tokenResponse(null, 401);
 	}
