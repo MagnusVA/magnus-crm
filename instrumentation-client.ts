@@ -1,5 +1,5 @@
 import { convexExceptionBeforeSend } from "@/lib/observability/client-exceptions";
-import { attachPostHog } from "@/lib/posthog-browser";
+import { attachPostHog, postHogUnavailable } from "@/lib/posthog-browser";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 
 const environment = process.env.NEXT_PUBLIC_VERCEL_ENV ?? "production";
@@ -48,5 +48,6 @@ if (isPostHogEnabled()) {
 			// Analytics never break the app.
 			window.removeEventListener("error", onError);
 			window.removeEventListener("unhandledrejection", onRejection);
+			postHogUnavailable();
 		});
 }

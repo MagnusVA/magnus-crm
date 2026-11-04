@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import posthog from "@/lib/posthog-browser";
+import posthog, { postHogSettled } from "@/lib/posthog-browser";
 
 /**
  * Signs out of WorkOS after recording the sign-out and resetting PostHog,
@@ -12,9 +12,12 @@ import posthog from "@/lib/posthog-browser";
 export function useSignOut() {
   const { signOut } = useAuth();
 
-  return useCallback(() => {
+  return useCallback(async () => {
     posthog.capture("user_signed_out");
     posthog.reset();
+    // PostHog loads after the page; a reset still queued would be lost
+    // with the navigation.
+    await postHogSettled();
     return signOut();
   }, [signOut]);
 }

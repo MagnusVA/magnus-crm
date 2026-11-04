@@ -478,35 +478,40 @@ footer { margin-top: 90px; padding: 34px 0 60px; border-top: 1px solid var(--rul
     </div>
     <div class="saves"><span><b>~686k</b>CDN requests</span><span><b>~686k</b>proxy runs</span><span><b>~3 h</b>active CPU</span><span><b>most</b>server-side Convex queries</span><span>estimate</span></div>
     <details class="code"><summary>Show the change</summary>
-<pre><span class="file">app/api/auth/token/route.ts · new</span><span class="k">import</span> { refreshSession, withAuth } <span class="k">from</span> <span class="s">"@workos-inc/authkit-nextjs"</span>;
-
-<span class="k">const</span> NO_STORE = { <span class="s">"Cache-Control"</span>: <span class="s">"no-store"</span> };
-
-<span class="k">function</span> secondsLeft(jwt: string) {
-  <span class="k">const</span> { exp } = JSON.parse(Buffer.from(jwt.split(<span class="s">"."</span>)[1], <span class="s">"base64url"</span>).toString());
-  <span class="k">return</span> exp - Date.now() / 1000;
-}
+<pre><span class="file">app/api/auth/token/route.ts · new</span><span class="k">import</span> { getTokenClaims, refreshSession, TokenRefreshError, withAuth } <span class="k">from</span> <span class="s">"@workos-inc/authkit-nextjs"</span>;
 
 <span class="c">// A Route Handler, not a server action. A cookie written here doesn't make</span>
 <span class="c">// Next clear the client's prefetch cache or re-render the current page.</span>
+<span class="c">// The proxy already refreshes a token close to expiry and hands it over.</span>
+<span class="c">// tokenResponse(token, status = 200) answers JSON with Cache-Control: no-store.</span>
 <span class="k">export async function</span> POST(request: Request) {
-  <span class="k">if</span> (request.headers.get(<span class="s">"sec-fetch-site"</span>) !== <span class="s">"same-origin"</span>) {
-    <span class="k">return new</span> Response(null, { status: 403 });
-  }
-  <span class="k">const</span> { force = false } = <span class="k">await</span> request.json().catch(() =&gt; ({}));
+  <span class="k">const</span> site = request.headers.get(<span class="s">"sec-fetch-site"</span>);
+  <span class="k">if</span> (site &amp;&amp; site !== <span class="s">"same-origin"</span>) <span class="k">return new</span> Response(null, { status: 403 });
+  <span class="k">const</span> force = ((<span class="k">await</span> request.json().catch(() =&gt; null)) ?? {}).force === true;
+
   <span class="k">const</span> { user, accessToken } = <span class="k">await</span> withAuth();
-  <span class="k">if</span> (!user || !accessToken) <span class="k">return</span> Response.json({ accessToken: null }, { status: 401, headers: NO_STORE });
-  <span class="k">if</span> (!force &amp;&amp; secondsLeft(accessToken) &gt; 60) <span class="k">return</span> Response.json({ accessToken }, { headers: NO_STORE });
+  <span class="k">const</span> claims = accessToken ? <span class="k">await</span> getTokenClaims(accessToken) : null;
+  <span class="c">// Forced, but issued in the last 30 s: the proxy just refreshed it.</span>
+  <span class="k">if</span> (user &amp;&amp; accessToken &amp;&amp; (!force || Date.now() / 1000 - (claims?.iat ?? 0) &lt; 30)) {
+    <span class="k">return</span> tokenResponse(accessToken);
+  }
+  <span class="c">// Forced, or the proxy found no usable session. Refreshing tells</span>
+  <span class="c">// no cookie and a dead refresh token (401) from a WorkOS outage (503).</span>
   <span class="k">try</span> {
     <span class="k">const</span> refreshed = <span class="k">await</span> refreshSession();
-    <span class="k">return</span> Response.json({ accessToken: refreshed.accessToken ?? null }, { headers: NO_STORE });
-  } <span class="k">catch</span> {
-    <span class="k">return</span> Response.json({ accessToken: null }, { status: 401, headers: NO_STORE });
+    <span class="k">return</span> refreshed.user ? tokenResponse(refreshed.accessToken) : tokenResponse(null, 401);
+  } <span class="k">catch</span> (error) {
+    <span class="k">if</span> (error <span class="k">instanceof</span> TokenRefreshError &amp;&amp; error.isTransient) <span class="k">return</span> tokenResponse(null, 503);
+    <span class="c">// Another tab spent this refresh token first; the current token still works.</span>
+    <span class="k">if</span> (user &amp;&amp; accessToken &amp;&amp; (claims?.exp ?? 0) &gt; Date.now() / 1000) <span class="k">return</span> tokenResponse(accessToken);
+    <span class="k">return</span> tokenResponse(null, 401);
   }
 }
 
 <span class="file">app/ConvexClientProvider.tsx</span><span class="d">- import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";</span>
 <span class="a">+ import { AuthKitProvider, useAuth } from "@workos-inc/authkit-nextjs/components";</span>
+<span class="d">- new ConvexReactClient(getConvexUrl())</span>
+<span class="a">+ new ConvexReactClient(getConvexUrl(), { initialAuthTokenReuse: true })</span>
 <span class="d">-   &lt;AuthKitProvider&gt;</span>
 <span class="a">+   &lt;AuthKitProvider onSessionExpired={false}&gt;</span>
 
@@ -515,11 +520,8 @@ footer { margin-top: 90px; padding: 34px 0 60px; border-top: 1px solid var(--rul
 <span class="d">-   const { getAccessToken, refresh } = useAccessToken();</span>
     <span class="k">const</span> fetchAccessToken = useCallback(<span class="k">async</span> ({ forceRefreshToken } = {}) =&gt; {
       <span class="k">if</span> (!user) <span class="k">return</span> null;
-<span class="a">+     const res = await fetch("/api/auth/token", {</span>
-<span class="a">+       method: "POST",</span>
-<span class="a">+       headers: { "content-type": "application/json" },</span>
-<span class="a">+       body: JSON.stringify({ force: Boolean(forceRefreshToken) }),</span>
-<span class="a">+     });</span>
+<span class="a">+     // POST /api/auth/token; network errors and 5xx retry after 1 s and 3 s</span>
+<span class="a">+     const res = await requestAccessToken(Boolean(forceRefreshToken));</span>
 <span class="a">+     if (res.status === 401) { showSessionExpiredToast(); return null; }</span>
 <span class="a">+     if (!res.ok) { logTokenRefreshFailure(Boolean(forceRefreshToken)); return null; }</span>
 <span class="a">+     return (await res.json()).accessToken ?? null;</span>

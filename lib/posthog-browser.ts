@@ -17,6 +17,14 @@ const MAX_PENDING = 100;
 
 let client: PostHog | null = null;
 const pending: Call[] = [];
+/** True once PostHog is attached or failed to load. */
+let settled = false;
+const waiters: Array<() => void> = [];
+
+function settle() {
+	settled = true;
+	for (const resolve of waiters.splice(0)) resolve();
+}
 
 function run(call: Call) {
 	if (!isPostHogEnabled()) return;
@@ -31,6 +39,22 @@ function run(call: Call) {
 export function attachPostHog(instance: PostHog) {
 	client = instance;
 	for (const call of pending.splice(0)) call(instance);
+	settle();
+}
+
+/** Called by `instrumentation-client.ts` when `posthog-js` fails to load. */
+export function postHogUnavailable() {
+	pending.length = 0;
+	settle();
+}
+
+/**
+ * Resolves once queued calls have run, or PostHog failed to load. Await it
+ * before navigating away, so a queued reset isn't lost with the page.
+ */
+export function postHogSettled(): Promise<void> {
+	if (!isPostHogEnabled() || settled) return Promise.resolve();
+	return new Promise((resolve) => waiters.push(resolve));
 }
 
 const posthog = {
