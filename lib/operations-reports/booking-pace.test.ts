@@ -40,3 +40,15 @@ describe("bookingPace", () => {
     expect(bookingPaceWord(pace)).toBe("Missed · 4 short");
   });
 });
+
+describe("bookingPace on a day the goal skips", () => {
+  it("counts every goal day so far as finished when today isn't one", () => {
+    // Saturday, Mon–Fri team: all five goal days have finished.
+    const pace = bookingPace({ booked: 40, dailyQuota: 10, goal: 50, dayCount: 6, goalDayCount: 5, todayCounts: false, includesToday: true });
+    expect(pace).toMatchObject({ kind: "behind", expected: 50, gap: 10 });
+  });
+  it("leaves today out when today is a goal day", () => {
+    const pace = bookingPace({ booked: 40, dailyQuota: 10, goal: 50, dayCount: 5, goalDayCount: 5, todayCounts: true, includesToday: true });
+    expect(pace).toMatchObject({ kind: "on_pace", expected: 40 });
+  });
+});

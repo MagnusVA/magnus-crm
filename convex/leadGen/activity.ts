@@ -22,7 +22,7 @@ import type { CrmRole } from "../lib/roleMapping";
 import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { summarizeDailyRows } from "./reportBuilders";
 import { DAILY_STATS_READ_LIMIT } from "./reportLimits";
-import { loadCurrentScheduledHoursByWorkerDay } from "./schedules";
+import { loadScheduledHoursByWorkerDay } from "./schedules";
 import type { LeadGenDailyStatInput } from "./reporting";
 import type { PublicOverviewRange } from "../dashboard/overviewTypes";
 
@@ -206,7 +206,7 @@ export async function buildMyActivitySummary(
   },
 ) {
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, {
+    await loadScheduledHoursByWorkerDay(ctx, {
       tenantId,
       rows: args.rows,
     });

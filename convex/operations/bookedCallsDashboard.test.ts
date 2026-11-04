@@ -85,6 +85,8 @@ describe("Booked Calls", () => {
         label: "North Team",
         dailyQuota: 2,
         target: 2,
+        goalDayCount: 1,
+        goalCountsLastDay: true,
         progress: 3,
         teamOnly: { booked: 0, sources: [] },
       },
@@ -93,6 +95,8 @@ describe("Booked Calls", () => {
         label: "South Team",
         dailyQuota: 1,
         target: 1,
+        goalDayCount: 1,
+        goalCountsLastDay: true,
         progress: 1,
         teamOnly: {
           booked: 1,

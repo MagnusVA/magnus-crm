@@ -126,6 +126,9 @@ export type ReportSourceRow =
       workerId: string;
       weekday: string;
       scheduledHours: number;
+      // Days of the range this dated row was in force; absent from pages
+      // read before schedules were dated (every matching weekday counted).
+      occurrences?: number;
     }
   | {
       kind: "team";
@@ -133,10 +136,18 @@ export type ReportSourceRow =
       label: string;
       isActive: boolean;
       bookingDailyQuota: number | null;
+      // Booked Calls: the days of the range one of the team's active DM
+      // closers works. Null elsewhere, and on pages from before goals
+      // counted work days (every day counts then).
+      goalDayCount?: number | null;
+      // Whether the range's last day is one of those days, for the pace.
+      goalCountsLastDay?: boolean;
     }
   | {
       kind: "tenant";
       slackQualificationDailyTeamQuota: number | null;
+      // The days of the range some Slack qualifier works.
+      goalDayCount?: number | null;
     }
   | {
       kind: "qualification_event";
@@ -162,6 +173,9 @@ export type ReportSourceRow =
       slackUserId: string;
       weekday: string;
       scheduledHours: number;
+      // Days of the range this dated row was in force; absent from pages
+      // read before schedules were dated (every matching weekday counted).
+      occurrences?: number;
     }
   | {
       kind: "booked_meeting";
@@ -202,6 +216,9 @@ export type ReportSourceRow =
       dmCloserId: string;
       weekday: string;
       scheduledHours: number;
+      // Days of the range this dated row was in force; absent from pages
+      // read before schedules were dated (every matching weekday counted).
+      occurrences?: number;
     }
   | {
       kind: "sales_meeting_stat";

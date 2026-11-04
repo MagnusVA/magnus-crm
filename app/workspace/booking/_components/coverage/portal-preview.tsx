@@ -302,7 +302,7 @@ function Phone({
         <div ref={listRef} key={swapKey} className={cn("relative min-h-0 flex-1 overflow-auto [scrollbar-width:none]", swapKey > 0 && "cov-swap")}>
           {!loading && (!closerName || !team) ? (
             <div className="px-[18px] py-7 text-center text-[13px] text-muted-foreground">
-              No active DM closers yet. Add one on DM teams to preview their portal.
+              No active DM closers yet. Add one on the team’s page in Team › Teams to preview their portal.
             </div>
           ) : null}
           {team && closerName

@@ -10,7 +10,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
-      className="toaster group"
+      // A modal dialog turns off pointer events on <body>; toasts (Undo) stay clickable.
+      className="toaster group pointer-events-auto"
       icons={{
         success: (
           <CircleCheckIcon className="size-4" />
@@ -38,7 +39,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }
       toastOptions={{
         classNames: {
-          toast: "cn-toast",
+          toast: "cn-toast pointer-events-auto",
         },
       }}
       {...props}

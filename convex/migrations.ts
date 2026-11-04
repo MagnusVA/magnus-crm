@@ -47,6 +47,7 @@ import {
   teamMemberRoleRecords,
 } from "./lib/teamMembers";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
+import { scheduleRowInForceOn } from "./workSchedules/datedRows";
 import {
   customerFieldsFromEnrollments,
   isVisibleLifecycle,
@@ -405,16 +406,14 @@ export const backfillLeadGenDailyStatScheduledHours = migrations.define({
   table: "leadGenDailyStats",
   batchSize: 100,
   migrateOne: async (ctx, stat) => {
-    const weekday = leadGenWeekdayForBusinessDate(stat.dayKey);
-    const schedule = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-        q
-          .eq("tenantId", stat.tenantId)
-          .eq("workerId", stat.workerId)
-          .eq("weekday", weekday),
-      )
-      .unique();
+    // The schedule in force on the stat's day (schedules are dated).
+    const schedule = await scheduleRowInForceOn(
+      ctx,
+      stat.tenantId,
+      { table: "leadGenWorkerSchedules", workerId: stat.workerId },
+      leadGenWeekdayForBusinessDate(stat.dayKey),
+      stat.dayKey,
+    );
     const scheduledHours = schedule?.scheduledHours ?? 0;
 
     if (stat.scheduledHours !== scheduledHours) {

@@ -11,7 +11,10 @@ export function mergeSlackQualifications(history: Report, today: Report): Report
   const businessDayCount = past.businessDayCount + current.businessDayCount;
   const goal = today.teamGoal.dailyTeamQualificationGoal;
   const teamView = today.selectedSlackUserId === null;
-  const expectedTeamQualified = teamView && goal !== null ? goal * businessDayCount : null;
+  // Goal days add up; an answer from before them counted every day.
+  const goalDayCount =
+    (past.goalDayCount ?? past.businessDayCount) + (current.goalDayCount ?? current.businessDayCount);
+  const expectedTeamQualified = teamView && goal !== null ? goal * goalDayCount : null;
   // The answers carry distinct counts without ids. Summing can count a deal
   // again if it has qualification events on both sides of the split.
   const periods = mergeRows(history.periods, today.periods, (row) => row.key, (left, right) => ({
@@ -47,6 +50,7 @@ export function mergeSlackQualifications(history: Report, today: Report): Report
       ...current,
       totalQualified,
       businessDayCount,
+      goalDayCount,
       averagePerBusinessDay: rate(totalQualified, businessDayCount),
       expectedTeamQualified,
       teamGoalDelta: expectedTeamQualified === null ? null : totalQualified - expectedTeamQualified,

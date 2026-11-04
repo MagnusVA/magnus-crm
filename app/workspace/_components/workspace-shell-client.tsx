@@ -8,6 +8,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import { RoleProvider, useRole } from "@/components/auth/role-context";
+import { ReviewNavBadge } from "@/app/workspace/team/_components/review/review-count";
 import {
   Sidebar,
   SidebarContent,
@@ -155,8 +156,23 @@ const bookingNavItem: NavItem = {
     { href: "/workspace/booking", label: "Coverage", icon: LayoutGridIcon, exact: true },
     { href: "/workspace/booking/inbox", label: "Inbox", icon: InboxIcon },
     { href: "/workspace/booking/event-types", label: "Event types", icon: CalendarRangeIcon },
-    { href: "/workspace/booking/teams", label: "DM teams", icon: MessagesSquareIcon },
     { href: "/workspace/booking/portal", label: "Link portal", icon: LinkIcon },
+  ],
+};
+
+const REVIEW_HREF = "/workspace/team/review";
+
+// Team › Members is exact: the other sections and redistribute sit under it.
+const teamNavItem: NavItem = {
+  href: "/workspace/team",
+  label: "Team",
+  icon: UsersIcon,
+  children: [
+    { href: "/workspace/team", label: "Members", icon: UsersIcon, exact: true },
+    { href: REVIEW_HREF, label: "Review", icon: InboxIcon },
+    { href: "/workspace/team/teams", label: "Teams", icon: MessagesSquareIcon },
+    { href: "/workspace/team/schedules", label: "Schedules", icon: CalendarClockIcon },
+    { href: "/workspace/team/goals", label: "Goals", icon: TargetIcon },
   ],
 };
 
@@ -164,7 +180,7 @@ const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   operationsNavItem,
   leadsCustomersNavItem,
-  { href: "/workspace/team", label: "Team", icon: UsersIcon },
+  teamNavItem,
   bookingNavItem,
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -232,9 +248,11 @@ function navForRole(
 function CollapsibleNavItem({
   item,
   pathname,
+  isAdmin,
 }: {
   item: NavItem & { children: NavItem[] };
   pathname: string;
+  isAdmin: boolean;
 }) {
   const isSectionActive = pathname.startsWith(item.href);
   const [userOpen, setUserOpen] = useState(isSectionActive);
@@ -266,6 +284,8 @@ function CollapsibleNavItem({
                   <Link href={child.href}>
                     <child.icon />
                     <span>{child.label}</span>
+                    {/* Team › Review: the open decisions, the same count as the band's. */}
+                    {isAdmin && child.href === REVIEW_HREF ? <ReviewNavBadge /> : null}
                   </Link>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>
@@ -463,6 +483,7 @@ function WorkspaceShellClientInner({
                         key={item.href}
                         item={{ ...item, children: item.children }}
                         pathname={pathname}
+                        isAdmin={isAdmin}
                       />
                     );
                   }

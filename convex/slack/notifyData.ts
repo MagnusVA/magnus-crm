@@ -10,6 +10,7 @@ import {
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
 import { countGoalEligibleQualificationEvents } from "../reporting/lib/slackQualificationLedger";
+import { loadQualifiedGoalGroup, qualifiedGoalDayCount } from "../workSchedules/goalDays";
 
 const MAX_LEAD_GEN_ATTEMPTS_COUNTED = 200;
 // Bounds the read, along with the live-read byte budget, when many of a
@@ -146,6 +147,15 @@ export const getQualificationGoalProgress = internalQuery({
     }
 
     const businessDate = timestampToBusinessDateKey(args.now, await getTenantBusinessDay(ctx, args.tenantId));
+    // The goal skips days no qualifier works (qualifiedGoalDayCount): no
+    // progress line then. A group too large to read counts every day.
+    const goalGroup = await loadQualifiedGoalGroup(ctx, args.tenantId);
+    if (
+      goalGroup &&
+      qualifiedGoalDayCount(goalGroup.slackUsers, goalGroup.scheduleRowsBySlackUserId, [businessDate]) === 0
+    ) {
+      return null;
+    }
     const start = businessDateToUtcStart(businessDate, await getTenantBusinessDay(ctx, args.tenantId));
     const end = businessDateToUtcStart(addBusinessDays(businessDate, 1), await getTenantBusinessDay(ctx, args.tenantId));
     const { count: qualifiedCount, truncated } =

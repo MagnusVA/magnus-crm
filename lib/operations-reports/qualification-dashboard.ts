@@ -33,7 +33,10 @@ export type QualificationDashboardViewModel = {
   goal: Pick<
     LiveGoal,
     "dailyQuota" | "target" | "progress" | "businessDayCount"
-  >;
+  > & {
+    /** Days in the range some qualifier works; absent on answers from before goals counted them. */
+    goalDayCount?: number;
+  };
   window: LiveWindow;
 };
 
@@ -52,6 +55,12 @@ function requireString(payload: ScalarRecord, key: string, context: string) {
     throw new Error(`${context} is missing its ${key} field.`);
   }
   return value;
+}
+
+/** A field snapshots from before it existed lack: `{ [key]: value }`, or `{}`. */
+function optionalNumber<Key extends string>(payload: ScalarRecord, key: Key): { [K in Key]?: number } {
+  const value = payload[key];
+  return typeof value === "number" ? ({ [key]: value } as { [K in Key]: number }) : {};
 }
 
 function requireNumber(payload: ScalarRecord, key: string, context: string) {
@@ -121,6 +130,7 @@ export function qualificationDashboardFromLive(
       target: dashboard.goal.target,
       progress: dashboard.goal.progress,
       businessDayCount: dashboard.goal.businessDayCount,
+      ...(dashboard.goal.goalDayCount === undefined ? {} : { goalDayCount: dashboard.goal.goalDayCount }),
     },
     window: dashboard.window,
   };
@@ -140,6 +150,7 @@ export function qualificationDashboardFromSnapshot(
           target: requireNullableNumber(payload, "target", context),
           progress: requireNumber(payload, "progress", context),
           businessDayCount: requireNumber(payload, "businessDayCount", context),
+          ...optionalNumber(payload, "goalDayCount"),
         },
         window: {
           qualifiedAfter: requireNumber(payload, "qualifiedAfter", context),

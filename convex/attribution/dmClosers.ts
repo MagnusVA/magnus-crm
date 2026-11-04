@@ -9,7 +9,7 @@ import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
 import { linkDmCloserTeamMember } from "../lib/teamMembers";
 
-function normalizeDmCloserInput(args: {
+export function normalizeDmCloserInput(args: {
   displayName: string;
   utmMedium: string;
 }) {
@@ -40,7 +40,7 @@ function normalizeDmCloserInput(args: {
   return { displayName, utmMedium, normalizedUtmMedium, slug };
 }
 
-async function getLinkedUserForWrite(
+export async function getLinkedUserForWrite(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   userId: Id<"users"> | null | undefined,

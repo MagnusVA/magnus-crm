@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { log } from "../lib/observability/log";
-import { mergeTeamMembers, slackUserTeamMemberName, userTeamMemberName } from "../lib/teamMembers";
+import { mergeTeamMembers, preferredLogin, slackUserTeamMemberName, userTeamMemberName } from "../lib/teamMembers";
 
 // D5 (docs/plans/phase-1-foundations.md §10): code joins team members only
 // through explicit links. These two functions let the tenant admin join the
@@ -30,9 +30,15 @@ type Candidate = {
 export const nameLinkCandidates = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
-    const users = await ctx.db.query("users").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(1000);
+    const userRows = await ctx.db.query("users").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(1000);
     const dmClosers = await ctx.db.query("dmClosers").withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", tenantId)).take(1000);
     const slackUsers = await ctx.db.query("slackUsers").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(1000);
+    const loginGroups = new Map<string, Doc<"users">[]>();
+    for (const user of userRows) {
+      const key = user.teamMemberId ?? user._id;
+      loginGroups.set(key, [...(loginGroups.get(key) ?? []), user]);
+    }
+    const users = [...loginGroups.values()].map(group => preferredLogin(group)!);
     const usersByName = (key: (user: Doc<"users">) => string) => {
       const map = new Map<string, Doc<"users">[]>();
       for (const user of users) {

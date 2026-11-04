@@ -49,6 +49,11 @@ Every report page reads today live from Convex, on its own or as part of a longe
 4. Write the report's merge in `merge/<page>.ts` with the helpers in `merge/helpers.ts`: counts and sums add, rates are worked out again from their parts, lists keyed by an id combine, and current people and labels come from today's answer. Test it with `expectMergedAnswer` (`tests/analyticsMerge.ts`): merging the reader's answers for two adjacent windows must equal its answer for both.
 5. Wire the page with `useAnalyticsReport` and `AnalyticsFreshnessLine`.
 
+## Schedules and goals
+
+- Schedules are dated. `leadGenWorkerSchedules`, `slackQualifierSchedules` and `dmCloserSchedules` hold one row per weekday per change, with `effectiveFrom` (a business date; unset means from the beginning). A save applies from today on, so every report reads each day under the schedule in force that day (`rowInForce`, `hoursOverDays` in `convex/lib/workSchedule.ts`), and past per-hour figures never move. Read rows per owner through `readScheduleRows` or `loadScheduleRowsByOwner` (`convex/workSchedules/`), and write them only through `writeDatedWeek`.
+- Goals count the days someone works. A target is the daily goal times `goalDayCount`: the days in the range someone in the group is scheduled, or every day until anyone in it has hours. The qualified-leads group is every Slack qualifier with a schedule who isn't deleted; a booked-calls team's group is its active DM closers (`convex/workSchedules/goalDays.ts`). Answers carry it as `goalDayCount` (Qualifications `goal`, Booked Calls `goal.teams[i]`, the Slack qualifications report's `totals`; its periods' `goalDays`). A merge adds both windows' goal days and falls back to a window's day count when its cached answer predates them.
+
 ## SQL rules
 
 - Read only `analytics.*` views. Filter every view you read, joins included, with `tenant_id = {tenant_id:String}`. The engine sets the tenant; templates never do.

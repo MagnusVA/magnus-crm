@@ -30,7 +30,7 @@ import {
   type SharedDmTeam,
 } from "./sharedTeams";
 import {
-  loadCurrentScheduledHoursByWorkerDay,
+  loadScheduledHoursByWorkerDay,
   scheduledHoursForDailyStat,
 } from "./schedules";
 import { leadGenSourceValidator } from "./validators";
@@ -751,7 +751,7 @@ export async function buildLeadGenOverview(
   const rows = dailyResult.rows;
   const scheduleReadState = createLiveReadState();
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, {
+    await loadScheduledHoursByWorkerDay(ctx, {
       tenantId,
       rows,
       liveReadState: scheduleReadState,
@@ -801,7 +801,7 @@ export async function buildWorkerPerformance(
   rows: LeadGenDailyStatInput[],
 ) {
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+    await loadScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
   const byWorker = new Map<
     Id<"leadGenWorkers">,
@@ -893,7 +893,7 @@ export async function buildTeamPerformance(
   rows: LeadGenDailyStatInput[],
 ) {
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+    await loadScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
   const byTeam = new Map<
     string,
@@ -992,7 +992,7 @@ export async function buildSourcePerformance(
   rows: LeadGenDailyStatInput[],
 ) {
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+    await loadScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
   const bySource = new Map<
     LeadGenSource,

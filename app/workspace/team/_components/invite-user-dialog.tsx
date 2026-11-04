@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useAction } from "convex/react";
 import { useForm } from "react-hook-form";
@@ -77,9 +77,15 @@ type InviteUserFormValues = z.infer<typeof inviteUserSchema>;
 
 interface InviteUserDialogProps {
   onSuccess?: () => void;
+  /** Replaces the "Invite User" button that opens the dialog. */
+  trigger?: ReactNode;
+  /** Prefills the form, e.g. from a team member with no login yet. */
+  defaultValues?: Partial<Pick<InviteUserFormValues, "email" | "firstName" | "lastName" | "role">>;
+  /** A line under the dialog's description. */
+  note?: ReactNode;
 }
 
-export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
+export function InviteUserDialog({ onSuccess, trigger, defaultValues, note }: InviteUserDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -88,10 +94,10 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
   const form = useForm({
     resolver: standardSchemaResolver(inviteUserSchema),
     defaultValues: {
-      email: "",
-      firstName: "",
-      lastName: "",
-      role: "closer",
+      email: defaultValues?.email ?? "",
+      firstName: defaultValues?.firstName ?? "",
+      lastName: defaultValues?.lastName ?? "",
+      role: defaultValues?.role ?? "closer",
       calendlyMemberId: undefined,
     },
   });
@@ -152,10 +158,12 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
       }}
     >
       <DialogTrigger asChild>
-        <Button>
-          <PlusIcon data-icon="inline-start" />
-          Invite User
-        </Button>
+        {trigger ?? (
+          <Button>
+            <PlusIcon data-icon="inline-start" />
+            Invite User
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -164,6 +172,7 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
             Add a new member to your team. Closers require a Calendly link;
             lead generators do not receive CRM pipeline access.
           </DialogDescription>
+          {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
         </DialogHeader>
 
         <Form {...form}>

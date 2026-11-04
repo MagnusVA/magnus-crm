@@ -18,7 +18,7 @@ export default async function AttributionPage({
     redirect("/workspace/booking/portal");
   }
   if (section !== "diagnostics") {
-    redirect("/workspace/booking/teams");
+    redirect("/workspace/team/teams");
   }
   await requireRole(["tenant_master", "tenant_admin"]);
 

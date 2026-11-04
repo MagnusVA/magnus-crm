@@ -10,6 +10,14 @@ import {
 } from "./sharedTeams";
 import { leadGenWeekdayValidator } from "./validators";
 import { linkLeadGenWorkerTeamMember } from "../lib/teamMembers";
+import { createLiveReadState } from "../lib/liveQueryBounds";
+import { tenantBusinessToday } from "../lib/tenantBusinessDay";
+import { rowsInForce } from "../lib/workSchedule";
+import {
+  readScheduleRows,
+  validateScheduledHours,
+  writeDatedWeek,
+} from "../workSchedules/datedRows";
 
 function displayNameForUser(user: Doc<"users">) {
   return user.fullName?.trim() || user.email;
@@ -122,18 +130,23 @@ export const listWorkerSchedules = query({
       "tenant_admin",
     ]);
 
+    // The week in force today, one row per weekday, as before rows were dated.
+    const today = await tenantBusinessToday(ctx, tenantId);
+    const state = createLiveReadState();
+
     if (args.workerId) {
       const worker = await ctx.db.get("leadGenWorkers", args.workerId);
       if (!worker || worker.tenantId !== tenantId) {
         throw new Error("Worker not found");
       }
 
-      return await ctx.db
-        .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-          q.eq("tenantId", tenantId).eq("workerId", args.workerId!),
-        )
-        .take(7);
+      const scan = await readScheduleRows(
+        ctx,
+        tenantId,
+        { table: "leadGenWorkerSchedules", workerId: worker._id },
+        state,
+      );
+      return rowsInForce(scan.rows, today);
     }
 
     const workers = await ctx.db
@@ -143,13 +156,14 @@ export const listWorkerSchedules = query({
 
     const schedules = [];
     for (const worker of workers) {
-      const rows = await ctx.db
-        .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-          q.eq("tenantId", tenantId).eq("workerId", worker._id),
-        )
-        .take(7);
-      schedules.push(...rows);
+      const scan = await readScheduleRows(
+        ctx,
+        tenantId,
+        { table: "leadGenWorkerSchedules", workerId: worker._id },
+        state,
+      );
+      schedules.push(...rowsInForce(scan.rows, today));
+      if (scan.capped) break;
     }
 
     return schedules;
@@ -227,6 +241,8 @@ export const updateWorkerProfile = mutation({
   },
 });
 
+// Legacy: one weekday at a time, for Lead Gen settings until it moves to Team.
+// Saves through the same dated writer as api.workSchedules.setLeadGenWeeklySchedule.
 export const setWorkerSchedule = mutation({
   args: {
     workerId: v.id("leadGenWorkers"),
@@ -239,42 +255,20 @@ export const setWorkerSchedule = mutation({
       "tenant_admin",
     ]);
 
-    if (args.scheduledHours < 0 || args.scheduledHours > 24) {
-      throw new Error("Scheduled hours must be between 0 and 24");
-    }
+    validateScheduledHours(args.scheduledHours);
 
     const worker = await ctx.db.get("leadGenWorkers", args.workerId);
     if (!worker || worker.tenantId !== tenantId) {
       throw new Error("Worker not found");
     }
 
-    const existing = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("workerId", worker._id)
-          .eq("weekday", args.weekday),
-      )
-      .unique();
-
-    const patch = {
-      scheduledHours: args.scheduledHours,
-      updatedByUserId: userId,
-      updatedAt: Date.now(),
-    };
-
-    if (existing) {
-      await ctx.db.patch("leadGenWorkerSchedules", existing._id, patch);
-      return existing._id;
-    }
-
-    return await ctx.db.insert("leadGenWorkerSchedules", {
+    return await writeDatedWeek(ctx, {
       tenantId,
-      workerId: worker._id,
-      userId: worker.userId,
-      weekday: args.weekday,
-      ...patch,
+      userId,
+      owner: { table: "leadGenWorkerSchedules", workerId: worker._id },
+      workerUserId: worker.userId,
+      scheduledHours: { [args.weekday]: args.scheduledHours },
+      days: [args.weekday],
     });
   },
 });

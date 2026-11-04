@@ -1,10 +1,15 @@
+import { ArrowUpRightIcon } from "lucide-react";
 import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { bookingPaceWord, type BookingPace } from "@/lib/operations-reports/booking-pace";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { TeamPageLink, TipLink, teamHref } from "../../_components/team-links";
 import { PACE_TONE, type BookingTeam } from "./booking-teams";
+
+const GOALS_TIP =
+  "Each team's booked calls per day, set in Team › Goals. The target counts only the days someone on the team works.";
 
 // The page's first read: one goal ring per DM team, filled in the team's
 // pace colour, with the count, the pace word and what the pace is measured
@@ -49,17 +54,23 @@ function GoalRing({ pace }: { pace: BookingPace }) {
   );
 }
 
-/** What the pace is measured against, in one slate line. */
+/** "70 a day × 5 days someone works", or "70 a day" when the answer doesn't count work days. */
+function goalWords(team: BookingTeam) {
+  if (team.dailyQuota === null) return null;
+  const perDay = `${formatWholeNumber(team.dailyQuota)} a day`;
+  const days = team.goalDayCount;
+  return days === undefined ? perDay : `${perDay} × ${formatWholeNumber(days)} day${days === 1 ? "" : "s"} someone works`;
+}
+
+/** Where the team stands against the pace, in one slate line; the goal itself is on the line below. */
 function paceBasis(team: BookingTeam) {
-  const { pace, dailyQuota } = team;
-  const perDay = dailyQuota === null ? null : `${formatWholeNumber(dailyQuota)} a day`;
+  const { pace } = team;
   switch (pace.kind) {
     case "no_goal":
-      return "No daily goal set";
     case "met":
-      return perDay;
+      return null;
     case "missed":
-      return `${perDay} · range ended`;
+      return "Range ended";
     default:
       return pace.expected
         ? `${formatWholeNumber(pace.expected)} due by yesterday · ${formatWholeNumber(pace.toGo ?? 0)} to go`
@@ -69,11 +80,26 @@ function paceBasis(team: BookingTeam) {
 
 function TeamTile({ team }: { team: BookingTeam }) {
   const { pace } = team;
+  const basis = paceBasis(team);
   return (
     <li className="flex min-w-0 items-center gap-3 border-r border-b px-4 py-3">
-      <GoalRing pace={pace} />
+      {team.teamId ? (
+        <TipLink
+          href={teamHref.team(team.teamId)}
+          tip={`Opens ${team.label} in Team › Teams.`}
+          aria-label={`${team.label} team page`}
+          className="rounded-full"
+        >
+          <GoalRing pace={pace} />
+        </TipLink>
+      ) : (
+        <GoalRing pace={pace} />
+      )}
       <div className="min-w-0">
-        <p className="truncate font-semibold">{team.label}</p>
+        <p className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate font-semibold">{team.label}</span>
+          {team.teamId ? <TeamPageLink teamId={team.teamId} teamName={team.label} className="shrink-0" /> : null}
+        </p>
         <p className="text-[13px] text-muted-foreground">
           <span className="font-condensed text-xl leading-none font-semibold text-foreground tabular-nums">
             {formatWholeNumber(pace.booked)}
@@ -83,7 +109,18 @@ function TeamTile({ team }: { team: BookingTeam }) {
         <p className={cn("font-condensed text-[13px] leading-tight font-bold tracking-[0.08em] uppercase", PACE_TONE[pace.kind].ink)}>
           {bookingPaceWord(pace)}
         </p>
-        <p className="truncate text-[13px] text-muted-foreground">{paceBasis(team)}</p>
+        {basis ? <p className="truncate text-[13px] text-muted-foreground">{basis}</p> : null}
+        {team.unassigned ? null : (
+          <p className="truncate text-[13px] text-muted-foreground">
+            <TipLink
+              href={teamHref.goals("booked")}
+              tip={GOALS_TIP}
+              className="underline decoration-current/40 decoration-dotted underline-offset-[3px] hover:text-foreground hover:decoration-current"
+            >
+              {goalWords(team) ?? "Set a goal"}
+            </TipLink>
+          </p>
+        )}
         {team.teamOnly && team.teamOnly.booked > 0 ? (
           <p className="truncate text-[13px] text-muted-foreground">
             <span className="font-condensed text-[14px] font-semibold text-foreground tabular-nums">
@@ -100,11 +137,9 @@ function TeamTile({ team }: { team: BookingTeam }) {
 export function TeamGoalsCard({
   teams,
   rangePhrase,
-  onEditGoals,
 }: {
   teams: BookingTeam[];
   rangePhrase: string;
-  onEditGoals: () => void;
 }) {
   // DM closers with no team have no goal to read, so they show only when
   // they booked.
@@ -114,17 +149,18 @@ export function TeamGoalsCard({
       title="Team goals"
       meta={
         <>
-          <span className="hidden @2xl:inline">Daily goal × days in the range</span>
-          <button type="button" onClick={onEditGoals} className={detailLinkClass}>
-            Edit goals
-          </button>
+          <span className="hidden @2xl:inline">Daily goal × days someone on the team works</span>
+          <TipLink href={teamHref.goals("booked")} tip={GOALS_TIP} className={detailLinkClass}>
+            Goals
+            <ArrowUpRightIcon aria-hidden="true" className="ml-0.5 size-3.5" />
+          </TipLink>
         </>
       }
       className="min-w-0"
     >
       {shown.length === 0 ? (
         <SectionEmpty title={`No DM teams booked or had a goal ${rangePhrase}.`}>
-          Set a daily goal per team with Edit goals.
+          Set a daily goal per team in Team › Goals.
         </SectionEmpty>
       ) : (
         <div className="overflow-hidden">
