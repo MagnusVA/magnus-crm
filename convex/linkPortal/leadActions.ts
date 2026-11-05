@@ -2,8 +2,8 @@
 
 // NIM-17 Phase 5: public portal actions for the DM closer lead surface.
 //
-// Follows the established portal auth pattern (portalActions.ts /
-// copyActions.ts): each public action verifies the signed session token,
+// Follows the established portal auth pattern (portalQueries.ts /
+// copyActions.ts): each public function verifies the signed session token,
 // checks the slug binding, then calls an internal query/mutation with the
 // tenant identity taken from the token — never from client args. Writes carry
 // the hashed session id for auditing, mirroring recordCopyEvent.
@@ -36,7 +36,7 @@ export const searchPortalLeads = action({
   },
   returns: v.array(portalLeadSearchRowValidator),
   handler: async (ctx, args): Promise<PortalLeadSearchRow[]> => {
-    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+    const session = await verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     // Anti-enumeration: refuse short queries before touching the database.
     const trimmed = args.searchTerm.trim();
@@ -80,7 +80,7 @@ export const updatePortalLeadProfile = action({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+    const session = await verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     await ctx.runMutation(
       internal.linkPortal.leadMutations.updateLeadProfileForSession,
@@ -113,7 +113,7 @@ export const addPortalLeadNote = action({
   },
   returns: v.id("leadNotes"),
   handler: async (ctx, args): Promise<Id<"leadNotes">> => {
-    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+    const session = await verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     const noteId: Id<"leadNotes"> = await ctx.runMutation(
       internal.linkPortal.leadMutations.insertLeadNoteForSession,
@@ -139,7 +139,7 @@ export const listPortalLeadNotes = action({
   },
   returns: v.array(portalLeadNoteRowValidator),
   handler: async (ctx, args): Promise<PortalLeadNoteRow[]> => {
-    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+    const session = await verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     const notes: PortalLeadNoteRow[] = await ctx.runQuery(
       internal.linkPortal.leadQueries.listLeadNotesForSession,

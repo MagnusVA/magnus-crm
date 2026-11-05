@@ -72,7 +72,7 @@ sequenceDiagram
 
 ### A user opens a workspace page
 
-`proxy.ts` checks the AuthKit session on every request. The page then checks the role on the server, and Convex checks it again inside every function.
+`proxy.ts` checks the AuthKit session on every request except router prefetches and the Convex log stream. The page then checks the role on the server, and Convex checks it again inside every function.
 
 ```mermaid
 sequenceDiagram

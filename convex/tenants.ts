@@ -1,7 +1,8 @@
 import { DEFAULT_BUSINESS_DAY } from "../lib/businessDay";
 import { businessDayBucketsReady, leadGenBusinessDayBlocked, runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
+import type { UserIdentity } from "convex/server";
 import { v } from "convex/values";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import { internalMutation, internalQuery, query, type QueryCtx } from "./_generated/server";
 import { getIdentityOrgId } from "./lib/identity";
 import {
   getTenantCalendlyConnectionState,
@@ -51,6 +52,46 @@ export const getCalendlyTenant = internalQuery({
   },
 });
 
+/**
+ * The caller's tenant with the state the workspace shell needs, or null.
+ * Shared by `getCurrentTenant` and `workspaceAccess.getCurrentWorkspaceAccess`.
+ */
+export async function loadCurrentTenant(ctx: QueryCtx, identity: UserIdentity) {
+  const workosOrgId = getIdentityOrgId(identity);
+  if (!workosOrgId) {
+    return null;
+  }
+
+  const tenant = await ctx.db
+    .query("tenants")
+    .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", workosOrgId))
+    .unique();
+
+  if (!tenant) {
+    return null;
+  }
+
+  const connection = await getTenantCalendlyConnectionState(ctx, tenant._id);
+  const runningRebuild = await runningBusinessDayRebuild(ctx, tenant._id);
+  const failedRebuild = runningRebuild ? null : await ctx.db.query("businessDayRebuilds").withIndex("by_tenantId_and_state", q => q.eq("tenantId", tenant._id).eq("state", "failed")).order("desc").first();
+  return {
+    tenantId: tenant._id,
+    companyName: tenant.companyName,
+    workosOrgId: tenant.workosOrgId,
+    status: tenant.status,
+    calendlyWebhookUri: connection?.webhookUri,
+    onboardingCompletedAt: tenant.onboardingCompletedAt,
+    billingOpsEnabled: tenant.billingOpsEnabled === true,
+    // Report pages that read ClickHouse (docs/plans/clickhouse-reporting.md §12.1).
+    analyticsReports: tenant.analyticsReports ?? [],
+    businessDay: tenant.businessDay ?? DEFAULT_BUSINESS_DAY,
+    businessDayVersion: tenant.businessDayVersion ?? 0,
+    businessDayReady: businessDayBucketsReady(tenant),
+    leadGenBusinessDayReady: !(await leadGenBusinessDayBlocked(ctx, tenant._id)),
+    businessDayRebuild: runningRebuild ?? (failedRebuild?.version === tenant.businessDayVersion ? failedRebuild : null),
+  };
+}
+
 // eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; reads only the caller's tenant
 export const getCurrentTenant = query({
   args: {},
@@ -59,40 +100,7 @@ export const getCurrentTenant = query({
     if (!identity) {
       return null;
     }
-
-    const workosOrgId = getIdentityOrgId(identity);
-    if (!workosOrgId) {
-      return null;
-    }
-
-    const tenant = await ctx.db
-      .query("tenants")
-      .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", workosOrgId))
-      .unique();
-
-    if (!tenant) {
-      return null;
-    }
-
-    const connection = await getTenantCalendlyConnectionState(ctx, tenant._id);
-    const runningRebuild = await runningBusinessDayRebuild(ctx, tenant._id);
-    const failedRebuild = runningRebuild ? null : await ctx.db.query("businessDayRebuilds").withIndex("by_tenantId_and_state", q => q.eq("tenantId", tenant._id).eq("state", "failed")).order("desc").first();
-    return {
-      tenantId: tenant._id,
-      companyName: tenant.companyName,
-      workosOrgId: tenant.workosOrgId,
-      status: tenant.status,
-      calendlyWebhookUri: connection?.webhookUri,
-      onboardingCompletedAt: tenant.onboardingCompletedAt,
-      billingOpsEnabled: tenant.billingOpsEnabled === true,
-      // Report pages that read ClickHouse (docs/plans/clickhouse-reporting.md §12.1).
-      analyticsReports: tenant.analyticsReports ?? [],
-      businessDay: tenant.businessDay ?? DEFAULT_BUSINESS_DAY,
-      businessDayVersion: tenant.businessDayVersion ?? 0,
-      businessDayReady: businessDayBucketsReady(tenant),
-      leadGenBusinessDayReady: !(await leadGenBusinessDayBlocked(ctx, tenant._id)),
-      businessDayRebuild: runningRebuild ?? (failedRebuild?.version === tenant.businessDayVersion ? failedRebuild : null),
-    };
+    return await loadCurrentTenant(ctx, identity);
   },
 });
 

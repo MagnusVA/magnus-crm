@@ -80,6 +80,7 @@ import { endedCalls } from "@/app/workspace/closer/_components/needs-outcome-car
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { MemberIdentity } from "./member-identity";
+import { PageAreaTransition, WORKSPACE_NAV } from "@/components/page-transitions";
 import type { MemberAvatarIdentity } from "./member-avatar";
 
 // Dynamic import for command palette (vercel-react-best-practices: bundle-dynamic-imports)
@@ -281,7 +282,7 @@ function CollapsibleNavItem({
                   asChild
                   isActive={child.exact ? pathname === child.href : pathname.startsWith(child.href)}
                 >
-                  <Link href={child.href}>
+                  <Link href={child.href} transitionTypes={WORKSPACE_NAV}>
                     <child.icon />
                     <span>{child.label}</span>
                     {/* Team › Review: the open decisions, the same count as the band's. */}
@@ -459,6 +460,7 @@ function WorkspaceShellClientInner({
         <SidebarHeader className="px-3 pt-4 pb-3">
           <Link
             href={homeHref}
+            transitionTypes={WORKSPACE_NAV}
             aria-label="Magnus workspace home"
             className="flex min-h-9 items-center gap-2 rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
@@ -503,7 +505,7 @@ function WorkspaceShellClientInner({
                         tooltip={item.label}
                         className={ACTIVE_NAV_CLASS}
                       >
-                        <Link href={item.href}>
+                        <Link href={item.href} transitionTypes={WORKSPACE_NAV}>
                           <item.icon />
                           <span>{item.label}</span>
                           {badgeCount > 0 && (
@@ -539,7 +541,7 @@ function WorkspaceShellClientInner({
                           tooltip={item.label}
                           className={ACTIVE_NAV_CLASS}
                         >
-                          <Link href={item.href}>
+                          <Link href={item.href} transitionTypes={WORKSPACE_NAV}>
                             <item.icon />
                             <span>{item.label}</span>
                           </Link>
@@ -558,6 +560,7 @@ function WorkspaceShellClientInner({
           <div className="flex items-center gap-1">
             <Link
               href="/workspace/profile"
+              transitionTypes={WORKSPACE_NAV}
               aria-label="Your profile"
               className="min-w-0 flex-1 rounded-md px-1 py-1 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:hidden"
             >
@@ -599,13 +602,15 @@ function WorkspaceShellClientInner({
               <NotificationCenter />
             </div>
           </header>
-          <div
-            id="main-content"
-            className="page-inset flex-1 overflow-auto"
-            tabIndex={-1}
-          >
-            {children}
-          </div>
+          <PageAreaTransition>
+            <div
+              id="main-content"
+              className="page-inset flex-1 overflow-auto"
+              tabIndex={-1}
+            >
+              {children}
+            </div>
+          </PageAreaTransition>
         </SidebarInset>
       </BreadcrumbTrailProvider>
 

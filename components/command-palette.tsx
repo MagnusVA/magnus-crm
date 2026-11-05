@@ -28,6 +28,7 @@ import {
   TargetIcon,
 } from "lucide-react";
 import { useRole } from "@/components/auth/role-context";
+import { WORKSPACE_NAV } from "@/components/page-transitions";
 
 const RESPARK_HREF = "/workspace/lead-gen/respark";
 
@@ -90,7 +91,7 @@ export function CommandPalette({
 
   const navigate = useCallback(
     (href: string) => {
-      router.push(href);
+      router.push(href, { transitionTypes: WORKSPACE_NAV });
       setOpen(false);
     },
     [router],

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Preloaded } from "convex/react";
 import { usePreloadedQuery } from "convex/react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";

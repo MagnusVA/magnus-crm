@@ -3,6 +3,7 @@ import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import { SettingsPageClient } from "./_components/settings-page-client";
+import { ContentReveal } from "@/components/page-transitions";
 
 export const unstable_instant = false;
 
@@ -34,5 +35,9 @@ export default async function SettingsPage({
     { token: session.accessToken },
   );
 
-  return <SettingsPageClient preloadedSlackStatus={preloadedSlackStatus} />;
+  return (
+    <ContentReveal>
+      <SettingsPageClient preloadedSlackStatus={preloadedSlackStatus} />
+    </ContentReveal>
+  );
 }

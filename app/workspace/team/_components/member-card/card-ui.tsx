@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";

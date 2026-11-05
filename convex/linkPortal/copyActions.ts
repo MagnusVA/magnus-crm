@@ -20,7 +20,7 @@ export const recordCopyEvent = action({
     campaignPresetId: v.id("linkPortalCampaignPresets"),
   },
   handler: async (ctx, args): Promise<Id<"linkPortalCopyEvents">> => {
-    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+    const session = await verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     return await ctx.runMutation(
       internal.linkPortal.copyMutations.insertCopyEvent,

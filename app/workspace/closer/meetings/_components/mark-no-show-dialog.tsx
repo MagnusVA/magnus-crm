@@ -36,7 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { UserXIcon } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { getErrorMessage } from "@/lib/errors";
 
 const NO_SHOW_REASONS = [

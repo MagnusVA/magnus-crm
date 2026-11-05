@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { closerLookupTabFromSearch } from "@/convex/closer/pipelineTabs";
 import { businessDateForInstant } from "@/lib/businessDay";
 import {

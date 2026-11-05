@@ -5,7 +5,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { Trash2Icon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";

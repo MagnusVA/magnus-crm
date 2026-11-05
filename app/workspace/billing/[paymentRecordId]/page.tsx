@@ -4,6 +4,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
 import { BillingReviewPageClient } from "../_components/billing-review-page-client";
 import { BillingUnavailable } from "../_components/billing-unavailable";
+import { ContentReveal } from "@/components/page-transitions";
 
 export const unstable_instant = false;
 
@@ -30,5 +31,9 @@ export default async function BillingPaymentPage({
     { token: access.session.accessToken },
   );
 
-  return <BillingReviewPageClient preloadedPayment={preloadedPayment} />;
+  return (
+    <ContentReveal>
+      <BillingReviewPageClient preloadedPayment={preloadedPayment} />
+    </ContentReveal>
+  );
 }

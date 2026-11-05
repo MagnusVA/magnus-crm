@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/form";
 import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { getErrorMessage } from "@/lib/errors";
 

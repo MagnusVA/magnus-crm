@@ -39,7 +39,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 import { ProofFileInput } from "@/app/workspace/closer/meetings/_components/proof-file-input";

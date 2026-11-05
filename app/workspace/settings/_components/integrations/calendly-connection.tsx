@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { connectionStatusConfig } from "@/lib/status-config";
 import { getErrorMessage } from "@/lib/errors";
 

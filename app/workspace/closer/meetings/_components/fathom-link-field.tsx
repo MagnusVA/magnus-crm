@@ -5,7 +5,7 @@ import { useMutation } from "convex/react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { AlertTriangleIcon, CheckCircle2Icon } from "lucide-react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 
 import type { Id } from "@/convex/_generated/dataModel";

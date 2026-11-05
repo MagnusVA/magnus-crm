@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import {
 	AtSignIcon,
 	CheckIcon,

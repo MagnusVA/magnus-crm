@@ -1,7 +1,7 @@
 "use client";
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { AlertCircleIcon } from "lucide-react";
 import { getErrorMessage } from "@/lib/errors";
 
