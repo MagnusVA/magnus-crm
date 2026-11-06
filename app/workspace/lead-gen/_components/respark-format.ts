@@ -8,16 +8,20 @@ import {
 
 // Respark dates follow the tenant's business-day zone, like the hold.
 
+// The pool's five buckets are categories, so they take the chart tokens, on
+// the cards, the Next batch card and the person sheet alike. They are never
+// status colours. Lime (chart-3) is skipped because lime marks the next
+// action; ink stands in for it.
 const BUCKET_SWATCHES: Record<number, string> = {
-  1: "bg-emerald-500",
-  2: "bg-orange-500",
-  3: "bg-blue-600",
-  4: "bg-amber-500",
-  5: "bg-muted-foreground",
+  1: "bg-chart-1",
+  2: "bg-chart-2",
+  3: "bg-foreground",
+  4: "bg-chart-4",
+  5: "bg-chart-5",
 };
 
 export function bucketSwatchClass(bucket: number) {
-  return BUCKET_SWATCHES[bucket] ?? "bg-muted-foreground";
+  return BUCKET_SWATCHES[bucket] ?? "bg-chart-5";
 }
 
 // Formatters are costly to build; one per zone and variant, reused.
@@ -25,7 +29,7 @@ const formatters = new Map<string, Intl.DateTimeFormat>();
 function formatter(key: string, options: Intl.DateTimeFormatOptions) {
   let cached = formatters.get(key);
   if (!cached) {
-    cached = new Intl.DateTimeFormat("en-GB", options);
+    cached = new Intl.DateTimeFormat(key.startsWith("clock:") ? "en-GB" : "en-US", options);
     formatters.set(key, cached);
   }
   return cached;
@@ -36,7 +40,7 @@ export function formatClock(ms: number, timeZone: string) {
   return formatter(`clock:${timeZone}`, { hour: "2-digit", minute: "2-digit", timeZone }).format(ms);
 }
 
-/** "14 Jul", with the year when it isn't this year's. */
+/** "Jul 14", with the year when it isn't this year's. */
 export function formatDay(ms: number, timeZone: string, now = Date.now()) {
   const year = formatter(`year:${timeZone}`, { year: "numeric", timeZone });
   const sameYear = year.format(ms) === year.format(now);

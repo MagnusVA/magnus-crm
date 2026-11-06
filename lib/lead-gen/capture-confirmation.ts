@@ -7,7 +7,15 @@ import {
 
 export type CaptureResult = FunctionReturnType<typeof api.leadGen.capture.submit>;
 
-export type CaptureConfirmation = { title: string; detail?: string };
+/**
+ * What the last capture was, for its status word: a new person, a capture of
+ * someone captured before (a dupe), a person the CRM knew but nobody had
+ * captured, a known person who is not a fit or must not be contacted, or a
+ * keyed retry the server had already saved.
+ */
+export type CaptureKind = "new" | "dupe" | "known" | "not_a_fit" | "do_not_contact" | "already_saved";
+
+export type CaptureConfirmation = { kind: CaptureKind; title: string; detail?: string };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -24,21 +32,22 @@ export function captureConfirmation(
   if (result.duplicateRetry || !person) {
     // A keyed retry: the original capture already counted, and where the
     // person stood before it is gone.
-    return { title: "Capture already recorded" };
+    return { kind: "already_saved", title: "Capture already recorded" };
   }
   if (person.isNew) {
-    return { title: "New prospect captured", detail: "In conversation from now." };
+    return { kind: "new", title: "New prospect captured", detail: "In conversation from now." };
   }
 
   const formatDate = (ms: number) =>
     new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone }).format(ms);
 
   if (person.disposition === "do_not_contact") {
-    return { title: "Already in the CRM · do not contact", detail: "Don't message them." };
+    return { kind: "do_not_contact", title: "Already in the CRM · do not contact", detail: "Don't message them." };
   }
 
   if (person.disposition === "not_a_fit") {
     return {
+      kind: "not_a_fit",
       title: "Already in the CRM · not a fit",
       detail:
         person.dispositionSource === "respark" && person.dispositionSetAt !== undefined
@@ -47,8 +56,10 @@ export function captureConfirmation(
     };
   }
 
+  const kind: CaptureKind = result.duplicateProspect ? "dupe" : "known";
   if (stageIndex(person.stage) >= stageIndex("qualified")) {
     return {
+      kind,
       title: `Already in the CRM · ${LIFECYCLE_STAGE_LABELS[person.stage].toLowerCase()}`,
       detail:
         person.nextMeetingAt !== undefined
@@ -62,6 +73,7 @@ export function captureConfirmation(
       ? undefined
       : Math.floor((now - person.lastTouchAt) / DAY_MS);
   return {
+    kind,
     title: `Already in the CRM · ${LIFECYCLE_STAGE_LABELS[person.stage].toLowerCase()}`,
     detail:
       inactiveDays !== undefined && inactiveDays >= result.inactiveAfterDays
