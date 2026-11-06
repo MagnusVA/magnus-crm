@@ -1,13 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { type Preloaded, useAction, usePreloadedQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { useRole } from "@/components/auth/role-context";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,40 +16,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  CheckCircle2Icon,
-  MessageSquareTextIcon,
-  PlugZapIcon,
-  RefreshCwIcon,
-  Settings2Icon,
-  TriangleAlertIcon,
-  UnplugIcon,
-} from "lucide-react";
-import { SlackChannelPickerDialog } from "./slack-channel-picker-dialog";
+import { CARD, CardHead, HelpTip, LABEL } from "@/app/workspace/team/_components/team-ui";
 import { getErrorMessage } from "@/lib/errors";
-
-type InstallationStatus = FunctionReturnType<
-  typeof api.slack.channels.getInstallationStatus
->;
-type ConnectedStatus = Extract<InstallationStatus, { kind: "connected" }>;
+import { cn } from "@/lib/utils";
+import { ActionRow, FACT_FIGURE, Fact, Facts, NoteLine, StatusWord } from "../settings-ui";
+import { SlackChannelPickerDialog } from "./slack-channel-picker-dialog";
+import { slackChannelErrors, slackMissingChannel, slackState, type SlackConnected } from "./integration-status";
 
 type Props = {
   preloadedStatus: Preloaded<typeof api.slack.channels.getInstallationStatus>;
+  /** Calendly isn't connected yet: its button is the page's lime action, so Slack's is outline. */
+  calendlyFirst?: boolean;
 };
 
-export function SlackIntegrationCard({ preloadedStatus }: Props) {
+type ChannelKind = "notify" | "stale" | "lead_gen" | "booking_review";
+type ChannelError = SlackConnected["notifyChannelError"];
+
+/**
+ * Slack: the workspace it's connected to, then the four channels Magnus
+ * posts to as ruled rows with the picker in their heading row. Lime only on
+ * Connect or Reconnect while Slack can't post.
+ */
+export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }: Props) {
   const status = usePreloadedQuery(preloadedStatus);
   const searchParams = useSearchParams();
   const { role } = useRole();
@@ -70,6 +58,7 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const disconnectSlack = useAction(api.slack.channelsActions.disconnectSlack);
+  const state = slackState(status);
 
   async function handleDisconnect() {
     setDisconnecting(true);
@@ -84,160 +73,142 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
       }
       setDisconnectOpen(false);
     } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Failed to disconnect Slack."),
-      );
+      toast.error(getErrorMessage(error, "Failed to disconnect Slack."));
     } finally {
       setDisconnecting(false);
     }
   }
 
   if (status.kind === "not_connected") {
+    const slackParam = searchParams.get("slack");
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MessageSquareTextIcon aria-hidden="true" />
-            Slack
-          </CardTitle>
-          <CardDescription>
-            Connect Slack so workspace members can qualify leads with
-            <span translate="no"> /qualify-lead</span>.
-          </CardDescription>
-          <CardAction>
-            <Badge variant="secondary">Disconnected</Badge>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {searchParams.get("slack") === "denied" && (
-            <Alert>
-              <TriangleAlertIcon aria-hidden="true" />
-              <AlertTitle>Slack Approval Required</AlertTitle>
-              <AlertDescription>
-                If your workspace requires owner approval, approve the app in
-                Slack and start the connection again.
-              </AlertDescription>
-            </Alert>
-          )}
-          {searchParams.get("slack") === "start_failed" && (
-            <Alert variant="destructive">
-              <TriangleAlertIcon aria-hidden="true" />
-              <AlertTitle>Slack Connection Failed</AlertTitle>
-              <AlertDescription>
-                Try again. If it fails again, confirm the Slack environment
-                variables are set in Convex.
-              </AlertDescription>
-            </Alert>
-          )}
-          <div>
-            <Button asChild>
-              <a href="/api/slack/start">
-                <PlugZapIcon data-icon="inline-start" />
-                Connect Slack
-              </a>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <section aria-label="Slack" className={CARD}>
+        <CardHead title="Slack">
+          <StatusWord tone={state.tone}>{state.word}</StatusWord>
+        </CardHead>
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <NoteLine>
+            Connect Slack so workspace members can qualify leads with{" "}
+            <code translate="no" className="font-mono text-[12.5px] text-foreground">
+              /qualify-lead
+            </code>
+            , and Magnus can post new leads, stale-lead digests and booking reviews.
+          </NoteLine>
+          {slackParam === "denied" ? (
+            <NoteLine tone="warning" role="status">
+              Slack needs approval. If your workspace requires owner approval, approve the app in Slack and start the
+              connection again.
+            </NoteLine>
+          ) : null}
+          {slackParam === "start_failed" ? (
+            <NoteLine tone="danger" role="alert">
+              The Slack connection failed. Try again. If it fails again, confirm the Slack environment variables are
+              set in Convex.
+            </NoteLine>
+          ) : null}
+        </div>
+        <ActionRow>
+          <Button asChild size="sm" variant={calendlyFirst ? "outline" : "default"} className="font-semibold">
+            <a href="/api/slack/start">Connect Slack</a>
+          </Button>
+        </ActionRow>
+      </section>
     );
   }
 
   const isTenantMaster = role === "tenant_master";
-  const actionRequired =
-    status.status === "active" &&
-    (!status.notifyChannelId ||
-      !status.staleReminderChannelId ||
-      Boolean(status.notifyChannelError) ||
-      Boolean(status.staleReminderChannelError) ||
-      Boolean(status.leadGenNotifyChannelError) ||
-      Boolean(status.bookingReviewChannelError));
+  const active = status.status === "active";
+  const canDisconnect = isTenantMaster && status.status !== "uninstalled";
+  // The old "Action Required": a channel to pick, or one Slack refused.
+  const needsChannels = slackMissingChannel(status) || slackChannelErrors(status).length > 0;
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex min-w-0 items-center gap-2">
-            <MessageSquareTextIcon aria-hidden="true" />
-            <span className="truncate">Slack</span>
-          </CardTitle>
-          <CardDescription>
-            Connected to{" "}
-            <strong className="font-medium text-foreground">
+      <section aria-label="Slack" className={CARD}>
+        <CardHead title="Slack">
+          <StatusWord tone={state.tone}>{state.word}</StatusWord>
+        </CardHead>
+
+        <Facts>
+          <Fact label="Workspace" title={status.teamName}>
+            <span translate="no" className="block truncate font-medium">
               {status.teamName}
-            </strong>{" "}
-            on {formatDate(status.installedAt)}.
-          </CardDescription>
-          <CardAction>
-            <StatusBadge status={status} actionRequired={actionRequired} />
-          </CardAction>
-        </CardHeader>
+            </span>
+          </Fact>
+          <Fact label="Connected">
+            <span className={FACT_FIGURE}>{formatDay(status.installedAt)}</span>
+          </Fact>
+        </Facts>
 
-        <CardContent className="flex flex-col gap-4">
-          {status.status === "active" && !status.notifyChannelId && (
-            <Alert>
-              <TriangleAlertIcon aria-hidden="true" />
-              <AlertTitle>Pick a Notification Channel</AlertTitle>
-              <AlertDescription>
-                Slack qualifications are saved in the CRM, but channel messages
-                need a configured destination.
-              </AlertDescription>
-            </Alert>
-          )}
+        <LifecycleLine status={status.status} />
 
-          {status.status === "active" && !status.staleReminderChannelId && (
-            <Alert>
-              <TriangleAlertIcon aria-hidden="true" />
-              <AlertTitle>Pick a Reminder Channel</AlertTitle>
-              <AlertDescription>
-                Daily stale-lead digests need a configured Slack channel.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <ChannelErrorAlert error={status.notifyChannelError} kind="notify" />
-          <ChannelErrorAlert
+        <div className="flex min-h-9 items-center gap-2 border-b border-border px-4 py-1">
+          <span className={LABEL}>
+            <HelpTip tip="Where Magnus posts in Slack. Private channels need /invite @Magnus after they're picked.">
+              Channels
+            </HelpTip>
+          </span>
+          {active ? (
+            <Button variant="outline" size="xs" className="ml-auto" onClick={() => setPickerOpen(true)}>
+              {needsChannels ? "Pick channels" : "Change channels"}
+            </Button>
+          ) : null}
+        </div>
+        <ul>
+          <ChannelRow
+            purpose="New-lead confirmations from /qualify-lead"
+            name={status.notifyChannelName}
+            required
+            active={active}
+            error={status.notifyChannelError}
+            kind="notify"
+            missingCopy="Pick a channel. Slack qualifications are saved in the CRM, but channel messages need a destination."
+          />
+          <ChannelRow
+            purpose="Daily stale-lead digest"
+            name={status.staleReminderChannelName}
+            required
+            active={active}
             error={status.staleReminderChannelError}
             kind="stale"
+            missingCopy="Pick a channel. Daily stale-lead digests need one."
           />
-          <ChannelErrorAlert
+          <ChannelRow
+            purpose="Each lead gen submission"
+            name={status.leadGenNotifyChannelName}
+            active={active}
             error={status.leadGenNotifyChannelError}
             kind="lead_gen"
           />
-          <ChannelErrorAlert
+          <ChannelRow
+            purpose="Bookings whose details match two people"
+            name={status.bookingReviewChannelName}
+            active={active}
             error={status.bookingReviewChannelError}
             kind="booking_review"
           />
-          <LifecycleAlert status={status.status} />
-          <ChannelSummary status={status} />
-        </CardContent>
+        </ul>
 
-        <CardFooter className="flex flex-wrap gap-2">
-          {status.status === "active" && (
-            <Button variant="secondary" onClick={() => setPickerOpen(true)}>
-              <Settings2Icon data-icon="inline-start" />
-              {actionRequired ? "Pick Channels" : "Change Channels"}
-            </Button>
-          )}
-          {status.status !== "active" && (
-            <Button asChild>
-              <a href="/api/slack/start">
-                <RefreshCwIcon data-icon="inline-start" />
-                Reconnect
-              </a>
-            </Button>
-          )}
-          {isTenantMaster && status.status !== "uninstalled" && (
-            <Button
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setDisconnectOpen(true)}
-            >
-              <UnplugIcon data-icon="inline-start" />
-              Disconnect
-            </Button>
-          )}
-        </CardFooter>
-      </Card>
+        {!active || canDisconnect ? (
+          <ActionRow>
+            {!active ? (
+              <Button asChild size="sm" variant={calendlyFirst ? "outline" : "default"} className="font-semibold">
+                <a href="/api/slack/start">Reconnect Slack</a>
+              </Button>
+            ) : null}
+            {canDisconnect ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto text-danger-ink hover:text-danger-ink"
+                onClick={() => setDisconnectOpen(true)}
+              >
+                Disconnect
+              </Button>
+            ) : null}
+          </ActionRow>
+        ) : null}
+      </section>
 
       <SlackChannelPickerDialog
         open={pickerOpen}
@@ -255,17 +226,13 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect Slack?</AlertDialogTitle>
             <AlertDialogDescription>
-              This revokes the bot token and stops channel notifications,
-              stale-lead digests, and{" "}
-              <span translate="no">/qualify-lead</span>. Existing
-              Slack-qualified opportunities stay in the CRM. Reconnecting
-              requires running the Slack connection again.
+              This revokes the bot token and stops channel notifications, stale-lead digests, and{" "}
+              <span translate="no">/qualify-lead</span>. Existing Slack-qualified opportunities stay in the CRM.
+              Reconnecting requires running the Slack connection again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={disconnecting}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={disconnecting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               disabled={disconnecting}
@@ -284,121 +251,83 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
   );
 }
 
-function StatusBadge({
-  status,
-  actionRequired,
-}: {
-  status: ConnectedStatus;
-  actionRequired: boolean;
-}) {
-  if (actionRequired) {
-    return (
-      <Badge variant="destructive">
-        <TriangleAlertIcon data-icon="inline-start" />
-        Action Required
-      </Badge>
-    );
-  }
-
-  switch (status.status) {
-    case "active":
-      return (
-        <Badge>
-          <CheckCircle2Icon data-icon="inline-start" />
-          Connected
-        </Badge>
-      );
-    case "token_expired":
-      return <Badge variant="destructive">Token Expired</Badge>;
-    case "revoked":
-      return <Badge variant="destructive">Tokens Revoked</Badge>;
-    case "uninstalled":
-      return <Badge variant="secondary">Uninstalled</Badge>;
-  }
-}
-
-function LifecycleAlert({
-  status,
-}: {
-  status: ConnectedStatus["status"];
-}) {
+/** Why Slack can't post, when the install isn't active. */
+function LifecycleLine({ status }: { status: SlackConnected["status"] }) {
   if (status === "active") return null;
-
-  if (status === "uninstalled") {
-    return (
-      <Alert>
-        <TriangleAlertIcon aria-hidden="true" />
-        <AlertTitle>Slack App Uninstalled</AlertTitle>
-        <AlertDescription>
-          Reconnect Slack to restore <span translate="no">/qualify-lead</span>.
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
   return (
-    <Alert variant="destructive">
-      <TriangleAlertIcon aria-hidden="true" />
-      <AlertTitle>
-        {status === "token_expired"
-          ? "Slack Token Expired"
-          : "Slack Tokens Revoked"}
-      </AlertTitle>
-      <AlertDescription>
-        Reconnect Slack to restore channel posting and slash command handling.
-      </AlertDescription>
-    </Alert>
+    <div className="border-b border-border px-4 py-2.5">
+      {status === "uninstalled" ? (
+        <NoteLine tone="warning" role="status">
+          The Slack app was uninstalled. Reconnect Slack to restore <span translate="no">/qualify-lead</span>.
+        </NoteLine>
+      ) : (
+        <NoteLine tone="danger" role="alert">
+          {status === "token_expired" ? "The Slack token expired." : "The Slack tokens were revoked."} Reconnect Slack
+          to restore channel posting and slash command handling.
+        </NoteLine>
+      )}
+    </div>
   );
 }
 
-function ChannelErrorAlert({
+/** One channel Magnus posts to: the channel in medium, what goes there in slate. */
+function ChannelRow({
+  purpose,
+  name,
+  required = false,
+  active,
   error,
   kind,
+  missingCopy,
 }: {
-  error: ConnectedStatus["notifyChannelError"];
-  kind: "notify" | "stale" | "lead_gen" | "booking_review";
+  purpose: string;
+  name: string | undefined;
+  required?: boolean;
+  active: boolean;
+  error: ChannelError;
+  kind: ChannelKind;
+  missingCopy?: string;
 }) {
-  const content = useMemo(() => {
-    if (!error) return null;
-    const channelName = error.channelName ? `#${error.channelName}` : "the channel";
-    if (error.code === "not_in_channel") {
-      return {
-        title: "Invite Magnus to the Channel",
-        description: `Bot not in ${channelName} - run /invite @Magnus in that channel.`,
-      };
-    }
-    if (error.code === "is_archived") {
-      return {
-        title: "Channel Archived",
-        description: repickChannelCopy(kind),
-      };
-    }
-    if (error.code === "channel_not_found") {
-      return {
-        title: "Channel Not Found",
-        description: repickChannelCopy(kind),
-      };
-    }
-    return {
-      title: "Slack Posting Failed",
-      description: `Slack returned ${error.code}. Recheck the configured channel.`,
-    };
-  }, [error, kind]);
-
-  if (!content) return null;
-
+  const problem = channelProblem(error, kind);
+  const missing = active && required && !name;
   return (
-    <Alert variant={error?.code === "not_in_channel" ? "default" : "destructive"}>
-      <TriangleAlertIcon aria-hidden="true" />
-      <AlertTitle>{content.title}</AlertTitle>
-      <AlertDescription>{content.description}</AlertDescription>
-    </Alert>
+    <li className="flex flex-col gap-0.5 border-b border-border px-4 py-[7px] last:border-b-0">
+      <span
+        className={cn(
+          "min-w-0 truncate text-sm",
+          name ? "font-medium" : required ? "font-medium text-warning-ink" : "text-muted-foreground",
+        )}
+        translate={name ? "no" : undefined}
+      >
+        {name ? `#${name}` : required ? "No channel" : "Off"}
+      </span>
+      <span className="text-[13px] text-muted-foreground">{purpose}</span>
+      {missing && missingCopy ? <NoteLine tone="warning">{missingCopy}</NoteLine> : null}
+      {problem ? (
+        <NoteLine tone={problem.tone} role={problem.tone === "danger" ? "alert" : "status"}>
+          {problem.text}
+        </NoteLine>
+      ) : null}
+    </li>
   );
 }
 
-function repickChannelCopy(
-  kind: "notify" | "stale" | "lead_gen" | "booking_review",
-) {
+/** What went wrong posting to a channel; the row already names the channel. */
+function channelProblem(error: ChannelError, kind: ChannelKind) {
+  if (!error) return null;
+  if (error.code === "not_in_channel") {
+    return { tone: "warning" as const, text: "Magnus isn't in this channel. Run /invite @Magnus in it." };
+  }
+  if (error.code === "is_archived") {
+    return { tone: "danger" as const, text: `Archived in Slack. ${repickChannelCopy(kind)}` };
+  }
+  if (error.code === "channel_not_found") {
+    return { tone: "danger" as const, text: `Slack can't find this channel. ${repickChannelCopy(kind)}` };
+  }
+  return { tone: "danger" as const, text: `Slack returned ${error.code}. Recheck the configured channel.` };
+}
+
+function repickChannelCopy(kind: ChannelKind) {
   switch (kind) {
     case "notify":
       return "Pick a new notification channel before the next lead is qualified.";
@@ -411,49 +340,12 @@ function repickChannelCopy(
   }
 }
 
-function ChannelSummary({ status }: { status: ConnectedStatus }) {
-  return (
-    <dl className="grid gap-3 text-sm sm:grid-cols-2">
-      <div className="min-w-0 rounded-lg border p-3">
-        <dt className="text-muted-foreground">Notify Channel</dt>
-        <dd className="truncate font-medium">
-          {status.notifyChannelName
-            ? `#${status.notifyChannelName}`
-            : "Not configured"}
-        </dd>
-      </div>
-      <div className="min-w-0 rounded-lg border p-3">
-        <dt className="text-muted-foreground">Stale-Lead Reminder</dt>
-        <dd className="truncate font-medium">
-          {status.staleReminderChannelName
-            ? `#${status.staleReminderChannelName}`
-            : "Not configured"}
-        </dd>
-      </div>
-      <div className="min-w-0 rounded-lg border p-3">
-        <dt className="text-muted-foreground">Lead Gen Submissions</dt>
-        <dd className="truncate font-medium">
-          {status.leadGenNotifyChannelName
-            ? `#${status.leadGenNotifyChannelName}`
-            : "Off"}
-        </dd>
-      </div>
-      <div className="min-w-0 rounded-lg border p-3">
-        <dt className="text-muted-foreground">Booking Reviews</dt>
-        <dd className="truncate font-medium">
-          {status.bookingReviewChannelName
-            ? `#${status.bookingReviewChannelName}`
-            : "Off"}
-        </dd>
-      </div>
-    </dl>
-  );
-}
-
-function formatDate(value: number) {
+/** "Oct 12", or "Oct 12, 2025" outside this year. */
+function formatDay(value: number) {
+  const sameYear = new Date(value).getFullYear() === new Date().getFullYear();
   return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
     month: "short",
     day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
   }).format(value);
 }

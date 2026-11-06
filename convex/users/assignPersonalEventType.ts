@@ -4,7 +4,7 @@ import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 /**
- * Assign a personal Calendly event type URI to a closer.
+ * Assign a personal Calendly event type URI to a closer, or clear it (`null`).
  * Called by admins from the Team page.
  *
  * The URI is the closer's personal Calendly booking page URL
@@ -14,7 +14,8 @@ import { requireTenantUser } from "../requireTenantUser";
 export const assignPersonalEventType = mutation({
   args: {
     userId: v.id("users"),
-    personalEventTypeUri: v.string(),
+    /** `null` clears it: the Undo of a first assignment. */
+    personalEventTypeUri: v.union(v.string(), v.null()),
   },
   handler: async (ctx, { userId, personalEventTypeUri }) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -30,6 +31,13 @@ export const assignPersonalEventType = mutation({
       throw new Error(
         "Personal event types can only be assigned to closers"
       );
+    }
+
+    const previousPersonalEventTypeUri = targetUser.personalEventTypeUri ?? null;
+    if (personalEventTypeUri === null) {
+      await ctx.db.patch("users", userId, { personalEventTypeUri: undefined });
+      log.info("user.personal_event_type.cleared", { tenantId, userId });
+      return { previousPersonalEventTypeUri };
     }
 
     // Basic URL validation
@@ -55,5 +63,7 @@ export const assignPersonalEventType = mutation({
       userId,
       replacedExisting: Boolean(targetUser.personalEventTypeUri),
     });
+    // What this replaced (null: none), so the assignment's Undo can restore it.
+    return { previousPersonalEventTypeUri };
   },
 });

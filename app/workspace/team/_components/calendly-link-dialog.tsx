@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
 
 interface CalendlyLinkDialogProps {
   open: boolean;
@@ -62,12 +63,26 @@ export function CalendlyLinkDialog({
 
     setIsSubmitting(true);
     try {
-      await linkCloserToCalendly({
+      const { previousCalendlyMemberId } = await linkCloserToCalendly({
         userId,
         calendlyMemberId: calendlyMemberId as Id<"calendlyOrgMembers">,
       });
 
-      toast.success(`${userName} linked to Calendly`);
+      toast.success(`${userName} linked to Calendly`, {
+        action: {
+          label: "Undo",
+          // Links the member they had before, or unlinks them if they had none.
+          onClick: () => {
+            linkCloserToCalendly({ userId, calendlyMemberId: previousCalendlyMemberId }).then(
+              () => toast.success(previousCalendlyMemberId ? `${userName}'s Calendly link is back` : `${userName} is unlinked from Calendly again`),
+              (error: unknown) => {
+                reportClientError(error, { flow: "team_calendly_link_undo" });
+                toast.error(getErrorMessage(error, "Couldn’t undo the Calendly link."));
+              },
+            );
+          },
+        },
+      });
       onOpenChange(false);
       setCalendlyMemberId("");
       onSuccess?.();
