@@ -8,13 +8,11 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { PaymentType } from "@/convex/lib/paymentTypes";
 import type { BillingPaymentStatus } from "@/convex/billing/types";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -161,52 +159,55 @@ export function ExportMenu({
           Export CSV
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-3">
-        <DropdownMenuLabel className="px-0">CSV export</DropdownMenuLabel>
-        <div className="flex flex-col gap-3 text-sm">
+      <DropdownMenuContent align="end" className="w-80 p-0">
+        <DropdownMenuLabel className="border-b px-3 py-2.5 text-[15px] font-semibold text-foreground">
+          CSV export
+        </DropdownMenuLabel>
+        <div className="flex flex-col gap-2 px-3 py-2.5 text-[13px]">
           <p className="text-muted-foreground">
-            Export uses the current queue filters and is capped at {EXPORT_LIMIT}
-            rows.
+            Uses the tab and filters on screen, up to {EXPORT_LIMIT.toLocaleString("en-US")} rows.
           </p>
           {exportData ? (
-            <div className="grid grid-cols-2 gap-2 rounded-md border p-2">
-              <span className="text-muted-foreground">Matching</span>
-              <span className="text-right font-medium">
-                {exportData.exactCount}
-              </span>
-              <span className="text-muted-foreground">Exported</span>
-              <span className="text-right font-medium">
-                {exportData.exportedCount}
-              </span>
-            </div>
+            <dl className="flex flex-col">
+              <div className="flex items-baseline justify-between border-b py-1.5">
+                <dt className="text-muted-foreground">Matching</dt>
+                <dd className="font-condensed text-[15px] font-semibold tabular-nums">
+                  {exportData.exactCount.toLocaleString("en-US")}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between py-1.5">
+                <dt className="text-muted-foreground">In the file</dt>
+                <dd className="font-condensed text-[15px] font-semibold tabular-nums">
+                  {exportData.exportedCount.toLocaleString("en-US")}
+                </dd>
+              </div>
+            </dl>
           ) : (
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <p role="status" className="flex items-center gap-2 text-muted-foreground">
               <Spinner data-icon="inline-start" />
-              Preparing export preview
-            </div>
+              Counting the rows…
+            </p>
           )}
           {exportData?.truncated ? (
-            <Alert>
-              <AlertDescription>
-                The export is truncated to the first {exportData.limit} matching
-                rows.
-              </AlertDescription>
-            </Alert>
+            <p className="font-medium text-warning-ink">
+              Only the first {exportData.limit.toLocaleString("en-US")} matching rows go in the file.
+            </p>
           ) : null}
         </div>
-        <DropdownMenuSeparator />
-        <Button
-          className="w-full"
-          disabled={!exportData || isDownloading}
-          onClick={startDownload}
-        >
-          {isDownloading ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <DownloadIcon aria-hidden="true" data-icon="inline-start" />
-          )}
-          Download CSV
-        </Button>
+        <div className="border-t bg-background p-3">
+          <Button
+            className="w-full font-semibold"
+            disabled={!exportData || isDownloading}
+            onClick={startDownload}
+          >
+            {isDownloading ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <DownloadIcon aria-hidden="true" data-icon="inline-start" />
+            )}
+            Download CSV
+          </Button>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

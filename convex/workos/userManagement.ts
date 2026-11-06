@@ -1,7 +1,7 @@
 "use node";
 
 import { WorkOS } from "@workos-inc/node";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { action, type ActionCtx, env } from "../_generated/server";
@@ -479,15 +479,27 @@ async function sendOrResendInvitation(
  * when they sign up. If the invitation is still pending in WorkOS, we
  * revoke and re-send with the new role.
  */
+/** What a role change replaced, for its Undo (see the Team member card). */
+type RoleChangePrevious = {
+	role: Doc<"users">["role"];
+	/** The Calendly member a change away from closer unlinked. */
+	calendlyMemberId: Id<"calendlyOrgMembers"> | null;
+	/** The personal event type a change away from closer cleared. */
+	personalEventTypeUri: string | null;
+};
+
 export const updateUserRole = action({
 	args: {
 		userId: v.id("users"),
 		newRole: crmRoleValidator,
 	},
-	handler: async (ctx, { userId, newRole }) => {
+	handler: async (
+		ctx,
+		{ userId, newRole },
+	): Promise<{ userId: Id<"users">; role: Infer<typeof crmRoleValidator>; previous: RoleChangePrevious }> => {
 		const { caller, tenant, callerWorkosUserId } =
 			await requireAdminContext(ctx);
-		const user = await getTenantUserOrThrow(ctx, caller.tenantId, userId);
+		const user: Doc<"users"> = await getTenantUserOrThrow(ctx, caller.tenantId, userId);
 
 		if (newRole === "tenant_master") {
 			throw new Error(
@@ -500,6 +512,16 @@ export const updateUserRole = action({
 		}
 
 		const isPending = user.invitationStatus === "pending";
+		// What the change replaces, for its Undo: a change away from closer also
+		// unlinks the Calendly member and clears the personal event type.
+		let changed: { unlinkedCalendlyMemberId: Id<"calendlyOrgMembers"> | null } = {
+			unlinkedCalendlyMemberId: null,
+		};
+		const previous = (): RoleChangePrevious => ({
+			role: user.role,
+			calendlyMemberId: changed.unlinkedCalendlyMemberId,
+			personalEventTypeUri: newRole === "closer" ? null : (user.personalEventTypeUri ?? null),
+		});
 
 		if (isPending) {
 			// User hasn't signed up yet — no WorkOS membership to update.
@@ -527,7 +549,7 @@ export const updateUserRole = action({
 					mapCrmRoleToWorkosSlug(newRole),
 				);
 
-				await ctx.runMutation(
+				changed = await ctx.runMutation(
 					internal.workos.userMutations.updateRoleAndInvitation,
 					{
 						userId,
@@ -536,7 +558,7 @@ export const updateUserRole = action({
 					},
 				);
 			} else {
-				await ctx.runMutation(
+				changed = await ctx.runMutation(
 					internal.workos.userMutations.updateRole,
 					{
 						userId,
@@ -553,7 +575,7 @@ export const updateUserRole = action({
 				pendingInvitation: true,
 				invitationReissued: Boolean(user.workosInvitationId),
 			});
-			return { userId, role: newRole };
+			return { userId, role: newRole, previous: previous() };
 		}
 
 		// Active user — update WorkOS membership directly
@@ -586,12 +608,12 @@ export const updateUserRole = action({
 			membershipId: membership.id,
 		});
 
-		await ctx.runMutation(internal.workos.userMutations.updateRole, {
+		changed = await ctx.runMutation(internal.workos.userMutations.updateRole, {
 			userId,
 			role: newRole,
 		});
 
-		return { userId, role: newRole };
+		return { userId, role: newRole, previous: previous() };
 	},
 });
 

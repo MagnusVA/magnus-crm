@@ -1,241 +1,137 @@
 "use client";
 
-import type { FunctionReturnType } from "convex/server";
-import { ActivityIcon } from "lucide-react";
-import { api } from "@/convex/_generated/api";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { getEventLabel } from "@/convex/reporting/lib/eventLabels";
-import { Badge } from "@/components/ui/badge";
-import {
-	Empty,
-	EmptyContent,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
-} from "@/components/ui/empty";
+import type { BillingPaymentStatus } from "@/convex/billing/types";
+import { cn } from "@/lib/utils";
+import type { BillingPaymentDetail } from "./billing-payment-facts";
+import { FIGURE, formatPaidAt, PAYMENT_TYPE_LABELS, plural, STATUS_LABELS } from "./billing-format";
 
-type BillingPaymentDetail = NonNullable<
-	FunctionReturnType<typeof api.billing.queries.getPaymentDetail>
->;
+// The payment's history as dense ruled rows, one per event: when, what
+// happened (with each change as a before → after line), who.
+
 type BillingPaymentEvent = BillingPaymentDetail["events"][number];
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-	month: "short",
-	day: "numeric",
-});
+/** WHEN · WHAT · WHO, folding WHO under WHAT in a narrow card. */
+const HISTORY_COLUMNS =
+  "grid grid-cols-[7.25rem_minmax(0,1fr)] gap-x-4 gap-y-1 @xl/history:grid-cols-[7.25rem_minmax(0,1fr)_minmax(0,11rem)]";
 
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
-	hour: "numeric",
-	minute: "2-digit",
-});
+function statusWord(value: string) {
+  return value in STATUS_LABELS ? STATUS_LABELS[value as BillingPaymentStatus] : value;
+}
 
-function eventDetail(event: BillingPaymentEvent) {
-	if (event.eventType === "payment.verified") {
-		return "Moved from needs review to reviewed.";
-	}
-	if (event.fromStatus && event.toStatus) {
-		return `${event.fromStatus} → ${event.toStatus}`;
-	}
-	if (event.toStatus) {
-		return `Set to ${event.toStatus}`;
-	}
-	return event.reason ?? null;
+/** The status change as a before → after line; "Marked payment reviewed" already says its own. */
+function StatusChange({ event }: { event: BillingPaymentEvent }) {
+  if (event.eventType === "payment.verified" || !event.toStatus) return null;
+  return (
+    <li>
+      <span className="font-medium text-foreground">Status</span>{" "}
+      {event.fromStatus ? <>{statusWord(event.fromStatus)} → </> : null}
+      <span className="text-foreground">{statusWord(event.toStatus)}</span>
+    </li>
+  );
 }
 
 function parseEventMetadata(metadata: string | null) {
-	if (!metadata) {
-		return null;
-	}
-	try {
-		const parsed: unknown = JSON.parse(metadata);
-		return parsed && typeof parsed === "object"
-			? (parsed as Record<string, unknown>)
-			: null;
-	} catch {
-		return null;
-	}
+  if (!metadata) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
-function formatFieldLabel(key: string) {
-	const labels: Record<string, string> = {
-		amountMinor: "Amount",
-		paymentType: "Payment type",
-		programId: "Program ID",
-		programName: "Program",
-		referenceCode: "Reference",
-		note: "Internal note",
-	};
-	return labels[key] ?? key;
-}
+const FIELD_LABELS: Record<string, string> = {
+  amountMinor: "Amount",
+  paymentType: "Payment type",
+  programId: "Program ID",
+  programName: "Program",
+  referenceCode: "Reference",
+  note: "Internal note",
+};
 
 function formatValue(key: string, value: unknown) {
-	if (value === null || value === undefined || value === "") {
-		return "empty";
-	}
-	if (typeof value === "number") {
-		if (key === "amountMinor") {
-			return (value / 100).toFixed(2);
-		}
-		return String(value);
-	}
-	return String(value);
+  if (value === null || value === undefined || value === "") return "empty";
+  if (typeof value === "number") return key === "amountMinor" ? (value / 100).toFixed(2) : String(value);
+  if (key === "paymentType" && typeof value === "string" && value in PAYMENT_TYPE_LABELS) {
+    return PAYMENT_TYPE_LABELS[value as keyof typeof PAYMENT_TYPE_LABELS];
+  }
+  return String(value);
 }
 
-function CorrectionMetadata({
-	metadata,
-}: {
-	metadata: Record<string, unknown>;
-}) {
-	const entries = Object.entries(metadata).filter(
-		([key]) => key !== "returnedToReview",
-	);
-	if (entries.length === 0) {
-		return null;
-	}
-
-	return (
-		<ul className="mt-1 flex flex-col gap-0.5 border-l border-border pl-2 text-[0.68rem] text-muted-foreground">
-			{entries.map(([key, value]) => {
-				const change =
-					value && typeof value === "object"
-						? (value as { from?: unknown; to?: unknown })
-						: { from: null, to: value };
-				return (
-					<li key={key}>
-						<span className="font-medium text-foreground">
-							{formatFieldLabel(key)}
-						</span>
-						{": "}
-						<span className="font-mono">{formatValue(key, change.from)}</span>
-						<span className="text-muted-foreground/60"> → </span>
-						<span className="font-mono">{formatValue(key, change.to)}</span>
-					</li>
-				);
-			})}
-		</ul>
-	);
+/** Codes in mono, amounts in condensed figures, words as words. */
+function valueClass(key: string) {
+  if (key === "referenceCode" || key === "programId") return "font-mono text-[12.5px]";
+  if (key === "amountMinor") return "font-condensed text-[14px] font-semibold tabular-nums";
+  return "";
 }
 
-function EventDot() {
-	return (
-		<span
-			aria-hidden="true"
-			className="mt-1.5 inline-block size-1 shrink-0 rounded-full bg-foreground/35 ring-2 ring-background"
-		/>
-	);
+function Changes({ event, metadata }: { event: BillingPaymentEvent; metadata: Record<string, unknown> | null }) {
+  const entries = Object.entries(metadata ?? {}).filter(([key]) => key !== "returnedToReview");
+  const status = <StatusChange event={event} />;
+  if (entries.length === 0 && (event.eventType === "payment.verified" || !event.toStatus)) return null;
+  return (
+    <ul className="flex flex-col text-[13px] leading-[18px] text-muted-foreground">
+      {status}
+      {entries.map(([key, value]) => {
+        const change = value && typeof value === "object" ? (value as { from?: unknown; to?: unknown }) : { from: null, to: value };
+        return (
+          <li key={key}>
+            <span className="font-medium text-foreground">{FIELD_LABELS[key] ?? key}</span>{" "}
+            <span className={valueClass(key)}>{formatValue(key, change.from)}</span> →{" "}
+            <span className={cn(valueClass(key), "text-foreground")}>{formatValue(key, change.to)}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
-export function BillingEventHistory({
-	events,
-}: {
-	events: BillingPaymentEvent[];
-}) {
-	if (events.length === 0) {
-		return (
-			<section aria-labelledby="billing-history-log-heading" className="min-w-0">
-				<header className="flex items-baseline justify-between gap-3">
-					<h2
-						className="text-[0.625rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground"
-						id="billing-history-log-heading"
-					>
-						Review audit log
-					</h2>
-				</header>
-				<Empty className="mt-4 border-0">
-					<EmptyHeader>
-						<EmptyMedia variant="icon">
-							<ActivityIcon aria-hidden="true" />
-						</EmptyMedia>
-						<EmptyTitle>No review events recorded</EmptyTitle>
-					</EmptyHeader>
-					<EmptyContent>
-						This payment has no audit events yet.
-					</EmptyContent>
-				</Empty>
-			</section>
-		);
-	}
+function sentence(verb: string) {
+  return verb.charAt(0).toUpperCase() + verb.slice(1);
+}
 
-	return (
-		<section aria-labelledby="billing-history-log-heading" className="min-w-0">
-			<header className="flex items-baseline justify-between gap-2 pb-1">
-				<h2
-					className="text-[0.625rem] font-semibold uppercase tracking-[0.22em] text-muted-foreground"
-					id="billing-history-log-heading"
-				>
-					Review audit log
-				</h2>
-				<span className="font-mono text-[0.68rem] tabular-nums text-muted-foreground/70">
-					{events.length} event{events.length === 1 ? "" : "s"}
-				</span>
-			</header>
-
-			<ol className="relative">
-				{/* The thin vertical rule that turns the list into a timeline */}
-				<span
-					aria-hidden="true"
-					className="absolute bottom-2 left-22 top-2 w-px bg-border"
-				/>
-
-				{events.map((event) => {
-					const label = getEventLabel(event.eventType);
-					const detail = eventDetail(event);
-					const metadata = parseEventMetadata(event.metadata);
-					const date = new Date(event.occurredAt);
-					return (
-						<li
-							className="grid grid-cols-[5.5rem_0.75rem_1fr] gap-x-2 py-1.5"
-							key={event.id}
-						>
-							<time
-								className="text-right font-mono text-[0.68rem] leading-tight tabular-nums text-muted-foreground"
-								dateTime={date.toISOString()}
-							>
-								{dateFormatter.format(date)}{" "}
-								<span className="text-muted-foreground/65">
-									{timeFormatter.format(date)}
-								</span>
-							</time>
-							<div className="flex justify-center">
-								<EventDot />
-							</div>
-							<div className="min-w-0">
-								<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-									<span className="text-xs font-medium text-foreground">
-										{label.verb}
-									</span>
-									<Badge
-										className="h-4 px-1 text-[0.6rem] font-normal uppercase tracking-wide"
-										variant="outline"
-									>
-										{event.source}
-									</Badge>
-								</div>
-								<div className="flex flex-wrap items-center gap-x-1.5 text-[0.68rem] text-muted-foreground">
-									{event.actor ? (
-										<MemberIdentity
-											identity={event.actor}
-											className="max-w-52 gap-1.5 text-foreground/80"
-											textClassName="[&>p]:hidden"
-										/>
-									) : event.actorName ? (
-										<span className="text-foreground/80">{event.actorName}</span>
-									) : null}
-									{detail ? <span>{detail}</span> : null}
-								</div>
-								{event.reason && event.reason !== detail ? (
-									<p className="text-[0.68rem] text-muted-foreground">
-										{event.reason}
-									</p>
-								) : null}
-								{event.eventType === "payment.corrected" && metadata ? (
-									<CorrectionMetadata metadata={metadata} />
-								) : null}
-							</div>
-						</li>
-					);
-				})}
-			</ol>
-		</section>
-	);
+export function BillingEventHistory({ events, now }: { events: BillingPaymentEvent[]; now: number }) {
+  return (
+    <DetailCard title="History" meta={events.length > 0 ? plural(events.length, "event") : null}>
+      {events.length === 0 ? (
+        <SectionEmpty title="No history yet.">Events appear here as the payment is recorded, reviewed or corrected.</SectionEmpty>
+      ) : (
+        <ol className="@container/history">
+          {events.map((event) => {
+            const metadata = event.eventType === "payment.corrected" ? parseEventMetadata(event.metadata) : null;
+            return (
+              <li key={event.id} className={cn(HISTORY_COLUMNS, "min-h-9 items-baseline border-b px-4 py-1.5 last:border-b-0")}>
+                <time dateTime={new Date(event.occurredAt).toISOString()} className={FIGURE}>
+                  {formatPaidAt(event.occurredAt, now)}
+                </time>
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-baseline gap-x-2 leading-5">
+                    <span className="font-medium">{sentence(getEventLabel(event.eventType).verb)}</span>
+                    <span className="font-condensed text-[12px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
+                      {event.source}
+                    </span>
+                  </p>
+                  {event.reason ? (
+                    <p className="text-[13px] leading-[18px] whitespace-pre-wrap text-muted-foreground">“{event.reason}”</p>
+                  ) : null}
+                  <Changes event={event} metadata={metadata} />
+                </div>
+                <div className="col-start-2 min-w-0 text-[13px] text-muted-foreground @xl/history:col-start-3">
+                  {event.actor ? (
+                    <MemberIdentity identity={event.actor} className="gap-2" textClassName="[&>p]:hidden [&_span]:font-normal" />
+                  ) : (
+                    <span>{event.actorName ?? "System"}</span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </DetailCard>
+  );
 }

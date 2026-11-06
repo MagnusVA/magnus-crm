@@ -5,7 +5,7 @@ import {
   mutation,
   type MutationCtx,
 } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   canonicalizeWorkosUserId,
   getCanonicalIdentityWorkosUserId,
@@ -27,8 +27,8 @@ const crmRoleValidator = v.union(
 async function unlinkCalendlyMemberForUser(
   ctx: MutationCtx,
   user: Pick<Doc<"users">, "_id" | "tenantId" | "calendlyUserUri">,
-) {
-  if (!user.calendlyUserUri) return;
+): Promise<Id<"calendlyOrgMembers"> | null> {
+  if (!user.calendlyUserUri) return null;
 
   const member = await ctx.db
     .query("calendlyOrgMembers")
@@ -39,7 +39,9 @@ async function unlinkCalendlyMemberForUser(
 
   if (member?.matchedUserId === user._id) {
     await ctx.db.patch("calendlyOrgMembers", member._id, { matchedUserId: undefined });
+    return member._id;
   }
+  return null;
 }
 
 // Every user mutation ends here: the user's team member, then the lead gen
@@ -564,9 +566,8 @@ export const updateRole = internalMutation({
     if (!existing) {
       throw new Error("User not found");
     }
-    if (role !== "closer") {
-      await unlinkCalendlyMemberForUser(ctx, existing);
-    }
+    // The member a change away from closer unlinks, so the role's Undo can link it again.
+    const unlinkedCalendlyMemberId = role !== "closer" ? await unlinkCalendlyMemberForUser(ctx, existing) : null;
     await ctx.db.patch("users", userId, {
       role,
       calendlyUserUri: role !== "closer" ? undefined : existing.calendlyUserUri,
@@ -587,6 +588,7 @@ export const updateRole = internalMutation({
       });
     }
     await syncLeadGenWorkerProfile(ctx, userId);
+    return { unlinkedCalendlyMemberId };
   },
 });
 
@@ -605,9 +607,8 @@ export const updateRoleAndInvitation = internalMutation({
     if (!existing) {
       throw new Error("User not found");
     }
-    if (role !== "closer") {
-      await unlinkCalendlyMemberForUser(ctx, existing);
-    }
+    // The member a change away from closer unlinks, so the role's Undo can link it again.
+    const unlinkedCalendlyMemberId = role !== "closer" ? await unlinkCalendlyMemberForUser(ctx, existing) : null;
     await ctx.db.patch("users", userId, {
       role,
       workosInvitationId,
@@ -629,6 +630,7 @@ export const updateRoleAndInvitation = internalMutation({
       });
     }
     await syncLeadGenWorkerProfile(ctx, userId);
+    return { unlinkedCalendlyMemberId };
   },
 });
 

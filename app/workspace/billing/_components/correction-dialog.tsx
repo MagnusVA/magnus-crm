@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { PencilIcon } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,21 +24,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -52,6 +41,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/errors";
+import { PAYMENT_TYPE_LABELS } from "./billing-format";
 
 type BillingPaymentDetail = NonNullable<
   FunctionReturnType<typeof api.billing.queries.getPaymentDetail>
@@ -76,12 +66,16 @@ const correctionSchema = z.object({
 
 type CorrectionFormValues = z.infer<typeof correctionSchema>;
 
-const PAYMENT_TYPE_LABELS: Record<BillingPayment["paymentType"], string> = {
-  monthly: "Monthly",
-  split: "Split",
-  pif: "Paid in full",
-  deposit: "Deposit",
-};
+/** A ruled form row: a 13px slate label in a 120px column beside the control, over it when narrow. */
+const ROW =
+  "grid gap-1.5 px-4 py-3 data-[invalid=true]:text-foreground @lg:grid-cols-[120px_minmax(0,1fr)] @lg:items-start @lg:gap-x-3";
+const ROW_LABEL = "text-[13px] font-normal text-muted-foreground @lg:min-h-8 @lg:items-center";
+/** Field errors in danger ink, which reads at 4.5:1 where the fill red doesn't. */
+const ERROR = "text-[13px] text-danger-ink";
+
+function RowControl({ children }: { children: ReactNode }) {
+  return <div className="flex min-w-0 flex-col gap-1.5">{children}</div>;
+}
 
 function amountToMinor(value: string) {
   const parsed = Number(value);
@@ -105,10 +99,14 @@ function defaultValuesForPayment(payment: BillingPayment): CorrectionFormValues 
 export function CorrectionDialog({
   payment,
   onCorrected,
+  triggerClassName,
 }: {
   payment: BillingPayment;
   onCorrected: (result: CorrectionResult) => void;
+  /** The trigger's look where it sits, such as the band's board tone. */
+  triggerClassName?: string;
 }) {
+  const ids = useId();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -125,17 +123,10 @@ export function CorrectionDialog({
     defaultValues,
   });
 
-  useEffect(() => {
-    if (open) {
-      form.reset(defaultValues);
-      setSubmitError(null);
-      setPendingValues(null);
-    }
-  }, [defaultValues, form, open]);
 
-  const watched = form.watch();
+  const watched = useWatch({ control: form.control });
   const financialChange = useMemo(() => {
-    const amountMinor = amountToMinor(watched.amount);
+    const amountMinor = amountToMinor(watched.amount ?? "");
     return (
       (amountMinor !== null && amountMinor !== payment.amountMinor) ||
       watched.paymentType !== payment.paymentType ||
@@ -194,119 +185,122 @@ export function CorrectionDialog({
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
-          if (!isSubmitting) {
-            setOpen(nextOpen);
+          if (isSubmitting) return;
+          // Each opening starts from the payment as it is now.
+          if (nextOpen) {
+            form.reset(defaultValues);
+            setSubmitError(null);
+            setPendingValues(null);
           }
+          setOpen(nextOpen);
         }}
       >
         <DialogTrigger asChild>
-          <Button variant="outline">
+          <Button variant="outline" className={triggerClassName}>
             <PencilIcon aria-hidden="true" data-icon="inline-start" />
             Correct payment
           </Button>
         </DialogTrigger>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Correct payment details</DialogTitle>
-            <DialogDescription>
-              Amount, type, program, reference, and note changes are audited.
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="border-b px-4 pt-4 pr-12 pb-3.5">
+            <DialogTitle className="text-[17px] font-semibold">Correct payment details</DialogTitle>
+            <DialogDescription className="text-[13px]">
+              Changes to the amount, type, program, reference and note are kept in the payment&apos;s history.
             </DialogDescription>
           </DialogHeader>
 
-          <Form {...form}>
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={form.handleSubmit(onSubmit)}
-            >
-              {submitError ? (
-                <Alert variant="destructive">
-                  <AlertDescription>{submitError}</AlertDescription>
-                </Alert>
-              ) : null}
+          <form className="@container flex min-h-0 flex-col" onSubmit={form.handleSubmit(onSubmit)}>
+            {submitError ? (
+              <p role="alert" className="border-b px-4 py-3 text-[13px] text-danger-ink">
+                {submitError}
+              </p>
+            ) : null}
 
-              {financialChange && payment.status === "verified" ? (
-                <Alert>
-                  <AlertDescription>
-                    This financial correction will return the reviewed payment
-                    to the review queue.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+            {financialChange && payment.status === "verified" ? (
+              <p role="status" className="border-b bg-warning-surface px-4 py-3 text-[13px] font-medium text-warning-ink">
+                This change returns the reviewed payment to Needs review.
+              </p>
+            ) : null}
 
-              <FieldGroup className="grid gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount</FormLabel>
-                      <FormControl>
+            <FieldGroup className="max-h-[min(60vh,32rem)] gap-0 divide-y overflow-y-auto">
+              <Controller
+                control={form.control}
+                name="amount"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid} className={ROW}>
+                    <FieldLabel htmlFor={`${ids}-amount`} className={ROW_LABEL}>
+                      Amount
+                    </FieldLabel>
+                    <RowControl>
+                      <div className="flex items-center gap-2">
                         <Input
                           {...field}
+                          id={`${ids}-amount`}
+                          aria-invalid={fieldState.invalid}
+                          className="w-40 font-condensed text-[15px] font-semibold tabular-nums"
                           disabled={isSubmitting}
                           inputMode="decimal"
                         />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <span className="font-condensed text-[14px] font-semibold tracking-[0.04em] text-muted-foreground">
+                          {payment.currency.toUpperCase()}
+                        </span>
+                      </div>
+                      <FieldError className={ERROR} errors={[fieldState.error]} />
+                    </RowControl>
+                  </Field>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="paymentType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Payment type</FormLabel>
-                      <Select
-                        disabled={isSubmitting}
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
+              <Controller
+                control={form.control}
+                name="paymentType"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid} className={ROW}>
+                    <FieldLabel htmlFor={`${ids}-type`} className={ROW_LABEL}>
+                      Payment type
+                    </FieldLabel>
+                    <RowControl>
+                      <Select disabled={isSubmitting} onValueChange={field.onChange} value={field.value}>
+                        <SelectTrigger id={`${ids}-type`} aria-invalid={fieldState.invalid} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {Object.entries(PAYMENT_TYPE_LABELS).map(
-                              ([value, label]) => (
-                                <SelectItem key={value} value={value}>
-                                  {label}
-                                </SelectItem>
-                              ),
-                            )}
+                            {Object.entries(PAYMENT_TYPE_LABELS).map(([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {label}
+                              </SelectItem>
+                            ))}
                           </SelectGroup>
                         </SelectContent>
                       </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                      <FieldError className={ERROR} errors={[fieldState.error]} />
+                    </RowControl>
+                  </Field>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="programId"
-                  render={({ field }) => (
-                    <FormItem className="md:col-span-2">
-                      <FormLabel>Program</FormLabel>
+              <Controller
+                control={form.control}
+                name="programId"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid} className={ROW}>
+                    <FieldLabel htmlFor={`${ids}-program`} className={ROW_LABEL}>
+                      Program
+                    </FieldLabel>
+                    <RowControl>
                       <Select
                         disabled={isSubmitting || programs === undefined}
                         onValueChange={field.onChange}
                         value={field.value}
                       >
-                        <FormControl>
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select a program" />
-                          </SelectTrigger>
-                        </FormControl>
+                        <SelectTrigger id={`${ids}-program`} aria-invalid={fieldState.invalid} className="w-full">
+                          <SelectValue placeholder="Select a program" />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
                             {currentProgramMissing ? (
-                              <SelectItem value={payment.programId}>
-                                Current: {payment.programName}
-                              </SelectItem>
+                              <SelectItem value={payment.programId}>Current: {payment.programName}</SelectItem>
                             ) : null}
                             {(programs ?? []).map((program) => (
                               <SelectItem key={program._id} value={program._id}>
@@ -316,78 +310,89 @@ export function CorrectionDialog({
                           </SelectGroup>
                         </SelectContent>
                       </Select>
-                      <FormDescription>
-                        Archived programs cannot be selected for a new
-                        correction.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                      <FieldDescription className="text-[13px]">
+                        Archived programs can&apos;t be chosen for a correction.
+                      </FieldDescription>
+                      <FieldError className={ERROR} errors={[fieldState.error]} />
+                    </RowControl>
+                  </Field>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="referenceCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reference code</FormLabel>
-                      <FormControl>
-                        <Input {...field} disabled={isSubmitting} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <Controller
+                control={form.control}
+                name="referenceCode"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid} className={ROW}>
+                    <FieldLabel htmlFor={`${ids}-reference`} className={ROW_LABEL}>
+                      Reference code
+                    </FieldLabel>
+                    <RowControl>
+                      <Input
+                        {...field}
+                        id={`${ids}-reference`}
+                        aria-invalid={fieldState.invalid}
+                        className="font-mono text-[13px]"
+                        disabled={isSubmitting}
+                        spellCheck={false}
+                      />
+                      <FieldError className={ERROR} errors={[fieldState.error]} />
+                    </RowControl>
+                  </Field>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="note"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Internal note</FormLabel>
-                      <FormControl>
-                        <Input {...field} disabled={isSubmitting} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <Controller
+                control={form.control}
+                name="note"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid} className={ROW}>
+                    <FieldLabel htmlFor={`${ids}-note`} className={ROW_LABEL}>
+                      Internal note
+                    </FieldLabel>
+                    <RowControl>
+                      <Input {...field} id={`${ids}-note`} aria-invalid={fieldState.invalid} disabled={isSubmitting} />
+                      <FieldError className={ERROR} errors={[fieldState.error]} />
+                    </RowControl>
+                  </Field>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="reason"
-                  render={({ field }) => (
-                    <FormItem className="md:col-span-2">
-                      <FormLabel>Correction reason</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          disabled={isSubmitting}
-                          rows={3}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </FieldGroup>
+              <Controller
+                control={form.control}
+                name="reason"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid} className={ROW}>
+                    <FieldLabel htmlFor={`${ids}-reason`} className={ROW_LABEL}>
+                      Reason
+                    </FieldLabel>
+                    <RowControl>
+                      <Textarea
+                        {...field}
+                        id={`${ids}-reason`}
+                        aria-invalid={fieldState.invalid}
+                        aria-required
+                        disabled={isSubmitting}
+                        placeholder="Why this payment needs a correction"
+                        rows={3}
+                      />
+                      <FieldError className={ERROR} errors={[fieldState.error]} />
+                    </RowControl>
+                  </Field>
+                )}
+              />
+            </FieldGroup>
 
-              <DialogFooter>
-                <Button
-                  disabled={isSubmitting}
-                  onClick={() => setOpen(false)}
-                  type="button"
-                  variant="outline"
-                >
-                  Cancel
-                </Button>
-                <Button disabled={isSubmitting} type="submit">
-                  {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
-                  Save correction
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-3">
+              <Button disabled={isSubmitting} onClick={() => setOpen(false)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button disabled={isSubmitting} type="submit" className="font-semibold">
+                {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
+                {isSubmitting ? "Saving…" : "Save correction"}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
 

@@ -6,13 +6,15 @@ import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { FieldGroup } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
+import { cn } from "@/lib/utils";
+import { CARD, CardHead } from "@/app/workspace/team/_components/team-ui";
+import { FormCardSkeleton } from "./settings-skeleton";
+import { FormFooter, SettingRow } from "./settings-ui";
 
 // Lead gen capture rules: the one job Lead Gen settings still had once its
 // workers, teams and schedules moved to Team. Same fields and the same Save
@@ -37,13 +39,7 @@ export function LeadGenRulesCard() {
   const [saving, setSaving] = useState(false);
 
   if (settings === undefined) {
-    return (
-      <Card id="lead-gen-rules" className="scroll-mt-20">
-        <CardContent>
-          <Skeleton role="status" aria-label="Loading lead gen capture rules" className="h-56 w-full" />
-        </CardContent>
-      </Card>
-    );
+    return <FormCardSkeleton id="lead-gen-rules" label="Loading lead gen capture rules" rows={3} />;
   }
 
   const savedCorrection = "correctionWindowMinutes" in settings ? settings.correctionWindowMinutes : undefined;
@@ -88,95 +84,109 @@ export function LeadGenRulesCard() {
   };
 
   return (
-    <Card id="lead-gen-rules" className="scroll-mt-20">
-      <CardHeader>
-        <CardTitle>Lead gen capture rules</CardTitle>
-        <CardDescription>
-          How long a specialist can fix a capture, how big a raw export gets, and how repeat people show.
-          Specialists, teams and schedules are in Team.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <FieldGroup>
-          <Field data-invalid={correctionWindow === null || undefined}>
-            <FieldLabel htmlFor="lead-gen-correction-window">Correction window</FieldLabel>
-            <InputGroup className="max-w-64">
-              <InputGroupInput
-                id="lead-gen-correction-window"
-                type="number"
-                inputMode="numeric"
-                min={CORRECTION_WINDOW_RANGE.min}
-                max={CORRECTION_WINDOW_RANGE.max}
-                step={1}
-                placeholder="None"
-                value={values.correctionWindowMinutes}
-                disabled={saving}
-                aria-invalid={correctionWindow === null}
-                onChange={(event) => setDraft({ ...values, correctionWindowMinutes: event.target.value })}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupText>minutes</InputGroupText>
-              </InputGroupAddon>
-            </InputGroup>
-            <FieldDescription>
-              {correctionWindow === null
-                ? `Enter a whole number of minutes from ${CORRECTION_WINDOW_RANGE.min} to ${CORRECTION_WINDOW_RANGE.max}.`
-                : "How long after a capture its specialist can still correct it."}
-            </FieldDescription>
-          </Field>
-          <Field data-invalid={rawExportMaxRows === null || undefined}>
-            <FieldLabel htmlFor="lead-gen-raw-export-rows">Raw export max rows</FieldLabel>
-            <InputGroup className="max-w-64">
-              <InputGroupInput
-                id="lead-gen-raw-export-rows"
-                type="number"
-                inputMode="numeric"
-                min={RAW_EXPORT_RANGE.min}
-                max={RAW_EXPORT_RANGE.max}
-                step={1}
-                value={values.rawExportMaxRows}
-                disabled={saving}
-                aria-invalid={rawExportMaxRows === null}
-                onChange={(event) => setDraft({ ...values, rawExportMaxRows: event.target.value })}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupText>rows</InputGroupText>
-              </InputGroupAddon>
-            </InputGroup>
-            <FieldDescription>
-              {rawExportMaxRows === null
-                ? `Enter a whole number from ${RAW_EXPORT_RANGE.min} to ${RAW_EXPORT_RANGE.max.toLocaleString("en-US")}.`
-                : "The most submissions one raw export from the Lead Gen report holds."}
-            </FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="lead-gen-duplicate-display">Duplicate display</FieldLabel>
-            <div className="max-w-64">
-              <Select
-                value={values.duplicateDisplayMode}
-                disabled={saving}
-                onValueChange={(value) => setDraft({ ...values, duplicateDisplayMode: value as DuplicateDisplayMode })}
-              >
-                <SelectTrigger id="lead-gen-duplicate-display" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="show_all">Show every submission</SelectItem>
-                    <SelectItem value="group_by_prospect">Group by prospect</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <FieldDescription>Whether a person captured more than once shows once or every time.</FieldDescription>
-          </Field>
-        </FieldGroup>
-      </CardContent>
-      <CardFooter>
-        <Button disabled={saving || !changed || !valid} onClick={() => void save()}>
-          {saving ? "Saving..." : "Save capture rules"}
+    <section id="lead-gen-rules" aria-labelledby="lead-gen-rules-title" className={cn(CARD, "scroll-mt-20")}>
+      <CardHead
+        title={<span id="lead-gen-rules-title">Lead gen capture rules</span>}
+        meta="Corrections, raw exports and people captured twice."
+      />
+      <FieldGroup className="gap-0 divide-y divide-border">
+        <SettingRow
+          label="Correction window"
+          htmlFor="lead-gen-correction-window"
+          invalid={correctionWindow === null}
+          tip="Empty leaves the saved window as it is."
+          description={
+            correctionWindow === null
+              ? `Enter a whole number of minutes from ${CORRECTION_WINDOW_RANGE.min} to ${CORRECTION_WINDOW_RANGE.max}.`
+              : "How long after a capture its specialist can still correct it."
+          }
+        >
+          <InputGroup>
+            <InputGroupInput
+              id="lead-gen-correction-window"
+              type="number"
+              inputMode="numeric"
+              min={CORRECTION_WINDOW_RANGE.min}
+              max={CORRECTION_WINDOW_RANGE.max}
+              step={1}
+              placeholder="None"
+              className="font-condensed text-[15px] tabular-nums md:text-[15px]"
+              value={values.correctionWindowMinutes}
+              disabled={saving}
+              aria-invalid={correctionWindow === null}
+              onChange={(event) => setDraft({ ...values, correctionWindowMinutes: event.target.value })}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupText>minutes</InputGroupText>
+            </InputGroupAddon>
+          </InputGroup>
+        </SettingRow>
+        <SettingRow
+          label="Raw export max rows"
+          htmlFor="lead-gen-raw-export-rows"
+          invalid={rawExportMaxRows === null}
+          description={
+            rawExportMaxRows === null
+              ? `Enter a whole number from ${RAW_EXPORT_RANGE.min} to ${RAW_EXPORT_RANGE.max.toLocaleString("en-US")}.`
+              : "The most submissions one raw export from the Lead Gen report holds."
+          }
+        >
+          <InputGroup>
+            <InputGroupInput
+              id="lead-gen-raw-export-rows"
+              type="number"
+              inputMode="numeric"
+              min={RAW_EXPORT_RANGE.min}
+              max={RAW_EXPORT_RANGE.max}
+              step={1}
+              className="font-condensed text-[15px] tabular-nums md:text-[15px]"
+              value={values.rawExportMaxRows}
+              disabled={saving}
+              aria-invalid={rawExportMaxRows === null}
+              onChange={(event) => setDraft({ ...values, rawExportMaxRows: event.target.value })}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupText>rows</InputGroupText>
+            </InputGroupAddon>
+          </InputGroup>
+        </SettingRow>
+        <SettingRow
+          label="Duplicate display"
+          htmlFor="lead-gen-duplicate-display"
+          description="Whether a person captured more than once shows once or every time."
+        >
+          <Select
+            value={values.duplicateDisplayMode}
+            disabled={saving}
+            onValueChange={(value) => setDraft({ ...values, duplicateDisplayMode: value as DuplicateDisplayMode })}
+          >
+            <SelectTrigger id="lead-gen-duplicate-display" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="show_all">Show every submission</SelectItem>
+                <SelectItem value="group_by_prospect">Group by prospect</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </SettingRow>
+      </FieldGroup>
+      <FormFooter>
+        {draft !== null ? (
+          <Button variant="ghost" disabled={saving} onClick={() => setDraft(null)}>
+            Discard
+          </Button>
+        ) : null}
+        <Button
+          variant={changed && valid ? "default" : "outline"}
+          className={changed && valid ? "font-semibold" : undefined}
+          disabled={saving || !changed || !valid}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save capture rules"}
         </Button>
-      </CardFooter>
-    </Card>
+      </FormFooter>
+    </section>
   );
 }

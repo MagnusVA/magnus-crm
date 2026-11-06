@@ -20,8 +20,11 @@ import {
 
 export function CopyBillingPayloadButton({
   detail,
+  className,
 }: {
   detail: BillingCopyDetail;
+  /** The button's look where it sits, such as the band's board tone. */
+  className?: string;
 }) {
   const [fallbackOpen, setFallbackOpen] = useState(false);
   const payload = useMemo(() => formatBillingCopyPayload(detail), [detail]);
@@ -38,7 +41,7 @@ export function CopyBillingPayloadButton({
 
   return (
     <>
-      <Button onClick={copy} variant="outline">
+      <Button onClick={copy} variant="outline" className={className}>
         <ClipboardIcon aria-hidden="true" data-icon="inline-start" />
         Copy payload
       </Button>
@@ -52,7 +55,7 @@ export function CopyBillingPayloadButton({
             </DialogDescription>
           </DialogHeader>
           <Textarea
-            className="min-h-80 font-mono text-xs"
+            className="min-h-80 font-mono text-[12.5px]"
             readOnly
             value={payload}
           />

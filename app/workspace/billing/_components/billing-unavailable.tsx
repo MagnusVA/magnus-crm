@@ -1,26 +1,19 @@
-import { AlertCircleIcon } from "lucide-react";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 
+/** Billing before the workspace is cleared for Billing Ops: the band and one line saying why. */
 export function BillingUnavailable({ reason }: { reason: string | null }) {
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
-        <p className="text-sm text-muted-foreground">
-          Payment review is gated until the tenant is verified for Billing Ops.
-        </p>
+    <div className="@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3">
+      <PageBand title="Billing" description="Recorded payments to check before they go to external billing." />
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex min-h-11 items-center border-b px-4 py-2">
+          <h2 className="text-[15px] font-semibold">Payments</h2>
+        </div>
+        <SectionEmpty title={reason ?? "Billing Ops is not enabled for this tenant."}>
+          Payment review opens once the workspace is verified for Billing Ops.
+        </SectionEmpty>
       </div>
-      <Alert>
-        <AlertCircleIcon aria-hidden="true" />
-        <AlertTitle>Billing Ops unavailable</AlertTitle>
-        <AlertDescription>
-          {reason ?? "Billing Ops is not enabled for this tenant."}
-        </AlertDescription>
-      </Alert>
     </div>
   );
 }

@@ -1,12 +1,14 @@
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 /**
- * Link a CRM user to a Calendly org member.
- * Handles unlinking the previous member (if any) and linking the new one.
+ * Link a CRM user to a Calendly org member, or unlink them (`null`).
+ * Handles unlinking the previous member (if any) and linking the new one, and
+ * returns the previous member so the change can be undone.
  *
  * Only callable by tenant_master or tenant_admin.
  */
@@ -28,7 +30,7 @@ export const linkCloserToCalendlyMember = mutation({
     }
 
     // Unlink previous Calendly member (if the user was linked to someone else)
-    let previousMemberId: string | undefined;
+    let previousMemberId: Id<"calendlyOrgMembers"> | undefined;
     if (user.calendlyUserUri) {
       const prevMember = await ctx.db
         .query("calendlyOrgMembers")
@@ -54,7 +56,7 @@ export const linkCloserToCalendlyMember = mutation({
         previousMemberId,
         reason: "admin_unlinked",
       });
-      return;
+      return { previousCalendlyMemberId: previousMemberId ?? null };
     }
 
     const member = await ctx.db.get("calendlyOrgMembers", calendlyMemberId);
@@ -91,5 +93,7 @@ export const linkCloserToCalendlyMember = mutation({
       previousMemberId,
       source: "admin_link",
     });
+    // The member this replaced (null: none), so the link's Undo can restore it.
+    return { previousCalendlyMemberId: previousMemberId ?? null };
   },
 });
