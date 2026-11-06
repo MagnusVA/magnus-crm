@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
+import { ArrowRightIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -15,11 +16,29 @@ import {
   formatBatchDuration,
   resparkBucketLabel,
   summarizeBatch,
+  type BatchSummary,
 } from "@/lib/respark/display";
 import { cn } from "@/lib/utils";
+import { PageBand } from "@/app/workspace/_components/page-band";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { SectionEmpty, SectionError } from "@/app/workspace/closer/_components/section-state";
+import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { HelpTip } from "@/app/workspace/team/_components/team-ui";
+import { LeadGenResparkSkeleton } from "./lead-gen-respark-skeleton";
 import { ResparkBatch } from "./respark-batch";
-import { bucketSwatchClass, formatClock } from "./respark-format";
+import { formatClock } from "./respark-format";
+import {
+  BandZones,
+  FIGURE,
+  LABEL,
+  RESPARK_CARD,
+  RESPARK_ROOT,
+  Swatch,
+  TITLE_ROW,
+  Zone,
+  ZONE_FIGURE,
+  ZoneBone,
+} from "./respark-ui";
 
 const countFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
@@ -41,6 +60,8 @@ function useHasPassed(at: number | null) {
 
 // The pool is the lead generator's team's (plan §11.5), so with no team it's empty.
 const NO_TEAM_MESSAGE = "You're not on a lead gen team yet, so you have no respark pool. Ask an admin to add you to a team.";
+
+const START_LINE = "A second pass on people who stalled. Your batch comes from the top of your team's pool.";
 
 // The Respark screen (docs/plans/respark.md §6.1): ask for a batch, work it
 // card by card, then a summary. The batch and the pool order come from the
@@ -68,12 +89,7 @@ export function LeadGenResparkPageClient() {
   };
 
   if (batch === undefined) {
-    return (
-      <div className="flex flex-col gap-5" role="status" aria-label="Loading your batch">
-        <ResparkHeader />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+    return <LeadGenResparkSkeleton label="Loading your batch" />;
   }
 
   const live = batch !== null && !ended && batch.items.length > 0 ? batch : null;
@@ -81,172 +97,188 @@ export function LeadGenResparkPageClient() {
 
   if (live && summary && summary.worked < summary.total) {
     return (
-      <ResparkBatch
-        key={live.batchId}
-        batch={live}
-        timeZone={setting.timeZone}
-      />
+      <div className={RESPARK_ROOT}>
+        <ResparkBatch key={live.batchId} batch={live} timeZone={setting.timeZone} />
+      </div>
+    );
+  }
+
+  const done = summary && summary.durationMs !== null ? summary : null;
+
+  return (
+    <div className={RESPARK_ROOT}>
+      <PageBand
+        title="Respark"
+        description={START_LINE}
+        actions={
+          <SectionErrorBoundary
+            sectionName="the respark pool"
+            fallback={<GetBatchButton again={done !== null} claiming={claiming} onGetBatch={getBatch} />}
+          >
+            <StartAction again={done !== null} claiming={claiming} onGetBatch={getBatch} />
+          </SectionErrorBoundary>
+        }
+      >
+        <SectionErrorBoundary
+          sectionName="today's resparks"
+          fallback={<p className="-mx-4 border-t border-board-line px-4 py-3 text-[13px] text-board-muted @lg:-mx-[18px] @lg:px-[18px]">Couldn&apos;t load today&apos;s figures.</p>}
+        >
+          <TodayZones />
+        </SectionErrorBoundary>
+      </PageBand>
+
+      {done ? <BatchDoneLine summary={done} /> : null}
+
+      <section className={RESPARK_CARD} aria-labelledby="respark-next-batch">
+        <SectionErrorBoundary sectionName="the respark pool" fallback={<NextBatchFailed />}>
+          <NextBatch timeZone={setting.timeZone} />
+        </SectionErrorBoundary>
+      </section>
+    </div>
+  );
+}
+
+function GetBatchButton({ again, claiming, onGetBatch }: { again: boolean; claiming: boolean; onGetBatch: () => void }) {
+  return (
+    <Button onClick={onGetBatch} disabled={claiming} className="h-[34px] rounded-[7px] px-3.5 text-[13px] font-semibold">
+      {claiming ? <Spinner data-icon="inline-start" /> : null}
+      {again ? "Get another batch" : "Get my batch"}
+    </Button>
+  );
+}
+
+/**
+ * The page's one next action, unless there is no team pool. An empty count
+ * keeps the button: people join the pool as days pass without a write, so
+ * the counts can lag and the claim decides.
+ */
+function StartAction(props: { again: boolean; claiming: boolean; onGetBatch: () => void }) {
+  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
+  if (pool?.noTeam) return null;
+  return <GetBatchButton {...props} />;
+}
+
+function TodayZones() {
+  const today = useQuery(api.respark.queries.getMyResparkToday, {});
+  const figure = (value: number | undefined) =>
+    value === undefined ? <ZoneBone /> : <p className={ZONE_FIGURE}>{countFormatter.format(value)}</p>;
+
+  return (
+    <BandZones label="Today" className="grid-cols-3">
+      <Zone label="Batches today">{figure(today?.batchesDone)}</Zone>
+      <Zone label="Entries today">{figure(today?.resparks)}</Zone>
+      <Zone label="Not a fit today">{figure(today?.notAFits)}</Zone>
+    </BandZones>
+  );
+}
+
+/** The batch just finished, said once, with the way to the day's record. */
+function BatchDoneLine({ summary }: { summary: BatchSummary }) {
+  return (
+    <section
+      aria-label="Batch done"
+      className={cn(RESPARK_CARD, "flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2")}
+    >
+      <p className="min-w-0 text-sm">
+        <span className="font-semibold">Batch done</span>
+        {summary.durationMs !== null ? <span className="text-muted-foreground"> in {formatBatchDuration(summary.durationMs)}</span> : null}
+        <span className="text-muted-foreground">
+          {" · "}
+          <span className={cn(FIGURE, "text-foreground")}>{summary.entries}</span> {summary.entries === 1 ? "entry" : "entries"}
+          {" · "}
+          <span className={cn(FIGURE, "text-foreground")}>{summary.notAFit}</span> not a fit
+          {" · "}
+          <span className={cn(FIGURE, "text-foreground")}>{summary.skipped}</span> skipped
+        </span>
+      </p>
+      <Link href="/workspace/lead-gen/my-activity" className={cn(detailLinkClass, "ml-auto gap-1 text-[13px]")}>
+        My activity
+        <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+      </Link>
+    </section>
+  );
+}
+
+function NextBatchHead({ meta }: { meta?: React.ReactNode }) {
+  return (
+    <div className={TITLE_ROW}>
+      <h2 id="respark-next-batch" className="text-[15px] font-semibold">
+        Next batch
+      </h2>
+      {meta ? <span className="text-[13px] text-muted-foreground">{meta}</span> : null}
+    </div>
+  );
+}
+
+function NextBatchFailed() {
+  return (
+    <>
+      <NextBatchHead />
+      <SectionError what="your team's pool" />
+    </>
+  );
+}
+
+function NextBatch({ timeZone }: { timeZone: string }) {
+  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
+
+  if (pool?.noTeam) {
+    return (
+      <>
+        <NextBatchHead />
+        <SectionEmpty title="You're not on a lead gen team yet, so you have no respark pool.">
+          Ask an admin to add you to a team.
+        </SectionEmpty>
+      </>
+    );
+  }
+
+  if (pool && pool.buckets.every((bucket) => bucket.count === 0)) {
+    return (
+      <>
+        <NextBatchHead />
+        <SectionEmpty title="No one is in your team's respark pool right now." />
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <ResparkHeader />
-      {summary && summary.durationMs !== null ? (
-        <BatchDone summary={summary} claiming={claiming} onGetBatch={getBatch} />
-      ) : (
-        <StartCard claiming={claiming} onGetBatch={getBatch} timeZone={setting.timeZone} />
-      )}
-    </div>
-  );
-}
-
-function ResparkHeader() {
-  return (
-    <header className="flex flex-col gap-1 border-b pb-5">
-      <h1 className="text-2xl font-semibold tracking-normal text-pretty">Respark</h1>
-      <p className="text-sm text-muted-foreground">
-        A second pass on people who stalled. Your batch comes from the top of the pool.
-      </p>
-    </header>
-  );
-}
-
-function StartCard({
-  claiming,
-  onGetBatch,
-  timeZone,
-}: {
-  claiming: boolean;
-  onGetBatch: () => void;
-  timeZone: string;
-}) {
-  return (
-    <section className="flex flex-col gap-4 rounded-lg border bg-card p-4" aria-labelledby="respark-next-batch">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 id="respark-next-batch" className="text-base font-semibold">Your next batch</h2>
-        <Button onClick={onGetBatch} disabled={claiming} className="self-start sm:self-auto">
-          {claiming ? <Spinner data-icon="inline-start" /> : null}
-          Get my batch
-        </Button>
-      </div>
-
-      <SectionErrorBoundary sectionName="the respark pool">
-        <PoolCounts timeZone={timeZone} />
-      </SectionErrorBoundary>
-
-      <SectionErrorBoundary sectionName="today's resparks">
-        <TodaySummary />
-      </SectionErrorBoundary>
-    </section>
-  );
-}
-
-function PoolCounts({ timeZone }: { timeZone: string }) {
-  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
-
-  return (
-    <div className="flex flex-col gap-4">
-      {pool?.noTeam ? (
-        <p className="text-sm text-muted-foreground" role="status">
-          {NO_TEAM_MESSAGE}
-        </p>
-      ) : pool ? (
-        <p className="text-sm text-muted-foreground">
-          {pool.batchSize} people, held for you until {formatClock(pool.heldUntil, timeZone)} ({timeZone}), the end of the business day
-        </p>
-      ) : (
-        <Skeleton className="h-4 w-80 max-w-full" />
-      )}
-
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-medium text-muted-foreground">Your batch fills in this order</p>
-        <ol className="flex flex-col gap-1.5">
-          {(pool?.buckets ?? [1, 2, 3, 4, 5].map((bucket) => ({ bucket, count: undefined }))).map(
-            ({ bucket, count }) => (
-              <li
-                key={bucket}
-                className={cn(
-                  "grid grid-cols-[0.75rem_1fr_auto] items-center gap-2.5 rounded-md border px-3 py-2 text-sm",
-                  count === 0 && "text-muted-foreground",
-                )}
-              >
-                <span aria-hidden="true" className={cn("size-3 rounded-[3px]", bucketSwatchClass(bucket))} />
-                <span>
-                  {bucket} · {resparkBucketLabel(bucket)}
-                </span>
-                {count === undefined ? (
-                  <Skeleton className="h-4 w-12" />
-                ) : (
-                  <span className="font-medium tabular-nums">{countFormatter.format(count)}</span>
-                )}
-              </li>
-            ),
-          )}
-        </ol>
-      </div>
-    </div>
-  );
-}
-
-function TodaySummary() {
-  const today = useQuery(api.respark.queries.getMyResparkToday, {});
-
-  return today ? (
-    <p className="text-xs text-muted-foreground">
-      Today: {today.batchesDone} {today.batchesDone === 1 ? "batch" : "batches"} done ·{" "}
-      {today.resparks} {today.resparks === 1 ? "entry" : "entries"} · {today.notAFits} not a fit
-    </p>
-  ) : (
-    <Skeleton className="h-4 w-64" />
-  );
-}
-
-function BatchDone({
-  summary,
-  claiming,
-  onGetBatch,
-}: {
-  summary: ReturnType<typeof summarizeBatch>;
-  claiming: boolean;
-  onGetBatch: () => void;
-}) {
-  return (
-    <section
-      className="flex flex-col items-center gap-4 rounded-lg border bg-card px-5 py-8 text-center"
-      aria-labelledby="respark-batch-done"
-    >
-      <div className="flex flex-col gap-1">
-        <p className="text-4xl font-semibold tabular-nums">
-          {summary.worked} / {summary.total}
-        </p>
-        <h2 id="respark-batch-done" className="text-sm text-muted-foreground">
-          Batch done{summary.durationMs !== null ? `, ${formatBatchDuration(summary.durationMs)}` : ""}
-        </h2>
-      </div>
-      <dl className="grid w-full max-w-lg grid-cols-3 gap-3 text-left">
-        <DoneMetric label="Entries" value={summary.entries} />
-        <DoneMetric label="Not a fit" value={summary.notAFit} />
-        <DoneMetric label="Skipped" value={summary.skipped} />
-      </dl>
-      <div className="flex flex-wrap justify-center gap-2">
-        <Button onClick={onGetBatch} disabled={claiming}>
-          {claiming ? <Spinner data-icon="inline-start" /> : null}
-          Get another batch
-        </Button>
-        <Button variant="outline" asChild>
-          <Link href="/workspace/lead-gen/my-activity">See My Activity</Link>
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function DoneMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-lg border p-3">
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="text-2xl font-semibold tabular-nums">{value}</dd>
-    </div>
+    <>
+      <NextBatchHead
+        meta={
+          pool ? (
+            <>
+              {pool.batchSize} people ·{" "}
+              <HelpTip tip={`The end of the business day, ${timeZone} time. Then the batch ends.`}>
+                held until {formatClock(pool.heldUntil, timeZone)}
+              </HelpTip>
+            </>
+          ) : (
+            <Skeleton className="inline-block h-3.5 w-40 align-middle" />
+          )
+        }
+      />
+      <p className={cn(LABEL, "flex min-h-7 items-end px-4 pt-2 pb-1.5")}>Fills in this order</p>
+      <ol aria-label="Fills in this order" className="border-t border-border">
+        {(pool?.buckets ?? [1, 2, 3, 4, 5].map((bucket) => ({ bucket, count: undefined }))).map(({ bucket, count }) => (
+          <li
+            key={bucket}
+            className="grid min-h-9 grid-cols-[0.625rem_minmax(0,1fr)_auto] items-center gap-x-2.5 border-b border-border px-4 py-1.5 text-sm last:border-b-0"
+          >
+            <Swatch bucket={bucket} />
+            <span className={cn("truncate", count === 0 && "text-muted-foreground")}>
+              {bucket} · {resparkBucketLabel(bucket)}
+            </span>
+            {count === undefined ? (
+              <Skeleton className="h-4 w-10" />
+            ) : (
+              <span className={cn(FIGURE, "text-right", count === 0 && "text-muted-foreground")}>
+                {countFormatter.format(count)}
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }

@@ -1,84 +1,48 @@
 "use client";
 
+import { useState } from "react";
+import { usePaginatedQuery } from "convex-helpers/react";
+import { api } from "@/convex/_generated/api";
+import { mergeMyActivitySummary } from "@/convex/analytics/merge/leadGen";
+import {
+  AnalyticsFreshnessAlert,
+  FreshnessWords,
+  freshnessSummary,
+} from "@/app/workspace/_components/analytics/analytics-freshness";
+import { useAnalyticsReport, useAnalyticsSource } from "@/app/workspace/_components/analytics/use-analytics-report";
+import { dashboardRangeToDayKeys } from "@/app/workspace/_components/dashboard-date-utils";
+import { DateRangePicker, formatBusinessDateSpan, rangePhrase } from "@/app/workspace/_components/date-range-picker";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
+import { SectionError } from "@/app/workspace/closer/_components/section-state";
+import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
+import { CARD, HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
-import { useState, type ComponentType, type SVGProps } from "react";
-import type { FunctionReturnType } from "convex/server";
-import { usePaginatedQuery } from "convex-helpers/react";
-import {
-  ClipboardCheckIcon,
-  GaugeIcon,
-  FlameIcon,
-  ListChecksIcon,
-  UserXIcon,
-} from "lucide-react";
-import { api } from "@/convex/_generated/api";
-import { dashboardRangePlan, dashboardRangeFromToday } from "@/lib/analyticsRange";
-import { mergeMyActivitySummary } from "@/convex/analytics/merge/leadGen";
-import { businessDateForInstant } from "@/lib/businessDay";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
-import {
-  useAnalyticsReport,
-  useAnalyticsSource,
-} from "@/app/workspace/_components/analytics/use-analytics-report";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  DashboardDateRangeFilter,
-  type DashboardRangeInput,
-} from "../../_components/dashboard-date-range-filter";
-import { validateCustomDashboardRange } from "../../_components/dashboard-date-utils";
-import {
-  Empty,
-  EmptyContent,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { usePageTitle } from "@/hooks/use-page-title";
+import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { BUSINESS_DAY_REBUILD_MESSAGE, businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
+import { ACTIVITY_PAGE_SIZE, ActivitySubmissionsCard } from "./activity-submissions-card";
+import { ActivityZones } from "./activity-zones";
+import { ACTIVITY_ROOT, type ActivityRow } from "./setter-ui";
 
-type ActivityRow = FunctionReturnType<
-  typeof api.leadGen.activity.listMyRecentSubmissions
->["page"][number];
+const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
 
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const wholeNumberFormatter = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 0,
-});
+/** The board-tone picker on a phone: presets and an icon-only date button share one row (No-shows' grammar). */
+const PICKER_PHONE =
+  "@max-xl:flex-nowrap @max-xl:gap-1.5 @max-xl:[&_[aria-haspopup]]:px-2.5 @max-xl:[&_[aria-haspopup]>span]:sr-only @max-xl:[&_[role=radio]]:px-2";
 
 export function LeadGenActivityPageClient() {
+  usePageTitle("My activity");
   const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
   const now = useNow();
-  const [range, setRange] = useState<DashboardRangeInput>({
-    kind: "preset",
-    preset: "today",
-  });
-  const [queryRange, setQueryRange] = useState<DashboardRangeInput>({
-    kind: "preset",
-    preset: "today",
-  });
-  const rangeValidationMessage =
-    range.kind === "custom"
-      ? validateCustomDashboardRange({
-          startBusinessDate: range.startBusinessDate,
-          endBusinessDateInclusive: range.endBusinessDateInclusive,
-        })
-      : null;
+  const todayBusinessDate = businessDateForInstant(now, setting);
+  const { range, setRange, queryRange, validationMessage } = useDashboardRange();
+
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse once the page is switched
   // (docs/agents/reporting.md).
-  const todayBusinessDate = businessDateForInstant(now, setting);
   const plan = dashboardRangePlan(queryRange, todayBusinessDate);
   const warehouse = useAnalyticsSource("my_activity", plan) === "warehouse";
   const summaryReport = useAnalyticsReport({
@@ -87,212 +51,127 @@ export function LeadGenActivityPageClient() {
     plan,
     live: api.leadGen.activity.getMyActivitySummary,
     merge: mergeMyActivitySummary,
-    todayArgs: !loaded || rebuilding
-      ? "skip"
-      : { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
-    liveArgs: !loaded || (!warehouse && rebuilding)
-      ? "skip"
-      : {
-          range: queryRange,
-        },
+    todayArgs: !loaded || rebuilding ? "skip" : { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
+    liveArgs: !loaded || (!warehouse && rebuilding) ? "skip" : { range: queryRange },
   });
-  const summary = summaryReport.data;
+
+  const { startDayKey, endDayKey } = dashboardRangeToDayKeys(queryRange, now, setting);
+  const dates = formatBusinessDateSpan(startDayKey, endDayKey, todayBusinessDate);
+  const phrase = rangePhrase(queryRange);
+
+  // A new range keeps the last figures and rows at 60% until its own arrive
+  // (DESIGN.md, Kept Data While Reloading).
+  const summary = useKeptWhileLoading(summaryReport.data, phrase);
+
+  // The band names the days its figures cover, from the range the server
+  // read, so figures a query still holds from before midnight never wear
+  // today's date: "Today · Nov 5", "This week · Nov 2 – Nov 5", or the dates.
+  const figuresStart = summary.data?.range.startBusinessDate ?? startDayKey;
+  const figuresEnd = summary.data?.range.endBusinessDateInclusive ?? endDayKey;
+  const figuresDates = formatBusinessDateSpan(figuresStart, figuresEnd, todayBusinessDate);
+  const words =
+    queryRange.kind === "preset" && figuresStart === startDayKey && figuresEnd === endDayKey
+      ? `${PRESET_WORDS[queryRange.preset]} · ${figuresDates}`
+      : figuresDates;
+
   const recent = usePaginatedQuery(
     api.leadGen.activity.listMyRecentSubmissions,
-    { range: queryRange },
-    { initialNumItems: 25 },
+    !loaded || rebuilding ? "skip" : { range: queryRange },
+    { initialNumItems: ACTIVITY_PAGE_SIZE },
   );
-  const rows = recent.results;
-  const isInitialLoading = recent.status === "LoadingFirstPage";
+  const argsKey = JSON.stringify(queryRange);
+  const fresh = !loaded || rebuilding || recent.status === "LoadingFirstPage" ? undefined : recent.results;
+  const freshKey = fresh ? `${argsKey}|${fresh.map((row) => row._id).join(",")}` : undefined;
+  // The rows keep the days they were read for: they can arrive before or
+  // after the figures, and a query can hold them past midnight.
+  const [kept, setKept] = useState<{
+    key: string;
+    rows: ActivityRow[];
+    phrase: string;
+    dates: string;
+    singleDay: boolean;
+  } | null>(null);
+  if (fresh && freshKey !== undefined && freshKey !== kept?.key) {
+    setKept({ key: freshKey, rows: fresh, phrase, dates, singleDay: startDayKey === endDayKey });
+  }
+  const rows = fresh ?? kept?.rows;
+  const rowsReloading = fresh === undefined && kept !== null;
+  const shownPhrase = kept?.phrase ?? phrase;
+  // One day's rows show the time only; the band, or the card, names the day.
+  const shownSingleDay = kept?.singleDay ?? startDayKey === endDayKey;
+  const rowsDates = kept?.dates ?? dates;
+
+  const freshness = freshnessSummary([summaryReport.freshness], now);
 
   return (
-    <div className="flex flex-col gap-5">
-      <header className="flex flex-col gap-3 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-normal text-pretty">
-            My Activity
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {summary?.range.label ?? "Loading activity range"}
+    <div className={ACTIVITY_ROOT}>
+      <PageBand
+        title="My activity"
+        description={
+          <>
+            <HelpTip tip={`${businessDayDisclosure(setting)}.`} className="font-medium text-board-foreground">
+              {words}
+            </HelpTip>
+            {freshness.kind === "line" && summary.data !== undefined ? (
+              <>
+                {" · "}
+                <FreshnessWords summary={freshness} />
+              </>
+            ) : null}
+            <span className="hidden @3xl:inline"> · Your captures and worked resparks.</span>
+            {validationMessage ? (
+              <span role="alert" className="block text-board-danger">
+                {validationMessage}
+              </span>
+            ) : null}
+          </>
+        }
+        actions={
+          <div className="flex min-w-0 items-center @max-xl:w-full">
+            <DateRangePicker
+              tone="board"
+              value={range}
+              onChange={setRange}
+              todayBusinessDate={todayBusinessDate}
+              className={PICKER_PHONE}
+            />
+          </div>
+        }
+      >
+        {rebuilding ? null : <ActivityZones summary={summary.data} reloading={summary.reloading} />}
+      </PageBand>
+
+      <AnalyticsFreshnessAlert summary={freshness} />
+
+      {rebuilding ? (
+        <div className={CARD}>
+          <p role="status" className="px-4 py-3 text-[13px] text-muted-foreground">
+            {BUSINESS_DAY_REBUILD_MESSAGE} Your figures and submissions are back once it finishes.
           </p>
         </div>
-        <div className="flex flex-col items-start gap-3 lg:items-end">
-          <DashboardDateRangeFilter
-            bucketKind="lead-gen"
-            value={range}
-            onChange={(nextRange) => {
-              setRange(nextRange);
-              if (
-                nextRange.kind === "preset" ||
-                validateCustomDashboardRange({
-                  startBusinessDate: nextRange.startBusinessDate,
-                  endBusinessDateInclusive: nextRange.endBusinessDateInclusive,
-                }) === null
-              ) {
-                setQueryRange(nextRange);
-              }
-            }}
-            validationMessage={rangeValidationMessage}
-          />
-          <AnalyticsFreshnessLine items={[summaryReport.freshness]} />
-        </div>
-      </header>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <ActivityMetric
-          label="Raw Leads"
-          value={formatWholeNumber(summary?.submissions)}
-          icon={ClipboardCheckIcon}
-        />
-        <ActivityMetric
-          label="Resparks"
-          value={formatWholeNumber(summary?.resparks)}
-          icon={FlameIcon}
-        />
-        <ActivityMetric
-          label="Entries"
-          value={formatWholeNumber(summary?.entries)}
-          icon={ListChecksIcon}
-        />
-        <ActivityMetric
-          label="Not a fit"
-          value={formatWholeNumber(summary?.notAFit)}
-          icon={UserXIcon}
-        />
-        <ActivityMetric
-          label="Leads/hr"
-          value={formatLeadsPerHour(summary?.leadsPerHour)}
-          icon={GaugeIcon}
-        />
-      </div>
-
-      {isInitialLoading ? (
-        <Skeleton className="h-[360px] w-full" />
-      ) : rows.length === 0 ? (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <ClipboardCheckIcon aria-hidden="true" />
-            </EmptyMedia>
-            <EmptyTitle>
-              {recent.status === "Exhausted"
-                ? "No activity in this range"
-                : "No activity loaded yet"}
-            </EmptyTitle>
-          </EmptyHeader>
-          <EmptyContent>
-            {recent.status === "Exhausted"
-              ? "Captures and worked resparks will appear here."
-              : "Load more to check earlier activity."}
-          </EmptyContent>
-        </Empty>
       ) : (
-        <div className="flex flex-col gap-3">
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead>Prospect</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Origin</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((submission) => (
-                  <TableRow key={submission._id}>
-                    <TableCell className="whitespace-nowrap tabular-nums">
-                      {dateTimeFormatter.format(submission.submittedAt)}
-                    </TableCell>
-                    <TableCell className="min-w-48 max-w-64">
-                      <span className="block truncate font-medium">
-                        {submission.prospect?.normalizedHandle
-                          ? `@${submission.prospect.normalizedHandle}`
-                          : "Prospect"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {submission.type}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {formatSource(submission.source)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="min-w-48 max-w-72">
-                      <span className="block truncate">
-                        {submission.originValue ??
-                          formatOrigin(submission.originKind)}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-      {recent.status === "CanLoadMore" ? (
-        <Button
-          className="self-start"
-          variant="outline"
-          onClick={() => recent.loadMore(25)}
+        <SectionErrorBoundary
+          sectionName="lead_gen_my_activity_submissions"
+          fallback={
+            <div className={CARD}>
+              <SectionError what="your submissions" />
+            </div>
+          }
         >
-          Load More
-        </Button>
-      ) : null}
+          <ActivitySubmissionsCard
+            rows={rows}
+            reloading={rowsReloading}
+            canLoadMore={recent.status === "CanLoadMore"}
+            loadingMore={recent.status === "LoadingMore"}
+            onLoadMore={() => recent.loadMore(ACTIVITY_PAGE_SIZE)}
+            emptyTitle={`Nothing captured ${shownPhrase}.`}
+            timeZone={setting.timeZone}
+            singleDay={shownSingleDay}
+            // Said only while the list and the figures cover different days.
+            dates={rowsDates === figuresDates ? null : rowsDates}
+          />
+        </SectionErrorBoundary>
+      )}
     </div>
   );
-}
-
-function ActivityMetric({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string | undefined;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-}) {
-  return (
-    <div className="flex min-h-20 min-w-0 flex-col justify-between rounded-lg border bg-card p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium text-muted-foreground">
-          {label}
-        </span>
-        <Icon aria-hidden="true" className="text-muted-foreground" />
-      </div>
-      <span className="text-2xl font-semibold tabular-nums">
-        {value ?? "-"}
-      </span>
-    </div>
-  );
-}
-
-function formatWholeNumber(value: number | undefined) {
-  return value === undefined ? undefined : wholeNumberFormatter.format(value);
-}
-
-function formatLeadsPerHour(value: number | null | undefined) {
-  if (value === undefined) return undefined;
-  if (value === null || !Number.isFinite(value)) return "N/A";
-  return value.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  });
-}
-
-function formatSource(source: ActivityRow["source"]) {
-  if (source === "respark") return "Respark pool";
-  return source === "meta_business" ? "Meta Business" : "Instagram";
-}
-
-function formatOrigin(originKind: string) {
-  if (originKind === "source_only") return "No Origin";
-
-  return originKind
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
