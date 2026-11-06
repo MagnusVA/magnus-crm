@@ -21,30 +21,25 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
-import { CARD } from "@/app/workspace/team/_components/team-ui";
+import { CARD, HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { MATCH_LABELS, RESOLUTION_LABELS } from "../../_components/booking-review-labels";
-import { dayAndClock, personName, type Person, type Review } from "./booking-review-cards";
+import { dayAndClock, personName, type Person, type Review } from "./booking-review-compare";
 
 // The rail: the decision in the Outcome Panel's grammar (a 2px lime border,
-// the choices as blocks, each stating what it does), or, once resolved, a
-// plain card saying what was decided, with no lime.
+// the two answers as blocks, each with one line saying what it does), or,
+// once resolved, a plain card saying what was decided, with no lime.
 
-function ChoiceMark({ children, tone }: { children: React.ReactNode; tone: "lime" | "plain" }) {
+function ChoiceHead({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "grid size-8 shrink-0 place-items-center rounded-full [&_svg]:size-4",
-        tone === "lime" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-      )}
-    >
+    <h3 className="flex items-center gap-2 text-[15px] font-semibold [&_svg]:size-4 [&_svg]:text-muted-foreground">
+      {icon}
       {children}
-    </span>
+    </h3>
   );
 }
 
@@ -97,41 +92,39 @@ export function DecidePanel({
   const alreadyOne = review.alreadyOnePerson;
   // A held booking is retried only while its original Calendly payload is kept.
   const retriesBooking = review.kind === "held" && review.booking.payloadAvailable;
-  const heldBookingOutcome =
-    review.kind !== "held"
-      ? ""
-      : retriesBooking
-        ? ", and the booking is retried"
-        : ". The booking's original data is gone, so it stays held";
+  const mergeLine = alreadyOne
+    ? `Already merged elsewhere. Closing records it${
+        review.kind !== "held" ? "." : retriesBooking ? " and retries the booking." : "; the booking's data is gone, so it stays held."
+      }`
+    : canMerge
+      ? `Merges ${otherNames} into ${personName(keep)}${
+          review.kind !== "held" ? "." : retriesBooking ? " and retries the booking." : ". The booking's data is gone, so it stays held."
+        }`
+      : mergeable.length > 1
+        ? "Choose the record to keep."
+        : "One of them was merged away or deleted. Check them in Leads & Customers.";
+  const vias = [...new Set(matched.flatMap((person) => person.matchedBy))].map((via) => MATCH_LABELS[via]).join(" and ");
+  const separateLine =
+    review.kind === "attached" && booked
+      ? `${personName(booked)} keeps the call; ${matched.map(personName).join(" and ")} keeps the ${vias}.`
+      : "The booking stays held in Booked Calls → Diagnostics. Fix the records, then retry.";
 
   return (
     <section aria-labelledby={titleId} className="@container/decide overflow-hidden rounded-xl border-2 border-primary bg-card">
-      <div className="px-4 pt-3.5 pb-3 @sm/decide:px-5">
-        <h2 id={titleId} className="text-[20px] leading-tight font-semibold">
-          Are they the same person?
-        </h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          {review.kind === "attached"
-            ? "The call is already on the CRM. This only decides whether the two records are one person."
-            : "Nothing about this booking is in the CRM yet."}
-        </p>
-      </div>
+      <h2 id={titleId} className="px-4 pt-3 pb-2.5 text-[20px] leading-tight font-semibold @sm/decide:px-5">
+        Same person?
+      </h2>
 
-      <div className="flex flex-col gap-2.5 px-4 pb-4 @sm/decide:px-5">
-        {/* Choice 1: the page's one next action */}
-        <div className="flex flex-col gap-3 rounded-[7px] border border-primary/60 bg-primary/10 p-3.5">
-          <div className="flex items-center gap-3">
-            <ChoiceMark tone="lime">
-              <GitMergeIcon />
-            </ChoiceMark>
-            <h3 className="text-[17px] font-semibold">Same person</h3>
-          </div>
-          {review.kind === "held" && mergeable.length > 1 ? (
+      <div className="flex flex-col gap-2 px-4 pb-4 @sm/decide:px-5">
+        {/* Yes: the page's one next action */}
+        <div className="flex flex-col gap-2.5 rounded-[7px] border border-primary/60 bg-primary/10 p-3">
+          <ChoiceHead icon={<GitMergeIcon aria-hidden="true" />}>Same person</ChoiceHead>
+          {review.kind === "held" && mergeable.length > 1 && !alreadyOne ? (
             <RadioGroup
               value={keepLeadId}
               onValueChange={(value) => setKeepLeadId(value as Id<"leads">)}
               aria-label="Record to keep"
-              className="gap-1.5"
+              className="gap-1"
             >
               {mergeable.map((person) => (
                 <div key={person.leadId} className="flex min-h-6 items-center gap-2">
@@ -146,15 +139,7 @@ export function DecidePanel({
               ))}
             </RadioGroup>
           ) : null}
-          <p className="text-[13px] text-muted-foreground">
-            {alreadyOne
-              ? `Already one person: they were merged elsewhere. Close this review${heldBookingOutcome}.`
-              : canMerge
-                ? `Merge ${otherNames} into ${personName(keep)}. Deals, calls and identifiers move to one record${heldBookingOutcome}.`
-                : mergeable.length > 1
-                  ? "Choose the record to keep."
-                  : "One of these people was merged into someone else or no longer exists. Check them on the Leads page."}
-          </p>
+          <p className="text-[13px] text-muted-foreground">{mergeLine}</p>
           {alreadyOne ? (
             <Button
               className="w-fit font-semibold"
@@ -172,19 +157,18 @@ export function DecidePanel({
           )}
         </div>
 
-        {/* Choice 2 */}
-        <div className="flex flex-col gap-3 rounded-[7px] border border-border p-3.5">
-          <div className="flex items-center gap-3">
-            <ChoiceMark tone="plain">
-              <SplitIcon />
-            </ChoiceMark>
-            <h3 className="text-[17px] font-semibold">Different people</h3>
-          </div>
-          <p className="text-[13px] text-muted-foreground">
-            {review.kind === "attached" && booked
-              ? `${personName(booked)} keeps the call. ${matched.map(personName).join(" and ")} keeps the ${[...new Set(matched.flatMap((person) => person.matchedBy))].map((via) => MATCH_LABELS[via]).join(" and ")}. A later booking with the same mix won't alert again. If the email was a typo, ask the setter to rebook with the right one.`
-              : "The booking stays held. Fix the person records and retry, or leave it held in Booked Calls → Diagnostics."}
-          </p>
+        {/* No */}
+        <div className="flex flex-col gap-2.5 rounded-[7px] border border-border p-3">
+          <ChoiceHead icon={<SplitIcon aria-hidden="true" />}>
+            {review.kind === "attached" ? (
+              <HelpTip tip="A later booking with the same mix won't alert again. If the email was a typo, ask the setter to rebook with the right one.">
+                Different people
+              </HelpTip>
+            ) : (
+              "Different people"
+            )}
+          </ChoiceHead>
+          <p className="text-[13px] text-muted-foreground">{separateLine}</p>
           <div className="flex flex-wrap gap-2">
             {review.kind === "held" ? (
               <Button
@@ -261,7 +245,7 @@ export function ResolvedCard({ review }: { review: Review }) {
           {review.resolution ? RESOLUTION_LABELS[review.resolution] : "Resolved"}
         </h2>
       </div>
-      <p className="px-4 py-3 text-[13px] text-muted-foreground">
+      <p className="px-4 py-2.5 text-[13px] text-muted-foreground">
         {review.resolvedByName ? (
           <>
             By <span className="font-medium text-foreground">{review.resolvedByName}</span>
@@ -269,7 +253,14 @@ export function ResolvedCard({ review }: { review: Review }) {
         ) : (
           "By the pipeline"
         )}
-        {review.resolvedAt ? ` on ${dayAndClock(review.resolvedAt, setting, now)}` : ""}.
+        {review.resolvedAt ? (
+          <>
+            {" · "}
+            <span className="font-condensed text-[14px] font-semibold text-foreground tabular-nums">
+              {dayAndClock(review.resolvedAt, setting, now)}
+            </span>
+          </>
+        ) : null}
       </p>
       <div className="flex min-h-10 items-center border-t border-border px-4">
         <Link href="/workspace/operations/booking-reviews" className={cn(detailLinkClass, "text-[13px]")}>

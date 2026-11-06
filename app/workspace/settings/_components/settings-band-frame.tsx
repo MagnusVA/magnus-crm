@@ -3,8 +3,8 @@ import Link from "next/link";
 import { PageBand } from "@/app/workspace/_components/page-band";
 
 // The Settings band's frame, shared by the page and its skeleton: the title,
-// what the page holds and where the rest went, and the tab row under a
-// board-line rule (the Team band's tab grammar).
+// one line on where the rest went (the tabs say what the page holds), and the
+// tab row under a board-line rule (the Team band's tab grammar).
 
 export const SETTINGS_TABS = [
   { value: "integrations", label: "Integrations" },
@@ -22,26 +22,21 @@ export const TAB_CLASS =
 const BOARD_LINK =
   "rounded-[2px] text-board-foreground underline decoration-board-foreground/40 underline-offset-[3px] outline-none hover:decoration-board-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
-export function SettingsBandFrame({ showRespark, tabs }: { showRespark: boolean; tabs: ReactNode }) {
+export function SettingsBandFrame({ tabs }: { tabs: ReactNode }) {
   return (
     <PageBand
       title="Settings"
       description={
         <>
-          {showRespark
-            ? "Integrations, the business day, lead gen capture and Respark."
-            : "Integrations, the business day and lead gen capture."}
-          <span className="mt-0.5 block">
-            Event types and programs are in{" "}
-            <Link href="/workspace/booking" className={BOARD_LINK}>
-              Booking setup
-            </Link>
-            ; members, teams, schedules and goals are in{" "}
-            <Link href="/workspace/team" className={BOARD_LINK}>
-              Team
-            </Link>
-            .
-          </span>
+          Event types and programs are in{" "}
+          <Link href="/workspace/booking" className={BOARD_LINK}>
+            Booking setup
+          </Link>
+          ; members, teams and goals are in{" "}
+          <Link href="/workspace/team" className={BOARD_LINK}>
+            Team
+          </Link>
+          .
         </>
       }
     >

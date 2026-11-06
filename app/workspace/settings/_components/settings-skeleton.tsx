@@ -101,7 +101,6 @@ export function SettingsPageSkeleton() {
   return (
     <div className={SETTINGS_ROOT} role="status" aria-label="Loading settings">
       <SettingsBandFrame
-        showRespark
         tabs={SETTINGS_TABS.map((tab, index) => (
           <span key={tab.value} aria-current={index === 0 ? "page" : undefined} className={TAB_CLASS}>
             {tab.label}

@@ -11,7 +11,6 @@ import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useNow } from "@/hooks/use-now";
-import { cn } from "@/lib/utils";
 import { BillingEventHistory } from "./billing-event-history";
 import { BAND_BUTTON_CLASS, formatPaidAt, PAYMENT_TYPE_LABELS } from "./billing-format";
 import { PaymentFacts, PaymentFigures, paymentTitle } from "./billing-payment-facts";
@@ -95,21 +94,28 @@ export function BillingReviewPageClient({
           </div>
         }
       >
-        <PaymentFigures detail={detail} now={now} />
+        <PaymentFigures detail={detail} />
       </PageBand>
 
-      {/* From @4xl a main column and a 24rem rail; narrower, comments come after the proof. */}
+      {/*
+        From @4xl a main column (the fact cards with the proof, then History)
+        and a 24rem rail (Comments, then Slack contributors). Narrower, one
+        column: facts, comments, history, Slack contributors.
+      */}
       <div className="grid min-w-0 items-start gap-x-[18px] gap-y-3.5 @4xl:grid-cols-[minmax(0,1fr)_24rem] short:gap-y-3">
-        <div className="flex min-w-0 flex-col gap-3.5 @4xl:col-start-1 short:gap-3">
-          <PaymentFacts detail={detail} now={now} />
-          <BillingProofPreview proof={detail.proof} owed={needsReview} />
+        <div className="order-1 min-w-0 @4xl:col-start-1 @4xl:row-start-1">
+          <PaymentFacts detail={detail} now={now} proof={<BillingProofPreview proof={detail.proof} owed={needsReview} />} />
         </div>
-        <div className={cn("min-w-0 @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1")}>
-          <BillingMeetingComments meetingId={detail.meeting.id} />
+        <div className="contents @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-3.5 short:@4xl:gap-3">
+          <div className="order-2 min-w-0">
+            <BillingMeetingComments meetingId={detail.meeting.id} />
+          </div>
+          <div className="order-4 min-w-0">
+            <SlackContributorTimeline events={detail.slackContributorTimeline} now={now} />
+          </div>
         </div>
-        <div className="flex min-w-0 flex-col gap-3.5 @4xl:col-start-1 short:gap-3">
+        <div className="order-3 min-w-0 @4xl:col-start-1 @4xl:row-start-2">
           <BillingEventHistory events={detail.events} now={now} />
-          <SlackContributorTimeline events={detail.slackContributorTimeline} now={now} />
         </div>
       </div>
     </div>

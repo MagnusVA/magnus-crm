@@ -174,7 +174,7 @@ export function BillingPageClient() {
     <div className="@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3">
       <PageBand
         title="Billing"
-        description="Recorded payments to check before they go to external billing. Dates follow your browser’s time zone."
+        description="Recorded payments to check before they go to external billing."
         actions={
           <div className={BAND_BUTTON_WRAPPER}>
             <ExportMenu disabled={!valid} filters={filterState.args} />
@@ -198,7 +198,7 @@ export function BillingPageClient() {
               {!valid ? "Check the dates" : exactCount === undefined ? "Counting…" : exactCount === 0 ? "0 payments" : `${plural(exactCount, "payment")} · newest first`}
             </span>
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 @2xl/payments:flex @2xl/payments:flex-wrap @2xl/payments:items-center @4xl/payments:w-auto">
+          <div className="grid w-full grid-cols-2 gap-2 @2xl/payments:flex @2xl/payments:flex-wrap @2xl/payments:items-center @4xl/payments:w-auto @4xl/payments:flex-nowrap">
             <Select value={programFilter} onValueChange={setProgramFilter}>
               <SelectTrigger aria-label="Program" size="sm" className="h-[30px] w-full text-[13px] @2xl/payments:w-44">
                 <SelectValue placeholder="All programs" />
@@ -230,36 +230,42 @@ export function BillingPageClient() {
                 </SelectGroup>
               </SelectContent>
             </Select>
-            {(
-              [
-                { id: "billing-start-date", label: "Paid from", value: startDate, set: setStartDate },
-                { id: "billing-end-date", label: "Paid through", value: endDate, set: setEndDate },
-              ] as const
-            ).map((date) => (
-              <div
-                key={date.id}
-                className="flex min-w-0 flex-col gap-1 text-[13px] text-muted-foreground @2xl/payments:flex-row @2xl/payments:items-center @2xl/payments:gap-2"
-              >
-                <label htmlFor={date.id} className="shrink-0">
-                  {date.label}
-                </label>
-                <Input
-                  aria-invalid={!valid}
-                  aria-describedby={valid ? undefined : "billing-range-error"}
-                  id={date.id}
-                  type="date"
-                  value={date.value}
-                  onChange={(event) => date.set(event.target.value)}
-                  className="h-[30px] w-full min-w-0 font-condensed text-[14px] font-semibold tabular-nums text-foreground @2xl/payments:w-[9.25rem]"
-                />
-              </div>
-            ))}
+            {/* One "Paid" pair: from and through, both days included. */}
+            <div
+              role="group"
+              aria-labelledby="billing-paid-label"
+              className="col-span-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground"
+            >
+              <span id="billing-paid-label" className="shrink-0">
+                Paid
+              </span>
+              {(
+                [
+                  { id: "billing-start-date", label: "Paid from", value: startDate, set: setStartDate },
+                  { id: "billing-end-date", label: "Paid through", value: endDate, set: setEndDate },
+                ] as const
+              ).map((date, index) => (
+                <span key={date.id} className="flex min-w-0 flex-1 items-center gap-2 @2xl/payments:flex-none">
+                  {index === 1 ? <span aria-hidden="true">–</span> : null}
+                  <Input
+                    aria-label={date.label}
+                    aria-invalid={!valid}
+                    aria-describedby={valid ? undefined : "billing-range-error"}
+                    id={date.id}
+                    type="date"
+                    value={date.value}
+                    onChange={(event) => date.set(event.target.value)}
+                    className="h-[30px] w-full min-w-0 font-condensed text-[14px] font-semibold tabular-nums text-foreground @2xl/payments:w-[9.25rem]"
+                  />
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
         {!valid ? (
           <p id="billing-range-error" role="alert" className="px-4 py-3 text-[13px] text-danger-ink">
-            “Paid through” must be on or after “Paid from”. Change one of the dates to see payments.
+            The second Paid date must be on or after the first. Change one of them to see payments.
           </p>
         ) : rows === undefined || (reloading && rows.length === 0) ? (
           <QueueRowsSkeleton />

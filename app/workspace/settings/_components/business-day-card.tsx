@@ -52,7 +52,7 @@ export function BusinessDayCard() {
     <section aria-labelledby="business-day-title" className={CARD}>
       <CardHead
         title={<span id="business-day-title">Business day</span>}
-        meta="When a reporting day starts. Changing it rebuilds meeting and lead gen day totals."
+        meta="When a reporting day starts. Saving a change rebuilds the day totals."
       />
       <FieldGroup className="gap-0 divide-y divide-border">
         <SettingRow
@@ -69,7 +69,6 @@ export function BusinessDayCard() {
           label="Day starts at"
           tip="A call or capture before this hour counts for the day before. Night shifts that run past midnight stay on one day."
           htmlFor="business-day-hour"
-          description="The hour a new reporting day begins."
         >
           <Select value={String(setting.dayStartHour)} onValueChange={hour => setDraft({ ...setting, dayStartHour: Number(hour) })} disabled={disabled}>
             <SelectTrigger id="business-day-hour" className="w-full font-condensed text-[15px] tabular-nums"><SelectValue /></SelectTrigger>
@@ -77,26 +76,27 @@ export function BusinessDayCard() {
           </Select>
         </SettingRow>
       </FieldGroup>
-      <div className="flex flex-col gap-2 border-t border-border px-4 py-2.5">
-        <NoteLine>{businessDayDisclosure(setting)}{changed ? ", once saved." : "."}</NoteLine>
-        {rebuilding ? (
-          <NoteLine role="status" className="flex items-center gap-2">
-            <Spinner className="size-3.5" />
-            Day totals are being rebuilt after a business day change. Reports and exports will be available when it finishes.
-          </NoteLine>
-        ) : null}
-        {failed ? (
-          <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <NoteLine tone="danger">
-              Day totals rebuild failed: {rebuild.error ?? "Unknown error"}. Reports and exports remain unavailable.
+      {rebuilding || failed ? (
+        <div className="flex flex-col gap-2 border-t border-border px-4 py-2.5">
+          {rebuilding ? (
+            <NoteLine role="status" className="flex items-center gap-2">
+              <Spinner className="size-3.5" />
+              Rebuilding day totals. Reports and exports come back when it finishes.
             </NoteLine>
-            <Button variant="outline" size="sm" disabled={disabled} onClick={() => void retryFailed()}>
-              {saving ? "Retrying…" : "Retry rebuild"}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <FormFooter>
+          ) : null}
+          {failed ? (
+            <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <NoteLine tone="danger">
+                Day totals rebuild failed: {rebuild.error ?? "Unknown error"}. Reports and exports stay off until a rebuild finishes.
+              </NoteLine>
+              <Button variant="outline" size="sm" disabled={disabled} onClick={() => void retryFailed()}>
+                {saving ? "Retrying…" : "Retry rebuild"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <FormFooter aside={<>{businessDayDisclosure(setting)}{changed ? ", once saved." : "."}</>}>
         {changed ? (
           <Button variant="ghost" disabled={saving} onClick={() => setDraft(null)}>
             Discard

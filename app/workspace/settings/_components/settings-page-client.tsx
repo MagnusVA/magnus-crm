@@ -107,7 +107,6 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
   return (
     <div className={SETTINGS_ROOT}>
       <SettingsBandFrame
-        showRespark={canManageSettings}
         tabs={tabs.map((candidate) => (
           <a
             key={candidate.value}

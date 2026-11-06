@@ -37,9 +37,8 @@ import {
   missedMeetingsCsv,
   needsMoreMissedMeetingRows,
 } from "@/lib/operations-reports/missed-meetings-export";
-import { cn } from "@/lib/utils";
-import { MissedDealsCard, type KindFilter, type ListState } from "./missed-deals-card";
-import { MissedFigures, type MissedCounts } from "./missed-figures";
+import { MISSED_DEALS_CARD_ID, MissedDealsCard, type KindCounts, type KindFilter, type ListState } from "./missed-deals-card";
+import { KindTabs } from "./missed-kind-tabs";
 
 // Deals read per page; the server reads at most 100 a call.
 const PAGE_SIZE = 100;
@@ -124,8 +123,8 @@ export function MissedMeetingsPageClient() {
       : `${PRESET_WORDS[activeRange.preset]} · ${dates}`;
   const phrase = !chosen ? "in the last 30 days" : rangePhrase(activeRange);
 
-  // Every kind is read, and the toggle filters on the page, so its counts
-  // and the band's figures are exact for the range.
+  // Every kind is read, and the band's tabs filter on the page, so their
+  // counts are exact for the range.
   const args = useMemo(
     () => ({ startDate: bounds.startDate, endDate: bounds.endDate, hideBookedAgain }),
     [bounds.startDate, bounds.endDate, hideBookedAgain],
@@ -172,15 +171,13 @@ export function MissedMeetingsPageClient() {
   );
   const shown = isComplete ? fresh : (kept ?? filling);
 
-  const counts = useMemo((): MissedCounts | undefined => {
+  const counts = useMemo((): KindCounts | undefined => {
     if (!shown) return undefined;
     let noShows = 0;
-    let bookedAgain = 0;
     for (const row of shown.rows) {
       if (row.missedMeeting === "no_show") noShows += 1;
-      if (row.bookedAgain) bookedAgain += 1;
     }
-    return { total: shown.rows.length, noShows, canceled: shown.rows.length - noShows, bookedAgain };
+    return { all: shown.rows.length, no_show: noShows, canceled: shown.rows.length - noShows };
   }, [shown]);
   const visible = useMemo(
     () => (shown ? (kind === "all" ? shown.rows : shown.rows.filter((row) => row.missedMeeting === kind)) : undefined),
@@ -214,47 +211,50 @@ export function MissedMeetingsPageClient() {
               {bandWords}
             </HelpTip>
             {" · "}
-            Deals a no-show or a cancellation closed, newest first. Export them for outreach.
+            Deals closed as a no-show or a cancellation.
           </>
         }
         actions={
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          // On a phone the presets, the dates and Export share one row: the
+          // date button and Export keep their words for screen readers only
+          // (the dates are in the line under the title).
+          <div className="flex min-w-0 flex-wrap items-center gap-2 @max-xl:w-full @max-xl:flex-nowrap @max-xl:gap-1.5">
             <DateRangePicker
               tone="board"
               value={pickerRange}
               onChange={onRangeChange}
               validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
               todayBusinessDate={todayBusinessDate}
+              className="@max-xl:flex-nowrap @max-xl:gap-1.5 @max-xl:[&_[aria-haspopup]]:px-2.5 @max-xl:[&_[aria-haspopup]>span]:sr-only @max-xl:[&_[role=radio]]:px-2"
             />
             <Button
               type="button"
               variant="outline"
               disabled={!isComplete || !visible || visible.length === 0}
               onClick={handleExport}
-              className="h-[34px] rounded-[7px] border-board-foreground/15 bg-board-raised px-3 text-[13px] text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10"
+              className="h-[34px] rounded-[7px] border-board-foreground/15 bg-board-raised px-3 text-[13px] text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground @max-xl:px-2.5 dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10"
             >
-              <DownloadIcon data-icon="inline-start" />
-              Export CSV
+              <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+              <span className="@max-xl:sr-only">Export CSV</span>
             </Button>
           </div>
         }
       >
-        <div aria-busy={reloading} className={cn("transition-opacity duration-200", reloading && "opacity-60")}>
-          <MissedFigures
-            counts={counts}
-            partial={shown?.truncated ?? false}
-            hideBookedAgain={shown?.hideBookedAgain ?? hideBookedAgain}
-          />
-        </div>
+        <KindTabs
+          kind={kind}
+          counts={counts}
+          partial={shown?.truncated ?? false}
+          reloading={reloading}
+          onSelect={setKind}
+          controls={MISSED_DEALS_CARD_ID}
+        />
       </PageBand>
 
       {chosen && validationMessage ? <p className="text-[13px] text-danger-ink">{validationMessage}</p> : null}
 
       <MissedDealsCard
         rows={visible}
-        counts={counts ? { all: counts.total, no_show: counts.noShows, canceled: counts.canceled } : undefined}
         kind={kind}
-        onKindChange={setKind}
         hideBookedAgain={hideBookedAgain}
         onHideBookedAgainChange={setHideBookedAgain}
         listState={listState}

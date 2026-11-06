@@ -6,10 +6,13 @@ import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-c
 import { HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { cn } from "@/lib/utils";
 import type { BillingPaymentDetail } from "./billing-payment-facts";
-import { HISTORY_COLUMNS } from "./billing-event-history";
 import { FIGURE, formatPaidAt, plural } from "./billing-format";
 
-// Who qualified the lead in Slack, in the history's rows.
+// Who qualified the lead in Slack, one dense row each: when, who, result.
+// One line at any width; the Slack user ID shows once the card has room.
+
+const SLACK_COLUMNS =
+  "grid grid-cols-[6.5rem_minmax(0,1fr)_auto] gap-x-3 @xl/history:grid-cols-[7.25rem_minmax(0,1fr)_minmax(0,11rem)] @xl/history:gap-x-4";
 
 type SlackContributorEvent = BillingPaymentDetail["slackContributorTimeline"][number];
 
@@ -37,9 +40,9 @@ export function SlackContributorTimeline({ events, now }: { events: SlackContrib
           {events.map((event) => (
             <li
               key={`${event.slackUserId}-${event.submittedAt}`}
-              className={cn(HISTORY_COLUMNS, "min-h-11 items-center border-b px-4 py-2 last:border-b-0")}
+              className={cn(SLACK_COLUMNS, "min-h-9 items-center border-b px-4 py-1 last:border-b-0")}
             >
-              <time dateTime={new Date(event.submittedAt).toISOString()} className={FIGURE}>
+              <time dateTime={new Date(event.submittedAt).toISOString()} className={cn(FIGURE, "whitespace-nowrap")}>
                 {formatPaidAt(event.submittedAt, now)}
               </time>
               <div className="flex min-w-0 items-center gap-3">
@@ -48,7 +51,7 @@ export function SlackContributorTimeline({ events, now }: { events: SlackContrib
                   {event.slackUserId}
                 </span>
               </div>
-              <span className="col-start-2 font-condensed text-[13px] font-bold tracking-[0.08em] text-muted-foreground uppercase @xl/history:col-start-3">
+              <span className="font-condensed text-[13px] font-bold tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase">
                 {event.resultKind ? RESULT_WORDS[event.resultKind] : "No result"}
               </span>
             </li>

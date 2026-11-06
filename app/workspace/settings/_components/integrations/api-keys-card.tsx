@@ -111,8 +111,10 @@ export function ApiKeysCard() {
       </CardHead>
       <div className="border-b border-border px-4 py-2.5">
         <NoteLine>
-          Let an outside dashboard read this workspace&apos;s metrics: leads, qualifications, calls, deals and cash.
-          History refreshes every 6 hours; today&apos;s numbers are live. Keys can&apos;t read people or change anything.
+          <HelpTip tip="Leads, qualifications, calls, deals and cash. History refreshes every 6 hours; today's numbers are live.">
+            Read-only access to this workspace&apos;s metrics
+          </HelpTip>{" "}
+          for an outside dashboard. Keys can&apos;t read people or change anything.
         </NoteLine>
       </div>
 

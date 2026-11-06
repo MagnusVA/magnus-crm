@@ -13,13 +13,15 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { MATCH_LABELS } from "../../_components/booking-review-labels";
 import { REVIEW_WORD_CLASS, ReviewStatusWord } from "../../_components/booking-review-ui";
-import { BookingCard, PersonCard, dayAndClock, personName, type Person, type Review } from "./booking-review-cards";
+import { CompareCard, dayAndClock, personName, type Person, type Review } from "./booking-review-compare";
 import { DecidePanel, ResolvedCard } from "./booking-review-decide";
 
-// One booking review: the band says what happened, the main column holds
-// the booking and the people it matched, and the rail holds the decision.
+// One booking review: the band says what happened in a sentence, the main
+// column compares the booking with the people it matched, and the rail
+// holds the decision.
 
 const BACK = { href: "/workspace/operations/booking-reviews", label: "Booking Reviews" };
+const COUNT_WORDS = ["", "one", "two", "three", "four", "five"];
 
 export function BookingReviewPageClient({
   preloadedReview,
@@ -50,18 +52,23 @@ export function BookingReviewPageClient({
   const booked = review.people.find((person) => person.role === "booked");
   const matched = review.people.filter((person) => person.role === "matched");
   const open = review.status === "open";
+  const { booking } = review;
+  const subtitle = [
+    `Received ${dayAndClock(review.createdAt, setting, now)}`,
+    booking.startTime !== undefined ? `Call ${dayAndClock(booking.startTime, setting, now)}` : null,
+    booking.eventName ?? null,
+  ].filter(Boolean);
 
   return (
     <div className="@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3">
       <PageBand
         back={BACK}
-        title={review.kind === "attached" ? "Booking matched two people" : "Booking held for review"}
-        description={
-          <>
-            Received {dayAndClock(review.createdAt, setting, now)}
-            {review.booking.eventName ? ` · ${review.booking.eventName}` : null}
-          </>
+        title={
+          review.kind === "attached"
+            ? `Booking matched ${COUNT_WORDS[review.people.length] ?? review.people.length} people`
+            : "Booking held for review"
         }
+        description={subtitle.join(" · ")}
         actions={
           <ReviewStatusWord
             kind={review.kind}
@@ -70,24 +77,14 @@ export function BookingReviewPageClient({
           />
         }
       >
-        <div className="-mx-4 border-t border-board-line px-4 pt-3 pb-3.5 text-[14px] text-board-foreground/80 @lg:-mx-[18px] @lg:px-[18px]">
-          <p className="sr-only">What happened</p>
-          <SummaryText review={review} booked={booked} matched={matched} />
-        </div>
+        <p className="-mt-1.5 max-w-[100ch] pb-3.5 text-[14px] text-board-foreground/80 @lg:pb-4">
+          <Summary review={review} booked={booked} matched={matched} open={open} />
+        </p>
       </PageBand>
 
-      <div className="grid items-start gap-[18px] @4xl:grid-cols-[minmax(0,1fr)_22rem] @6xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <div className="@container/main flex min-w-0 flex-col gap-3.5">
-          <BookingCard review={review} />
-          <div
-            role="group"
-            aria-label="People this booking matched"
-            className="grid items-start gap-3.5 @2xl/main:grid-cols-2"
-          >
-            {review.people.map((person) => (
-              <PersonCard key={person.leadId} person={person} />
-            ))}
-          </div>
+      <div className="grid items-start gap-[18px] @4xl:grid-cols-[minmax(0,1fr)_20rem] @6xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="flex min-w-0 flex-col gap-3.5">
+          <CompareCard review={review} />
         </div>
         <aside aria-label="Decision" className="flex min-w-0 flex-col gap-3.5 @4xl:sticky @4xl:top-4">
           {open ? <DecidePanel review={review} booked={booked} matched={matched} /> : <ResolvedCard review={review} />}
@@ -106,29 +103,52 @@ function stop(name: string) {
   return name.endsWith(".") ? "" : ".";
 }
 
-function SummaryText({ review, booked, matched }: { review: Review; booked: Person | undefined; matched: Person[] }) {
-  const invitee = review.booking.inviteeName ?? "Someone";
-  // After "But" the first clause runs on in lower case; in the held summary each is its own sentence.
-  const named = matched.map((person, index) => (
-    <span key={person.leadId}>
-      {" "}
-      {review.kind === "attached" && booked && index === 0 ? "its" : "Its"}{" "}
-      {person.matchedBy.map((via) => MATCH_LABELS[via]).join(" and ")} belongs to <Name>{personName(person)}</Name>
-      {stop(personName(person))}
-    </span>
-  ));
-  if (review.kind === "attached" && booked) {
+/**
+ * One or two short sentences: whose each detail is. A person already merged
+ * into someone on the page isn't named again.
+ */
+function Summary({
+  review,
+  booked,
+  matched,
+  open,
+}: {
+  review: Review;
+  booked: Person | undefined;
+  matched: Person[];
+  open: boolean;
+}) {
+  const onPage = new Set(review.people.map((person) => person.leadId));
+  const named = matched.filter(
+    (person) => !(person.status === "merged" && person.mergedIntoLeadId && onPage.has(person.mergedIntoLeadId)),
+  );
+  // After "but" the list runs on in lower case; the held sentence opens with it.
+  const opensSentence = !(review.kind === "attached" && booked);
+  const clauses = named.map((person, index) => {
+    const what = person.matchedBy.map((via) => MATCH_LABELS[via]).join(" and ");
+    const last = index === named.length - 1;
     return (
-      <p className="max-w-[75ch]">
-        {invitee}&apos;s Instagram handle belongs to <Name>{personName(booked)}</Name>, so the call went to them. But
-        {named} If they&apos;re the same person, merge them. If not, keep them separate: nothing moves.
-      </p>
+      <span key={person.leadId}>
+        {index === 0 ? null : last ? " and " : ", "}
+        {index === 0 ? `${opensSentence ? "Its" : "its"} ${what} belongs to ` : `its ${what} to `}
+        <Name>{personName(person)}</Name>
+        {last ? stop(personName(person)) : null}
+      </span>
+    );
+  });
+
+  if (!opensSentence && booked) {
+    return (
+      <>
+        The call went to <Name>{personName(booked)}</Name> by Instagram handle
+        {clauses.length ? <>, but {clauses}</> : "."}
+      </>
     );
   }
   return (
-    <p className="max-w-[75ch]">
-      The CRM is holding {invitee}&apos;s booking because its details name more than one person.
-      {named.length ? named : null} The call isn&apos;t in the CRM until someone decides who it belongs to.
-    </p>
+    <>
+      {clauses.length ? clauses : "Its details name more than one person."}
+      {open ? " The call stays out of the CRM until you decide." : null}
+    </>
   );
 }

@@ -9,23 +9,29 @@ import { cn } from "@/lib/utils";
 import type { BillingPaymentDetail } from "./billing-payment-facts";
 import { FIGURE, formatPaidAt, PAYMENT_TYPE_LABELS, plural, STATUS_LABELS } from "./billing-format";
 
-// The payment's history as ruled rows: when, what happened, who.
+// The payment's history as dense ruled rows, one per event: when, what
+// happened (with each change as a before → after line), who.
 
 type BillingPaymentEvent = BillingPaymentDetail["events"][number];
 
 /** WHEN · WHAT · WHO, folding WHO under WHAT in a narrow card. */
-export const HISTORY_COLUMNS =
+const HISTORY_COLUMNS =
   "grid grid-cols-[7.25rem_minmax(0,1fr)] gap-x-4 gap-y-1 @xl/history:grid-cols-[7.25rem_minmax(0,1fr)_minmax(0,11rem)]";
 
 function statusWord(value: string) {
   return value in STATUS_LABELS ? STATUS_LABELS[value as BillingPaymentStatus] : value;
 }
 
-function eventDetail(event: BillingPaymentEvent) {
-  if (event.eventType === "payment.verified") return "Moved from Needs review to Reviewed.";
-  if (event.fromStatus && event.toStatus) return `${statusWord(event.fromStatus)} → ${statusWord(event.toStatus)}`;
-  if (event.toStatus) return `Set to ${statusWord(event.toStatus)}`;
-  return event.reason ?? null;
+/** The status change as a before → after line; "Marked payment reviewed" already says its own. */
+function StatusChange({ event }: { event: BillingPaymentEvent }) {
+  if (event.eventType === "payment.verified" || !event.toStatus) return null;
+  return (
+    <li>
+      <span className="font-medium text-foreground">Status</span>{" "}
+      {event.fromStatus ? <>{statusWord(event.fromStatus)} → </> : null}
+      <span className="text-foreground">{statusWord(event.toStatus)}</span>
+    </li>
+  );
 }
 
 function parseEventMetadata(metadata: string | null) {
@@ -63,11 +69,13 @@ function valueClass(key: string) {
   return "";
 }
 
-function CorrectionChanges({ metadata }: { metadata: Record<string, unknown> }) {
-  const entries = Object.entries(metadata).filter(([key]) => key !== "returnedToReview");
-  if (entries.length === 0) return null;
+function Changes({ event, metadata }: { event: BillingPaymentEvent; metadata: Record<string, unknown> | null }) {
+  const entries = Object.entries(metadata ?? {}).filter(([key]) => key !== "returnedToReview");
+  const status = <StatusChange event={event} />;
+  if (entries.length === 0 && (event.eventType === "payment.verified" || !event.toStatus)) return null;
   return (
-    <ul className="mt-1 flex flex-col gap-0.5 text-[13px] text-muted-foreground">
+    <ul className="flex flex-col text-[13px] leading-[18px] text-muted-foreground">
+      {status}
       {entries.map(([key, value]) => {
         const change = value && typeof value === "object" ? (value as { from?: unknown; to?: unknown }) : { from: null, to: value };
         return (
@@ -94,25 +102,23 @@ export function BillingEventHistory({ events, now }: { events: BillingPaymentEve
       ) : (
         <ol className="@container/history">
           {events.map((event) => {
-            const detail = eventDetail(event);
             const metadata = event.eventType === "payment.corrected" ? parseEventMetadata(event.metadata) : null;
             return (
-              <li key={event.id} className={cn(HISTORY_COLUMNS, "min-h-11 items-baseline border-b px-4 py-2.5 last:border-b-0")}>
+              <li key={event.id} className={cn(HISTORY_COLUMNS, "min-h-9 items-baseline border-b px-4 py-1.5 last:border-b-0")}>
                 <time dateTime={new Date(event.occurredAt).toISOString()} className={FIGURE}>
                   {formatPaidAt(event.occurredAt, now)}
                 </time>
                 <div className="min-w-0">
-                  <p className="flex flex-wrap items-baseline gap-x-2">
+                  <p className="flex flex-wrap items-baseline gap-x-2 leading-5">
                     <span className="font-medium">{sentence(getEventLabel(event.eventType).verb)}</span>
                     <span className="font-condensed text-[12px] font-bold tracking-[0.08em] text-muted-foreground uppercase">
                       {event.source}
                     </span>
                   </p>
-                  {detail ? <p className="text-[13px] text-muted-foreground">{detail}</p> : null}
-                  {event.reason && event.reason !== detail ? (
-                    <p className="text-[13px] whitespace-pre-wrap text-muted-foreground">“{event.reason}”</p>
+                  {event.reason ? (
+                    <p className="text-[13px] leading-[18px] whitespace-pre-wrap text-muted-foreground">“{event.reason}”</p>
                   ) : null}
-                  {metadata ? <CorrectionChanges metadata={metadata} /> : null}
+                  <Changes event={event} metadata={metadata} />
                 </div>
                 <div className="col-start-2 min-w-0 text-[13px] text-muted-foreground @xl/history:col-start-3">
                   {event.actor ? (

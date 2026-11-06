@@ -7,38 +7,38 @@ import type { MissedMeeting } from "@/convex/opportunities/dealState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { dealHref, ROW_LINK } from "@/app/workspace/closer/pipeline/_components/deal-cells";
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
-import { CARD, HelpTip, LABEL } from "@/app/workspace/team/_components/team-ui";
+import { CARD, HelpTip, LABEL, teamShortName } from "@/app/workspace/team/_components/team-ui";
 import { businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
-import { DEAL_SOURCE_LABELS, MISSED_MEETINGS_EXPORT_CAP } from "@/lib/operations-reports/missed-meetings-export";
+import { MISSED_MEETINGS_EXPORT_CAP } from "@/lib/operations-reports/missed-meetings-export";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
+import { kindTabId } from "./missed-kind-tabs";
 
 // The results card: the deals a missed meeting closed, newest first, as
-// ruled column rows. Each row links to the deal on the person's page. The
-// rows fold before they stack: below @5xl of the card Source and Setter ride
-// the person's meta line, and below @3xl each deal is two lines.
+// ruled 44px column rows. Each row links to the deal on the person's page.
+// Below @3xl of the card each deal is two lines. The band's tabs pick the
+// kind; the source stays in the CSV.
 
 export type KindFilter = MissedMeeting | "all";
+
+export type KindCounts = Record<KindFilter, number>;
+
+/** The card the band's tabs control. */
+export const MISSED_DEALS_CARD_ID = "missed-deals";
 
 export type ListState =
   | { kind: "complete"; truncated: boolean }
   | { kind: "loading"; soFar: number };
 
+// WHEN · PERSON · CONTACT · CLOSER · BOOKED BY · STATUS.
 const COLUMNS =
-  "@3xl/missed:grid @3xl/missed:grid-cols-[6.5rem_minmax(0,1.35fr)_minmax(0,1.25fr)_minmax(0,0.9fr)_minmax(0,1fr)_5.5rem] @5xl/missed:grid-cols-[6.5rem_minmax(0,1.3fr)_minmax(0,1.3fr)_5.5rem_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1fr)_5.5rem]";
+  "@3xl/missed:grid @3xl/missed:grid-cols-[7.5rem_minmax(0,1.1fr)_minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_5rem] @3xl/missed:gap-3";
 
 const STATUS_WORD = "font-condensed text-[13px] leading-none font-bold tracking-[0.08em] whitespace-nowrap uppercase";
-
-const TABS: ReadonlyArray<{ value: KindFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "no_show", label: "No-shows" },
-  { value: "canceled", label: "Canceled" },
-];
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 function dateFormatter(timeZone: string, withYear: boolean) {
@@ -71,6 +71,24 @@ function whenParts(at: number, setting: BusinessDaySetting, thisYear: string) {
   return { date: dateFormatter(setting.timeZone, withYear).format(at), clock: clockFormatter(setting.timeZone).format(at) };
 }
 
+/** The setter(s), then the DM closer, then their DM team's short name (also alone). */
+function bookedBy(row: MissedMeetingRow) {
+  const team = row.dmTeamName ? teamShortName(row.dmTeamName) : null;
+  const names = [row.setterName, row.dmCloserName].filter((name): name is string => name !== null);
+  if (names.length === 0 && team === null) return null;
+  const title = [
+    row.setterName ? `Setter: ${row.setterName}` : null,
+    row.dmCloserName
+      ? `DM closer: ${row.dmCloserName}${row.dmTeamName ? `, ${row.dmTeamName}` : ""}`
+      : row.dmTeamName
+        ? `DM team: ${row.dmTeamName}`
+        : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { names: names.join(", "), team, title };
+}
+
 function displayName(row: MissedMeetingRow) {
   return row.personName ?? row.email ?? (row.instagramHandle ? `@${row.instagramHandle}` : "Unnamed person");
 }
@@ -97,9 +115,7 @@ function BookedAgainChip() {
 
 export function MissedDealsCard({
   rows,
-  counts,
   kind,
-  onKindChange,
   hideBookedAgain,
   onHideBookedAgainChange,
   listState,
@@ -108,12 +124,10 @@ export function MissedDealsCard({
   setting,
   todayBusinessDate,
 }: {
-  /** The deals the kind filter shows; undefined before the first rows arrive. */
+  /** The deals the band's tab shows; undefined before the first rows arrive. */
   rows: MissedMeetingRow[] | undefined;
-  /** Counts for the toggle, across both kinds. */
-  counts: Record<KindFilter, number> | undefined;
+  /** The band's tab, which labels the card. */
   kind: KindFilter;
-  onKindChange: (kind: KindFilter) => void;
   hideBookedAgain: boolean;
   onHideBookedAgainChange: (hide: boolean) => void;
   listState: ListState;
@@ -135,47 +149,34 @@ export function MissedDealsCard({
         : `No no-shows or cancellations ${rangePhrase}.`;
 
   return (
-    <section aria-labelledby="missed-deals-title" className={cn(CARD, "@container/missed")}>
-      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
+    <section
+      id={MISSED_DEALS_CARD_ID}
+      role="tabpanel"
+      aria-labelledby={kindTabId(kind)}
+      className={cn(CARD, "@container/missed")}
+    >
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
         <div className="mr-auto flex min-w-0 items-baseline gap-2.5">
-          <h2 id="missed-deals-title" className="text-[15px] font-semibold">
-            Deals
-          </h2>
+          <h2 className="text-[15px] font-semibold">Deals</h2>
           <span className="truncate text-[13px] text-muted-foreground">
-            {rows === undefined ? "Newest first" : `${formatWholeNumber(count)} ${count === 1 ? "deal" : "deals"} · newest first`}
+            {rows === undefined || count === 0 ? (
+              "Newest first"
+            ) : (
+              <>
+                <span className="font-condensed text-[14px] font-semibold tabular-nums">{formatWholeNumber(count)}</span>
+                {" · newest first"}
+              </>
+            )}
           </span>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 @3xl/missed:w-auto">
-          <ToggleGroup
-            type="single"
-            size="sm"
-            value={kind}
-            onValueChange={(next) => {
-              const entry = TABS.find((tab) => tab.value === next);
-              if (entry) onKindChange(entry.value);
-            }}
-            aria-label="Deals by missed meeting"
-            className="rounded-[7px] border bg-background p-0.5"
-          >
-            {TABS.map((entry) => (
-              <ToggleGroupItem
-                key={entry.value}
-                value={entry.value}
-                className="h-6 gap-1 rounded-[5px]! px-2.5 text-[13px] text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgb(20_26_40/0.12)]"
-              >
-                {entry.label}
-                {counts ? (
-                  <span className="font-condensed text-[14px] font-semibold tabular-nums">{formatWholeNumber(counts[entry.value])}</span>
-                ) : null}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <div className="flex min-h-6 items-center gap-2">
-            <Switch id={switchId} checked={hideBookedAgain} onCheckedChange={onHideBookedAgainChange} />
-            <label htmlFor={switchId} className="cursor-pointer text-[13px]">
-              Hide people who booked again
-            </label>
-          </div>
+        <div className="flex min-h-6 items-center gap-2">
+          <Switch id={switchId} checked={hideBookedAgain} onCheckedChange={onHideBookedAgainChange} />
+          <label htmlFor={switchId} className="cursor-pointer text-[13px]">
+            Hide people who{" "}
+            <HelpTip tip="People with a newer deal that has a booking. They already came back, so they're left out of the list and the export.">
+              booked again
+            </HelpTip>
+          </label>
         </div>
       </div>
 
@@ -200,7 +201,7 @@ export function MissedDealsCard({
         </SectionEmpty>
       ) : (
         <>
-          <div className={cn("hidden min-h-7 items-end gap-3 border-b border-border px-4 pb-1.5", COLUMNS, LABEL)}>
+          <div className={cn("hidden min-h-7 items-end border-b border-border px-4 pb-1.5", COLUMNS, LABEL)}>
             <span>
               <HelpTip tip="When the missed call was booked for, in your workspace's time zone. The list runs by when the deal closed, newest first.">
                 When
@@ -208,17 +209,13 @@ export function MissedDealsCard({
             </span>
             <span>Person</span>
             <span>Contact</span>
-            <span className="hidden @5xl/missed:block">
-              <HelpTip tip="How the deal started: a Calendly booking, a lead qualified in Slack, or a side deal.">Source</HelpTip>
-            </span>
             <span>
               <HelpTip tip="The closer the missed call was assigned to.">Closer</HelpTip>
             </span>
-            <span className="hidden @5xl/missed:block">
-              <HelpTip tip="Who qualified the lead in Slack, when someone did.">Setter</HelpTip>
-            </span>
             <span>
-              <HelpTip tip="The DM closer and team credited with the booking, from its link.">DM closer</HelpTip>
+              <HelpTip tip="The setter who qualified the person in Slack, and the DM closer who sent the booking link, with their team.">
+                Booked by
+              </HelpTip>
             </span>
             <span>Status</span>
           </div>
@@ -234,7 +231,7 @@ export function MissedDealsCard({
         </>
       )}
 
-      {rows === undefined ? null : (
+      {rows === undefined || (listState.kind === "complete" && !listState.truncated) ? null : (
         <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-2 text-[13px] text-muted-foreground">
           <p role="status" className="flex items-center gap-2">
             {listState.kind === "loading" ? (
@@ -242,13 +239,11 @@ export function MissedDealsCard({
                 <Spinner aria-hidden="true" className="size-3.5" />
                 Loading… {formatWholeNumber(listState.soFar)} so far
               </>
-            ) : listState.truncated ? (
+            ) : (
               <span className="text-foreground">
                 This range holds more than {formatWholeNumber(MISSED_MEETINGS_EXPORT_CAP)} deals. The list and the export
                 hold the newest {formatWholeNumber(MISSED_MEETINGS_EXPORT_CAP)}; narrow the range for the rest.
               </span>
-            ) : (
-              `${formatWholeNumber(count)} ${count === 1 ? "deal" : "deals"}, all loaded`
             )}
           </p>
         </div>
@@ -260,79 +255,75 @@ export function MissedDealsCard({
 function DealRow({ row, setting, thisYear }: { row: MissedMeetingRow; setting: BusinessDaySetting; thisYear: string }) {
   const at = row.meetingAt ?? row.lostAt;
   const when = whenParts(at, setting, thisYear);
-  const handle = row.instagramHandle ? `@${row.instagramHandle}` : null;
-  const source = DEAL_SOURCE_LABELS[row.source];
+  const handle = row.instagramHandle ? `@${row.instagramHandle}` : undefined;
   const phone = row.phone ? formatPhone(row.phone) : null;
+  const credit = bookedBy(row);
 
   return (
     <li className="relative border-b border-border transition-colors last:border-b-0 hover:bg-muted/60">
-      <div className={cn("flex flex-col gap-0.5 px-4 py-2 @3xl/missed:min-h-12 @3xl/missed:items-center @3xl/missed:gap-3 @3xl/missed:py-1.5", COLUMNS)}>
+      <div className={cn("flex flex-col gap-0.5 px-4 py-2 @3xl/missed:h-[43px] @3xl/missed:items-center @3xl/missed:py-0", COLUMNS)}>
         {/* WHEN, from @3xl */}
         <time
           dateTime={new Date(at).toISOString()}
-          className="hidden font-condensed text-[15px] leading-tight font-semibold tabular-nums @3xl/missed:block"
+          className="hidden truncate font-condensed text-[15px] font-semibold tabular-nums @3xl/missed:block"
         >
-          {when.date}
-          <span className="block text-muted-foreground">{when.clock}</span>
+          {when.date} · {when.clock}
         </time>
 
         {/* PERSON; on narrow rows the status rides the same line */}
         <div className="flex min-w-0 items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <Link href={dealHref(row.leadId, row.opportunityId)} className={cn(ROW_LINK, "truncate font-semibold")}>
-                {displayName(row)}
-              </Link>
-              {row.bookedAgain ? <BookedAgainChip /> : null}
-            </div>
-            <p className="hidden truncate text-[13px] text-muted-foreground @3xl/missed:block">
-              {handle ?? "No handle"}
-              <span className="@5xl/missed:hidden">
-                {" · "}
-                {source}
-                {row.setterName ? ` · set by ${row.setterName}` : null}
-              </span>
-            </p>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Link
+              href={dealHref(row.leadId, row.opportunityId)}
+              title={handle}
+              className={cn(ROW_LINK, "truncate font-semibold")}
+            >
+              {displayName(row)}
+            </Link>
+            {row.bookedAgain ? <BookedAgainChip /> : null}
           </div>
           <span className="@3xl/missed:hidden">
             <StatusWord kind={row.missedMeeting} />
           </span>
         </div>
 
-        {/* Line 2 on narrow rows: when · contact · closer */}
-        <p className="truncate text-[13px] text-muted-foreground @3xl/missed:hidden">
-          <span className="font-condensed text-[14px] font-semibold text-foreground tabular-nums">
-            {when.date} · {when.clock}
-          </span>
-          {" · "}
-          {phone ? <span className="font-condensed text-[14px] tabular-nums">{phone}</span> : null}
-          {phone && row.email ? " · " : null}
-          {row.email ?? (phone ? null : "No contact")}
-          {row.closerName ? ` · ${row.closerName}` : null}
+        {/* Line 2 on narrow rows: when · phone (or email) */}
+        <p className="truncate font-condensed text-[14px] text-muted-foreground tabular-nums @3xl/missed:hidden">
+          {when.date} · {when.clock} · {phone ?? <span className="font-sans text-[13px]">{row.email ?? "No contact"}</span>}
         </p>
 
-        {/* CONTACT */}
-        <div className="hidden min-w-0 @3xl/missed:block">
-          <p className="truncate text-[13px]">{row.email ?? <Dash />}</p>
-          <p className="truncate font-condensed text-[15px] leading-tight font-semibold tabular-nums">
-            {phone ?? <Dash />}
-          </p>
-        </div>
-
-        {/* SOURCE, from @5xl */}
-        <p className="hidden truncate @5xl/missed:block">{source}</p>
+        {/* CONTACT: phone, then email */}
+        <p className="hidden min-w-0 truncate text-[13px] @3xl/missed:block">
+          {phone || row.email ? (
+            <>
+              {phone ? <span className="font-condensed text-[15px] font-semibold tabular-nums">{phone}</span> : null}
+              {phone && row.email ? <span className="text-muted-foreground"> · </span> : null}
+              {row.email}
+            </>
+          ) : (
+            <Dash />
+          )}
+        </p>
 
         {/* CLOSER */}
         <p className="hidden truncate @3xl/missed:block">{row.closerName ?? <Dash />}</p>
 
-        {/* SETTER, from @5xl */}
-        <p className="hidden truncate @5xl/missed:block">{row.setterName ?? <Dash />}</p>
-
-        {/* DM CLOSER */}
-        <div className="hidden min-w-0 @3xl/missed:block">
-          <p className="truncate">{row.dmCloserName ?? <Dash />}</p>
-          {row.dmTeamName ? <p className="truncate text-[13px] text-muted-foreground">{row.dmTeamName}</p> : null}
-        </div>
+        {/* BOOKED BY: setter, DM closer · team */}
+        <p className="hidden truncate @3xl/missed:block" title={credit?.title}>
+          {credit ? (
+            <>
+              {credit.names}
+              {credit.team ? (
+                <span className="text-muted-foreground">
+                  {credit.names ? " · " : "DM team "}
+                  {credit.team}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <Dash />
+          )}
+        </p>
 
         {/* STATUS, from @3xl */}
         <span className="hidden @3xl/missed:block">
@@ -343,22 +334,21 @@ function DealRow({ row, setting, thisYear }: { row: MissedMeetingRow; setting: B
   );
 }
 
+/** The card's rows while the first page loads: 44px from @3xl, two lines narrower. */
 function RowsSkeleton() {
   return (
     <div role="status" aria-label="Loading deals">
       <div className="hidden min-h-7 border-b border-border @3xl/missed:block" />
-      {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} className="flex min-h-[57px] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0">
-          <div className="hidden w-[6.5rem] flex-col gap-1.5 @3xl/missed:flex">
-            <Skeleton className="h-3.5 w-12" />
-            <Skeleton className="h-3.5 w-14" />
-          </div>
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Skeleton className="h-4 w-40 max-w-full" />
-            <Skeleton className="h-3 w-28" />
-          </div>
-          <Skeleton className="hidden h-4 w-[40%] @3xl/missed:block" />
-          <Skeleton className="h-3.5 w-14" />
+      {Array.from({ length: 10 }, (_, index) => (
+        <div
+          key={index}
+          className="flex min-h-[55px] flex-col justify-center gap-1.5 border-b border-border px-4 py-2 last:border-b-0 @3xl/missed:h-11 @3xl/missed:min-h-0 @3xl/missed:flex-row @3xl/missed:items-center @3xl/missed:gap-3 @3xl/missed:py-0"
+        >
+          <Skeleton className="hidden h-3.5 w-[7.5rem] @3xl/missed:block" />
+          <Skeleton className="h-4 w-40 max-w-full" />
+          <Skeleton className="h-3 w-48 max-w-full @3xl/missed:hidden" />
+          <Skeleton className="hidden h-3.5 w-[30%] @3xl/missed:block" />
+          <Skeleton className="ml-auto hidden h-3.5 w-14 @3xl/missed:block" />
         </div>
       ))}
     </div>

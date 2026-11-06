@@ -9,9 +9,9 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/
 import { BATCH_SIZE_RANGE, INACTIVE_AFTER_DAYS_RANGE } from "@/convex/lib/respark/settings";
 import { getErrorMessage } from "@/lib/errors";
 import { useNow } from "@/hooks/use-now";
-import { CARD, CardHead } from "@/app/workspace/team/_components/team-ui";
+import { CARD, CardHead, HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { FormCardSkeleton } from "./settings-skeleton";
-import { FormFooter, NoteLine, SettingRow } from "./settings-ui";
+import { FormFooter, SettingRow } from "./settings-ui";
 
 const COUNT_FORMATTER = new Intl.NumberFormat("en-US");
 const HOUR_MS = 60 * 60_000;
@@ -25,7 +25,7 @@ function wholeNumberIn(value: string, range: { min: number; max: number }): numb
 
 function holdText(businessDay: { timeZone: string; dayStartHour: number }) {
   const hour = String(businessDay.dayStartHour).padStart(2, "0");
-  return `Held until the business day ends (${hour}:00, ${businessDay.timeZone})`;
+  return `A batch is held until the business day ends (${hour}:00, ${businessDay.timeZone}).`;
 }
 
 // Respark settings (docs/plans/respark.md §6.4): when a person counts as
@@ -72,7 +72,7 @@ export function ResparkSettingsCard() {
     <section aria-labelledby="respark-title" className={CARD}>
       <CardHead
         title={<span id="respark-title">Respark</span>}
-        meta="When a person counts as inactive, and what a lead generator gets when they ask for a batch."
+        meta="When a person counts as inactive, and how many a batch holds."
       />
       <FieldGroup className="gap-0 divide-y divide-border">
         <SettingRow
@@ -112,10 +112,13 @@ export function ResparkSettingsCard() {
           </InputGroup>
         </SettingRow>
       </FieldGroup>
-      <div className="border-t border-border px-4 py-2.5">
-        <NoteLine>{holdText(shown.businessDay)}. When the hold ends, unworked people go back to the pool.</NoteLine>
-      </div>
-      <FormFooter>
+      <FormFooter
+        aside={
+          <HelpTip tip="When the hold ends, people nobody worked go back to the pool.">
+            {holdText(shown.businessDay)}
+          </HelpTip>
+        }
+      >
         {draft !== null ? <Button variant="ghost" disabled={saving} onClick={() => setDraft(null)}>Discard</Button> : null}
         <Button
           variant={changed && valid ? "default" : "outline"}

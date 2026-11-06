@@ -15,14 +15,13 @@ import {
   FIGURE,
   formatBytes,
   formatPaidAt,
-  PAYMENT_TYPE_LABELS,
   proofTypeLabel,
   STATUS_LABELS,
 } from "./billing-format";
 
 // The payment page's facts: the band's figure row (amount, status, proof,
-// closer) and the fact-list cards under it, grouped as payment, customer,
-// meeting, attribution and review.
+// closer) and the three fact cards under it (Payment, Customer and call,
+// Attribution). A fact the band states isn't repeated in a card.
 
 export type BillingPaymentDetail = NonNullable<FunctionReturnType<typeof api.billing.queries.getPaymentDetail>>;
 
@@ -77,17 +76,14 @@ function Zone({ label, tip, children }: { label: string; tip: string; children: 
   );
 }
 
-function statusProof(detail: BillingPaymentDetail, now: number) {
-  if (detail.payment.status === "verified") {
-    const who = detail.review.reviewerName;
-    const when = detail.review.reviewedAt ? formatPaidAt(detail.review.reviewedAt, now) : null;
-    return [who ? `By ${who}` : null, when].filter(Boolean).join(" · ") || "Reviewed";
-  }
+function statusProof(detail: BillingPaymentDetail) {
+  // Who reviewed it, and when, is the Payment card's Reviewed row.
+  if (detail.payment.status === "verified") return "Ready for external billing";
   if (detail.payment.status === "disputed") return "Voided, no longer counts as revenue";
   return "Nobody has checked it yet";
 }
 
-export function PaymentFigures({ detail, now }: { detail: BillingPaymentDetail; now: number }) {
+export function PaymentFigures({ detail }: { detail: BillingPaymentDetail }) {
   const { payment, proof } = detail;
   const proofSize = formatBytes(proof.size);
   const hasProof = proof.url !== null;
@@ -101,16 +97,14 @@ export function PaymentFigures({ detail, now }: { detail: BillingPaymentDetail; 
     >
       <Zone label="Amount" tip="What the customer paid, in the payment's own currency.">
         <p className={ZONE_FIGURE}>{formatAmountMinor(payment.amountMinor, payment.currency)}</p>
-        <p className={ZONE_PROOF}>
-          {payment.currency.toUpperCase()} · {payment.referenceCode ? `Ref ${payment.referenceCode}` : "No reference code"}
-        </p>
+        <p className={ZONE_PROOF}>{payment.currency.toUpperCase()}</p>
       </Zone>
       <Zone
         label="Status"
         tip="Needs review: nobody has checked it yet. Reviewed: checked and ready for external billing. Disputed: voided, so it no longer counts as revenue."
       >
         <p className={cn(ZONE_WORD, STATUS_BOARD_INK[payment.status])}>{STATUS_LABELS[payment.status]}</p>
-        <p className={ZONE_PROOF}>{statusProof(detail, now)}</p>
+        <p className={ZONE_PROOF}>{statusProof(detail)}</p>
       </Zone>
       <Zone label="Proof" tip="The receipt or screenshot attached when the payment was recorded.">
         {/* Missing proof is owed only while the payment still needs review. */}
@@ -129,26 +123,24 @@ export function PaymentFigures({ detail, now }: { detail: BillingPaymentDetail; 
   );
 }
 
-// ─── Fact-list cards ────────────────────────────────────────────────────
+// ─── Fact cards ─────────────────────────────────────────────────────────
 
 function None({ children = "None" }: { children?: ReactNode }) {
   return <span className="text-muted-foreground">{children}</span>;
 }
 
+/** A group of dense facts, ruled from the next group. */
+function Facts({ children }: { children: ReactNode }) {
+  return <dl className="border-b py-1 last:border-b-0">{children}</dl>;
+}
+
+/** One dense fact: a ~110px slate label beside its value, about 32px tall. */
 function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)] items-baseline gap-3 py-[5px]">
+    <div className="grid min-h-8 grid-cols-[6.875rem_minmax(0,1fr)] items-baseline gap-x-3 px-4 py-1.5">
       <dt className="text-[13px] text-muted-foreground">{label}</dt>
       <dd className="min-w-0 wrap-break-word">{children}</dd>
     </div>
-  );
-}
-
-function FactCard({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <DetailCard title={title} className="mb-3.5 break-inside-avoid">
-      <dl className="px-4 py-2">{children}</dl>
-    </DetailCard>
   );
 }
 
@@ -159,113 +151,117 @@ function Member({ identity, name }: { identity: Parameters<typeof MemberIdentity
 
 const MONO = "font-mono text-[12.5px] tracking-[-0.01em]";
 
-export function PaymentFacts({ detail, now }: { detail: BillingPaymentDetail; now: number }) {
+/**
+ * Payment, then the proof (passed in), in one column; Customer and call, then
+ * Attribution, in the other once the main column has room.
+ */
+export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDetail; now: number; proof: ReactNode }) {
   const { payment, customer, meeting, review, dmAttribution, slackContributorSummary } = detail;
   const fathomLink = fathomLinkFor(detail);
 
   return (
-    // Two columns of cards once the main column has room, filled top to bottom.
     <div className="@container/facts">
-      <div className="gap-3.5 @xl/facts:columns-2 -mb-3.5">
-        <FactCard title="Payment">
-          <Fact label="Amount">
-            <span className={FIGURE}>{formatAmountMinor(payment.amountMinor, payment.currency)}</span>{" "}
-            <span className="font-condensed text-[13px] font-semibold tracking-[0.04em] text-muted-foreground">
-              {payment.currency.toUpperCase()}
-            </span>
-          </Fact>
-          <Fact label="Type">{PAYMENT_TYPE_LABELS[payment.paymentType]}</Fact>
-          <Fact label="Program">{payment.programName}</Fact>
-          <Fact label="Paid">
-            <span className={FIGURE}>{formatPaidAt(payment.recordedAt, now)}</span>
-          </Fact>
-          <Fact label="Reference">
-            {payment.referenceCode ? <span className={MONO}>{payment.referenceCode}</span> : <None />}
-          </Fact>
-          <Fact label={<HelpTip tip="Who recorded the payment, and from where in the app.">Recorded</HelpTip>}>
-            {formatOrigin(payment.origin)}
-          </Fact>
-          <Fact label="Internal note">
-            {payment.note ? <span className="whitespace-pre-wrap">{payment.note}</span> : <None />}
-          </Fact>
-          <Fact label="Payment ID">
-            <span className={cn(MONO, "break-all text-muted-foreground")}>{payment.id}</span>
-          </Fact>
-        </FactCard>
+      <div className="grid items-start gap-3.5 @xl/facts:grid-cols-2 short:gap-3">
+        <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
+          <DetailCard title="Payment">
+            <Facts>
+              <Fact label="Reference">
+                {payment.referenceCode ? <span className={MONO}>{payment.referenceCode}</span> : <None />}
+              </Fact>
+              <Fact label={<HelpTip tip="Who recorded the payment, and from where in the app.">Recorded</HelpTip>}>
+                {formatOrigin(payment.origin)}
+              </Fact>
+              <Fact label="Reviewed">
+                {review.reviewedAt ? (
+                  <>
+                    <span translate="no">{review.reviewer?.name ?? review.reviewerName ?? "Unknown"}</span>
+                    <span className="text-muted-foreground"> · </span>
+                    <span className={FIGURE}>{formatPaidAt(review.reviewedAt, now)}</span>
+                  </>
+                ) : (
+                  <None>Not yet</None>
+                )}
+              </Fact>
+              <Fact label="Internal note">
+                {payment.note ? <span className="whitespace-pre-wrap">{payment.note}</span> : <None />}
+              </Fact>
+              <Fact label="Payment ID">
+                <span className={cn(MONO, "break-all text-muted-foreground")}>{payment.id}</span>
+              </Fact>
+            </Facts>
+          </DetailCard>
+          {proof}
+        </div>
 
-        <FactCard title="Customer">
-          <Fact label="Name">{customer.fullName ? <span translate="no">{customer.fullName}</span> : <None>Missing</None>}</Fact>
-          <Fact label="Email">
-            {customer.email ? (
-              <a className={cn(detailLinkClass, "inline font-normal [overflow-wrap:anywhere]")} href={`mailto:${customer.email}`} translate="no">
-                {/* A long address breaks at the @ before it breaks a word. */}
-                {customer.email.split("@")[0]}
-                <wbr />@{customer.email.split("@").slice(1).join("@")}
-              </a>
-            ) : (
-              <None />
-            )}
-          </Fact>
-          <Fact label="Phone">
-            {customer.phone ? (
-              <span className="font-condensed text-[15px] font-semibold tabular-nums">{formatPhone(customer.phone)}</span>
-            ) : (
-              <None />
-            )}
-          </Fact>
-        </FactCard>
+        <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
+          <DetailCard title="Customer and call">
+            <Facts>
+              <Fact label="Name">{customer.fullName ? <span translate="no">{customer.fullName}</span> : <None>Missing</None>}</Fact>
+              <Fact label="Email">
+                {customer.email ? (
+                  <a className={cn(detailLinkClass, "inline font-normal [overflow-wrap:anywhere]")} href={`mailto:${customer.email}`} translate="no">
+                    {/* A long address breaks at the @ before it breaks a word. */}
+                    {customer.email.split("@")[0]}
+                    <wbr />@{customer.email.split("@").slice(1).join("@")}
+                  </a>
+                ) : (
+                  <None />
+                )}
+              </Fact>
+              <Fact label="Phone">
+                {customer.phone ? (
+                  <span className="font-condensed text-[15px] font-semibold tabular-nums">{formatPhone(customer.phone)}</span>
+                ) : (
+                  <None />
+                )}
+              </Fact>
+            </Facts>
+            <Facts>
+              <Fact label="Scheduled">
+                {meeting.scheduledAt ? <span className={FIGURE}>{formatPaidAt(meeting.scheduledAt, now)}</span> : <None>No meeting</None>}
+              </Fact>
+              <Fact label="Recording">
+                {fathomLink ? (
+                  <a className={cn(detailLinkClass, "gap-0.5")} href={fathomLink} rel="noreferrer" target="_blank">
+                    Open in Fathom
+                    <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+                  </a>
+                ) : (
+                  <None>No Fathom link</None>
+                )}
+              </Fact>
+            </Facts>
+          </DetailCard>
 
-        <FactCard title="Meeting">
-          <Fact label="Scheduled">
-            {meeting.scheduledAt ? <span className={FIGURE}>{formatPaidAt(meeting.scheduledAt, now)}</span> : <None>No meeting</None>}
-          </Fact>
-          <Fact label="Recording">
-            {fathomLink ? (
-              <a className={cn(detailLinkClass, "gap-0.5")} href={fathomLink} rel="noreferrer" target="_blank">
-                Open in Fathom
-                <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
-              </a>
-            ) : (
-              <None>No Fathom link</None>
-            )}
-          </Fact>
-        </FactCard>
-
-        <FactCard title="Attribution">
-          <Fact label="Entered by">
-            <Member identity={detail.enteredBy.identity} name={detail.enteredBy.name} />
-          </Fact>
-          <Fact label="Phone closer">
-            <Member identity={detail.phoneCloser.identity} name={detail.phoneCloser.name} />
-          </Fact>
-          <Fact label={<HelpTip tip="The DM team credited through the booking's utm_source.">DM team</HelpTip>}>
-            {dmAttribution.teamName ?? <None />}
-          </Fact>
-          <Fact label="DM closer">
-            <Member identity={dmAttribution.dmCloser} name={dmAttribution.dmCloserName} />
-          </Fact>
-          <Fact label={<HelpTip tip="The setter who qualified the lead in Slack most recently, and how many setters did in all.">Slack</HelpTip>}>
-            {slackContributorSummary.count > 0 ? (
-              <>
-                {slackContributorSummary.latestLabel}{" "}
-                <span className="text-muted-foreground">
-                  · <span className="font-condensed text-[15px] font-semibold tabular-nums">{slackContributorSummary.count}</span> in all
-                </span>
-              </>
-            ) : (
-              <None />
-            )}
-          </Fact>
-        </FactCard>
-
-        <FactCard title="Review">
-          <Fact label="Reviewer">
-            <Member identity={review.reviewer} name={review.reviewerName} />
-          </Fact>
-          <Fact label="Reviewed at">
-            {review.reviewedAt ? <span className={FIGURE}>{formatPaidAt(review.reviewedAt, now)}</span> : <None>Not yet</None>}
-          </Fact>
-        </FactCard>
+          <DetailCard title="Attribution">
+            <Facts>
+              <Fact label="Entered by">
+                <Member identity={detail.enteredBy.identity} name={detail.enteredBy.name} />
+              </Fact>
+              <Fact label="Phone closer">
+                <Member identity={detail.phoneCloser.identity} name={detail.phoneCloser.name} />
+              </Fact>
+              <Fact label={<HelpTip tip="The DM team credited through the booking's utm_source.">DM team</HelpTip>}>
+                {dmAttribution.teamName ?? <None />}
+              </Fact>
+              <Fact label="DM closer">
+                <Member identity={dmAttribution.dmCloser} name={dmAttribution.dmCloserName} />
+              </Fact>
+              <Fact label={<HelpTip tip="The setter who qualified the lead in Slack most recently, and how many setters did in all.">Slack</HelpTip>}>
+                {slackContributorSummary.count > 0 ? (
+                  <>
+                    {slackContributorSummary.latestLabel}{" "}
+                    <span className="text-muted-foreground">
+                      · <span className="font-condensed text-[15px] font-semibold tabular-nums">{slackContributorSummary.count}</span> in all
+                    </span>
+                  </>
+                ) : (
+                  <None />
+                )}
+              </Fact>
+            </Facts>
+          </DetailCard>
+        </div>
       </div>
     </div>
   );

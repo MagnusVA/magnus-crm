@@ -154,34 +154,38 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
             </Button>
           ) : null}
         </div>
-        <ul>
+        <ul className="py-1">
           <ChannelRow
-            purpose="New-lead confirmations from /qualify-lead"
+            purpose="Qualified leads"
+            tip="Confirms each lead qualified with /qualify-lead."
             name={status.notifyChannelName}
             required
             active={active}
             error={status.notifyChannelError}
             kind="notify"
-            missingCopy="Pick a channel. Slack qualifications are saved in the CRM, but channel messages need a destination."
+            missingCopy="Pick a channel. Qualifications still save, but nothing is posted."
           />
           <ChannelRow
-            purpose="Daily stale-lead digest"
+            purpose="Stale leads"
+            tip="The daily digest of leads nobody has touched."
             name={status.staleReminderChannelName}
             required
             active={active}
             error={status.staleReminderChannelError}
             kind="stale"
-            missingCopy="Pick a channel. Daily stale-lead digests need one."
+            missingCopy="Pick a channel, or the digest isn't sent."
           />
           <ChannelRow
-            purpose="Each lead gen submission"
+            purpose="Lead gen"
+            tip="One post for each lead gen submission. Optional."
             name={status.leadGenNotifyChannelName}
             active={active}
             error={status.leadGenNotifyChannelError}
             kind="lead_gen"
           />
           <ChannelRow
-            purpose="Bookings whose details match two people"
+            purpose="Booking reviews"
+            tip="Bookings whose details match more than one person. Optional."
             name={status.bookingReviewChannelName}
             active={active}
             error={status.bookingReviewChannelError}
@@ -270,9 +274,10 @@ function LifecycleLine({ status }: { status: SlackConnected["status"] }) {
   );
 }
 
-/** One channel Magnus posts to: the channel in medium, what goes there in slate. */
+/** One channel Magnus posts to, on one fact line: what goes there, then the channel. */
 function ChannelRow({
   purpose,
+  tip,
   name,
   required = false,
   active,
@@ -281,6 +286,7 @@ function ChannelRow({
   missingCopy,
 }: {
   purpose: string;
+  tip: string;
   name: string | undefined;
   required?: boolean;
   active: boolean;
@@ -291,20 +297,27 @@ function ChannelRow({
   const problem = channelProblem(error, kind);
   const missing = active && required && !name;
   return (
-    <li className="flex flex-col gap-0.5 border-b border-border px-4 py-[7px] last:border-b-0">
+    <li className="grid min-h-8 grid-cols-[6.875rem_minmax(0,1fr)] items-baseline gap-x-3 px-4 py-1.5">
+      <span className="text-[13px] text-muted-foreground">
+        <HelpTip tip={tip}>{purpose}</HelpTip>
+      </span>
       <span
         className={cn(
           "min-w-0 truncate text-sm",
           name ? "font-medium" : required ? "font-medium text-warning-ink" : "text-muted-foreground",
         )}
+        title={name ? `#${name}` : undefined}
         translate={name ? "no" : undefined}
       >
         {name ? `#${name}` : required ? "No channel" : "Off"}
       </span>
-      <span className="text-[13px] text-muted-foreground">{purpose}</span>
-      {missing && missingCopy ? <NoteLine tone="warning">{missingCopy}</NoteLine> : null}
+      {missing && missingCopy ? (
+        <NoteLine tone="warning" className="col-start-2">
+          {missingCopy}
+        </NoteLine>
+      ) : null}
       {problem ? (
-        <NoteLine tone={problem.tone} role={problem.tone === "danger" ? "alert" : "status"}>
+        <NoteLine tone={problem.tone} role={problem.tone === "danger" ? "alert" : "status"} className="col-start-2">
           {problem.text}
         </NoteLine>
       ) : null}

@@ -4,7 +4,6 @@ import { useState } from "react";
 import { ArrowUpRightIcon, FileIcon, ZoomInIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { cn } from "@/lib/utils";
 import type { BillingPaymentDetail } from "./billing-payment-facts";
@@ -12,7 +11,7 @@ import { formatBytes, isImageContentType, isPdfContentType, proofTypeLabel } fro
 
 type BillingProof = BillingPaymentDetail["proof"];
 
-/** The proof file in place: an image opens full size, a PDF reads inline. */
+/** The proof file: its kind, size and link in the title row, a thumbnail at most 160px tall under it. */
 export function BillingProofPreview({ proof, owed }: { proof: BillingProof; /** The payment still needs review, so a missing file is owed. */ owed: boolean }) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const proofSize = formatBytes(proof.size);
@@ -22,7 +21,7 @@ export function BillingProofPreview({ proof, owed }: { proof: BillingProof; /** 
   if (!proof.url) {
     return (
       <DetailCard title="Proof" meta={<span className={cn("font-medium", owed && "text-warning-ink")}>Missing</span>}>
-        <SectionEmpty title="No proof attached.">This payment has no proof file on record.</SectionEmpty>
+        <p className="px-4 py-2.5 text-[13px] text-muted-foreground">No proof file on record.</p>
       </DetailCard>
     );
   }
@@ -43,13 +42,8 @@ export function BillingProofPreview({ proof, owed }: { proof: BillingProof; /** 
         </>
       }
     >
-      <div className="bg-background p-3">
-        <div
-          className={cn(
-            "relative overflow-hidden rounded-[7px] border bg-card",
-            isPdf ? "h-[min(480px,60vh)]" : isImage ? "h-[min(420px,52vh)]" : "h-40",
-          )}
-        >
+      <div className="bg-background p-2.5">
+        <div className="relative h-40 overflow-hidden rounded-[7px] border bg-card">
           {isImage ? (
             <button
               aria-label="View the proof image full size"
@@ -67,8 +61,8 @@ export function BillingProofPreview({ proof, owed }: { proof: BillingProof; /** 
           ) : isPdf ? (
             <iframe className="size-full border-0 bg-card" src={proof.url} title="Payment proof PDF" />
           ) : (
-            <div className="flex size-full flex-col items-center justify-center gap-1.5 p-6 text-center">
-              <FileIcon aria-hidden="true" className="size-7 text-muted-foreground" />
+            <div className="flex size-full flex-col items-center justify-center gap-1 p-4 text-center">
+              <FileIcon aria-hidden="true" className="size-6 text-muted-foreground" />
               <p className="font-medium">{proof.contentType ?? "Attached file"}</p>
               <p className="text-[13px] text-muted-foreground">This file type can&apos;t preview here. Open it to check it.</p>
             </div>

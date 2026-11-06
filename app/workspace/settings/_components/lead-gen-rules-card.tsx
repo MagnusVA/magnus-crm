@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import { FieldGroup } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -88,7 +87,7 @@ export function LeadGenRulesCard() {
     <section id="lead-gen-rules" aria-labelledby="lead-gen-rules-title" className={cn(CARD, "scroll-mt-20")}>
       <CardHead
         title={<span id="lead-gen-rules-title">Lead gen capture rules</span>}
-        meta="How long a specialist can fix a capture, how big a raw export gets, and how repeat people show."
+        meta="Corrections, raw exports and people captured twice."
       />
       <FieldGroup className="gap-0 divide-y divide-border">
         <SettingRow
@@ -173,17 +172,7 @@ export function LeadGenRulesCard() {
           </Select>
         </SettingRow>
       </FieldGroup>
-      <FormFooter
-        aside={
-          <>
-            Specialists, teams and schedules are in{" "}
-            <Link href="/workspace/team" className="font-medium text-foreground underline decoration-foreground/40 underline-offset-[3px] hover:decoration-foreground">
-              Team
-            </Link>
-            .
-          </>
-        }
-      >
+      <FormFooter>
         {draft !== null ? (
           <Button variant="ghost" disabled={saving} onClick={() => setDraft(null)}>
             Discard
