@@ -2,14 +2,6 @@
 
 import { useAction } from "convex/react";
 import { usePageTitle } from "@/hooks/use-page-title";
-import {
-  AlertCircleIcon,
-  ArrowRightIcon,
-  ClockIcon,
-  KeyRoundIcon,
-  Link2OffIcon,
-  type LucideIcon,
-} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
@@ -18,7 +10,15 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { reportClientError } from "@/lib/observability/report-client-error";
 
-import { OnboardingShell, PulsingDots } from "./_components/onboarding-shell";
+import { OnboardingShell } from "./_components/onboarding-shell";
+import {
+  CardFooter,
+  FactRow,
+  NoticeCard,
+  StatusWord,
+  WaitCard,
+  type Tone,
+} from "./_components/onboarding-ui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,7 +71,7 @@ export default function OnboardingPage() {
     <Suspense
       fallback={
         <OnboardingShell>
-          <LoadingCard label="Preparing onboarding" />
+          <WaitCard>Checking your invite&hellip;</WaitCard>
         </OnboardingShell>
       }
     >
@@ -159,20 +159,14 @@ function OnboardingPageContent() {
     };
   }, [token, validateInvite]);
 
-  const isLoading = state.status === "loading" || state.status === "redirecting";
-
   return (
     <OnboardingShell>
-      {isLoading ? (
-        <LoadingCard
-          label={
-            state.status === "loading"
-              ? "Validating your invite"
-              : `Preparing ${state.companyName}`
-          }
-        />
+      {state.status === "loading" ? (
+        <WaitCard>Checking your invite&hellip;</WaitCard>
+      ) : state.status === "redirecting" ? (
+        <WaitCard>Opening sign-up for {state.companyName}&hellip;</WaitCard>
       ) : (
-        <ErrorCard
+        <InviteProblem
           error={state.error}
           workosOrgId={state.workosOrgId}
           companyName={state.companyName}
@@ -183,35 +177,33 @@ function OnboardingPageContent() {
 }
 
 // ---------------------------------------------------------------------------
-// Loading Card
+// The invite can't be used
 // ---------------------------------------------------------------------------
 
-function LoadingCard({ label }: { label: string }) {
-  return (
-    <div
-      className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500"
-      role="status"
-    >
-      <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-8 text-center shadow-sm">
-        <PulsingDots />
-        <div className="flex flex-col gap-2">
-          <h1 className="text-lg font-semibold tracking-tight text-card-foreground">
-            {label}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Checking the invite token and preparing account creation&hellip;
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
+const ASK_FOR_NEW_LINK = "Ask the person who invited you for a new link.";
 
-// ---------------------------------------------------------------------------
-// Error Card
-// ---------------------------------------------------------------------------
+const PROBLEMS: Record<
+  InviteError,
+  { title: string; word: string; tone: Tone; line: string }
+> = {
+  no_token: { title: "This link has no invite", word: "No invite", tone: "danger", line: ASK_FOR_NEW_LINK },
+  invalid_signature: {
+    title: "This invite can’t be checked",
+    word: "Invalid",
+    tone: "danger",
+    line: ASK_FOR_NEW_LINK,
+  },
+  not_found: { title: "This invite isn’t recognized", word: "Not found", tone: "danger", line: ASK_FOR_NEW_LINK },
+  already_redeemed: {
+    title: "This invite was already used",
+    word: "Already used",
+    tone: "muted",
+    line: "Your account is set up. Sign in to carry on.",
+  },
+  expired: { title: "This invite has expired", word: "Expired", tone: "danger", line: ASK_FOR_NEW_LINK },
+};
 
-function ErrorCard({
+function InviteProblem({
   error,
   workosOrgId,
   companyName,
@@ -220,7 +212,7 @@ function ErrorCard({
   workosOrgId?: string;
   companyName?: string;
 }) {
-  const { icon: Icon, title, detail, description } = ERROR_MAP[error];
+  const problem = PROBLEMS[error];
 
   const signInHref =
     workosOrgId != null
@@ -228,112 +220,28 @@ function ErrorCard({
       : "/sign-in";
 
   return (
-    <div className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
-      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        {/* Accent top border */}
-        <div className="h-0.5 bg-destructive" />
-
-        <div className="flex flex-col gap-5 p-8">
-          {/* Header */}
-          <div className="flex items-start gap-4">
-            <div
-              className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md bg-destructive/10"
-              aria-hidden="true"
-            >
-              <Icon className="size-4 text-destructive" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-base font-semibold text-card-foreground">
-                {title}
-              </h1>
-              <p className="mt-0.5 text-xs uppercase tracking-[0.15em] text-muted-foreground">
-                {detail}
-              </p>
-            </div>
-          </div>
-
-          {/* Description */}
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            {description}
-          </p>
-
-          {/* Organization context */}
-          {companyName ? (
-            <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                Organization
-              </p>
-              <p className="mt-1 text-sm font-medium text-card-foreground">
-                {companyName}
-              </p>
-            </div>
-          ) : null}
-
-          {/* Actions */}
-          <div className="flex flex-col gap-2.5 pt-1">
-            {error === "already_redeemed" ? (
-              <Button asChild size="lg" className="w-full">
-                <Link href={signInHref}>
-                  Sign In to Continue
-                  <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
-                </Link>
-              </Button>
-            ) : (
-              <Button asChild size="lg" className="w-full">
-                <Link href="/">Return Home</Link>
-              </Button>
-            )}
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/sign-in">Sign In</Link>
+    <NoticeCard
+      title={problem.title}
+      status={<StatusWord tone={problem.tone}>{problem.word}</StatusWord>}
+      line={problem.line}
+    >
+      {companyName ? <FactRow label="Company">{companyName}</FactRow> : null}
+      <CardFooter>
+        {error === "already_redeemed" ? (
+          <Button asChild className="font-semibold">
+            <Link href={signInHref}>Sign in to continue</Link>
+          </Button>
+        ) : (
+          <>
+            <Button asChild variant="ghost">
+              <Link href="/">Home</Link>
             </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+            <Button asChild variant="outline">
+              <Link href="/sign-in">Sign in</Link>
+            </Button>
+          </>
+        )}
+      </CardFooter>
+    </NoticeCard>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Error config map
-// ---------------------------------------------------------------------------
-
-const ERROR_MAP: Record<
-  InviteError,
-  { icon: LucideIcon; title: string; detail: string; description: string }
-> = {
-  no_token: {
-    icon: Link2OffIcon,
-    title: "No Invite Token",
-    detail: "Missing parameter",
-    description:
-      "No invite token was found in the URL. Use the onboarding link sent by your administrator.",
-  },
-  invalid_signature: {
-    icon: KeyRoundIcon,
-    title: "Invalid Invite",
-    detail: "Signature check failed",
-    description:
-      "The invite signature could not be verified. Contact your administrator for a new onboarding link.",
-  },
-  not_found: {
-    icon: AlertCircleIcon,
-    title: "Invite Not Recognized",
-    detail: "No matching record",
-    description:
-      "This invite is not associated with any active tenant. Ask your administrator to generate a new invite.",
-  },
-  already_redeemed: {
-    icon: KeyRoundIcon,
-    title: "Invite Already Used",
-    detail: "Previously redeemed",
-    description:
-      "Your account setup was already completed. Sign in to continue into onboarding.",
-  },
-  expired: {
-    icon: ClockIcon,
-    title: "Invite Expired",
-    detail: "Link no longer active",
-    description:
-      "The invite window has closed. Ask your administrator to regenerate a fresh onboarding link.",
-  },
-};

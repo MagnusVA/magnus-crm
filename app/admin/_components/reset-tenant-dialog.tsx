@@ -1,27 +1,20 @@
 "use client";
 
-import { ShieldAlertIcon, Trash2Icon, WebhookIcon } from "lucide-react";
 import { useState } from "react";
 
-import type { Doc } from "@/convex/_generated/dataModel";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { LABEL } from "@/app/workspace/team/_components/team-ui";
+import { TenantStatusWord, type TenantRow } from "./admin-ui";
 
 type WebhookCleanupStatus =
   | { status: "deleted" | "not_configured" }
@@ -47,10 +40,19 @@ export type ResetTenantResult = {
   deletedUsers: number;
 };
 
-type TenantWithWebhookStatus = Doc<"tenants"> & {
-  calendlyWebhookUri?: string;
-};
+/** What Delete does, in the order the server does it. */
+const STEPS = [
+  "Removes its Calendly webhook.",
+  "Revokes its stored Calendly tokens.",
+  "Deletes its WorkOS users and organization.",
+  "Erases its data in Magnus: people, calls, synced Calendly members, webhook events and users.",
+  "Deletes the tenant, so a new invite starts over.",
+];
 
+/**
+ * Delete a tenant everywhere: the record, what will happen, then the company's
+ * name typed to confirm (DESIGN.md, a choice's consequence stated before it's confirmed).
+ */
 export function ResetTenantDialog({
   open,
   tenant,
@@ -58,9 +60,9 @@ export function ResetTenantDialog({
   onSubmit,
 }: {
   open: boolean;
-  tenant: TenantWithWebhookStatus | null;
+  tenant: TenantRow | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (tenant: TenantWithWebhookStatus) => Promise<void>;
+  onSubmit: (tenant: TenantRow) => Promise<void>;
 }) {
   const [confirmation, setConfirmation] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -97,137 +99,88 @@ export function ResetTenantDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl" showCloseButton={!isSubmitting}>
-        <DialogHeader>
-          <DialogTitle>Delete Tenant Completely</DialogTitle>
-          <DialogDescription>
-            This fully deprovisions the tenant and removes the tenant record
-            from Convex so onboarding can later start again from zero with a
-            brand-new invite.
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isSubmitting) onOpenChange(next);
+      }}
+    >
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg" showCloseButton={!isSubmitting}>
+        <DialogHeader className="border-b px-4 pt-4 pr-12 pb-3.5">
+          <DialogTitle className="text-[17px] font-semibold text-balance">
+            Delete <span translate="no">{currentTenant.companyName}</span>?
+          </DialogTitle>
+          <DialogDescription className="text-[13px] text-danger-ink">
+            This removes the company everywhere. It can&apos;t be undone.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-          <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4 sm:grid-cols-3">
-            <SummaryCell label="Company" value={currentTenant.companyName} />
-            <SummaryCell
-              label="Status"
-              value={<Badge variant="outline">{currentTenant.status}</Badge>}
-            />
-            <SummaryCell
-              label="Webhook"
-              value={
-                currentTenant.calendlyWebhookUri ? (
-                  <span className="inline-flex items-center gap-1.5 text-foreground">
-                    <WebhookIcon className="size-3.5" aria-hidden="true" />
-                    Configured
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
+          {/* The title names the company; the facts say what else is being removed. */}
+          <dl className="border-b py-1">
+            <Fact label="Contact">
+              <span className="break-all" translate="no">
+                {currentTenant.contactEmail}
+              </span>
+            </Fact>
+            <Fact label="Status">
+              <TenantStatusWord status={currentTenant.status} />
+            </Fact>
+            <Fact label="Calendly webhook">{currentTenant.calendlyWebhookUri ? "Set up" : "None"}</Fact>
+          </dl>
+
+          <div className="border-b pt-2.5">
+            <p className={`${LABEL} px-4 pb-1.5`}>What happens</p>
+            <ol className="text-[13px] leading-[1.45]">
+              {STEPS.map((step, index) => (
+                <li key={step} className="flex gap-2.5 border-t px-4 py-[7px]">
+                  <span className="w-3 shrink-0 font-condensed text-[14px] font-semibold text-muted-foreground tabular-nums">
+                    {index + 1}
                   </span>
-                ) : (
-                  "Not configured"
-                )
-              }
-            />
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
 
-          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 rounded-md bg-destructive/10 p-2 text-destructive">
-                <ShieldAlertIcon className="size-4" aria-hidden="true" />
-              </div>
-              <div className="space-y-2 text-sm">
-                <p className="font-medium text-foreground">
-                  Delete will perform these steps:
-                </p>
-                <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
-                  <li>
-                    Delete the Calendly webhook subscription before any token
-                    revocation occurs.
-                  </li>
-                  <li>Revoke stored Calendly OAuth tokens when they still exist.</li>
-                  <li>
-                    Delete the tenant&apos;s WorkOS users and remove the old
-                    WorkOS organization.
-                  </li>
-                  <li>
-                    Delete tenant-scoped Convex data, including synced Calendly
-                    members, webhook events, and app `users` records.
-                  </li>
-                  <li>
-                    Delete the tenant record itself. If you want to onboard the
-                    company again, create a new tenant invite afterward.
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="reset-company-confirmation">
-                Type the company name to confirm
-              </FieldLabel>
-              <Input
-                id="reset-company-confirmation"
-                name="companyName"
-                value={confirmation}
-                onChange={(e) => setConfirmation(e.target.value)}
-                placeholder={currentTenant.companyName}
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <FieldDescription>
-                Enter{" "}
-                <span className="font-medium text-foreground">
-                  {currentTenant.companyName}
-                </span>{" "}
-                exactly to enable the delete action.
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
+          <Field className="gap-1.5 px-4 py-3">
+            <FieldLabel htmlFor="reset-company-confirmation" className="text-[13px] font-normal text-muted-foreground">
+              Type the company name to confirm
+            </FieldLabel>
+            <Input
+              id="reset-company-confirmation"
+              name="companyName"
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              placeholder={currentTenant.companyName}
               disabled={isSubmitting}
-            >
+              spellCheck={false}
+              autoComplete="off"
+              translate="no"
+            />
+          </Field>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-3">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" variant="destructive" disabled={!canSubmit}>
-              {isSubmitting ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Deleting&hellip;
-                </>
-              ) : (
-                <>
-                  <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-                  Delete Tenant
-                </>
-              )}
+            <Button type="submit" variant="destructive" disabled={!canSubmit} className="font-semibold">
+              {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
+              {isSubmitting ? "Deleting…" : "Delete tenant"}
             </Button>
-          </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
   );
 }
 
-function SummaryCell({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+/** One dense fact: a slate label column beside the value, about 32px. */
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-        {label}
-      </p>
-      <div className="min-w-0 text-sm font-medium text-foreground">{value}</div>
+    <div className="grid min-h-8 grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-3 px-4 py-1.5">
+      <dt className="text-[13px] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-sm">{children}</dd>
     </div>
   );
 }
