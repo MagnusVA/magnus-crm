@@ -1,6 +1,6 @@
 "use client";
 
-import type { Preloaded } from "convex/react";
+import { type Preloaded, usePreloadedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { FathomIntegrationCard } from "@/components/fathom/fathom-integration-card";
@@ -8,7 +8,7 @@ import { IntegrationCardSkeleton } from "../settings-skeleton";
 import { AiAssistantsCard } from "./ai-assistants-card";
 import { ApiKeysCard } from "./api-keys-card";
 import { CalendlyConnection } from "./calendly-connection";
-import { calendlyConnected, type CalendlyStatus } from "./integration-status";
+import { calendlyConnected, slackState, type CalendlyStatus } from "./integration-status";
 import { SlackIntegrationCard } from "./slack-integration-card";
 
 /**
@@ -24,6 +24,9 @@ export function IntegrationsTab({
   /** `undefined` while loading; the page reads it once for the card and the band. */
   calendlyStatus: CalendlyStatus | null | undefined;
 }) {
+  const slackStatus = usePreloadedQuery(preloadedSlackStatus);
+  const calendlyFirst =
+    calendlyStatus === null || (calendlyStatus !== undefined && !calendlyConnected(calendlyStatus));
   return (
     <div className="grid gap-3.5 @4xl:grid-cols-2 @4xl:items-start">
       <SectionErrorBoundary sectionName="Calendly connection">
@@ -37,11 +40,12 @@ export function IntegrationsTab({
         {/* One lime action at a time: Calendly first, then Slack. */}
         <SlackIntegrationCard
           preloadedStatus={preloadedSlackStatus}
-          calendlyFirst={calendlyStatus === null || (calendlyStatus !== undefined && !calendlyConnected(calendlyStatus))}
+          calendlyFirst={calendlyFirst}
         />
       </SectionErrorBoundary>
       <SectionErrorBoundary sectionName="Fathom">
-        <FathomIntegrationCard />
+        {/* Fathom's Connect is lime only once Calendly and Slack are connected. */}
+        <FathomIntegrationCard quiet={calendlyFirst || !slackState(slackStatus).connected} />
       </SectionErrorBoundary>
       <SectionErrorBoundary sectionName="AI assistants">
         <AiAssistantsCard />

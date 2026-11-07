@@ -23,6 +23,7 @@ vi.mock("convex/react", () => ({
 import { SecondOpinionCard } from "@/components/second-opinion/meeting-card";
 import { SecondOpinionHint } from "@/components/second-opinion/needs-outcome-hint";
 import { SecondOpinionSettingsRow } from "@/components/second-opinion/settings-row";
+import { TooltipProvider } from "@/components/ui/tooltip";
 const meetingId = "meeting" as Id<"meetings">;
 const now = Date.parse("2026-11-03T18:00Z");
 function detail(): OpinionDetail {
@@ -72,6 +73,11 @@ function detail(): OpinionDetail {
     timeZone: "America/Tegucigalpa",
     callbackTimeZone: "America/Tegucigalpa",
   };
+}
+function settingsRow(fathomConnected = true) {
+  return renderToStaticMarkup(
+    createElement(TooltipProvider, null, createElement(SecondOpinionSettingsRow, { fathomConnected })),
+  );
 }
 beforeEach(() => {
   fixture.detail = detail();
@@ -162,13 +168,13 @@ describe("second opinion UI", () => {
         capped: false,
       },
     };
-    const html = renderToStaticMarkup(createElement(SecondOpinionSettingsRow));
+    const html = settingsRow();
     for (const text of [
-      "Shadow run · day",
-      "only owners see results",
+      "Shadow run, day",
+      "Only owners see results",
       "$40.00",
-      "Paused until 1",
-      "monthly cap reached",
+      "monthly cap is reached",
+      "Checks resume on 1 Dec",
       "Raise cap",
       "Open results",
     ])
@@ -197,9 +203,37 @@ describe("second opinion UI", () => {
         capped: false,
       },
     };
-    const html = renderToStaticMarkup(createElement(SecondOpinionSettingsRow));
+    const html = settingsRow();
     expect(html).toContain("disabled");
     expect(html).toContain("Only an owner");
-    expect(html).not.toContain("Monthly cap");
+    expect(html).not.toContain("Change cap");
+  });
+  it("hides the section while Fathom isn't connected, unless it is still on", () => {
+    fixture.settings = {
+      mode: "off",
+      shadowDay: 0,
+      monthlyCapUsd: 40,
+      readyToOpen: false,
+      paused: false,
+      resetsAt: now,
+      canManage: true,
+      visible: false,
+      month: {
+        costUsd: 0,
+        total: 0,
+        answered: 0,
+        agrees: 0,
+        disagrees: 0,
+        unsure: 0,
+        hints: 0,
+        checked: 0,
+        failed: 0,
+        capped: false,
+      },
+    };
+    expect(settingsRow(false)).toBe("");
+    expect(settingsRow(true)).toContain("Second opinion");
+    fixture.settings = { ...fixture.settings, mode: "on" };
+    expect(settingsRow(false)).toContain("Second opinion on recorded calls");
   });
 });
