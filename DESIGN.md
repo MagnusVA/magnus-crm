@@ -518,8 +518,8 @@ Gently rounded, never pill-shaped except for counts and dots. Surfaces (cards, t
 
 ### Navigation
 - **Shell:** navy sidebar (navy-shell; navy-shell-dark in dark) with the Magnus mark in lime and the Aceh wordmark. Items in light board-style text; the active item takes a 16% lime tint and a lime icon. The owed count sits beside its item as an amber pill with navy figures. The Reports group label uses the condensed label style at 60% opacity. The footer carries the signed-in identity.
-- **Top bar:** white, 52px, a bottom rule, breadcrumbs, and the search field on the right. Breadcrumbs stay on one line at every width: on phones only the parent and the page show, and the page truncates.
-- **Command palette:** a closer's pages carry the sidebar's names and order (Today, My Pipeline, Leads & Customers).
+- **Top bar:** white, 52px, a bottom rule, breadcrumbs, and the search field and the theme toggle on the right. Breadcrumbs stay on one line at every width: on phones only the parent and the page show, and the page truncates.
+- **Command palette:** every role's pages carry the sidebar's names, order and ⌘1 to ⌘4 shortcuts, read from the same list (`app/workspace/_components/workspace-nav.ts`). An admin's palette also lists Operations, Team and Booking setup's pages under those names, the seven reports, Lead gen rules and Respark; everyone gets Profile.
 
 ### The Board Row (signature)
 The departures board on Today: a navy surface with a 19px condensed title, a summary ("5 calls · 1 held · 4 to go"), and Today / Tomorrow / This week tabs. Columns are TIME, PERSON, PROGRAM, GATE, STATUS under 28px condensed labels; rows are 44px with board-line rules. The time is 20px condensed. Held and canceled rows dim to board-muted, and canceled times are struck through. The next or live call becomes the **Boarding row**: 56px, lime fill, navy text, a 26px time, the navy Join button in the Gate column and a 22px countdown ("12 min", "Live") after the status word. The whole row is the link to its meeting; its buttons sit above that link.

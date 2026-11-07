@@ -81,15 +81,14 @@ export function WorkspaceShellSkeleton() {
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
+        <header className="flex h-13 shrink-0 items-center gap-2 border-b bg-card px-4">
           <SidebarTrigger aria-label="Toggle sidebar" />
           <Separator orientation="vertical" className="h-4" />
-          {/* Toolbar skeleton — matches breadcrumbs + action buttons */}
+          {/* Matches the real bar: breadcrumbs, the search field, the theme toggle */}
+          <Skeleton className="h-4 w-32 rounded" />
           <div className="ml-auto flex items-center gap-2">
-            <Skeleton className="h-6 w-32 rounded" />
-            <Skeleton className="h-8 w-8 rounded-md" />
-            <Skeleton className="h-8 w-8 rounded-md" />
-            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="hidden h-8 w-64 rounded-md sm:block" />
+            <Skeleton className="size-9 rounded-md" />
           </div>
         </header>
         <div

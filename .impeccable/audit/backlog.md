@@ -16,8 +16,8 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 | B4 | Opening a deal in the sheet never writes `?opportunityId=` to the URL, so Back and share don't work. | `opportunity-sheet-context.tsx:51-58` |
 | B5 | `hsl(var(--x))` wraps OKLCH tokens, which makes the colour invalid. Affected: the skeleton shimmer, a sticky table-header shadow, and the No Show chart colour. | `app/globals.css:207-209`, `event-type-config-list.tsx:216`, `meeting-outcome-distribution-chart.tsx:32` |
 | B6 | Legacy redirects drop query filters: `/pipeline` → `/opportunities` → list, and Sales Calls ignores the `status`/`closerId` it receives. | `app/workspace/pipeline/page.tsx:26-38` |
-| B7 | Merge and redistribute have no page-level guard. Convex enforces roles on the data, so this is defence in depth. | `routes.md` §6 |
-| B8 | The notification bell is a placeholder over an empty array. Either build it or remove it. | `components/notification-center.tsx:24-32` |
+| B7 | Merge and redistribute have no page-level guard. Convex enforces roles on the data, so this is defence in depth. **Fixed (Nov 2026):** `requirePermission` on both pages. | `routes.md` §6 |
+| B8 | The notification bell is a placeholder over an empty array. Either build it or remove it. **Fixed (Nov 2026):** removed. | `components/notification-center.tsx:24-32` |
 
 ## 1. Foundations (system-wide; blocks everything else)
 
