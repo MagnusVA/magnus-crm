@@ -19,20 +19,6 @@ export const MEETING_STATUSES = [
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
-// ─── Tenant statuses ────────────────────────────────────────────────
-
-export const TENANT_STATUSES = [
-  "pending_signup",
-  "pending_calendly",
-  "provisioning_webhooks",
-  "active",
-  "calendly_disconnected",
-  "suspended",
-  "invite_expired",
-] as const;
-
-export type TenantStatus = (typeof TENANT_STATUSES)[number];
-
 // ─── Deal position display config ────────────────────────────────────
 
 type DealPositionVisualConfig = {
@@ -148,26 +134,6 @@ export function meetingEventStatusLabel(eventType: string, status: string | null
     ? meetingStatusConfig.held.label
     : status;
 }
-
-// ─── Tenant status config ────────────────────────────────────────────
-
-type TenantStatusConfig = {
-  label: string;
-  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "ghost";
-};
-
-export const tenantStatusConfig: Record<TenantStatus, TenantStatusConfig> = {
-  pending_signup: { label: "Pending Signup", badgeVariant: "outline" },
-  pending_calendly: { label: "Pending Calendly", badgeVariant: "secondary" },
-  provisioning_webhooks: { label: "Provisioning", badgeVariant: "secondary" },
-  active: { label: "Active", badgeVariant: "default" },
-  calendly_disconnected: {
-    label: "Disconnected",
-    badgeVariant: "destructive",
-  },
-  suspended: { label: "Suspended", badgeVariant: "ghost" },
-  invite_expired: { label: "Invite Expired", badgeVariant: "destructive" },
-};
 
 // ─── Connection health config ────────────────────────────────────────
 

@@ -1,13 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -28,18 +27,18 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function validateCompanyName(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed.length < MIN_COMPANY_NAME_LENGTH)
-    return `Company name must be at least ${MIN_COMPANY_NAME_LENGTH} characters.`;
+    return `Use at least ${MIN_COMPANY_NAME_LENGTH} characters.`;
   if (trimmed.length > MAX_COMPANY_NAME_LENGTH)
-    return `Company name must not exceed ${MAX_COMPANY_NAME_LENGTH} characters.`;
+    return `Use ${MAX_COMPANY_NAME_LENGTH} characters or fewer.`;
   return null;
 }
 
 function validateEmail(email: string): string | null {
   const trimmed = email.trim().toLowerCase();
-  if (trimmed.length === 0) return "Email is required.";
+  if (trimmed.length === 0) return "Enter the contact's email.";
   if (trimmed.length > MAX_EMAIL_LENGTH)
-    return `Email must not exceed ${MAX_EMAIL_LENGTH} characters.`;
-  if (!EMAIL_REGEX.test(trimmed)) return "Invalid email format.";
+    return `Use ${MAX_EMAIL_LENGTH} characters or fewer.`;
+  if (!EMAIL_REGEX.test(trimmed)) return "Enter a full email address, like owner@company.com.";
   return null;
 }
 
@@ -52,6 +51,14 @@ export type CreateTenantPayload = {
   contactEmail: string;
   notes: string | undefined;
 };
+
+// Form rows in the Settings grammar: a 120px slate label column beside the
+// control from the form's @lg, over it narrower (DESIGN.md, Form and Settings Cards).
+const ROW =
+  "grid gap-1.5 px-4 py-3 data-[invalid=true]:text-foreground @lg:grid-cols-[120px_minmax(0,1fr)] @lg:items-start @lg:gap-x-3";
+const ROW_LABEL = "text-[13px] font-normal text-muted-foreground @lg:min-h-8 @lg:items-center";
+/** Field errors in danger ink, which reads at 4.5:1 where the fill red doesn't. */
+const ERROR = "text-[13px] text-danger-ink";
 
 // ---------------------------------------------------------------------------
 // Dialog
@@ -76,7 +83,6 @@ export function CreateTenantDialog({
     companyName: null as string | null,
     contactEmail: null as string | null,
   });
-  const companyRef = useRef<HTMLInputElement>(null);
 
   const canSubmit =
     !isSubmitting &&
@@ -129,101 +135,97 @@ export function CreateTenantDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create Tenant Invite</DialogTitle>
-          <DialogDescription>
-            Provisions a WorkOS organization, inserts the tenant record, signs an
-            invite token, and returns the onboarding URL.
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isSubmitting) onOpenChange(next);
+      }}
+    >
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg" showCloseButton={!isSubmitting}>
+        <DialogHeader className="border-b px-4 pt-4 pr-12 pb-3.5">
+          <DialogTitle className="text-[17px] font-semibold">New tenant invite</DialogTitle>
+          <DialogDescription className="text-[13px]">
+            Creates the company&apos;s WorkOS organization and an invite link to send them.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-          <FieldGroup>
-            <Field data-invalid={errors.companyName ? true : undefined}>
-              <FieldLabel htmlFor="create-company-name">
-                Company Name
+        <form onSubmit={handleSubmit} className="@container flex min-h-0 flex-col" noValidate>
+          <FieldGroup className="gap-0 divide-y">
+            <Field data-invalid={errors.companyName ? true : undefined} className={ROW}>
+              <FieldLabel htmlFor="create-company-name" className={ROW_LABEL}>
+                Company
               </FieldLabel>
-              <Input
-                ref={companyRef}
-                id="create-company-name"
-                name="companyName"
-                autoComplete="organization"
-                spellCheck={false}
-                value={form.companyName}
-                onChange={(e) => handleCompanyChange(e.target.value)}
-                placeholder="Acme Sales Co&hellip;"
-                aria-invalid={errors.companyName ? true : undefined}
-                aria-describedby={
-                  errors.companyName
-                    ? "create-company-name-error"
-                    : undefined
-                }
-              />
-              <FieldError id="create-company-name-error">
-                {errors.companyName}
-              </FieldError>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Input
+                  id="create-company-name"
+                  name="companyName"
+                  autoComplete="organization"
+                  spellCheck={false}
+                  value={form.companyName}
+                  onChange={(e) => handleCompanyChange(e.target.value)}
+                  placeholder="Acme Sales Co"
+                  disabled={isSubmitting}
+                  aria-invalid={errors.companyName ? true : undefined}
+                  aria-describedby={errors.companyName ? "create-company-name-error" : undefined}
+                />
+                <FieldError id="create-company-name-error" className={ERROR}>
+                  {errors.companyName}
+                </FieldError>
+              </div>
             </Field>
 
-            <Field data-invalid={errors.contactEmail ? true : undefined}>
-              <FieldLabel htmlFor="create-contact-email">
-                Contact Email
+            <Field data-invalid={errors.contactEmail ? true : undefined} className={ROW}>
+              <FieldLabel htmlFor="create-contact-email" className={ROW_LABEL}>
+                Contact email
               </FieldLabel>
-              <Input
-                id="create-contact-email"
-                name="contactEmail"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                spellCheck={false}
-                value={form.contactEmail}
-                onChange={(e) => handleEmailChange(e.target.value)}
-                placeholder="owner@example.com"
-                aria-invalid={errors.contactEmail ? true : undefined}
-                aria-describedby={
-                  errors.contactEmail
-                    ? "create-contact-email-error"
-                    : undefined
-                }
-              />
-              <FieldError id="create-contact-email-error">
-                {errors.contactEmail}
-              </FieldError>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Input
+                  id="create-contact-email"
+                  name="contactEmail"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  spellCheck={false}
+                  value={form.contactEmail}
+                  onChange={(e) => handleEmailChange(e.target.value)}
+                  placeholder="owner@acmesales.com"
+                  disabled={isSubmitting}
+                  aria-invalid={errors.contactEmail ? true : undefined}
+                  aria-describedby={errors.contactEmail ? "create-contact-email-error" : undefined}
+                />
+                <FieldError id="create-contact-email-error" className={ERROR}>
+                  {errors.contactEmail}
+                </FieldError>
+              </div>
             </Field>
 
-            <Field>
-              <FieldLabel htmlFor="create-notes">
-                Notes{" "}
-                <span className="font-normal text-muted-foreground">
-                  (optional)
-                </span>
+            <Field className={ROW}>
+              <FieldLabel htmlFor="create-notes" className={`${ROW_LABEL} gap-1`}>
+                Notes
+                <span aria-hidden="true">·</span>
+                <span>Optional</span>
               </FieldLabel>
               <Textarea
                 id="create-notes"
                 name="notes"
                 value={form.notes}
-                onChange={(e) =>
-                  setForm((c) => ({ ...c, notes: e.target.value }))
-                }
-                placeholder="Pilot tenant, high-priority onboarding&hellip;"
+                onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))}
+                placeholder="Pilot tenant, onboarding call on Monday"
+                disabled={isSubmitting}
                 rows={3}
               />
             </Field>
           </FieldGroup>
 
-          <DialogFooter>
-            <Button type="submit" disabled={!canSubmit}>
-              {isSubmitting ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Creating&hellip;
-                </>
-              ) : (
-                "Create Tenant"
-              )}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-3">
+            <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => onOpenChange(false)}>
+              Cancel
             </Button>
-          </DialogFooter>
+            <Button type="submit" disabled={!canSubmit} className="font-semibold">
+              {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
+              {isSubmitting ? "Creating…" : "Create invite"}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
