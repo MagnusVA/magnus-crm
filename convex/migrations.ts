@@ -1306,6 +1306,75 @@ export const assertMeetingAttendance = migrations.define({
   },
 });
 
+// Decision 15 (docs/plans/closer-assistant.md §6.3): payments with proof
+// written before the AI assistant get the file's hash from `_storage`, so the
+// reuse check also catches receipts used before the deploy. A payment is
+// reused when an earlier payment in its tenant holds the same hash, as a new
+// payment is at write time. Hashing an older payment also flags the later
+// ones that share its file, which were written before it had a hash. A
+// payment whose file is gone keeps no hash. Idempotent; run it after the
+// deploy, then assertPaymentProofHashes.
+const PROOF_HASH_MATCHES = 20;
+
+async function paymentsWithProofHash(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  sha256: string,
+) {
+  return await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_tenantId_and_proofSha256", (q) =>
+      q.eq("tenantId", tenantId).eq("proofSha256", sha256),
+    )
+    .take(PROOF_HASH_MATCHES);
+}
+
+export const backfillPaymentProofHashes = migrations.define({
+  table: "paymentRecords",
+  batchSize: 50,
+  migrateOne: async (ctx, payment) => {
+    if (!payment.proofFileId || payment.proofSha256 !== undefined) return;
+    const file = await ctx.db.system.get("_storage", payment.proofFileId);
+    if (!file) return;
+    const others = (await paymentsWithProofHash(ctx, payment.tenantId, file.sha256))
+      .filter((other) => other._id !== payment._id);
+    const reused = others.some((other) => other._creationTime < payment._creationTime);
+    await ctx.db.patch("paymentRecords", payment._id, {
+      proofSha256: file.sha256,
+      ...(reused ? { proofReused: true } : {}),
+    });
+    for (const later of others) {
+      if (later._creationTime > payment._creationTime && later.proofReused !== true) {
+        await ctx.db.patch("paymentRecords", later._id, { proofReused: true });
+      }
+    }
+  },
+});
+
+// Every payment whose proof file still exists holds that file's hash, and is
+// flagged reused exactly when an earlier payment in its tenant shares it.
+// Throws on the first problem, with IDs only.
+export const assertPaymentProofHashes = migrations.define({
+  table: "paymentRecords",
+  batchSize: 50,
+  migrateOne: async (ctx, payment) => {
+    const fail = (problem: string) => new Error(`Payment ${payment._id} ${problem}`);
+    if (!payment.proofFileId) {
+      if (payment.proofSha256 !== undefined) throw fail("has a proof hash and no proof file");
+      return;
+    }
+    const file = await ctx.db.system.get("_storage", payment.proofFileId);
+    if (!file) return;
+    if (payment.proofSha256 !== file.sha256) throw fail("doesn't hold its proof file's hash");
+    const reused = (await paymentsWithProofHash(ctx, payment.tenantId, file.sha256)).some(
+      (other) => other._id !== payment._id && other._creationTime < payment._creationTime,
+    );
+    if (reused !== (payment.proofReused === true)) {
+      throw fail(reused ? "shares an earlier payment's proof and isn't flagged" : "is flagged reused and shares no earlier proof");
+    }
+  },
+});
+
 // Booking coverage (explicit Shared cells and a per-team Shared fallback).
 // The booking setup page also migrates its tenant on first load. Preview one
 // tenant with bookingSetup/queries:previewCoverageMigration.

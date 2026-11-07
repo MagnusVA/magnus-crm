@@ -1,5 +1,8 @@
 "use client";
 
+import { SecondOpinionCard } from "@/components/second-opinion/meeting-card";
+import { CallNotesCard } from "./call-notes-card";
+
 import { useState } from "react";
 import { format } from "date-fns";
 import { ShuffleIcon } from "lucide-react";
@@ -14,7 +17,7 @@ import { isAwaitingOutcome, isDealWon } from "@/lib/deal-controls";
 import { CallStrip } from "./call-strip";
 import { DealCard } from "./deal-card";
 import { DealWonCard } from "./deal-won-card";
-import { FathomLinkField } from "./fathom-link-field";
+import { RecordingCard } from "@/components/fathom/recording-card";
 import { MeetingComments } from "./meeting-comments";
 import { OutcomeSection } from "./outcome-section";
 import { PaymentLinksPanel } from "./payment-links-panel";
@@ -171,13 +174,15 @@ export function MeetingDetailView({
           {paymentLinks && paymentLinks.length > 0 ? (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
           ) : null}
+          <SecondOpinionCard meetingId={meeting._id} />
+          <CallNotesCard opportunityId={opportunity._id} />
           <MeetingComments meetingId={meeting._id} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-3.5">
           <DealCard detail={detail} />
           <PersonCard detail={detail} />
-          <FathomLinkField
+          <RecordingCard
             meetingId={meeting._id}
             initialLink={meeting.fathomLink ?? ""}
             savedAt={meeting.fathomLinkSavedAt}

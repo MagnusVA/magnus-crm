@@ -6,7 +6,7 @@ import { SETTINGS_ROOT } from "./settings-ui";
 
 // Skeletons at the real heights and container steps: the band with its tabs,
 // then the Integrations layout (Calendly and Slack side by side from @4xl,
-// API keys under them).
+// then Fathom and AI assistants, API keys under them).
 
 function TitleRow({ width = "w-24", word = true }: { width?: string; word?: boolean }) {
   return (
@@ -89,7 +89,9 @@ export function IntegrationsSkeleton() {
   return (
     <div className="grid gap-3.5 @4xl:grid-cols-2 @4xl:items-start">
       <IntegrationCardSkeleton label="Loading Calendly connection" />
-      <IntegrationCardSkeleton label="Loading Slack integration" groups={[2, 4]} />
+      <IntegrationCardSkeleton label="Loading Slack integration" groups={[2, 5]} />
+      <IntegrationCardSkeleton label="Loading Fathom connection" groups={[3, 2]} />
+      <IntegrationCardSkeleton label="Loading AI assistant settings" groups={[3]} />
       <div className="@4xl:col-span-2">
         <ApiKeysCardSkeleton />
       </div>

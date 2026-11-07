@@ -12,6 +12,8 @@ export const directoryMemberValidator = v.object({
     userId: v.id("users"), name: v.string(), email: v.string(),
     role: v.union(v.literal("tenant_master"), v.literal("tenant_admin"), v.literal("closer"), v.literal("lead_generator")),
     isActive: v.boolean(), removed: v.boolean(), calendlyLinked: v.boolean(), invitationPending: v.boolean(), profilePictureUrl: nullableString,
+    // An admin blocked this login's AI assistant access (docs/plans/closer-assistant.md §7).
+    aiAssistantBlocked: v.boolean(),
   }), v.null()),
   leadGen: v.array(v.object({ workerId: v.id("leadGenWorkers"), name: v.string(), email: v.string(), teamId: nullableTeam,
     isActive: v.boolean(), week: weekValidator, weekChangedOn: nullableString })),

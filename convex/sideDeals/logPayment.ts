@@ -10,6 +10,8 @@ import {
   resolveProgramForWrite,
   type PaymentOrigin,
 } from "../lib/paymentHelpers";
+import { WEB } from "../lib/outcomeCores";
+import { checkPaymentProof, newPaymentFields } from "../lib/paymentProof";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
@@ -76,6 +78,8 @@ export const logPayment = mutation({
       programId: program._id,
       paymentType,
     });
+    const proof = await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
+    const recordedFields = await newPaymentFields(ctx, tenantId, proof, WEB);
 
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
@@ -93,6 +97,7 @@ export const logPayment = mutation({
       statusChangedAt: now,
       recordedAt: now,
       origin,
+      ...recordedFields,
     });
     await recordPayment(ctx, paymentId);
 

@@ -18,7 +18,9 @@ import type {
   BillingPaymentDetail,
   BillingPaymentEvent,
   BillingPaymentListRow,
+  BillingPaymentProvenance,
   BillingPaymentRow,
+  BillingProofMatch,
   BillingSlackContributorTimelineEntry,
 } from "./types";
 
@@ -375,9 +377,52 @@ async function enrichOneBillingPaymentListRow(
       paymentType: payment.paymentType,
       programName: payment.programName,
       hasProofFile: payment.proofFileId !== undefined,
+      ...paymentProvenance(payment),
     },
     customer: personBillingLabels(person),
   };
+}
+
+function paymentProvenance(payment: Doc<"paymentRecords">): BillingPaymentProvenance {
+  return {
+    recordedVia: payment.recordedVia ?? null,
+    agentClient: payment.agentClient ?? null,
+    proofReused: payment.proofReused === true,
+  };
+}
+
+const PROOF_MATCH_LIMIT = 5;
+
+/**
+ * The other payments in the tenant whose proof file has this payment's hash,
+ * newest first. Read for every hashed payment, so the earlier payment of a
+ * reused receipt shows the match too, not only the flagged one.
+ */
+async function loadProofMatches(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payment: Doc<"paymentRecords">,
+): Promise<BillingProofMatch[]> {
+  const sha256 = payment.proofSha256;
+  if (!sha256) return [];
+  const rows = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_tenantId_and_proofSha256", (q) =>
+      q.eq("tenantId", tenantId).eq("proofSha256", sha256),
+    )
+    .order("desc")
+    .take(PROOF_MATCH_LIMIT + 1);
+  return rows
+    .filter((row) => row._id !== payment._id)
+    .slice(0, PROOF_MATCH_LIMIT)
+    .map((row) => ({
+      id: row._id,
+      recordedAt: row.recordedAt,
+      amountMinor: row.amountMinor,
+      currency: row.currency,
+      status: row.status,
+      programName: row.programName,
+    }));
 }
 
 async function enrichOneBillingPaymentRow(
@@ -422,6 +467,7 @@ async function enrichOneBillingPaymentRow(
       note: payment.note ?? null,
       hasProofFile: payment.proofFileId !== undefined,
       fathomLink: payment.fathomLink ?? null,
+      ...paymentProvenance(payment),
     },
     customer: { leadId: person?._id ?? null, ...personBillingLabels(person) },
     opportunity: opportunity
@@ -534,13 +580,14 @@ export async function enrichBillingPaymentDetail(
   tenantId: Id<"tenants">,
   payment: Doc<"paymentRecords">,
 ): Promise<BillingPaymentDetail> {
-  const [row, proofUrl, proofMeta, events] = await Promise.all([
+  const [row, proofUrl, proofMeta, events, proofMatches] = await Promise.all([
     enrichOneBillingPaymentRow(ctx, tenantId, payment),
     payment.proofFileId ? ctx.storage.getUrl(payment.proofFileId) : null,
     payment.proofFileId
       ? ctx.db.system.get("_storage", payment.proofFileId)
       : null,
     loadPaymentEvents(ctx, tenantId, payment._id),
+    loadProofMatches(ctx, tenantId, payment),
   ]);
 
   const opportunity = row.opportunity.id
@@ -555,6 +602,7 @@ export async function enrichBillingPaymentDetail(
       size: proofMeta?.size ?? null,
     },
     events,
+    proofMatches,
     slackContributorTimeline: await resolveSlackContributorTimeline(
       ctx,
       tenantId,

@@ -8,6 +8,7 @@ import { migrations } from "../convex/migrations";
 import type { OpportunityStatus } from "../convex/opportunities/stages";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "./bookingHarness";
 import { stageFields } from "./dealStageFixtures";
+import { storeProofFile } from "./proofFixtures";
 
 // Phase 4 enrollments (docs/plans/phase-4-customers.md §4.1): a harness that
 // can run the migrations, and rows inserted the way production holds them.
@@ -202,6 +203,7 @@ export async function paySideDeal(
 ) {
   vi.setSystemTime(new Date(at));
   const { paymentId } = await harness.closer.mutation(api.sideDeals.logPayment.logPayment, {
+    proofFileId: await storeProofFile(harness.t),
     opportunityId,
     amount: 500,
     currency: "USD",

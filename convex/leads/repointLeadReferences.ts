@@ -299,6 +299,33 @@ export async function moveMeetingToOpportunity(
     webhookDeliveries: 0,
     reassignments: 0,
   };
+  // Notes key on the deal, so the meeting's notes move with it. A partial
+  // move must roll back rather than strand older notes on the wrong deal.
+  const callNotes = await ctx.db.query("callNotes")
+    .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+    .take(ROW_LIMIT + 1);
+  requireComplete(callNotes, meetingId, "call notes");
+  for (const note of callNotes) {
+    if (note.tenantId !== tenantId) throw new Error("Call note tenant mismatch");
+    await ctx.db.patch("callNotes", note._id, { opportunityId: toOpportunityId });
+    const events = await ctx.db.query("domainEvents")
+      .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+        q.eq("tenantId", tenantId).eq("entityType", "opportunity")
+          .eq("entityId", note.opportunityId).eq("occurredAt", note.createdAt))
+      .take(ROW_LIMIT + 1);
+    requireComplete(events, meetingId, "call note events");
+    for (const event of events) {
+      if (event.eventType !== "opportunity.call_note_added") continue;
+      const metadata = JSON.parse(event.metadata ?? "{}");
+      if (metadata.callNoteId !== note._id) continue;
+      // These fields aren't activity-count dimensions, and a call note is
+      // neither a touch nor a last touch. Only its timeline location moves.
+      await ctx.db.patch("domainEvents", event._id, {
+        entityId: toOpportunityId, leadId: to.leadId,
+      });
+    }
+  }
+
   const responses = await ctx.db
     .query("meetingFormResponses")
     .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))

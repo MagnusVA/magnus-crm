@@ -1,5 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   canRestartFollowUp,
   canStartFollowUp,
@@ -18,7 +18,7 @@ export type FollowUpStart = "move" | "stay";
 
 /** Where a new follow-up may start, or throws `${refusal}: the deal is "…"`. */
 export async function resolveFollowUpStart(
-  ctx: MutationCtx,
+  ctx: QueryCtx | MutationCtx,
   opportunity: Doc<"opportunities">,
   meeting: Doc<"meetings"> | null,
   refusal: string,

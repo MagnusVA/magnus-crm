@@ -1,0 +1,1983 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`web paths write what they wrote before the split > createManualReminderFollowUpPublic, from the deal 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010022domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "00000000000000000010021followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.created",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "opportunityId": "0000000000000010011opportunities",
+          "type": "manual_reminder",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "pending",
+      },
+      {
+        "_id": "00000000000000010023domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "open",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "follow_up",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [
+      {
+        "_id": "00000000000000000010021followUps",
+        "closerId": "000000000000000000000010002users",
+        "contactMethod": "call",
+        "createdAt": 1790858400000,
+        "createdByUserId": "000000000000000000000010002users",
+        "createdSource": "closer",
+        "leadId": "000000000000000000000010007leads",
+        "opportunityId": "0000000000000010011opportunities",
+        "reason": "closer_initiated",
+        "reminderScheduledAt": 1791031200000,
+        "status": "pending",
+        "tenantId": "0000000000000000000010000tenants",
+        "type": "manual_reminder",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities follow-up calendly 000000000000000000010014meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010023domainEvents",
+            "eventType": "opportunity.stage_changed",
+            "occurredAt": 1790858400000,
+          },
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "stage": "follow_up",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > createManualReminderFollowUpPublic, from the meeting 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010022domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "00000000000000000010021followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.created",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "opportunityId": "0000000000000010011opportunities",
+          "type": "manual_reminder",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "pending",
+      },
+      {
+        "_id": "00000000000000010023domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "open",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "follow_up",
+      },
+      {
+        "_id": "00000000000000010024domainEvents",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790856000000,
+        "reason": "meeting_held",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "showed",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [
+      {
+        "_id": "00000000000000000010021followUps",
+        "closerId": "000000000000000000000010002users",
+        "contactMethod": "text",
+        "createdAt": 1790858400000,
+        "createdByUserId": "000000000000000000000010002users",
+        "createdSource": "closer",
+        "leadId": "000000000000000000000010007leads",
+        "opportunityId": "0000000000000010011opportunities",
+        "reason": "closer_initiated",
+        "reminderNote": "Send the contract",
+        "reminderScheduledAt": 1790944800000,
+        "sourceMeetingId": "000000000000000000010014meetings",
+        "status": "pending",
+        "tenantId": "0000000000000000000010000tenants",
+        "type": "manual_reminder",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities follow-up calendly 000000000000000000010014meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010023domainEvents",
+            "eventType": "opportunity.stage_changed",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "showed",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790856000000,
+          },
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "heldMarkedAt": 1790858400000,
+          "status": "held",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "stage": "follow_up",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > logPayment, as an admin 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010022domainEvents",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "payment",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "customer",
+      },
+      {
+        "_id": "00000000000000010024domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "paymentId": "000000000000010021paymentRecords",
+          "toOutcome": "won",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010025domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000010021paymentRecords",
+        "entityType": "payment",
+        "eventType": "payment.recorded",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "amountMinor": 25050,
+          "attributedCloserId": "000000000000000000000010002users",
+          "currency": "EUR",
+          "meetingId": "000000000000000000010014meetings",
+          "opportunityId": "0000000000000010011opportunities",
+          "origin": "admin_meeting",
+          "paymentType": "deposit",
+          "programId": "000000000000010003tenantPrograms",
+          "programName": "Program A",
+          "recordedByUserId": "000000000000000000000010001users",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "recorded",
+      },
+      {
+        "_id": "00000000000000010027domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000000010026enrollments",
+        "entityType": "enrollment",
+        "eventType": "enrollment.created",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "leadId": "000000000000000000000010007leads",
+          "opportunityId": "0000000000000010011opportunities",
+          "programId": "000000000000010003tenantPrograms",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+      {
+        "_id": "00000000000000010028domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.status_changed",
+        "fromStatus": "active",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "enrolled",
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "converted",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "enrollments": {
+    "added": [
+      {
+        "_id": "000000000000000010026enrollments",
+        "createdAt": 1790858400000,
+        "enrolledAt": 1790858400000,
+        "leadId": "000000000000000000000010007leads",
+        "opportunityId": "0000000000000010011opportunities",
+        "programId": "000000000000010003tenantPrograms",
+        "status": "active",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "convertedAt": 1790858400000,
+          "customerStatus": "active",
+          "latestActivityAt": 1790858400000,
+          "leadStatus": "converted",
+          "lifecycle": "customer",
+          "paymentCurrency": "EUR",
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities won calendly program a 000000000000000000010014meetings",
+          "totalPaidMinor": 25050,
+          "updatedAt": 1790858400000,
+          "wonOpportunityCount": 1,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010025domainEvents",
+            "eventType": "payment.recorded",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "customer",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "customer": 1790858400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790856000000,
+          },
+          "status": "converted",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "heldMarkedAt": 1790858400000,
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+          "status": "held",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "outcome": "won",
+          "paymentReceivedAt": 1790858400000,
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunityProjectionJobs": {
+    "added": [
+      {
+        "_id": "0010023opportunityProjectionJobs",
+        "cursor": null,
+        "dirty": false,
+        "generation": 1,
+        "opportunityId": "0000000000000010011opportunities",
+        "requestedAt": 1790858400000,
+        "status": "queued",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "paymentRecords": {
+    "added": [
+      {
+        "_id": "000000000000010021paymentRecords",
+        "amountMinor": 25050,
+        "attributedCloserId": "000000000000000000000010002users",
+        "currency": "EUR",
+        "meetingId": "000000000000000000010014meetings",
+        "opportunityId": "0000000000000010011opportunities",
+        "origin": "admin_meeting",
+        "paymentType": "deposit",
+        "programId": "000000000000010003tenantPrograms",
+        "programName": "Program A",
+        "recordedAt": 1790858400000,
+        "recordedByUserId": "000000000000000000000010001users",
+        "recordedVia": "web",
+        "status": "recorded",
+        "statusChangedAt": 1790858400000,
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > logPayment, as the closer 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010023domainEvents",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "payment",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "customer",
+      },
+      {
+        "_id": "00000000000000010025domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "paymentId": "000000000000010022paymentRecords",
+          "toOutcome": "won",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010026domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000010022paymentRecords",
+        "entityType": "payment",
+        "eventType": "payment.recorded",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "amountMinor": 100000,
+          "attributedCloserId": "000000000000000000000010002users",
+          "currency": "USD",
+          "meetingId": "000000000000000000010014meetings",
+          "opportunityId": "0000000000000010011opportunities",
+          "origin": "closer_meeting",
+          "paymentType": "pif",
+          "programId": "000000000000010003tenantPrograms",
+          "programName": "Program A",
+          "recordedByUserId": "000000000000000000000010002users",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "recorded",
+      },
+      {
+        "_id": "00000000000000010028domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000000010027enrollments",
+        "entityType": "enrollment",
+        "eventType": "enrollment.created",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "leadId": "000000000000000000000010007leads",
+          "opportunityId": "0000000000000010011opportunities",
+          "programId": "000000000000010003tenantPrograms",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+      {
+        "_id": "00000000000000010029domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.status_changed",
+        "fromStatus": "active",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "enrolled",
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "converted",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "enrollments": {
+    "added": [
+      {
+        "_id": "000000000000000010027enrollments",
+        "createdAt": 1790858400000,
+        "enrolledAt": 1790858400000,
+        "leadId": "000000000000000000000010007leads",
+        "opportunityId": "0000000000000010011opportunities",
+        "programId": "000000000000010003tenantPrograms",
+        "status": "active",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "convertedAt": 1790858400000,
+          "customerStatus": "active",
+          "latestActivityAt": 1790858400000,
+          "leadStatus": "converted",
+          "lifecycle": "customer",
+          "paymentCurrency": "USD",
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities won calendly program a 000000000000000000010014meetings",
+          "totalPaidMinor": 100000,
+          "updatedAt": 1790858400000,
+          "wonOpportunityCount": 1,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010026domainEvents",
+            "eventType": "payment.recorded",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "customer",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "customer": 1790858400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790856000000,
+          },
+          "status": "converted",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "heldMarkedAt": 1790858400000,
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+          "status": "held",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "outcome": "won",
+          "paymentReceivedAt": 1790858400000,
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunityProjectionJobs": {
+    "added": [
+      {
+        "_id": "0010024opportunityProjectionJobs",
+        "cursor": null,
+        "dirty": false,
+        "generation": 1,
+        "opportunityId": "0000000000000010011opportunities",
+        "requestedAt": 1790858400000,
+        "status": "queued",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "paymentRecords": {
+    "added": [
+      {
+        "_id": "000000000000010022paymentRecords",
+        "amountMinor": 100000,
+        "attributedCloserId": "000000000000000000000010002users",
+        "currency": "USD",
+        "meetingId": "000000000000000000010014meetings",
+        "opportunityId": "0000000000000010011opportunities",
+        "origin": "closer_meeting",
+        "paymentType": "pif",
+        "programId": "000000000000010003tenantPrograms",
+        "programName": "Program A",
+        "proofFileId": "000000000000000000010021_storage",
+        "proofSha256": "b1TQqvG4Wce8G/5ZeXnX0fVwCeya7djkf0hY/2B4wyg=",
+        "recordedAt": 1790858400000,
+        "recordedByUserId": "000000000000000000000010002users",
+        "recordedVia": "web",
+        "status": "recorded",
+        "statusChangedAt": 1790858400000,
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > logReminderPayment, as an admin 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010023domainEvents",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "payment",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "customer",
+      },
+      {
+        "_id": "00000000000000010025domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "followUpId": "00000000000000000010021followUps",
+          "fromOutcome": "open",
+          "paymentId": "000000000000010022paymentRecords",
+          "toOutcome": "won",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010026domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000010022paymentRecords",
+        "entityType": "payment",
+        "eventType": "payment.recorded",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "amountMinor": 40000,
+          "attributedCloserId": "000000000000000000000010002users",
+          "currency": "USD",
+          "followUpId": "00000000000000000010021followUps",
+          "meetingId": "000000000000000000010014meetings",
+          "opportunityId": "0000000000000010011opportunities",
+          "origin": "admin_reminder",
+          "paymentType": "monthly",
+          "programId": "000000000000010003tenantPrograms",
+          "programName": "Program A",
+          "recordedByUserId": "000000000000000000000010001users",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "recorded",
+      },
+      {
+        "_id": "00000000000000010027domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "00000000000000000010021followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.completed",
+        "fromStatus": "pending",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "origin": "admin_reminder",
+          "outcome": "payment_received",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "completed",
+      },
+      {
+        "_id": "00000000000000010029domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000000010028enrollments",
+        "entityType": "enrollment",
+        "eventType": "enrollment.created",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "leadId": "000000000000000000000010007leads",
+          "opportunityId": "0000000000000010011opportunities",
+          "programId": "000000000000010003tenantPrograms",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+      {
+        "_id": "00000000000000010030domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.status_changed",
+        "fromStatus": "active",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "enrolled",
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "converted",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "enrollments": {
+    "added": [
+      {
+        "_id": "000000000000000010028enrollments",
+        "createdAt": 1790858400000,
+        "enrolledAt": 1790858400000,
+        "leadId": "000000000000000000000010007leads",
+        "opportunityId": "0000000000000010011opportunities",
+        "programId": "000000000000010003tenantPrograms",
+        "status": "active",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000000000000010021followUps",
+        "removed": [],
+        "set": {
+          "completedAt": 1790858400000,
+          "completionOutcome": "payment_received",
+          "status": "completed",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "convertedAt": 1790858400000,
+          "customerStatus": "active",
+          "latestActivityAt": 1790858400000,
+          "leadStatus": "converted",
+          "lifecycle": "customer",
+          "paymentCurrency": "USD",
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities won calendly program a 000000000000000000010014meetings",
+          "totalPaidMinor": 40000,
+          "updatedAt": 1790858400000,
+          "wonOpportunityCount": 1,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010026domainEvents",
+            "eventType": "payment.recorded",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "customer",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "customer": 1790858400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790858400000,
+          },
+          "status": "converted",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "outcome": "won",
+          "paymentReceivedAt": 1790858400000,
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunityProjectionJobs": {
+    "added": [
+      {
+        "_id": "0010024opportunityProjectionJobs",
+        "cursor": null,
+        "dirty": false,
+        "generation": 1,
+        "opportunityId": "0000000000000010011opportunities",
+        "requestedAt": 1790858400000,
+        "status": "queued",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "paymentRecords": {
+    "added": [
+      {
+        "_id": "000000000000010022paymentRecords",
+        "amountMinor": 40000,
+        "attributedCloserId": "000000000000000000000010002users",
+        "currency": "USD",
+        "meetingId": "000000000000000000010014meetings",
+        "opportunityId": "0000000000000010011opportunities",
+        "origin": "admin_reminder",
+        "paymentType": "monthly",
+        "programId": "000000000000010003tenantPrograms",
+        "programName": "Program A",
+        "recordedAt": 1790858400000,
+        "recordedByUserId": "000000000000000000000010001users",
+        "recordedVia": "web",
+        "status": "recorded",
+        "statusChangedAt": 1790858400000,
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > logReminderPayment, as the closer 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010024domainEvents",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "payment",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "customer",
+      },
+      {
+        "_id": "00000000000000010026domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "followUpId": "00000000000000000010021followUps",
+          "fromOutcome": "open",
+          "paymentId": "000000000000010023paymentRecords",
+          "toOutcome": "won",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010027domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000010023paymentRecords",
+        "entityType": "payment",
+        "eventType": "payment.recorded",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "amountMinor": 40000,
+          "attributedCloserId": "000000000000000000000010002users",
+          "currency": "USD",
+          "followUpId": "00000000000000000010021followUps",
+          "meetingId": "000000000000000000010014meetings",
+          "opportunityId": "0000000000000010011opportunities",
+          "origin": "closer_reminder",
+          "paymentType": "split",
+          "programId": "000000000000010003tenantPrograms",
+          "programName": "Program A",
+          "recordedByUserId": "000000000000000000000010002users",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "recorded",
+      },
+      {
+        "_id": "00000000000000010028domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "00000000000000000010021followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.completed",
+        "fromStatus": "pending",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "origin": "closer_reminder",
+          "outcome": "payment_received",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "completed",
+      },
+      {
+        "_id": "00000000000000010030domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000000010029enrollments",
+        "entityType": "enrollment",
+        "eventType": "enrollment.created",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "leadId": "000000000000000000000010007leads",
+          "opportunityId": "0000000000000010011opportunities",
+          "programId": "000000000000010003tenantPrograms",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+      {
+        "_id": "00000000000000010031domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.status_changed",
+        "fromStatus": "active",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790858400000,
+        "reason": "enrolled",
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "converted",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "enrollments": {
+    "added": [
+      {
+        "_id": "000000000000000010029enrollments",
+        "createdAt": 1790858400000,
+        "enrolledAt": 1790858400000,
+        "leadId": "000000000000000000000010007leads",
+        "opportunityId": "0000000000000010011opportunities",
+        "programId": "000000000000010003tenantPrograms",
+        "status": "active",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000000000000010021followUps",
+        "removed": [],
+        "set": {
+          "completedAt": 1790858400000,
+          "completionOutcome": "payment_received",
+          "status": "completed",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "convertedAt": 1790858400000,
+          "customerStatus": "active",
+          "latestActivityAt": 1790858400000,
+          "leadStatus": "converted",
+          "lifecycle": "customer",
+          "paymentCurrency": "USD",
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities won calendly program a 000000000000000000010014meetings",
+          "totalPaidMinor": 40000,
+          "updatedAt": 1790858400000,
+          "wonOpportunityCount": 1,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010027domainEvents",
+            "eventType": "payment.recorded",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "customer",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "customer": 1790858400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790858400000,
+          },
+          "status": "converted",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "outcome": "won",
+          "paymentReceivedAt": 1790858400000,
+          "soldProgramId": "000000000000010003tenantPrograms",
+          "soldProgramName": "Program A",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunityProjectionJobs": {
+    "added": [
+      {
+        "_id": "0010025opportunityProjectionJobs",
+        "cursor": null,
+        "dirty": false,
+        "generation": 1,
+        "opportunityId": "0000000000000010011opportunities",
+        "requestedAt": 1790858400000,
+        "status": "queued",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "paymentRecords": {
+    "added": [
+      {
+        "_id": "000000000000010023paymentRecords",
+        "amountMinor": 40000,
+        "attributedCloserId": "000000000000000000000010002users",
+        "currency": "USD",
+        "meetingId": "000000000000000000010014meetings",
+        "opportunityId": "0000000000000010011opportunities",
+        "origin": "closer_reminder",
+        "paymentType": "split",
+        "programId": "000000000000010003tenantPrograms",
+        "programName": "Program A",
+        "proofFileId": "000000000000000000010022_storage",
+        "proofSha256": "9QhLefEZQrlt6BPnEIUpA9SRm+ajITtDyp/oYA/rRG4=",
+        "recordedAt": 1790858400000,
+        "recordedByUserId": "000000000000000000000010002users",
+        "recordedVia": "web",
+        "status": "recorded",
+        "statusChangedAt": 1790858400000,
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > markAsLost, from the deal, with no reason 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010021domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities lost calendly 000000000000000000010014meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010021domainEvents",
+            "eventType": "opportunity.marked_lost",
+            "occurredAt": 1790858400000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostByUserId": "000000000000000000000010002users",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > markAsLost, from the meeting 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010021domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "reason": "Price",
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010022domainEvents",
+        "entityId": "000000000000000000000010007leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "occurredAt": 1790856000000,
+        "reason": "meeting_held",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "showed",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities lost calendly 000000000000000000010014meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010021domainEvents",
+            "eventType": "opportunity.marked_lost",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "showed",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790856000000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "heldMarkedAt": 1790858400000,
+          "status": "held",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostByUserId": "000000000000000000000010002users",
+          "lostReason": "Price",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > markNoShow 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010021domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "reason": "no_response",
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010022domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "000000000000000000010014meetings",
+        "entityType": "meeting",
+        "eventType": "meeting.no_show",
+        "fromStatus": "scheduled",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "noteProvided": true,
+        },
+        "occurredAt": 1790858400000,
+        "reason": "no_response",
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "no_show",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities lost no show calendly 000000000000000000010014meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010022domainEvents",
+            "eventType": "meeting.no_show",
+            "occurredAt": 1790858400000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010017meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010014meetings",
+        "removed": [],
+        "set": {
+          "noShowMarkedAt": 1790858400000,
+          "noShowMarkedByUserId": "000000000000000000000010002users",
+          "noShowNote": "Called twice",
+          "noShowReason": "no_response",
+          "noShowSource": "closer",
+          "status": "no_show",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostReason": "no_show",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > markReminderLost 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010022domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010011opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "followUpId": "00000000000000000010021followUps",
+          "fromOutcome": "open",
+          "origin": "reminder",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "reason": "Went quiet",
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010023domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "00000000000000000010021followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.completed",
+        "fromStatus": "pending",
+        "leadId": "000000000000000000000010007leads",
+        "metadata": {
+          "origin": "reminder",
+          "outcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "source": "closer",
+        "teamMemberId": "000000000000000010015teamMembers",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "completed",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000000000000010021followUps",
+        "removed": [],
+        "set": {
+          "completedAt": 1790858400000,
+          "completionNote": "Went quiet",
+          "completionOutcome": "lost",
+          "status": "completed",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010008leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities lost calendly 000000000000000000010014meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010007leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010022domainEvents",
+            "eventType": "opportunity.marked_lost",
+            "occurredAt": 1790858400000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010011opportunities",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostByUserId": "000000000000000000000010002users",
+          "lostReason": "Went quiet",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010012opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;

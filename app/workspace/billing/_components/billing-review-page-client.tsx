@@ -18,6 +18,7 @@ import { BillingProofPreview } from "./billing-proof-preview";
 import { BillingReviewActions } from "./billing-review-actions";
 import { CopyBillingPayloadButton } from "./copy-billing-payload-button";
 import { CorrectionDialog } from "./correction-dialog";
+import { ReusedProofCard } from "./payment-provenance-markers";
 import { SlackContributorTimeline } from "./slack-contributor-timeline";
 
 const BACK = { href: "/workspace/billing", label: "Billing" };
@@ -104,7 +105,16 @@ export function BillingReviewPageClient({
       */}
       <div className="grid min-w-0 items-start gap-x-[18px] gap-y-3.5 @4xl:grid-cols-[minmax(0,1fr)_24rem] short:gap-y-3">
         <div className="order-1 min-w-0 @4xl:col-start-1 @4xl:row-start-1">
-          <PaymentFacts detail={detail} now={now} proof={<BillingProofPreview proof={detail.proof} owed={needsReview} />} />
+          <PaymentFacts
+            detail={detail}
+            now={now}
+            proof={
+              <>
+                <BillingProofPreview proof={detail.proof} owed={needsReview} />
+                <ReusedProofCard detail={detail} now={now} />
+              </>
+            }
+          />
         </div>
         <div className="contents @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-3.5 short:@4xl:gap-3">
           <div className="order-2 min-w-0">

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -106,6 +107,7 @@ it("makes a person with no email a customer through a side deal payment", async 
   );
 
   await closer.mutation(api.sideDeals.logPayment.logPayment, {
+    proofFileId: await storeProofFile(t),
     opportunityId,
     amount: 100,
     currency: "USD",
@@ -144,6 +146,7 @@ it.each([
   });
   expect(created.leadWasCreated).toBe(true);
   await closer.mutation(api.sideDeals.logPayment.logPayment, {
+    proofFileId: await storeProofFile(t),
     opportunityId: created.opportunityId, amount: 100, currency: "USD", programId, paymentType: "pif",
   });
 

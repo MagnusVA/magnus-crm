@@ -49,6 +49,16 @@ export const PERMISSIONS = {
   "billing:correct": ["tenant_master", "tenant_admin"],
   "billing:export": ["tenant_master", "tenant_admin"],
   // === End Billing Ops ===
+  // === AI assistants (docs/plans/closer-assistant.md) ===
+  // Connect an AI client over MCP. A role also needs a toolset and the
+  // tenant's switch (§6.1). Only closers have a toolset today.
+  "mcp:connect": ["closer"],
+  // Check calls where Jev's second opinion disagrees with the record (§6.9).
+  "second-opinion:review": ["tenant_master", "tenant_admin"],
+  // Turn the second opinion on or off and set its cap. Owner only: turning
+  // it on sends every recorded call to a model provider.
+  "second-opinion:manage": ["tenant_master"],
+  // === End AI assistants ===
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

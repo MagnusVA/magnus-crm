@@ -48,6 +48,10 @@ import { analyticsPageValidator, analyticsTables } from "./analytics/schema";
 
 import { meetingProjectionTables } from "./operations/meetingProjectionSchema";
 import { pipelineTables } from "./pipeline/schema";
+import { mcpTables } from "./mcp/schema";
+import { fathomTables } from "./fathom/schema";
+import { secondOpinionTables } from "./secondOpinion/schema";
+import { endOfDayTables } from "./closer/endOfDaySchema";
 
 export default defineSchema({
   ...pipelineTables,
@@ -55,6 +59,10 @@ export default defineSchema({
   ...meetingProjectionTables,
   ...operationsReportTables,
   ...analyticsTables,
+  ...mcpTables,
+  ...fathomTables,
+  ...secondOpinionTables,
+  ...endOfDayTables,
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
     // Set when the tenant moved to the booking coverage model: explicit Shared
@@ -116,6 +124,33 @@ export default defineSchema({
     slackQualificationDailyTeamQuota: v.optional(v.number()),
     // Phase 0 Billing Ops release gate. Undefined is treated as disabled.
     billingOpsEnabled: v.optional(v.boolean()),
+    // Which roles may use AI assistants over MCP (closer-assistant.md §6.1).
+    // Unset means none.
+    mcpAccess: v.optional(
+      v.object({
+        roles: v.array(
+          v.union(
+            v.literal("tenant_master"),
+            v.literal("tenant_admin"),
+            v.literal("closer"),
+            v.literal("lead_generator"),
+          ),
+        ),
+        changedAt: v.number(),
+        changedByUserId: v.id("users"),
+      }),
+    ),
+    // Jev's second opinion on recorded calls (closer-assistant.md §6.9).
+    // Unset means off.
+    secondOpinion: v.optional(
+      v.object({
+        mode: v.union(v.literal("off"), v.literal("shadow"), v.literal("on")),
+        shadowUntil: v.optional(v.number()),
+        monthlyCapUsd: v.number(),
+        changedAt: v.number(),
+        changedByUserId: v.id("users"),
+      }),
+    ),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
@@ -165,6 +200,13 @@ export default defineSchema({
     // The human behind this login (docs/plans/phase-1-foundations.md §6.1).
     // Unset until the team member backfill reaches the row.
     teamMemberId: v.optional(v.id("teamMembers")),
+
+    // IANA zone, such as "America/Tegucigalpa". Unset means the tenant's
+    // business-day zone (closer-assistant.md §5.9).
+    timezone: v.optional(v.string()),
+    // An admin blocked this user's AI assistant access (decision 14).
+    mcpBlockedAt: v.optional(v.number()),
+    mcpBlockedByUserId: v.optional(v.id("users")),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the team list shows users in creation order
     .index("by_tenantId", ["tenantId"])
@@ -1718,7 +1760,18 @@ export default defineSchema({
     // queries.
     recordedAt: v.number(),
     origin: paymentOriginValidator,
+    // How the payment was entered (closer-assistant.md §6.3). Set on every
+    // new payment; unset on rows written before the AI assistant.
+    recordedVia: v.optional(v.union(v.literal("web"), v.literal("mcp"))),
+    // clientInfo.name of the MCP client, for payments an agent logged.
+    agentClient: v.optional(v.string()),
+    // SHA-256 of the proof file, read from _storage when the payment is
+    // written. Another payment in the tenant with the same hash sets
+    // proofReused, which Billing shows to the reviewer.
+    proofSha256: v.optional(v.string()),
+    proofReused: v.optional(v.boolean()),
   })
+    .index("by_tenantId_and_proofSha256", ["tenantId", "proofSha256"])
     .index("by_opportunityId_and_recordedAt", [
       "opportunityId",
       "recordedAt",
@@ -2091,6 +2144,17 @@ export default defineSchema({
     bookingReviewChannelId: v.optional(v.string()),
     bookingReviewChannelName: v.optional(v.string()),
     bookingReviewChannelError: v.optional(
+      v.object({
+        code: v.string(),
+        channelId: v.string(),
+        channelName: v.optional(v.string()),
+        occurredAt: v.number(),
+      }),
+    ),
+    // Opt-in: closers' end-of-day reports post here. No fallback channel.
+    eodReportChannelId: v.optional(v.string()),
+    eodReportChannelName: v.optional(v.string()),
+    eodReportChannelError: v.optional(
       v.object({
         code: v.string(),
         channelId: v.string(),

@@ -45,6 +45,14 @@ export type InstallationStatus =
         channelName?: string;
         occurredAt: number;
       };
+      eodReportChannelId?: string;
+      eodReportChannelName?: string;
+      eodReportChannelError?: {
+        code: string;
+        channelId: string;
+        channelName?: string;
+        occurredAt: number;
+      };
       lastRefreshedAt?: number;
     };
 
@@ -84,12 +92,16 @@ export const getInstallationStatus = query({
       bookingReviewChannelId: installation.bookingReviewChannelId,
       bookingReviewChannelName: installation.bookingReviewChannelName,
       bookingReviewChannelError: installation.bookingReviewChannelError,
+      eodReportChannelId: installation.eodReportChannelId,
+      eodReportChannelName: installation.eodReportChannelName,
+      eodReportChannelError: installation.eodReportChannelError,
       lastRefreshedAt: installation.lastRefreshedAt,
     };
   },
 });
 
 export const setSlackNotifyChannels = mutation({
+  returns: v.null(),
   args: {
     notifyChannelId: v.string(),
     notifyChannelName: v.string(),
@@ -98,6 +110,13 @@ export const setSlackNotifyChannels = mutation({
     // Opt-in channel for lead gen submissions: omitted leaves it unchanged,
     // null turns it off.
     leadGenNotifyChannel: v.optional(
+      v.union(
+        v.null(),
+        v.object({ channelId: v.string(), channelName: v.string() }),
+      ),
+    ),
+    // Opt-in EOD channel: omitted leaves it unchanged, null turns it off.
+    eodReportChannel: v.optional(
       v.union(
         v.null(),
         v.object({ channelId: v.string(), channelName: v.string() }),
@@ -134,6 +153,7 @@ export const setSlackNotifyChannels = mutation({
 
     const leadGenChannel = args.leadGenNotifyChannel;
     const bookingReviewChannel = args.bookingReviewChannel;
+    const eodReportChannel = args.eodReportChannel;
     await ctx.db.patch("slackInstallations", installation._id, {
       notifyChannelId: args.notifyChannelId,
       notifyChannelName: args.notifyChannelName,
@@ -145,6 +165,11 @@ export const setSlackNotifyChannels = mutation({
         leadGenNotifyChannelId: leadGenChannel?.channelId,
         leadGenNotifyChannelName: leadGenChannel?.channelName,
         leadGenNotifyChannelError: undefined,
+      }),
+      ...(eodReportChannel !== undefined && {
+        eodReportChannelId: eodReportChannel?.channelId,
+        eodReportChannelName: eodReportChannel?.channelName,
+        eodReportChannelError: undefined,
       }),
       ...(bookingReviewChannel !== undefined && {
         bookingReviewChannelId: bookingReviewChannel?.channelId,
@@ -163,9 +188,14 @@ export const setSlackNotifyChannels = mutation({
       notifyChannelId: args.notifyChannelId,
       staleReminderChannelId: args.staleReminderChannelId,
       leadGenNotifyChannelId,
-      bookingReviewChannelChanged: bookingReviewChannel !== undefined &&
+      eodReportChannelChanged:
+        eodReportChannel !== undefined &&
+        installation.eodReportChannelId !== eodReportChannel?.channelId,
+      bookingReviewChannelChanged:
+        bookingReviewChannel !== undefined &&
         installation.bookingReviewChannelId !== bookingReviewChannel?.channelId,
-      notifyChannelChanged: installation.notifyChannelId !== args.notifyChannelId,
+      notifyChannelChanged:
+        installation.notifyChannelId !== args.notifyChannelId,
       staleReminderChannelChanged:
         installation.staleReminderChannelId !== args.staleReminderChannelId,
       leadGenNotifyChannelChanged:
@@ -180,6 +210,6 @@ export const setSlackNotifyChannels = mutation({
         installation.bookingReviewChannelError !== undefined)
     )
       await schedulePendingBookingReviewAlerts(ctx, tenantId);
+    return null;
   },
 });
-

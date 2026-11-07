@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
@@ -45,6 +45,9 @@ import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 import { ProofFileInput } from "./proof-file-input";
 import { getErrorMessage } from "@/lib/errors";
+import type { PaymentLinkValues } from "@/lib/paymentLink";
+import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import { useProofRequired } from "@/hooks/use-proof-required";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -119,6 +122,8 @@ type PaymentFormDialogProps = {
   leadName?: string | null;
   /** The booked program, preselected when it is an active program. */
   defaultProgramId?: Id<"tenantPrograms"> | null;
+  /** Values from a payment link, filled in when the dialog opens. */
+  prefill?: PaymentLinkValues;
 };
 
 /**
@@ -129,7 +134,7 @@ type PaymentFormDialogProps = {
  * - Currency (required, defaults to USD)
  * - Program (required)
  * - Payment Type (required)
- * - Proof File (optional, image or PDF up to 10 MB)
+ * - Proof File (image or PDF up to 10 MB; required for closers)
  *
  * The program starts at the booked program when it is still active, with
  * that program's default currency.
@@ -143,6 +148,7 @@ export function PaymentFormDialog({
   onOpenChange,
   leadName,
   defaultProgramId,
+  prefill,
 }: PaymentFormDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -152,6 +158,8 @@ export function PaymentFormDialog({
     onOpenChange?.(value);
   };
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Closers must attach proof; the mutation refuses a payment without it.
+  const proofRequired = useProofRequired();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -194,10 +202,32 @@ export function PaymentFormDialog({
     if (bookedCurrency) form.setValue("currency", bookedCurrency);
   }, [bookedProgram, bookedCurrency, form]);
 
+  // A payment link's values (lib/paymentLink.ts) fill the form once each time
+  // it opens, after the programs load, so a link's program can be checked.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      prefilled.current = false;
+      return;
+    }
+    if (!prefill || prefilled.current || programs === undefined) return;
+    prefilled.current = true;
+    if (prefill.amount !== undefined) form.setValue("amount", String(prefill.amount));
+    const currency = CURRENCIES.find((code) => code === prefill.currency);
+    if (currency) form.setValue("currency", currency);
+    if (prefill.paymentType) form.setValue("paymentType", prefill.paymentType);
+    const program = programs.find((item) => item._id === prefill.programId);
+    if (program) form.setValue("programId", program._id);
+  }, [open, prefill, programs, form]);
+
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.closer.payments.logPayment);
 
   const onSubmit = async (values: PaymentFormValues) => {
+    if (proofRequired && !values.proofFile) {
+      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+      return;
+    }
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -433,7 +463,10 @@ export function PaymentFormDialog({
                 name="proofFile"
                 render={({ field: { value, onChange, onBlur, name } }) => (
                   <FormItem>
-                    <FormLabel>Proof file</FormLabel>
+                    <FormLabel>
+                      Proof file{" "}
+                      {proofRequired ? <span className="text-destructive">*</span> : null}
+                    </FormLabel>
                     <FormControl>
                       <ProofFileInput
                         value={value}

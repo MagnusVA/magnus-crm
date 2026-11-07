@@ -5,6 +5,7 @@ import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { countLeadStageEntries } from "../lib/leadLifecycle";
 import { SLACK_OPPORTUNITY_EXPIRY_MS } from "../pipeline/slackJoinLookup";
 import { STALE_EXPIRY_CUTOVER_AT } from "../slack/staleExpiry";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -164,6 +165,7 @@ describe("lifecycle write paths", () => {
 
     vi.setSystemTime(new Date("2026-10-01T12:40:00Z"));
     await harness.closer.mutation(api.closer.payments.logPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId,
       meetingId,
       amount: 1000,
@@ -211,6 +213,7 @@ describe("lifecycle write paths", () => {
 
     vi.setSystemTime(new Date(NOW + 60_000));
     const { paymentId } = await harness.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId: created.opportunityId,
       amount: 500,
       currency: "USD",

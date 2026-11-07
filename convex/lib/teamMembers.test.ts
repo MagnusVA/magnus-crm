@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -169,6 +170,7 @@ describe("domain event links", () => {
 
     vi.setSystemTime(new Date("2026-10-01T12:40:00Z"));
     await harness.closer.mutation(api.closer.payments.logPayment, {
+      proofFileId: await storeProofFile(harness.t),
       opportunityId, meetingId, amount: 1000, currency: "USD", programId, paymentType: "pif",
     });
 

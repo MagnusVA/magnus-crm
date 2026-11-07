@@ -10,6 +10,7 @@ import {
   type GuardHarness,
   type GuardState,
 } from "../../tests/dealGuardFixtures";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 // Side deals are worked at the same states as before PR 7: a `scheduled`
 // side deal is Call held (docs/plans/phase-5-deal-status.md §5, §6.9).
@@ -42,8 +43,9 @@ describe("side deal writes", () => {
     await expectGuard(
       harness,
       opportunityId,
-      () =>
+      async () =>
         harness.closer.mutation(api.sideDeals.logPayment.logPayment, {
+          proofFileId: await storeProofFile(harness.t),
           opportunityId,
           amount: 500,
           currency: "USD",

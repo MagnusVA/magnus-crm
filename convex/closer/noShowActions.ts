@@ -1,4 +1,6 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
@@ -6,8 +8,18 @@ import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActi
 import { canSendRescheduleLink, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  toCheckResult,
+  WEB,
+  type CheckResult,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
-const noShowReasonValidator = v.union(
+export const noShowReasonValidator = v.union(
   v.literal("no_response"),
   v.literal("late_cancel"),
   v.literal("technical_issues"),
@@ -32,70 +44,140 @@ export const markNoShow = mutation({
     reason: noShowReasonValidator,
     note: v.optional(v.string()),
   },
-  handler: async (ctx, { meetingId, reason, note }) => {
-    const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
-
-    const meeting = await ctx.db.get("meetings", meetingId);
-    if (!meeting || meeting.tenantId !== tenantId) {
-      throw new Error("Meeting not found");
-    }
-
-    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
-    if (!opportunity || opportunity.tenantId !== tenantId) {
-      throw new Error("Opportunity not found");
-    }
-    const now = Date.now();
-    // A deal awaiting its call's result, which a no-show always closes.
-    assertCanRecordMeetingOutcome({
-      meeting,
-      opportunity,
-      userId,
-      role,
-      now,
-    });
-
-    const normalizedNote = normalizeOptionalString(note);
-
-    // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
-    await transitionOpportunity(ctx, opportunity._id, {
-      to: { stage: "closed", outcome: "lost" },
-      fields: { updatedAt: now, ...missedMeetingLoss("no_show", now) },
-      source: "closer",
-      actorUserId: userId,
-      reason,
-      occurredAt: now,
-    });
-    await completeMeetingForOutcome(ctx, {
-      meetingId: meeting._id,
-        opportunityId: opportunity._id,
-      toMeetingStatus: "no_show",
-      recordedAt: now,
-      extraMeetingPatch: {
-        noShowMarkedAt: now,
-        noShowReason: reason,
-        noShowNote: normalizedNote,
-        noShowMarkedByUserId: userId,
-        noShowSource: "closer",
-      },
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "meeting",
-      entityId: meetingId,
-      eventType: "meeting.no_show",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: meeting.status,
-      toStatus: "no_show",
-      reason,
-      metadata: {
-        noteProvided: Boolean(normalizedNote),
-      },
-      occurredAt: now,
-    });
+  handler: async (ctx, args) => {
+    const actor = await requireTenantUser(ctx, ["closer"]);
+    await recordNoShow(ctx, actor, args, WEB);
   },
 });
+
+export type NoShowReason = Infer<typeof noShowReasonValidator>;
+
+export type NoShowArgs = {
+  meetingId: Id<"meetings">;
+  reason: NoShowReason;
+  note?: string;
+};
+
+/** Every check `markNoShow` makes, in its order, with no write. */
+async function checkNoShow(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: NoShowArgs,
+) {
+  assertCoreRole(actor, ["closer"]);
+  const { userId, tenantId, role } = actor;
+
+  const meeting = await ctx.db.get("meetings", args.meetingId);
+  if (!meeting || meeting.tenantId !== tenantId) {
+    throw new Error("Meeting not found");
+  }
+
+  const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
+  if (!opportunity || opportunity.tenantId !== tenantId) {
+    throw new Error("Opportunity not found");
+  }
+  const now = Date.now();
+  // A deal awaiting its call's result, which a no-show always closes.
+  assertCanRecordMeetingOutcome({
+    meeting,
+    opportunity,
+    userId,
+    role,
+    now,
+  });
+  return { userId, tenantId, meeting, opportunity, now };
+}
+
+/**
+ * Whether `recordNoShow` would mark this meeting, without writing, with the
+ * refusal it would throw returned as `{ ok: false, code, message }`
+ * (decision 17).
+ */
+export async function checkNoShowAllowed(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: NoShowArgs,
+): Promise<
+  CheckResult<{
+    meetingId: Id<"meetings">;
+    opportunityId: Id<"opportunities">;
+    leadId: Id<"leads">;
+    scheduledAt: number;
+  }>
+> {
+  return await toCheckResult(async () => {
+    const { meeting, opportunity } = await checkNoShow(ctx, actor, args);
+    return {
+      meetingId: meeting._id,
+      opportunityId: opportunity._id,
+      leadId: opportunity.leadId,
+      scheduledAt: meeting.scheduledAt,
+    };
+  });
+}
+
+/**
+ * Marks a scheduled meeting no-show and closes its deal lost with the reason
+ * `no_show`. The core of `markNoShow` (docs/plans/closer-assistant.md §6.3).
+ * `provenance` tags the `meeting.no_show` event for an agent.
+ */
+export async function recordNoShow(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: NoShowArgs,
+  provenance: Provenance,
+): Promise<void> {
+  const { meetingId, reason, note } = args;
+  const { userId, tenantId, meeting, opportunity, now } = await checkNoShow(
+    ctx,
+    actor,
+    args,
+  );
+
+  const normalizedNote = normalizeOptionalString(note);
+
+  // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
+  await transitionOpportunity(ctx, opportunity._id, {
+    to: { stage: "closed", outcome: "lost" },
+    fields: { updatedAt: now, ...missedMeetingLoss("no_show", now) },
+    source: "closer",
+    actorUserId: userId,
+    reason,
+    occurredAt: now,
+  });
+  await completeMeetingForOutcome(ctx, {
+    meetingId: meeting._id,
+    opportunityId: opportunity._id,
+    toMeetingStatus: "no_show",
+    recordedAt: now,
+    extraMeetingPatch: {
+      noShowMarkedAt: now,
+      noShowReason: reason,
+      noShowNote: normalizedNote,
+      noShowMarkedByUserId: userId,
+      noShowSource: "closer",
+    },
+  });
+
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "meeting",
+    entityId: meetingId,
+    eventType: "meeting.no_show",
+    source: "closer",
+    actorUserId: userId,
+    fromStatus: meeting.status,
+    toStatus: "no_show",
+    reason,
+    metadata: {
+      noteProvided: Boolean(normalizedNote),
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: now,
+  });
+  // A recorded result plus a matched recording starts Jev's check (§6.9).
+  await queueSecondOpinion(ctx, { meetingId: meetingId, trigger: "result_recorded" });
+}
 
 /**
  * Generate a reschedule link for a no-show opportunity.
