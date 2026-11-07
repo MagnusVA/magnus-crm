@@ -33,43 +33,14 @@ import {
 } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import {
-  AlarmClockCheckIcon,
-  ActivityIcon,
-  BarChart3Icon,
-  CalendarCheckIcon,
-  CalendarXIcon,
   ChevronRightIcon,
-  ClipboardCheckIcon,
-  ClockIcon,
-  ContactIcon,
-  GitMergeIcon,
-  DollarSignIcon,
-  KanbanIcon,
-  LayoutDashboardIcon,
-  CalendarClockIcon,
   LogOutIcon,
-  MegaphoneIcon,
-  MessageSquareTextIcon,
-  PhoneCallIcon,
-  RefreshCwIcon,
-  SettingsIcon,
-  CalendarCogIcon,
-  LayoutGridIcon,
-  InboxIcon,
-  CalendarRangeIcon,
-  MessagesSquareIcon,
-  LinkIcon,
-  TargetIcon,
-  TrendingUpIcon,
-  type LucideIcon,
-  UsersIcon,
 } from "lucide-react";
 import {
   BreadcrumbTrailProvider,
   WorkspaceBreadcrumbs,
 } from "@/components/workspace-breadcrumbs";
 import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
-import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MagnusBrand } from "@/components/magnus-brand";
 import { useBusinessDay } from "@/hooks/use-business-day";
@@ -82,6 +53,7 @@ import { useSignOut } from "@/hooks/use-sign-out";
 import { MemberIdentity } from "./member-identity";
 import { PageAreaTransition, WORKSPACE_NAV } from "@/components/page-transitions";
 import type { MemberAvatarIdentity } from "./member-avatar";
+import { navForRole, REVIEW_HREF, reportNavItems, type NavItem } from "./workspace-nav";
 
 // Dynamic import for command palette (vercel-react-best-practices: bundle-dynamic-imports)
 const CommandPalette = dynamic(
@@ -92,153 +64,9 @@ const CommandPalette = dynamic(
   { ssr: false },
 );
 
-// ---------------------------------------------------------------------------
-// Hoisted static nav definitions — avoids re-creation on every render
-// (vercel-react-best-practices: rendering-hoist-jsx)
-// ---------------------------------------------------------------------------
-
-type NavItem = {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  exact?: boolean;
-  children?: NavItem[];
-};
-
-const leadsCustomersNavItem: NavItem = {
-  href: "/workspace/leads-customers",
-  label: "Leads & Customers",
-  icon: ContactIcon,
-};
-
-const operationsNavItem: NavItem = {
-  href: "/workspace/operations",
-  label: "Operations",
-  icon: KanbanIcon,
-  children: [
-    {
-      href: "/workspace/operations/lead-gen",
-      label: "Lead Gen",
-      icon: MegaphoneIcon,
-    },
-    {
-      href: "/workspace/operations/qualifications",
-      label: "Qualifications",
-      icon: ClipboardCheckIcon,
-    },
-    {
-      href: "/workspace/operations/booked-calls",
-      label: "Booked Calls",
-      icon: CalendarCheckIcon,
-    },
-    {
-      href: "/workspace/operations/sales-calls",
-      label: "Sales Calls",
-      icon: PhoneCallIcon,
-    },
-    {
-      href: "/workspace/operations/missed-meetings",
-      label: "No-shows & Cancellations",
-      icon: CalendarXIcon,
-    },
-    {
-      href: "/workspace/operations/booking-reviews",
-      label: "Booking Reviews",
-      icon: GitMergeIcon,
-    },
-  ],
-};
-
-const bookingNavItem: NavItem = {
-  href: "/workspace/booking",
-  label: "Booking setup",
-  icon: CalendarCogIcon,
-  children: [
-    { href: "/workspace/booking", label: "Coverage", icon: LayoutGridIcon, exact: true },
-    { href: "/workspace/booking/inbox", label: "Inbox", icon: InboxIcon },
-    { href: "/workspace/booking/event-types", label: "Event types", icon: CalendarRangeIcon },
-    { href: "/workspace/booking/portal", label: "Link portal", icon: LinkIcon },
-  ],
-};
-
-const REVIEW_HREF = "/workspace/team/review";
-
-// Team › Members is exact: the other sections and redistribute sit under it.
-const teamNavItem: NavItem = {
-  href: "/workspace/team",
-  label: "Team",
-  icon: UsersIcon,
-  children: [
-    { href: "/workspace/team", label: "Members", icon: UsersIcon, exact: true },
-    { href: REVIEW_HREF, label: "Review", icon: InboxIcon },
-    { href: "/workspace/team/teams", label: "Teams", icon: MessagesSquareIcon },
-    { href: "/workspace/team/schedules", label: "Schedules", icon: CalendarClockIcon },
-    { href: "/workspace/team/goals", label: "Goals", icon: TargetIcon },
-  ],
-};
-
-const adminNavItems: NavItem[] = [
-  { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
-  operationsNavItem,
-  leadsCustomersNavItem,
-  teamNavItem,
-  bookingNavItem,
-  { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
-];
-
-const billingNavItem: NavItem = {
-  href: "/workspace/billing",
-  label: "Billing",
-  icon: DollarSignIcon,
-};
-
 // Active items take a lime tint and a lime icon, as in the locked direction.
 const ACTIVE_NAV_CLASS =
   "data-[active=true]:bg-primary/16 data-[active=true]:text-sidebar-accent-foreground data-[active=true]:[&>svg]:text-primary";
-
-const closerNavItems: NavItem[] = [
-  { href: "/workspace/closer", label: "Today", icon: CalendarClockIcon, exact: true },
-  { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
-  leadsCustomersNavItem,
-];
-
-const leadGeneratorNavItems: NavItem[] = [
-  { href: "/workspace/lead-gen/capture", label: "Capture", icon: TargetIcon, exact: true },
-  { href: "/workspace/lead-gen/my-activity", label: "My Activity", icon: ActivityIcon },
-  { href: "/workspace/lead-gen/respark", label: "Respark", icon: RefreshCwIcon },
-];
-
-const reportNavItems: NavItem[] = [
-  { href: "/workspace/reports/team", label: "Team Performance", icon: BarChart3Icon },
-  { href: "/workspace/reports/revenue", label: "Revenue", icon: DollarSignIcon },
-  { href: "/workspace/reports/pipeline", label: "Pipeline Health", icon: ActivityIcon },
-  { href: "/workspace/reports/leads", label: "Leads & Conversions", icon: TrendingUpIcon },
-  { href: "/workspace/reports/activity", label: "Activity Feed", icon: ClockIcon },
-  { href: "/workspace/reports/reminders", label: "Reminders", icon: AlarmClockCheckIcon },
-  {
-    href: "/workspace/reports/slack-qualifications",
-    label: "Slack Qualifications",
-    icon: MessageSquareTextIcon,
-  },
-];
-
-function navForRole(
-  role: CrmRole,
-  isAdmin: boolean,
-  billingOpsEnabled: boolean,
-) {
-  if (isAdmin) {
-    return billingOpsEnabled
-      ? [
-          ...adminNavItems.slice(0, 2),
-          billingNavItem,
-          ...adminNavItems.slice(2),
-        ]
-      : adminNavItems;
-  }
-  if (role === "lead_generator") return leadGeneratorNavItems;
-  return closerNavItems;
-}
 
 /**
  * Sidebar nav item with a collapsible submenu (shadcn sidebar pattern:
@@ -599,7 +427,6 @@ function WorkspaceShellClientInner({
             <div className="ml-auto flex items-center gap-2">
               <CommandPaletteTrigger />
               <ThemeToggle />
-              <NotificationCenter />
             </div>
           </header>
           <PageAreaTransition>
