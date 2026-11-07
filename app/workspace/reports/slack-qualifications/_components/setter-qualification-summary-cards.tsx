@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { teamHref } from "@/app/workspace/operations/_components/team-links";
 import {
   AlertTriangleIcon,
   GaugeIcon,
@@ -122,7 +124,13 @@ export function SetterQualificationSummaryCards({
             {formatNullableInteger(totals.dailyTeamQualificationGoal)}
           </div>
           <p className="text-xs text-muted-foreground">
-            One shared target for all Slack setters
+            One shared target for all Slack setters ·{" "}
+            <Link
+              href={teamHref.goals("qualified")}
+              className="rounded-[3px] underline decoration-current/40 decoration-dotted underline-offset-[3px] outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              set in Team › Goals
+            </Link>
           </p>
         </CardContent>
       </Card>

@@ -5,56 +5,73 @@ import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { RequirePermission } from "@/components/auth/require-permission";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
+import { useRole } from "@/components/auth/role-context";
+import { Button } from "@/components/ui/button";
+import { RecordRow } from "./member-card/card-ui";
 
-const AccessConfirmDialog = dynamic(
-  () => import("@/components/ai-assistants/access-confirm-dialog"),
-);
-type Member = {
-  _id: Id<"users">;
-  fullName?: string;
-  email: string;
-  mcpBlockedAt?: number;
-};
-export function AiAssistantBlockedBadge({ member }: { member: Member }) {
-  return member.mcpBlockedAt !== undefined ? (
-    <Badge variant="outline" className="mr-2">
-      AI blocked
-    </Badge>
-  ) : null;
-}
-export function AiAssistantMemberMenuItem({ member }: { member: Member }) {
-  const [confirm, setConfirm] = useState(false);
+const AccessConfirmDialog = dynamic(() => import("@/components/ai-assistants/access-confirm-dialog"));
+
+/**
+ * The member card's AI assistant row (docs/plans/closer-assistant.md §7):
+ * whether this login's connected agents may use Magnus, and Block or
+ * Unblock. Shown for closers, the one role with tools, and for anyone
+ * already blocked.
+ */
+export function AiAssistantAccessRow({
+  userId,
+  name,
+  firstName,
+  role,
+  active,
+  blocked,
+}: {
+  userId: Id<"users">;
+  name: string;
+  firstName: string;
+  role: "tenant_master" | "tenant_admin" | "closer" | "lead_generator";
+  active: boolean;
+  blocked: boolean;
+}) {
+  const { hasPermission } = useRole();
   const setBlocked = useMutation(api.mcp.settings.setUserBlocked);
-  const blocked = member.mcpBlockedAt !== undefined;
-  const name = member.fullName ?? member.email;
+  const [confirm, setConfirm] = useState(false);
+  if (role !== "closer" && !blocked) return null;
+  const canChange = active && hasPermission("settings:manage");
+
   return (
-    <RequirePermission permission="settings:manage">
-      <DropdownMenuItem
-        onSelect={(event) => {
-          event.preventDefault();
-          setConfirm(true);
-        }}
-      >
-        {blocked ? "Unblock AI assistant access" : "Block AI assistant access"}
-      </DropdownMenuItem>
+    <>
+      <RecordRow
+        label="AI assistant"
+        tip="Whether the AI apps this person connected (Claude, ChatGPT) can use Magnus. Turning access on for a role is in Settings › Integrations."
+        primary={
+          blocked ? <span className="font-medium text-warning-ink">Blocked</span> : <span className="font-medium">Allowed</span>
+        }
+        secondary={
+          blocked
+            ? `${firstName}’s connected agents can’t use Magnus.`
+            : `Can use Magnus while AI assistants are on for closers.`
+        }
+        actions={
+          canChange ? (
+            <Button variant="outline" size="sm" onClick={() => setConfirm(true)}>
+              {blocked ? "Unblock" : "Block"}
+            </Button>
+          ) : null
+        }
+      />
       {confirm ? (
         <AccessConfirmDialog
-          title={`${blocked ? "Unblock" : "Block"} ${name}'s AI assistant access?`}
+          title={`${blocked ? "Unblock" : "Block"} ${name}’s AI assistant access?`}
           description={
             blocked
-              ? "Their connected agents can use Magnus again when access is on for their role."
-              : "Their connected agents stop working on their next call."
+              ? `${firstName}’s connected agents can use Magnus again when access is on for their role.`
+              : `${firstName}’s connected agents stop working on their next call.`
           }
           action={blocked ? "Unblock" : "Block"}
           onClose={() => setConfirm(false)}
-          onConfirm={() =>
-            setBlocked({ userId: member._id, blocked: !blocked })
-          }
+          onConfirm={() => setBlocked({ userId, blocked: !blocked })}
         />
       ) : null}
-    </RequirePermission>
+    </>
   );
 }

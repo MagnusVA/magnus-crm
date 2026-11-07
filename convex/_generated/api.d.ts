@@ -77,6 +77,8 @@ import type * as billing_queries from "../billing/queries.js";
 import type * as billing_queryBuilder from "../billing/queryBuilder.js";
 import type * as billing_types from "../billing/types.js";
 import type * as billing_validators from "../billing/validators.js";
+import type * as bookingSetup_mutations from "../bookingSetup/mutations.js";
+import type * as bookingSetup_queries from "../bookingSetup/queries.js";
 import type * as businessDaySchema from "../businessDaySchema.js";
 import type * as businessDays from "../businessDays.js";
 import type * as calendly_apiErrors from "../calendly/apiErrors.js";
@@ -203,6 +205,8 @@ import type * as lib_attribution_resolveAttribution from "../lib/attribution/res
 import type * as lib_attribution_teamEventTypeRoutes from "../lib/attribution/teamEventTypeRoutes.js";
 import type * as lib_attribution_teamInput from "../lib/attribution/teamInput.js";
 import type * as lib_attribution_validators from "../lib/attribution/validators.js";
+import type * as lib_bookingSetup_coverage from "../lib/bookingSetup/coverage.js";
+import type * as lib_bookingSetup_coverageData from "../lib/bookingSetup/coverageData.js";
 import type * as lib_businessDayRebuildState from "../lib/businessDayRebuildState.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_dealNextStep from "../lib/dealNextStep.js";
@@ -288,7 +292,6 @@ import type * as linkPortal_leadMutations from "../linkPortal/leadMutations.js";
 import type * as linkPortal_leadQueries from "../linkPortal/leadQueries.js";
 import type * as linkPortal_leadSession from "../linkPortal/leadSession.js";
 import type * as linkPortal_passwordActions from "../linkPortal/passwordActions.js";
-import type * as linkPortal_portalActions from "../linkPortal/portalActions.js";
 import type * as linkPortal_portalQueries from "../linkPortal/portalQueries.js";
 import type * as linkPortal_portalTouches from "../linkPortal/portalTouches.js";
 import type * as linkPortal_rateLimitMutations from "../linkPortal/rateLimitMutations.js";
@@ -468,6 +471,11 @@ import type * as slack_userActions from "../slack/userActions.js";
 import type * as slack_users from "../slack/users.js";
 import type * as slack_webApi from "../slack/webApi.js";
 import type * as support from "../support.js";
+import type * as team_contracts from "../team/contracts.js";
+import type * as team_data from "../team/data.js";
+import type * as team_directory from "../team/directory.js";
+import type * as team_members from "../team/members.js";
+import type * as team_review from "../team/review.js";
 import type * as teamMembers_linking from "../teamMembers/linking.js";
 import type * as tenantPrograms_mutations from "../tenantPrograms/mutations.js";
 import type * as tenantPrograms_queries from "../tenantPrograms/queries.js";
@@ -493,6 +501,8 @@ import type * as webhooks_calendlyQueries from "../webhooks/calendlyQueries.js";
 import type * as webhooks_cleanup from "../webhooks/cleanup.js";
 import type * as webhooks_cleanupMutations from "../webhooks/cleanupMutations.js";
 import type * as workSchedules from "../workSchedules.js";
+import type * as workSchedules_datedRows from "../workSchedules/datedRows.js";
+import type * as workSchedules_goalDays from "../workSchedules/goalDays.js";
 import type * as workSchedules_rangeHours from "../workSchedules/rangeHours.js";
 import type * as workos_profileActions from "../workos/profileActions.js";
 import type * as workos_profileBackfill from "../workos/profileBackfill.js";
@@ -502,6 +512,7 @@ import type * as workos_roles from "../workos/roles.js";
 import type * as workos_userActions from "../workos/userActions.js";
 import type * as workos_userManagement from "../workos/userManagement.js";
 import type * as workos_userMutations from "../workos/userMutations.js";
+import type * as workspaceAccess from "../workspaceAccess.js";
 
 import type {
   ApiFromModules,
@@ -579,6 +590,8 @@ declare const fullApi: ApiFromModules<{
   "billing/queryBuilder": typeof billing_queryBuilder;
   "billing/types": typeof billing_types;
   "billing/validators": typeof billing_validators;
+  "bookingSetup/mutations": typeof bookingSetup_mutations;
+  "bookingSetup/queries": typeof bookingSetup_queries;
   businessDaySchema: typeof businessDaySchema;
   businessDays: typeof businessDays;
   "calendly/apiErrors": typeof calendly_apiErrors;
@@ -705,6 +718,8 @@ declare const fullApi: ApiFromModules<{
   "lib/attribution/teamEventTypeRoutes": typeof lib_attribution_teamEventTypeRoutes;
   "lib/attribution/teamInput": typeof lib_attribution_teamInput;
   "lib/attribution/validators": typeof lib_attribution_validators;
+  "lib/bookingSetup/coverage": typeof lib_bookingSetup_coverage;
+  "lib/bookingSetup/coverageData": typeof lib_bookingSetup_coverageData;
   "lib/businessDayRebuildState": typeof lib_businessDayRebuildState;
   "lib/constants": typeof lib_constants;
   "lib/dealNextStep": typeof lib_dealNextStep;
@@ -790,7 +805,6 @@ declare const fullApi: ApiFromModules<{
   "linkPortal/leadQueries": typeof linkPortal_leadQueries;
   "linkPortal/leadSession": typeof linkPortal_leadSession;
   "linkPortal/passwordActions": typeof linkPortal_passwordActions;
-  "linkPortal/portalActions": typeof linkPortal_portalActions;
   "linkPortal/portalQueries": typeof linkPortal_portalQueries;
   "linkPortal/portalTouches": typeof linkPortal_portalTouches;
   "linkPortal/rateLimitMutations": typeof linkPortal_rateLimitMutations;
@@ -970,6 +984,11 @@ declare const fullApi: ApiFromModules<{
   "slack/users": typeof slack_users;
   "slack/webApi": typeof slack_webApi;
   support: typeof support;
+  "team/contracts": typeof team_contracts;
+  "team/data": typeof team_data;
+  "team/directory": typeof team_directory;
+  "team/members": typeof team_members;
+  "team/review": typeof team_review;
   "teamMembers/linking": typeof teamMembers_linking;
   "tenantPrograms/mutations": typeof tenantPrograms_mutations;
   "tenantPrograms/queries": typeof tenantPrograms_queries;
@@ -995,6 +1014,8 @@ declare const fullApi: ApiFromModules<{
   "webhooks/cleanup": typeof webhooks_cleanup;
   "webhooks/cleanupMutations": typeof webhooks_cleanupMutations;
   workSchedules: typeof workSchedules;
+  "workSchedules/datedRows": typeof workSchedules_datedRows;
+  "workSchedules/goalDays": typeof workSchedules_goalDays;
   "workSchedules/rangeHours": typeof workSchedules_rangeHours;
   "workos/profileActions": typeof workos_profileActions;
   "workos/profileBackfill": typeof workos_profileBackfill;
@@ -1004,6 +1025,7 @@ declare const fullApi: ApiFromModules<{
   "workos/userActions": typeof workos_userActions;
   "workos/userManagement": typeof workos_userManagement;
   "workos/userMutations": typeof workos_userMutations;
+  workspaceAccess: typeof workspaceAccess;
 }>;
 
 /**

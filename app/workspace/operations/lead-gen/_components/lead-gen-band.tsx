@@ -1,11 +1,9 @@
 "use client";
 
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
-import Link from "next/link";
-import { SettingsIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { cn } from "@/lib/utils";
+import { BandCaptionLink, MovedToTeamChip, teamHref } from "../../_components/team-links";
 import { formatCount, formatHours, formatPerHour } from "./lead-gen-format";
 import type { LeadGenSource } from "./lead-gen-admin-page-client";
 
@@ -25,10 +23,6 @@ const SOURCES: ReadonlyArray<{ value: LeadGenSource | undefined; label: string }
   { value: "meta_business", label: "Meta Business" },
 ];
 
-/** Board buttons on the band: board-raised fill, board text, a 15% light border. */
-export const boardButtonClass =
-  "h-7 rounded-[5.6px] border-board-foreground/15 bg-board-raised px-2.5 text-[13px] text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground aria-expanded:bg-board-foreground/10 aria-expanded:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10";
-
 function Total({
   label,
   children,
@@ -36,7 +30,7 @@ function Total({
 }: {
   label: string;
   children: ReactNode;
-  line: string;
+  line: ReactNode;
 }) {
   return (
     // Two by two, ruled between; from @3xl four across, ruled left.
@@ -88,7 +82,17 @@ function LeadGenTotals({
       <Total label="Specialists active" line={`With a submission ${rangePhrase}`}>
         {specialistCount === undefined ? <Waiting /> : formatCount(specialistCount)}
       </Total>
-      <Total label="Scheduled hours" line="Across every specialist's schedule">
+      <Total
+        label="Scheduled hours"
+        line={
+          <BandCaptionLink
+            href={teamHref.schedules("lead_gen")}
+            tip="The hours in every lead gen specialist's week, set in Team › Schedules. Specialists with no schedule add captures but no hours."
+          >
+            Across every specialist&apos;s schedule
+          </BandCaptionLink>
+        }
+      >
         {totals ? (
           <>
             {formatHours(totals.scheduledHours)}
@@ -98,7 +102,17 @@ function LeadGenTotals({
           <Waiting />
         )}
       </Total>
-      <Total label="Per scheduled hour" line="Submissions ÷ scheduled hours">
+      <Total
+        label="Per scheduled hour"
+        line={
+          <BandCaptionLink
+            href={teamHref.schedules("lead_gen")}
+            tip="Submissions ÷ the hours scheduled in Team › Schedules. Change a week there; this figure follows."
+          >
+            Submissions ÷ scheduled hours
+          </BandCaptionLink>
+        }
+      >
         {totals === undefined ? (
           <Waiting />
         ) : totals.leadsPerHour === null ? (
@@ -217,12 +231,11 @@ export function LeadGenBand({
           )}
         >
           {exportMenu}
-          <Button asChild size="sm" variant="outline" className={boardButtonClass}>
-            <Link href="/workspace/lead-gen/settings">
-              <SettingsIcon data-icon="inline-start" aria-hidden="true" />
-              Settings &amp; schedules
-            </Link>
-          </Button>
+          <MovedToTeamChip
+            href={teamHref.members("lead_gen")}
+            moved={["Settings & schedules"]}
+            tip="Specialists, teams and schedules now live in Team. The capture rules moved to Settings."
+          />
         </div>
       </div>
     </PageBand>

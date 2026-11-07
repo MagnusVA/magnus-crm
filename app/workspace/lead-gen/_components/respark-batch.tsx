@@ -4,16 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ExternalLinkIcon, PanelRightOpenIcon } from "lucide-react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { DISPOSITION_LABELS, LIFECYCLE_STAGE_LABELS } from "@/convex/leads/lifecycle";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
-import { Progress } from "@/components/ui/progress";
 import { CopyHandleButton } from "./copy-handle-button";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
@@ -21,11 +17,26 @@ import {
   instagramProfileUrl,
   isOverlayActive,
   isTypingTarget,
-  resparkBucketLabel,
   summarizeBatch,
 } from "@/lib/respark/display";
 import { cn } from "@/lib/utils";
-import { bucketSwatchClass, dealText, displayHandle, formatClock, formatDay } from "./respark-format";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { HelpTip } from "@/app/workspace/team/_components/team-ui";
+import { dealText, displayHandle, formatClock, formatDay } from "./respark-format";
+import {
+  BandZones,
+  BucketWord,
+  DATE,
+  Fact,
+  KeyHints,
+  LABEL,
+  None,
+  RESPARK_CARD,
+  STATUS_WORD,
+  Zone,
+  ZONE_FIGURE,
+} from "./respark-ui";
 import { BATCH_ENDED_MESSAGE, useNotAFitUndo } from "./use-respark-undo";
 
 const ResparkPersonSheet = dynamic(
@@ -37,14 +48,11 @@ type Item = Batch["items"][number];
 type ItemId = Id<"resparkBatchItems">;
 type Action = "resparked" | "not_a_fit" | "skipped";
 
-const RESULT_LINES: Record<Action, { text: string; badge: string; className: string }> = {
-  resparked: {
-    text: "Resparked · counts as an entry",
-    badge: "Entry",
-    className: "border-emerald-500/50 text-emerald-700 dark:text-emerald-400",
-  },
-  not_a_fit: { text: "Not a fit · back of the pool", badge: "Not a fit", className: "" },
-  skipped: { text: "Skipped · back in the pool", badge: "Skipped", className: "text-muted-foreground" },
+// A worked person's line: what happened in 13px slate, then one status word.
+const RESULT_LINES: Record<Action, { text: string; word: string; ink: string }> = {
+  resparked: { text: "Resparked", word: "Entry", ink: "text-foreground" },
+  not_a_fit: { text: "Back of the pool", word: "Not a fit", ink: "text-muted-foreground" },
+  skipped: { text: "Back in the pool", word: "Skipped", ink: "text-muted-foreground" },
 };
 
 function handleOf(item: Item) {
@@ -147,79 +155,136 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
     return () => document.removeEventListener("keydown", listener);
   }, []);
 
+
+  // Worked people stay in batch order; consecutive ones share one ruled card.
+  type Row = { item: Item; kind: "worked" | "sent" | "sending" | "pending" | "open" };
+  const rows: Row[] = batch.items.map((item) => ({
+    item,
+    kind:
+      item.result !== null ? "worked"
+        : undo.isSent(item.itemId) ? "sent"
+          : undo.isSending(item.itemId) ? "sending"
+            : undo.isPending(item.itemId) ? "pending"
+              : "open",
+  }));
+  const segments: Row[][] = [];
+  for (const row of rows) {
+    const last = segments.at(-1);
+    const isLine = row.kind === "worked" || row.kind === "sent";
+    if (isLine && last && (last[0].kind === "worked" || last[0].kind === "sent")) last.push(row);
+    else segments.push([row]);
+  }
+
   return (
-    <div className="flex flex-col gap-5">
-      <header className="flex flex-col gap-3 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-normal text-pretty">Your respark batch</h1>
-          <p className="text-sm text-muted-foreground">
-            {batch.size} people · held for you until {formatClock(batch.heldUntil, timeZone)} ({timeZone})
-          </p>
-          <Progress
-            value={summary.total === 0 ? 0 : (summary.worked / summary.total) * 100}
-            className="mt-2 max-w-md"
-            aria-label={`${summary.worked} of ${summary.total} worked`}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5 text-sm text-muted-foreground lg:items-end">
-          <p className="tabular-nums">
-            {summary.entries} resparked · {summary.notAFit} not a fit
-            {summary.skipped > 0 ? ` · ${summary.skipped} skipped` : ""} · {summary.total - summary.worked} to go
-          </p>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span>Keys:</span>
-            <KeyHint letter="O" label="open" />
-            <KeyHint letter="R" label="resparked" />
-            <KeyHint letter="N" label="not a fit" />
-            <KeyHint letter="S" label="skip" />
-            <KeyHint letter="J" label="next" />
-            <KeyHint letter="K" label="previous" />
-          </p>
-        </div>
-      </header>
-
-      {batch.capped ? (
-        <p className="text-xs text-muted-foreground">Some cards leave out older history.</p>
-      ) : null}
-
-      <ol className="flex flex-col gap-2.5">
-        {batch.items.map((item) => (
-          <li key={item.itemId}>
-            {item.result !== null ? (
-              <WorkedLine handle={handleOf(item)} result={item.result} />
-            ) : undo.isSent(item.itemId) ? (
-              <WorkedLine handle={handleOf(item)} result="not_a_fit" />
-            ) : undo.isSending(item.itemId) ? (
-              <SendingLine handle={handleOf(item)} />
-            ) : undo.isPending(item.itemId) ? (
-              <PendingLine
-                handle={handleOf(item)}
-                dueAt={undo.dueAt(item.itemId)}
-                onUndo={() => {
-                  undo.undo(item.itemId);
-                  moveFocusRef.current = true;
-                  setFocusedId(item.itemId);
-                }}
+    <>
+      <PageBand
+        title="Respark batch"
+        description={
+          <>
+            {batch.size} people ·{" "}
+            <HelpTip tip={`The end of the business day, ${timeZone} time. Then the batch ends.`}>
+              held until {formatClock(batch.heldUntil, timeZone)}
+            </HelpTip>
+            {batch.capped ? (
+              <>
+                {" · "}
+                <HelpTip tip="Some cards leave out older history. View shows the person's full record.">
+                  older history left out
+                </HelpTip>
+              </>
+            ) : null}
+          </>
+        }
+        actions={<KeyHints />}
+      >
+        <BandZones label="This batch" className="grid-cols-3 @3xl:grid-cols-5">
+          <Zone label="Worked">
+            <p className={ZONE_FIGURE}>
+              {summary.worked}
+              <span className="text-[17px] text-board-muted">/{summary.total}</span>
+            </p>
+            <div
+              role="progressbar"
+              aria-label="Worked"
+              aria-valuemin={0}
+              aria-valuemax={summary.total}
+              aria-valuenow={summary.worked}
+              className="mt-0.5 h-1 w-full max-w-36 overflow-hidden rounded-full bg-board-raised"
+            >
+              <div
+                className="h-full rounded-full bg-board-foreground/75 transition-[width] duration-300 motion-reduce:transition-none"
+                style={{ width: `${summary.total === 0 ? 0 : (summary.worked / summary.total) * 100}%` }}
               />
-            ) : (
-              <ResparkCard
-                ref={(element) => {
-                  if (element) cardRefs.current.set(item.itemId, element);
-                  else cardRefs.current.delete(item.itemId);
-                }}
-                item={item}
-                timeZone={timeZone}
-                focused={focused?.itemId === item.itemId}
-                sending={sending.has(item.itemId)}
-                onFocus={() => setFocusedId(item.itemId)}
-                onAct={(action) => void act(item, action)}
-                onOpenInstagram={() => openInstagram(item)}
-                onView={() => setPanelItem({ itemId: item.itemId, bucket: item.bucket })}
-              />
-            )}
-          </li>
-        ))}
-      </ol>
+            </div>
+          </Zone>
+          <Zone label="Entries">
+            <p className={ZONE_FIGURE}>{summary.entries}</p>
+          </Zone>
+          <Zone label="Not a fit">
+            <p className={ZONE_FIGURE}>{summary.notAFit}</p>
+          </Zone>
+          <Zone label="Skipped">
+            <p className={ZONE_FIGURE}>{summary.skipped}</p>
+          </Zone>
+          <Zone label="To go" className="col-span-2 @3xl:col-span-1">
+            <p className={ZONE_FIGURE}>{summary.total - summary.worked}</p>
+          </Zone>
+        </BandZones>
+      </PageBand>
+
+      <div className="flex flex-col gap-3.5" aria-label="People in this batch" role="list">
+        {segments.map((segment) => {
+          const [first] = segment;
+          const { item } = first;
+          if (first.kind === "worked" || first.kind === "sent") {
+            return (
+              <div key={item.itemId} role="listitem" className={RESPARK_CARD}>
+                <ul aria-label="Worked">
+                  {segment.map((row) => (
+                    <WorkedLine
+                      key={row.item.itemId}
+                      handle={handleOf(row.item)}
+                      result={row.kind === "sent" ? "not_a_fit" : (row.item.result ?? "not_a_fit")}
+                    />
+                  ))}
+                </ul>
+              </div>
+            );
+          }
+          return (
+            <div key={item.itemId} role="listitem">
+              {first.kind === "sending" ? (
+                <SendingLine handle={handleOf(item)} />
+              ) : first.kind === "pending" ? (
+                <PendingLine
+                  handle={handleOf(item)}
+                  dueAt={undo.dueAt(item.itemId)}
+                  onUndo={() => {
+                    undo.undo(item.itemId);
+                    moveFocusRef.current = true;
+                    setFocusedId(item.itemId);
+                  }}
+                />
+              ) : (
+                <ResparkCard
+                  ref={(element) => {
+                    if (element) cardRefs.current.set(item.itemId, element);
+                    else cardRefs.current.delete(item.itemId);
+                  }}
+                  item={item}
+                  timeZone={timeZone}
+                  focused={focused?.itemId === item.itemId}
+                  sending={sending.has(item.itemId)}
+                  onFocus={() => setFocusedId(item.itemId)}
+                  onAct={(action) => void act(item, action)}
+                  onOpenInstagram={() => openInstagram(item)}
+                  onView={() => setPanelItem({ itemId: item.itemId, bucket: item.bucket })}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {panelItem !== null ? (
         <ResparkPersonSheet
@@ -229,18 +294,11 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
           onClose={() => setPanelItem(null)}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
-function KeyHint({ letter, label }: { letter: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <Kbd>{letter}</Kbd>
-      {label}
-    </span>
-  );
-}
+/** A 36px action in the card's column (or its row on a narrow card). View joins the title row from @3xl. */
 
 function ResparkCard({
   ref,
@@ -267,6 +325,47 @@ function ResparkCard({
   const handle = handleOf(item);
   const blocked = item.blockedReason !== null;
   const hasProfile = instagramProfileUrl(person?.handle ?? null) !== null;
+  const touches = person?.lastTouches.slice(0, 3) ?? [];
+
+  const instagram = (className: string) =>
+    !blocked && hasProfile ? (
+      <button type="button" onClick={onOpenInstagram} className={cn(detailLinkClass, "gap-0.5 text-[13px]", className)}>
+        Open Instagram
+        <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />
+      </button>
+    ) : null;
+
+  // Lime only on the card being worked: it is the one next action.
+  const actions = (size: string) => (
+    <>
+      {!blocked ? (
+        <>
+          <Button
+            variant={focused ? "default" : "outline"}
+            className={cn(size, focused && "font-semibold")}
+            disabled={sending}
+            title="Counts as an entry"
+            onClick={() => onAct("resparked")}
+          >
+            {sending ? <Spinner data-icon="inline-start" /> : null}
+            Resparked
+          </Button>
+          <Button
+            variant="outline"
+            className={size}
+            disabled={sending}
+            title="They stay in the CRM, last in the pool"
+            onClick={() => onAct("not_a_fit")}
+          >
+            Not a fit
+          </Button>
+        </>
+      ) : null}
+      <Button variant="outline" className={size} disabled={sending} title="Back in the pool" onClick={() => onAct("skipped")}>
+        Skip
+      </Button>
+    </>
+  );
 
   return (
     <article
@@ -277,156 +376,147 @@ function ResparkCard({
       onFocus={onFocus}
       onPointerDown={onFocus}
       className={cn(
-        "grid gap-4 rounded-lg border bg-card p-4 outline-none transition-shadow md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto]",
-        focused && "ring-2 ring-ring/50 border-ring",
+        RESPARK_CARD,
+        "@container/card outline-none",
+        // The card being worked: a 3px inset ink bar on its left edge.
+        focused && "border-foreground/30 shadow-[inset_3px_0_0_var(--color-foreground)]",
       )}
     >
-      <div className="flex min-w-0 flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="flex min-h-11 items-center gap-x-2.5 border-b border-border py-1.5 pr-4 pl-4">
+        <h2 className="min-w-0 shrink truncate">
           <button
             type="button"
             onClick={onView}
-            className="truncate text-left text-lg font-semibold hover:underline focus-visible:underline focus-visible:outline-none"
+            title="View this person"
+            className="max-w-full truncate rounded-sm text-left text-[15px] font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
           >
             {handle}
           </button>
-          <CopyHandleButton handle={person?.handle} />
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <span aria-hidden="true" className={cn("size-2.5 rounded-[3px]", bucketSwatchClass(item.bucket))} />
-            {resparkBucketLabel(item.bucket)}
-          </span>
-        </div>
-        {person ? (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
-            <Fact label="Stage">
-              {LIFECYCLE_STAGE_LABELS[person.stage]}
-              {person.disposition !== "open" ? ` · ${DISPOSITION_LABELS[person.disposition]}` : ""}
-            </Fact>
-            <Fact label="Captured">
-              {person.capturedAt !== null
-                ? `${formatDay(person.capturedAt, timeZone)}${person.capturedBy ? `, by ${person.capturedBy}` : ""}`
-                : "Not captured by lead gen"}
-            </Fact>
-            <Fact label="Qualified">
-              {person.qualifiedAt !== null ? formatDay(person.qualifiedAt, timeZone) : "Never"}
-            </Fact>
-            {person.newestDeal ? (
-              <Fact label="Deal">
-                {dealText(person.newestDeal)}, opened {formatDay(person.newestDeal.createdAt, timeZone)}
+        </h2>
+        <CopyHandleButton handle={person?.handle} />
+        <BucketWord bucket={item.bucket} className="hidden @md/card:inline-flex" />
+        <span className="ml-auto hidden shrink-0 items-center gap-4 @2xl/card:flex">
+          {instagram("")}
+          <button type="button" onClick={onView} className={cn(detailLinkClass, "hidden text-[13px] @3xl/card:inline-flex")}>
+            View
+          </button>
+          {/* From @3xl the actions sit in the title row, so a card is its facts' height. */}
+          <span className="hidden items-center gap-1.5 @3xl/card:flex">{actions("h-8 px-3")}</span>
+        </span>
+      </div>
+
+      <div className="grid gap-x-6 gap-y-3 px-4 py-2.5 @xl/card:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <BucketWord bucket={item.bucket} className="mb-1 flex @md/card:hidden" />
+          {person ? (
+            <dl>
+              <Fact label="Stage">
+                {LIFECYCLE_STAGE_LABELS[person.stage]}
+                {person.disposition !== "open" ? (
+                  <span className="text-muted-foreground"> · {DISPOSITION_LABELS[person.disposition]}</span>
+                ) : null}
               </Fact>
-            ) : null}
-            {person.timeZone ? <Fact label="Time zone">{person.timeZone}, from the booking</Fact> : null}
-          </dl>
-        ) : null}
-        {blocked ? (
-          <Alert>
-            <AlertDescription>{item.blockedReason} Skip them instead.</AlertDescription>
-          </Alert>
-        ) : null}
-      </div>
+              <Fact label="Captured">
+                {person.capturedAt !== null ? (
+                  <>
+                    <span className={DATE.replace("text-muted-foreground", "text-foreground")}>{formatDay(person.capturedAt, timeZone)}</span>
+                    {person.capturedBy ? <span className="text-muted-foreground"> · {person.capturedBy}</span> : null}
+                  </>
+                ) : (
+                  <None>Not by lead gen</None>
+                )}
+              </Fact>
+              <Fact label="Qualified">
+                {person.qualifiedAt !== null ? (
+                  <span className={DATE.replace("text-muted-foreground", "text-foreground")}>{formatDay(person.qualifiedAt, timeZone)}</span>
+                ) : (
+                  <None>Never</None>
+                )}
+              </Fact>
+              {person.newestDeal ? (
+                <Fact label="Deal">
+                  {dealText(person.newestDeal)}
+                  <span className="text-muted-foreground"> · {formatDay(person.newestDeal.createdAt, timeZone)}</span>
+                </Fact>
+              ) : null}
+              {person.timeZone ? (
+                <Fact label={<HelpTip tip="From the person's booking.">Time zone</HelpTip>}>{person.timeZone}</Fact>
+              ) : null}
+            </dl>
+          ) : null}
+          {blocked ? (
+            <p className="mt-1 text-[13px] leading-5 text-danger-ink">{item.blockedReason} Skip them instead.</p>
+          ) : null}
+        </div>
 
-      <div className="min-w-0">
-        {person && person.lastTouches.length > 0 ? (
-          <ol className="flex flex-col gap-1.5 border-l-2 pl-3 text-sm">
-            {person.lastTouches.slice(0, 3).map((touch) => (
-              <li key={touch.eventId} className="flex gap-2">
-                <time className="w-14 shrink-0 font-mono text-xs leading-5 text-muted-foreground tabular-nums">
-                  {formatDay(touch.occurredAt, timeZone)}
-                </time>
-                <span className="min-w-0">{touch.label}</span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="text-sm text-muted-foreground">No touches on record.</p>
-        )}
-      </div>
+        <div className="min-w-0">
+          <p className={cn(LABEL, "flex min-h-7 items-center")}>Last touches</p>
+          {touches.length > 0 ? (
+            <ol>
+              {touches.map((touch) => (
+                <li key={touch.eventId} className="grid min-h-7 grid-cols-[3.25rem_minmax(0,1fr)] items-baseline gap-x-2 py-1">
+                  <time dateTime={new Date(touch.occurredAt).toISOString()} className={DATE}>
+                    {formatDay(touch.occurredAt, timeZone)}
+                  </time>
+                  <span className="min-w-0 truncate text-sm leading-5">{touch.label}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="py-1 text-[13px] leading-5 text-muted-foreground">No touches on record.</p>
+          )}
+        </div>
 
-      <div className="flex min-w-40 flex-col gap-1.5">
-        {!blocked ? (
-          <>
-            <Button variant="link" className="justify-start px-0" disabled={!hasProfile} onClick={onOpenInstagram}>
-              Open Instagram
-              <ExternalLinkIcon data-icon="inline-end" />
-            </Button>
-            <Button className="h-auto flex-col items-start gap-0 py-1.5" disabled={sending} onClick={() => onAct("resparked")}>
-              <span className="inline-flex items-center gap-1.5">
-                {sending ? <Spinner /> : null}
-                Resparked
-              </span>
-              <small className="text-xs font-normal opacity-80">Counts as an entry</small>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-auto flex-col items-start gap-0 py-1.5"
-              disabled={sending}
-              onClick={() => onAct("not_a_fit")}
-            >
-              Not a fit
-              <small className="text-xs font-normal text-muted-foreground">Stays in the pool, last</small>
-            </Button>
-          </>
-        ) : null}
-        <Button variant="outline" disabled={sending} onClick={() => onAct("skipped")}>
-          Skip
-        </Button>
-        <Button variant="ghost" size="sm" className="justify-start" onClick={onView}>
-          <PanelRightOpenIcon data-icon="inline-start" />
-          View
-        </Button>
+        <div className="flex flex-wrap gap-2 @xl/card:col-span-2 @3xl/card:hidden">
+          {actions("h-9 px-3")}
+          <Button variant="ghost" className="h-9 px-3" onClick={onView}>
+            View
+          </Button>
+          {instagram("self-center px-1 @2xl/card:hidden")}
+        </div>
       </div>
     </article>
   );
 }
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <>
-      <dt className="text-xs font-medium uppercase leading-5 tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="min-w-0">{children}</dd>
-    </>
-  );
-}
-
+/** A worked person: one 40px ruled line, the result, then its status word. */
 function WorkedLine({ handle, result }: { handle: string; result: Action }) {
   const line = RESULT_LINES[result];
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-2 text-sm">
-      <span className="min-w-0 truncate">
-        <span className="mr-2 font-medium">{handle}</span>
-        <span className="text-muted-foreground">{line.text}</span>
+    <li className="flex min-h-10 items-center gap-3 border-b border-border px-4 py-1.5 last:border-b-0">
+      <span className="min-w-0 truncate text-sm">
+        <span className="font-medium">{handle}</span>
+        <span className="text-[13px] text-muted-foreground"> · {line.text}</span>
       </span>
-      <Badge variant="outline" className={line.className}>{line.badge}</Badge>
-    </div>
+      <span className={cn(STATUS_WORD, line.ink, "ml-auto")}>{line.word}</span>
+    </li>
   );
 }
 
+/** A Not a fit still inside its Undo window: a dashed line. */
 function PendingLine({ handle, dueAt, onUndo }: { handle: string; dueAt: number | null; onUndo: () => void }) {
   const seconds = useSecondsLeft(dueAt);
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-2 text-sm">
-      <span className="min-w-0 truncate">
-        <span className="mr-2 font-medium">{handle}</span>
-        <span className="text-muted-foreground">Not a fit · back of the pool</span>
+    <div className="flex min-h-10 items-center gap-3 rounded-xl border border-dashed border-input bg-card px-4 py-1.5">
+      <span className="min-w-0 truncate text-sm">
+        <span className="font-medium">{handle}</span>
+        <span className="text-[13px] text-muted-foreground"> · Not a fit · back of the pool</span>
       </span>
-      <Button variant="link" size="sm" className="h-auto px-0" onClick={onUndo}>
+      <button type="button" onClick={onUndo} className={cn(detailLinkClass, "ml-auto shrink-0 text-[13px] tabular-nums")}>
         Undo · {seconds}s
-      </Button>
+      </button>
     </div>
   );
 }
 
 function SendingLine({ handle }: { handle: string }) {
   return (
-    <div
-      className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-2 text-sm"
-      role="status"
-    >
-      <span className="min-w-0 truncate">
-        <span className="mr-2 font-medium">{handle}</span>
-        <span className="text-muted-foreground">Not a fit · back of the pool</span>
+    <div className="flex min-h-10 items-center gap-3 rounded-xl border border-dashed border-input bg-card px-4 py-1.5" role="status">
+      <span className="min-w-0 truncate text-sm">
+        <span className="font-medium">{handle}</span>
+        <span className="text-[13px] text-muted-foreground"> · Not a fit · back of the pool</span>
       </span>
-      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-[13px] text-muted-foreground">
         <Spinner />
         Saving
       </span>

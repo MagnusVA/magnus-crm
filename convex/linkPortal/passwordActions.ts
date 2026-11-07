@@ -299,7 +299,7 @@ export const verifyPassword = action({
       sessionTtlSeconds: config.sessionTtlSeconds,
     });
     return {
-      sessionToken: issuePortalSessionToken({
+      sessionToken: await issuePortalSessionToken({
         tenantId: config.tenantId,
         publicSlug: config.publicSlug,
         sessionVersion: config.sessionVersion,

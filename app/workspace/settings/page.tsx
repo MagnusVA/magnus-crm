@@ -3,6 +3,7 @@ import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import { SettingsPageClient } from "./_components/settings-page-client";
+import { ContentReveal } from "@/components/page-transitions";
 
 export const unstable_instant = false;
 
@@ -14,7 +15,14 @@ export default async function SettingsPage({
   const { tab } = await searchParams;
   // Legacy deep links to tabs that moved out of Settings.
   if (tab === "attribution") {
-    redirect("/workspace/operations/booked-calls/attribution");
+    redirect("/workspace/team/teams");
+  }
+  // Event types and programs moved to Booking setup.
+  if (tab === "event-types" || tab === "field-mappings") {
+    redirect("/workspace/booking/event-types");
+  }
+  if (tab === "programs") {
+    redirect("/workspace/booking");
   }
   if (tab === "schedules") {
     redirect("/workspace/operations/booked-calls");
@@ -27,5 +35,9 @@ export default async function SettingsPage({
     { token: session.accessToken },
   );
 
-  return <SettingsPageClient preloadedSlackStatus={preloadedSlackStatus} />;
+  return (
+    <ContentReveal>
+      <SettingsPageClient preloadedSlackStatus={preloadedSlackStatus} />
+    </ContentReveal>
+  );
 }

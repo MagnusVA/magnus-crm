@@ -17,6 +17,8 @@ import {
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { teamHref } from "@/app/workspace/operations/_components/team-links";
 import { Separator } from "@/components/ui/separator";
 import { usePageTitle } from "@/hooks/use-page-title";
 import {
@@ -26,7 +28,6 @@ import {
   type SlackQualificationFilters,
 } from "./business-date-utils";
 import { useReportAnalytics } from "../../_components/use-report-analytics";
-import { TeamGoalDialog } from "./team-goal-dialog";
 import { SetterQualificationControls } from "./setter-qualification-controls";
 import { SetterQualificationSummaryCards } from "./setter-qualification-summary-cards";
 import { SetterQualificationTrend } from "./setter-qualification-trend";
@@ -43,7 +44,6 @@ export function SlackQualificationReportPageClient() {
   const now = useNow();
   const [selectedFilters, setFilters] = useState<SlackQualificationFilters | null>(null);
   const filters = useMemo(() => selectedFilters ?? getInitialSlackQualificationFilters(setting, now), [selectedFilters, setting, now]);
-  const [isTeamGoalDialogOpen, setIsTeamGoalDialogOpen] = useState(false);
   const rangeError = getRangeValidationMessage(filters);
 
   const queryArgs = useMemo(() => {
@@ -129,17 +129,19 @@ export function SlackQualificationReportPageClient() {
               View Events
             </Link>
           </Button>
-          {report ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsTeamGoalDialogOpen(true)}
-            >
-              <TargetIcon data-icon="inline-start" />
-              Team Goal
-            </Button>
-          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button asChild variant="outline" size="sm">
+                <Link href={teamHref.goals("qualified")}>
+                  <TargetIcon data-icon="inline-start" />
+                  Team Goal
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[17rem] text-[12.5px] leading-snug">
+              The qualified-leads goal is set in Team › Goals. Change it there; this report follows.
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -217,14 +219,6 @@ export function SlackQualificationReportPageClient() {
             Business time zone: {report.timezone}.
           </p>
         </>
-      ) : null}
-
-      {report ? (
-        <TeamGoalDialog
-          currentGoal={report.teamGoal.dailyTeamQualificationGoal}
-          open={isTeamGoalDialogOpen}
-          onOpenChange={setIsTeamGoalDialogOpen}
-        />
       ) : null}
     </div>
   );

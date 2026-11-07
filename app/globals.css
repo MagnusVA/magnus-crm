@@ -259,9 +259,10 @@
    ============================================================ */
 
 /* Page transition: cross-fade between old and new page content.
-   Triggered by <ViewTransition default="page-transition"> in
-   workspace-shell-client.tsx. React treats the prop value as a
-   CSS class name → selectors use .page-transition (dot prefix).
+   Triggered by the <ViewTransition> around #main-content in
+   workspace-shell-client.tsx, for navigations tagged "workspace-nav"
+   (the sidebar and the command palette). React treats the prop value
+   as a CSS class name → selectors use .page-transition (dot prefix).
    @see vercel-react-view-transitions — CSS class-based animations */
 ::view-transition-group(.page-transition) {
   animation-duration: 200ms;
@@ -288,6 +289,39 @@
 @keyframes vt-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Suspense reveal on pages that stream in behind loading.tsx: the
+   skeleton slides down and fades out, then the page slides up and fades
+   in. <SkeletonExit> and <ContentReveal> in
+   components/page-transitions.tsx set these classes.
+   @see vercel-react-view-transitions — css-recipes.md, Slide (Vertical) */
+:root {
+  --duration-exit: 150ms;
+  --duration-enter: 210ms;
+  --duration-move: 400ms;
+}
+
+::view-transition-old(.slide-down) {
+  animation:
+    var(--duration-exit) ease-out both vt-fade reverse,
+    var(--duration-exit) ease-out both vt-slide-y reverse;
+}
+
+::view-transition-new(.slide-up) {
+  animation:
+    var(--duration-enter) ease-in var(--duration-exit) both vt-fade,
+    var(--duration-move) ease-in both vt-slide-y;
+}
+
+@keyframes vt-fade {
+  from { filter: blur(3px); opacity: 0; }
+  to { filter: blur(0); opacity: 1; }
+}
+
+@keyframes vt-slide-y {
+  from { transform: translateY(var(--slide-y-offset, 10px)); }
+  to { transform: translateY(0); }
 }
 
 /* Streamed content entrance — applied when Suspense resolves.

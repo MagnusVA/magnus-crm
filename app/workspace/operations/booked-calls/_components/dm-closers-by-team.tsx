@@ -4,10 +4,9 @@ import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { MemberAvatar } from "@/app/workspace/_components/member-avatar";
 import { formatDecimal, formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatAmountMinor } from "@/lib/format-currency";
 import { bookingPaceWord } from "@/lib/operations-reports/booking-pace";
-import type { DmCloserViewModel } from "@/lib/operations-reports/booked-dashboard";
 import { cn } from "@/lib/utils";
+import { ScheduleHoursLink, TeamPageLink, TipLink, teamHref } from "../../_components/team-links";
 import { PACE_TONE, type BookingTeam } from "./booking-teams";
 
 // DM closers ranked inside their own team: each team is a section headed by
@@ -18,15 +17,6 @@ import { PACE_TONE, type BookingTeam } from "./booking-teams";
 
 const ROW = "grid items-center gap-x-3 px-4 grid-cols-[1.125rem_minmax(0,1fr)_auto] @lg/closers:grid-cols-[1.125rem_minmax(0,1fr)_minmax(7rem,11rem)_4.25rem]";
 const HEAD = "font-condensed text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase";
-
-function hoursLine(closer: DmCloserViewModel) {
-  const hours =
-    closer.scheduledHours !== null && closer.scheduledHours > 0
-      ? `${Number.isInteger(closer.scheduledHours) ? closer.scheduledHours : formatDecimal(closer.scheduledHours)} h scheduled`
-      : "No schedule";
-  const rate = closer.hourlyRateMinor === null ? null : `${formatAmountMinor(closer.hourlyRateMinor, "USD")}/h rate`;
-  return rate ? `${hours} · ${rate}` : hours;
-}
 
 function PerHour({ value }: { value: number | null }) {
   if (value === null) return <span className="text-[13px] whitespace-nowrap text-muted-foreground">No schedule</span>;
@@ -143,6 +133,7 @@ function TeamSection({ team, max }: { team: BookingTeam; max: number }) {
         <h3 id={headingId} className="font-semibold">
           {team.label}
         </h3>
+        {team.teamId ? <TeamPageLink teamId={team.teamId} teamName={team.label} /> : null}
         {team.unassigned ? null : (
           <span className={cn("font-condensed text-[13px] font-bold tracking-[0.08em] uppercase", tone.ink)}>
             {bookingPaceWord(team.pace)}
@@ -168,7 +159,13 @@ function TeamSection({ team, max }: { team: BookingTeam; max: number }) {
                 <MemberAvatar identity={closer.avatar} size="sm" />
                 <div className="min-w-0">
                   <p className="truncate font-medium">{closer.label}</p>
-                  <p className="truncate text-[13px] text-muted-foreground">{hoursLine(closer)}</p>
+                  <p className="truncate text-[13px] text-muted-foreground">
+                    <ScheduleHoursLink
+                      href={teamHref.dmCloser(closer.key)}
+                      hours={closer.scheduledHours}
+                      name={closer.label}
+                    />
+                  </p>
                 </div>
               </div>
               <div className="col-span-2 col-start-2 row-start-2 pt-1.5 @lg/closers:col-span-1 @lg/closers:col-start-auto @lg/closers:row-start-auto @lg/closers:pt-0">
@@ -193,7 +190,22 @@ export function DmClosersByTeam({ teams, rangePhrase }: { teams: BookingTeam[]; 
     ...teams.flatMap((team) => [...team.closers.map((closer) => closer.booked), team.teamOnly?.booked ?? 0]),
   );
   return (
-    <DetailCard title="DM closers by team" meta="Ranked within each team" className="min-w-0">
+    <DetailCard
+      title="DM closers by team"
+      meta={
+        <span>
+          Ranked within each team ·{" "}
+          <TipLink
+            href={teamHref.schedules("dm_closer")}
+            tip="Per hour is booked calls ÷ each DM closer's scheduled hours, from their week in Team › Schedules."
+            className="underline decoration-current/40 decoration-dotted underline-offset-[3px] hover:text-foreground hover:decoration-current"
+          >
+            hours from each schedule
+          </TipLink>
+        </span>
+      }
+      className="min-w-0"
+    >
       {closerCount === 0 && teams.every((team) => team.pace.booked === 0) ? (
         <SectionEmpty title={`No DM closer booked or was scheduled ${rangePhrase}.`}>
           DM closers appear when a booking is attributed to them or they have a schedule.

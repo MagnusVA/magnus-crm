@@ -591,7 +591,8 @@ export function reduceReportSourcePage(args: {
         );
         break;
       case "lead_gen_schedule": {
-        const occurrenceCount = counts[row.weekday as Weekday] ?? 0;
+        // A dated row counts only on the days it was in force.
+        const occurrenceCount = row.occurrences ?? counts[row.weekday as Weekday] ?? 0;
         result.push(
           set("lead_gen_schedule", row.workerId, "workerId", row.workerId),
           metric(
@@ -605,6 +606,7 @@ export function reduceReportSourcePage(args: {
         break;
       }
       case "team": {
+        const goalDayCount = row.goalDayCount ?? args.range.dayCount;
         result.push(
           ...fieldsToSetContributions("team_dimension", row.teamId, {
             teamId: row.teamId,
@@ -619,15 +621,20 @@ export function reduceReportSourcePage(args: {
             // their teams can't say how much of progress has no DM closer.
             teamOnlyTracked: true,
             dailyQuota: row.bookingDailyQuota,
+            // The daily quota times the days someone on the team works.
             target:
               row.bookingDailyQuota === null
                 ? null
-                : row.bookingDailyQuota * args.range.dayCount,
+                : row.bookingDailyQuota * goalDayCount,
+            goalDayCount,
+            ...(row.goalCountsLastDay === undefined ? {} : { goalCountsLastDay: row.goalCountsLastDay }),
           }),
         );
         break;
       }
-      case "tenant":
+      case "tenant": {
+        // The daily quota times the days some qualifier works.
+        const goalDayCount = row.goalDayCount ?? args.range.dayCount;
         result.push(
           set(
             "qualifications_summary",
@@ -641,10 +648,12 @@ export function reduceReportSourcePage(args: {
             "target",
             row.slackQualificationDailyTeamQuota === null
               ? null
-              : row.slackQualificationDailyTeamQuota * args.range.dayCount,
+              : row.slackQualificationDailyTeamQuota * goalDayCount,
           ),
+          set("qualifications_summary", "main", "goalDayCount", goalDayCount),
         );
         break;
+      }
       case "qualification_event":
         result.push(...reduceQualificationEvent(row));
         break;
@@ -666,7 +675,8 @@ export function reduceReportSourcePage(args: {
         );
         break;
       case "qualifier_schedule": {
-        const occurrenceCount = counts[row.weekday as Weekday] ?? 0;
+        // A dated row counts only on the days it was in force.
+        const occurrenceCount = row.occurrences ?? counts[row.weekday as Weekday] ?? 0;
         result.push(
           set("qualification_opener", row.slackUserId, "slackUserId", row.slackUserId),
           set("qualification_opener", row.slackUserId, "hasSchedule", true),
@@ -703,7 +713,8 @@ export function reduceReportSourcePage(args: {
         );
         break;
       case "dm_closer_schedule": {
-        const occurrenceCount = counts[row.weekday as Weekday] ?? 0;
+        // A dated row counts only on the days it was in force.
+        const occurrenceCount = row.occurrences ?? counts[row.weekday as Weekday] ?? 0;
         result.push(
           set("booked_closer", row.dmCloserId, "dmCloserId", row.dmCloserId),
           set("booked_closer_schedule", row.dmCloserId, "dmCloserId", row.dmCloserId),
@@ -824,6 +835,7 @@ export function finalizeAggregateRecord(args: {
     case "qualifications_summary":
       payload.progress = numberField(payload, "totalQualified");
       payload.businessDayCount = args.range.dayCount;
+      if (typeof payload.goalDayCount !== "number") payload.goalDayCount = args.range.dayCount;
       payload.qualifiedAfter = args.range.startTimestamp;
       payload.qualifiedBefore = args.range.endTimestampExclusive;
       break;

@@ -14,7 +14,6 @@ import { useNow } from "@/hooks/use-now";
 import { ScrollMoreHint } from "@/app/workspace/closer/_components/scroll-more-hint";
 import { useExpandInPlace } from "@/app/workspace/closer/_components/use-expand-in-place";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { rangePhrase, type DashboardRangeInput } from "./date-range-picker";
 import { MemberAvatar } from "./member-avatar";
@@ -26,6 +25,8 @@ import type {
 import { formatDecimal, formatWholeNumber } from "./overview-formatters";
 import { OverviewPartialNote, OverviewSectionState } from "./overview-section-state";
 import { SectionErrorBoundary } from "./section-error-boundary";
+import { RankingSkeleton } from "./skeletons/ranking-skeleton";
+import { ScheduleHoursLink, teamHref } from "@/app/workspace/operations/_components/team-links";
 
 // Overview's three rankings (DESIGN.md, The Ranking Card): each names its
 // leader at full size, then the rest as ruled rows, ranked per scheduled
@@ -38,18 +39,31 @@ type RankedPerson = {
   id: string;
   name: string;
   avatar: (size: "default" | "lg") => ReactNode;
-  /** "42 submissions · 6 h scheduled" */
+  /** "42 submissions"; the hours follow as a link to the person's week. */
   meta: string;
+  /** Scheduled hours in the range; 0 when the person has no schedule. */
+  hours: number;
+  /** The person's week in Team (a member-card alias). */
+  scheduleHref: string;
   /** Output per scheduled hour; null when the person has no schedule. */
   rate: number | null;
 };
 
 const MAX_TOP_ROWS = 5;
 
-/** "6 h scheduled", or nothing when there is no schedule (the rate says so). */
-function hoursScheduled(hours: number) {
-  if (hours <= 0) return null;
-  return `${Number.isInteger(hours) ? hours : formatDecimal(hours)} h scheduled`;
+/** The meta line: what they did, then "6 h scheduled" linked to their week (nothing when there's no schedule; the rate says so). */
+function PersonMeta({ person }: { person: RankedPerson }) {
+  return (
+    <>
+      {person.meta}
+      {person.hours > 0 ? (
+        <>
+          {" · "}
+          <ScheduleHoursLink href={person.scheduleHref} hours={person.hours} name={person.name} />
+        </>
+      ) : null}
+    </>
+  );
 }
 
 function count(value: number, one: string, many = one) {
@@ -84,9 +98,9 @@ function leadGenPerson(worker: LeadGenWorker): RankedPerson {
     id: worker.workerId,
     name: worker.displayName,
     avatar: crmAvatar(worker.workerId, worker.displayName, "crm_user"),
-    meta: [count(worker.submissions, "submission", "submissions"), hoursScheduled(worker.scheduledHours)]
-      .filter(Boolean)
-      .join(" · "),
+    meta: count(worker.submissions, "submission", "submissions"),
+    hours: worker.scheduledHours,
+    scheduleHref: teamHref.worker(worker.workerId, null),
     rate: worker.leadsPerHour,
   };
 }
@@ -97,13 +111,9 @@ function qualifierPerson(row: QualifierRow): RankedPerson {
     id: row.slackUserId,
     name,
     avatar: slackAvatar(name, row.avatarUrl),
-    meta: [
-      `${formatWholeNumber(row.uniqueOpportunityCount)} qualified`,
-      `${formatWholeNumber(row.booked)} booked`,
-      hoursScheduled(row.scheduledHours),
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    meta: `${formatWholeNumber(row.uniqueOpportunityCount)} qualified · ${formatWholeNumber(row.booked)} booked`,
+    hours: row.scheduledHours,
+    scheduleHref: teamHref.slackUser(row.slackUserId, null),
     rate: row.qualifiedPerHour,
   };
 }
@@ -113,9 +123,9 @@ function dmCloserPerson(row: DmCloserRow): RankedPerson {
     id: row.dmCloserId,
     name: row.displayName,
     avatar: crmAvatar(row.dmCloserId, row.displayName, "dm_closer"),
-    meta: [row.teamName, `${formatWholeNumber(row.booked)} booked`, hoursScheduled(row.scheduledHours)]
-      .filter(Boolean)
-      .join(" · "),
+    meta: [row.teamName, `${formatWholeNumber(row.booked)} booked`].filter(Boolean).join(" · "),
+    hours: row.scheduledHours,
+    scheduleHref: teamHref.dmCloser(row.dmCloserId, null),
     rate: row.bookedPerHour,
   };
 }
@@ -157,7 +167,9 @@ function RankingList({ people, label }: { people: RankedPerson[]; label: string 
                 <span className="sr-only">1. </span>
                 {person.name}
               </p>
-              <p className="text-[13px] text-muted-foreground">{person.meta}</p>
+              <p className="text-[13px] text-muted-foreground">
+                <PersonMeta person={person} />
+              </p>
             </div>
             <Rate rate={person.rate} size="lead" />
           </li>
@@ -171,38 +183,15 @@ function RankingList({ people, label }: { people: RankedPerson[]; label: string 
             </span>
             <div className="min-w-0">
               <p className="truncate font-medium">{person.name}</p>
-              <p className="truncate text-[13px] text-muted-foreground">{person.meta}</p>
+              <p className="truncate text-[13px] text-muted-foreground">
+                <PersonMeta person={person} />
+              </p>
             </div>
             <Rate rate={person.rate} size="row" />
           </li>
         ),
       )}
     </ol>
-  );
-}
-
-export function RankingSkeleton({ rows = MAX_TOP_ROWS }: { rows?: number }) {
-  return (
-    <div role="status" aria-label="Loading the ranking" className="flex flex-col">
-      <div className="flex items-center gap-3 border-b px-4 py-3.5 last:border-b-0">
-        <Skeleton className="size-10 rounded-full" />
-        <div className="flex flex-1 flex-col gap-1.5">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-44" />
-        </div>
-        <Skeleton className="h-8 w-14" />
-      </div>
-      {Array.from({ length: rows - 1 }, (_, index) => (
-        <div key={index} className="flex h-[52px] items-center gap-2.5 border-b px-4 last:border-b-0">
-          <Skeleton className="h-3 w-3" />
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Skeleton className="h-3.5 w-28" />
-            <Skeleton className="h-3 w-40" />
-          </div>
-          <Skeleton className="h-4 w-10" />
-        </div>
-      ))}
-    </div>
   );
 }
 

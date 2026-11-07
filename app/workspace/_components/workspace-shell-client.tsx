@@ -8,6 +8,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import { RoleProvider, useRole } from "@/components/auth/role-context";
+import { ReviewNavBadge } from "@/app/workspace/team/_components/review/review-count";
 import {
   Sidebar,
   SidebarContent,
@@ -52,6 +53,12 @@ import {
   PhoneCallIcon,
   RefreshCwIcon,
   SettingsIcon,
+  CalendarCogIcon,
+  LayoutGridIcon,
+  InboxIcon,
+  CalendarRangeIcon,
+  MessagesSquareIcon,
+  LinkIcon,
   TargetIcon,
   TrendingUpIcon,
   type LucideIcon,
@@ -73,6 +80,7 @@ import { endedCalls } from "@/app/workspace/closer/_components/needs-outcome-car
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { MemberIdentity } from "./member-identity";
+import { PageAreaTransition, WORKSPACE_NAV } from "@/components/page-transitions";
 import type { MemberAvatarIdentity } from "./member-avatar";
 
 // Dynamic import for command palette (vercel-react-best-practices: bundle-dynamic-imports)
@@ -141,12 +149,41 @@ const operationsNavItem: NavItem = {
   ],
 };
 
+const bookingNavItem: NavItem = {
+  href: "/workspace/booking",
+  label: "Booking setup",
+  icon: CalendarCogIcon,
+  children: [
+    { href: "/workspace/booking", label: "Coverage", icon: LayoutGridIcon, exact: true },
+    { href: "/workspace/booking/inbox", label: "Inbox", icon: InboxIcon },
+    { href: "/workspace/booking/event-types", label: "Event types", icon: CalendarRangeIcon },
+    { href: "/workspace/booking/portal", label: "Link portal", icon: LinkIcon },
+  ],
+};
+
+const REVIEW_HREF = "/workspace/team/review";
+
+// Team › Members is exact: the other sections and redistribute sit under it.
+const teamNavItem: NavItem = {
+  href: "/workspace/team",
+  label: "Team",
+  icon: UsersIcon,
+  children: [
+    { href: "/workspace/team", label: "Members", icon: UsersIcon, exact: true },
+    { href: REVIEW_HREF, label: "Review", icon: InboxIcon },
+    { href: "/workspace/team/teams", label: "Teams", icon: MessagesSquareIcon },
+    { href: "/workspace/team/schedules", label: "Schedules", icon: CalendarClockIcon },
+    { href: "/workspace/team/goals", label: "Goals", icon: TargetIcon },
+  ],
+};
+
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   operationsNavItem,
   { href: "/workspace/pipeline/second-opinions", label: "Second opinions", icon: ClipboardCheckIcon },
   leadsCustomersNavItem,
-  { href: "/workspace/team", label: "Team", icon: UsersIcon },
+  teamNavItem,
+  bookingNavItem,
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -213,9 +250,11 @@ function navForRole(
 function CollapsibleNavItem({
   item,
   pathname,
+  isAdmin,
 }: {
   item: NavItem & { children: NavItem[] };
   pathname: string;
+  isAdmin: boolean;
 }) {
   const isSectionActive = pathname.startsWith(item.href);
   const [userOpen, setUserOpen] = useState(isSectionActive);
@@ -242,11 +281,13 @@ function CollapsibleNavItem({
               <SidebarMenuSubItem key={child.href}>
                 <SidebarMenuSubButton
                   asChild
-                  isActive={pathname.startsWith(child.href)}
+                  isActive={child.exact ? pathname === child.href : pathname.startsWith(child.href)}
                 >
-                  <Link href={child.href}>
+                  <Link href={child.href} transitionTypes={WORKSPACE_NAV}>
                     <child.icon />
                     <span>{child.label}</span>
+                    {/* Team › Review: the open decisions, the same count as the band's. */}
+                    {isAdmin && child.href === REVIEW_HREF ? <ReviewNavBadge /> : null}
                   </Link>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>
@@ -420,6 +461,7 @@ function WorkspaceShellClientInner({
         <SidebarHeader className="px-3 pt-4 pb-3">
           <Link
             href={homeHref}
+            transitionTypes={WORKSPACE_NAV}
             aria-label="Magnus workspace home"
             className="flex min-h-9 items-center gap-2 rounded-md px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           >
@@ -444,6 +486,7 @@ function WorkspaceShellClientInner({
                         key={item.href}
                         item={{ ...item, children: item.children }}
                         pathname={pathname}
+                        isAdmin={isAdmin}
                       />
                     );
                   }
@@ -463,7 +506,7 @@ function WorkspaceShellClientInner({
                         tooltip={item.label}
                         className={ACTIVE_NAV_CLASS}
                       >
-                        <Link href={item.href}>
+                        <Link href={item.href} transitionTypes={WORKSPACE_NAV}>
                           <item.icon />
                           <span>{item.label}</span>
                           {badgeCount > 0 && (
@@ -499,7 +542,7 @@ function WorkspaceShellClientInner({
                           tooltip={item.label}
                           className={ACTIVE_NAV_CLASS}
                         >
-                          <Link href={item.href}>
+                          <Link href={item.href} transitionTypes={WORKSPACE_NAV}>
                             <item.icon />
                             <span>{item.label}</span>
                           </Link>
@@ -518,6 +561,7 @@ function WorkspaceShellClientInner({
           <div className="flex items-center gap-1">
             <Link
               href="/workspace/profile"
+              transitionTypes={WORKSPACE_NAV}
               aria-label="Your profile"
               className="min-w-0 flex-1 rounded-md px-1 py-1 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:hidden"
             >
@@ -559,13 +603,15 @@ function WorkspaceShellClientInner({
               <NotificationCenter />
             </div>
           </header>
-          <div
-            id="main-content"
-            className="page-inset flex-1 overflow-auto"
-            tabIndex={-1}
-          >
-            {children}
-          </div>
+          <PageAreaTransition>
+            <div
+              id="main-content"
+              className="page-inset flex-1 overflow-auto"
+              tabIndex={-1}
+            >
+              {children}
+            </div>
+          </PageAreaTransition>
         </SidebarInset>
       </BreadcrumbTrailProvider>
 

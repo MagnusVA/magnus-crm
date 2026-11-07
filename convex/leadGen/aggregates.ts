@@ -10,6 +10,7 @@ import {
 } from "../reporting/lib/hondurasBusinessTime";
 import type { LeadGenTeamId } from "./sharedTeams";
 import { normalizeLeadGenOrigin } from "./normalization";
+import { scheduleRowInForceOn } from "../workSchedules/datedRows";
 
 type LeadGenSource = Doc<"leadGenSubmissions">["source"];
 type LeadGenOriginKind = Doc<"leadGenSubmissions">["originKind"];
@@ -430,16 +431,14 @@ export async function snapshotLeadGenScheduledHours(
     dayKey: string;
   },
 ) {
-  const weekday = weekdayForBusinessDate(args.dayKey);
-  const schedule = await ctx.db
-    .query("leadGenWorkerSchedules")
-    .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-      q
-        .eq("tenantId", args.worker.tenantId)
-        .eq("workerId", args.worker._id)
-        .eq("weekday", weekday),
-    )
-    .unique();
+  // The schedule in force on the bucket's day; several dated rows can share a weekday.
+  const schedule = await scheduleRowInForceOn(
+    ctx,
+    args.worker.tenantId,
+    { table: "leadGenWorkerSchedules", workerId: args.worker._id },
+    weekdayForBusinessDate(args.dayKey),
+    args.dayKey,
+  );
 
   return schedule?.scheduledHours ?? 0;
 }

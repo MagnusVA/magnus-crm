@@ -11,8 +11,9 @@ const PUBLIC_PREFIXES = [
 	"/privacy",
 	"/support",
 	"/dm-links",
-	// Signed by the Convex log stream; the route verifies the HMAC itself.
-	"/api/observability/convex",
+	// The Convex token route answers 401 itself. A redirect to WorkOS would
+	// fail as a cross-origin fetch.
+	"/api/auth/token",
 ] as const;
 
 function isPublicPath(pathname: string) {
@@ -84,9 +85,20 @@ export default async function proxy(request: NextRequest) {
 	return handleAuthkitProxy(request, headers);
 }
 
+// Every proxy run costs at least 10 ms of CPU, so it skips two kinds of
+// request. Router prefetches fetch static shells, which hold no session
+// data: pages read the session behind connection(), which a prefetch never
+// renders. Navigations and the dynamic requests after them still run the
+// proxy. The Convex log stream verifies its own HMAC signature and never
+// reads a session (app/api/observability/convex/route.ts).
 export const config = {
 	matcher: [
-		"/((?!_next|ingest|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-		"/(api|trpc)(.*)",
+		{
+			source:
+				"/((?!_next|ingest|api/observability/convex|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+			missing: [{ type: "header", key: "next-router-prefetch" }],
+		},
+		"/api/((?!observability/convex).*)",
+		"/trpc(.*)",
 	],
 };

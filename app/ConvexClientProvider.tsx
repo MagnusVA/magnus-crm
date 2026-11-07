@@ -1,9 +1,9 @@
 "use client";
 
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
-import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";
+import { AuthKitProvider, useAuth } from "@workos-inc/authkit-nextjs/components";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
 import { CalendlyConnectionGuard } from "@/components/calendly-connection-guard";
 import { SlackConnectionGuard } from "@/components/slack-connection-guard";
@@ -25,6 +25,44 @@ function logTokenRefreshFailure(forced: boolean) {
   }
 }
 
+function showSessionExpiredToast() {
+  toast.error("Your session has expired. Please sign in again.", {
+    // Convex asks again after a failure; keep one toast on screen.
+    id: "session-expired",
+    action: {
+      label: "Sign In",
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /sign-in is a route handler and needs a full page load
+      onClick: () => window.location.assign("/sign-in"),
+    },
+    duration: Infinity, // Don't auto-dismiss — user must act
+  });
+}
+
+/** Waits before each retry of a token request that failed on the network or with a 5xx. */
+const TOKEN_RETRY_DELAYS_MS = [1_000, 3_000];
+
+/**
+ * Asks the token route, retrying network failures and 5xx responses: Convex
+ * treats a null token as signed out until the page reloads.
+ */
+async function requestAccessToken(force: boolean): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const retryDelay = TOKEN_RETRY_DELAYS_MS[attempt];
+    try {
+      const response = await fetch("/api/auth/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+        cache: "no-store",
+      });
+      if (response.status < 500 || retryDelay === undefined) return response;
+    } catch (error) {
+      if (retryDelay === undefined) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
+  }
+}
+
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) {
@@ -36,10 +74,16 @@ function getConvexUrl(): string {
 }
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
-  const [convex] = useState(() => new ConvexReactClient(getConvexUrl()));
+  // initialAuthTokenReuse: keep the page-load token and refresh it before it
+  // expires, instead of forcing a second token right after connecting.
+  const [convex] = useState(
+    () => new ConvexReactClient(getConvexUrl(), { initialAuthTokenReuse: true }),
+  );
 
   return (
-    <AuthKitProvider>
+    // onSessionExpired={false} stops AuthKit's checkSessionAction POST on
+    // every tab focus. A failed token request below shows the expiry toast.
+    <AuthKitProvider onSessionExpired={false}>
       <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
         <CalendlyConnectionGuard>
           <SlackConnectionGuard>
@@ -53,7 +97,6 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 
 function useAuthFromAuthKit() {
   const { user, loading: isLoading } = useAuth();
-  const { getAccessToken, refresh } = useAccessToken();
   const wasAuthenticatedRef = useRef(false);
 
   const isAuthenticated = !!user;
@@ -64,37 +107,40 @@ function useAuthFromAuthKit() {
       wasAuthenticatedRef.current = true;
     } else if (wasAuthenticatedRef.current && !isAuthenticated && !isLoading) {
       // Session expired — was authenticated, now isn't
-      toast.error("Your session has expired. Please sign in again.", {
-        action: {
-          label: "Sign In",
-          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /sign-in is a route handler and needs a full page load
-          onClick: () => window.location.assign("/sign-in"),
-        },
-        duration: Infinity, // Don't auto-dismiss — user must act
-      });
+      showSessionExpiredToast();
       wasAuthenticatedRef.current = false;
     }
   }, [isAuthenticated, isLoading]);
 
+  // Tokens come from a Route Handler, not AuthKit's useAccessToken(): its
+  // refresh is a server action, and each one cleared the router's prefetch
+  // cache and re-rendered the page (app/api/auth/token/route.ts). Convex asks
+  // with forceRefreshToken shortly before the token expires.
   const fetchAccessToken = useCallback(
     async ({ forceRefreshToken }: { forceRefreshToken?: boolean } = {}): Promise<string | null> => {
       if (!user) {
         return null;
       }
 
+      const forced = Boolean(forceRefreshToken);
       try {
-        if (forceRefreshToken) {
-          return (await refresh()) ?? null;
+        const response = await requestAccessToken(forced);
+        if (response.status === 401) {
+          showSessionExpiredToast();
+          return null;
         }
-
-        return (await getAccessToken()) ?? null;
+        if (!response.ok) {
+          throw new Error(`Token request failed with status ${response.status}`);
+        }
+        const { accessToken } = (await response.json()) as { accessToken?: string | null };
+        return accessToken ?? null;
       } catch (error) {
         console.error("Failed to get access token:", error);
-        logTokenRefreshFailure(Boolean(forceRefreshToken));
+        logTokenRefreshFailure(forced);
         return null;
       }
     },
-    [user, refresh, getAccessToken],
+    [user],
   );
 
   return {

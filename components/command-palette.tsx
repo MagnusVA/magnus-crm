@@ -28,6 +28,7 @@ import {
   TargetIcon,
 } from "lucide-react";
 import { useRole } from "@/components/auth/role-context";
+import { WORKSPACE_NAV } from "@/components/page-transitions";
 
 const RESPARK_HREF = "/workspace/lead-gen/respark";
 
@@ -37,15 +38,16 @@ const adminPages = [
   { label: "Operations", href: "/workspace/operations", icon: KanbanIcon, shortcut: "2" },
   { label: "Leads & Customers", href: "/workspace/leads-customers", icon: ContactIcon, shortcut: "3" },
   { label: "Lead Gen Ops", href: "/workspace/operations/lead-gen", icon: ClipboardListIcon },
-  { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
+  { label: "Lead gen rules", href: "/workspace/settings?tab=lead-gen", icon: SettingsIcon },
   { label: "Respark", href: RESPARK_HREF, icon: RefreshCwIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
+  { label: "Teams", href: "/workspace/team/teams", icon: UsersIcon },
+  { label: "Schedules", href: "/workspace/team/schedules", icon: CalendarClockIcon },
+  { label: "Goals", href: "/workspace/team/goals", icon: TargetIcon },
+  { label: "Booking setup", href: "/workspace/booking", icon: TargetIcon },
+  { label: "Booking inbox", href: "/workspace/booking/inbox", icon: TargetIcon },
+  { label: "Link portal", href: "/workspace/booking/portal", icon: TargetIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
-  {
-    label: "Attribution",
-    href: "/workspace/operations/booked-calls/attribution",
-    icon: TargetIcon,
-  },
 ];
 
 const billingPage = {
@@ -91,7 +93,7 @@ export function CommandPalette({
 
   const navigate = useCallback(
     (href: string) => {
-      router.push(href);
+      router.push(href, { transitionTypes: WORKSPACE_NAV });
       setOpen(false);
     },
     [router],

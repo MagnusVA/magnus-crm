@@ -4,13 +4,14 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { FieldGroup } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
-import { Skeleton } from "@/components/ui/skeleton";
 import { BATCH_SIZE_RANGE, INACTIVE_AFTER_DAYS_RANGE } from "@/convex/lib/respark/settings";
 import { getErrorMessage } from "@/lib/errors";
 import { useNow } from "@/hooks/use-now";
+import { CARD, CardHead, HelpTip } from "@/app/workspace/team/_components/team-ui";
+import { FormCardSkeleton } from "./settings-skeleton";
+import { FormFooter, SettingRow } from "./settings-ui";
 
 const COUNT_FORMATTER = new Intl.NumberFormat("en-US");
 const HOUR_MS = 60 * 60_000;
@@ -24,7 +25,7 @@ function wholeNumberIn(value: string, range: { min: number; max: number }): numb
 
 function holdText(businessDay: { timeZone: string; dayStartHour: number }) {
   const hour = String(businessDay.dayStartHour).padStart(2, "0");
-  return `Held until the business day ends (${hour}:00, ${businessDay.timeZone})`;
+  return `A batch is held until the business day ends (${hour}:00, ${businessDay.timeZone}).`;
 }
 
 // Respark settings (docs/plans/respark.md §6.4): when a person counts as
@@ -46,7 +47,7 @@ export function ResparkSettingsCard() {
   if (result !== undefined && result !== shown) setShown(result);
 
   if (shown === undefined) {
-    return <Card><CardContent><Skeleton role="status" aria-label="Loading respark settings" className="h-48 w-full" /></CardContent></Card>;
+    return <FormCardSkeleton label="Loading respark settings" rows={2} />;
   }
 
   const values: Draft = draft ?? {
@@ -66,41 +67,72 @@ export function ResparkSettingsCard() {
     finally { setSaving(false); }
   };
 
-  return <Card>
-    <CardHeader><CardTitle>Respark</CardTitle><CardDescription>When a person counts as inactive, and what a lead generator gets when they ask for a batch.</CardDescription></CardHeader>
-    <CardContent className="flex flex-col gap-4">
-      <FieldGroup>
-        <Field data-invalid={inactiveAfterDays === null || undefined}>
-          <FieldLabel htmlFor="respark-inactive-after">Inactive after</FieldLabel>
-          <InputGroup className="max-w-56">
+  const valid = inactiveAfterDays !== null && batchSize !== null;
+  return (
+    <section aria-labelledby="respark-title" className={CARD}>
+      <CardHead
+        title={<span id="respark-title">Respark</span>}
+        meta="When a person counts as inactive, and how many a batch holds."
+      />
+      <FieldGroup className="gap-0 divide-y divide-border">
+        <SettingRow
+          label="Inactive after"
+          htmlFor="respark-inactive-after"
+          invalid={inactiveAfterDays === null}
+          tip="Days since the person's last touch: a capture, message, call result, deal move, payment or respark."
+          descriptionLive
+          description={
+            inactiveAfterDays === null
+              ? `Enter a whole number of days from ${INACTIVE_AFTER_DAYS_RANGE.min} to ${INACTIVE_AFTER_DAYS_RANGE.max}.`
+              : count
+                ? <>At <Figure>{COUNT_FORMATTER.format(count.inactiveAfterDays)}</Figure> days, <Figure>{COUNT_FORMATTER.format(count.count)}</Figure> {count.count === 1 ? "person is" : "people are"} inactive today.</>
+                : "Counting inactive people…"
+          }
+        >
+          <InputGroup>
             <InputGroupInput id="respark-inactive-after" type="number" inputMode="numeric" min={INACTIVE_AFTER_DAYS_RANGE.min} max={INACTIVE_AFTER_DAYS_RANGE.max} step={1}
+              className="font-condensed text-[15px] tabular-nums md:text-[15px]"
               value={values.inactiveAfterDays} disabled={saving} aria-invalid={inactiveAfterDays === null}
               onChange={(event) => setDraft({ ...values, inactiveAfterDays: event.target.value })} />
             <InputGroupAddon align="inline-end"><InputGroupText>days without a touch</InputGroupText></InputGroupAddon>
           </InputGroup>
-          <FieldDescription aria-live="polite">
-            {inactiveAfterDays === null
-              ? `Enter a whole number of days from ${INACTIVE_AFTER_DAYS_RANGE.min} to ${INACTIVE_AFTER_DAYS_RANGE.max}.`
-              : count
-                ? `At ${COUNT_FORMATTER.format(count.inactiveAfterDays)} days, ${COUNT_FORMATTER.format(count.count)} ${count.count === 1 ? "person is" : "people are"} inactive today.`
-                : "Counting inactive people..."}
-          </FieldDescription>
-        </Field>
-        <Field data-invalid={batchSize === null || undefined}>
-          <FieldLabel htmlFor="respark-batch-size">Batch size</FieldLabel>
-          <InputGroup className="max-w-56">
+        </SettingRow>
+        <SettingRow
+          label="Batch size"
+          htmlFor="respark-batch-size"
+          invalid={batchSize === null}
+          description={batchSize === null ? `Enter a whole number from ${BATCH_SIZE_RANGE.min} to ${BATCH_SIZE_RANGE.max}.` : "What a lead generator gets when they ask for a batch."}
+        >
+          <InputGroup>
             <InputGroupInput id="respark-batch-size" type="number" inputMode="numeric" min={BATCH_SIZE_RANGE.min} max={BATCH_SIZE_RANGE.max} step={1}
+              className="font-condensed text-[15px] tabular-nums md:text-[15px]"
               value={values.batchSize} disabled={saving} aria-invalid={batchSize === null}
               onChange={(event) => setDraft({ ...values, batchSize: event.target.value })} />
             <InputGroupAddon align="inline-end"><InputGroupText>people</InputGroupText></InputGroupAddon>
           </InputGroup>
-          <FieldDescription>
-            {batchSize === null ? `Enter a whole number from ${BATCH_SIZE_RANGE.min} to ${BATCH_SIZE_RANGE.max}.` : "What a lead generator gets when they ask for a batch."}
-          </FieldDescription>
-        </Field>
+        </SettingRow>
       </FieldGroup>
-      <p className="text-sm text-muted-foreground">{holdText(shown.businessDay)}. When the hold ends, unworked people go back to the pool.</p>
-    </CardContent>
-    <CardFooter><Button disabled={saving || !changed || inactiveAfterDays === null || batchSize === null} onClick={() => void save()}>{saving ? "Saving..." : "Save respark settings"}</Button></CardFooter>
-  </Card>;
+      <FormFooter
+        aside={
+          <HelpTip tip="When the hold ends, people nobody worked go back to the pool.">
+            {holdText(shown.businessDay)}
+          </HelpTip>
+        }
+      >
+        {draft !== null ? <Button variant="ghost" disabled={saving} onClick={() => setDraft(null)}>Discard</Button> : null}
+        <Button
+          variant={changed && valid ? "default" : "outline"}
+          className={changed && valid ? "font-semibold" : undefined}
+          disabled={saving || !changed || !valid}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save respark settings"}
+        </Button>
+      </FormFooter>
+    </section>
+  );
+}
+
+function Figure({ children }: { children: React.ReactNode }) {
+  return <span className="font-condensed text-[14px] font-semibold text-foreground tabular-nums">{children}</span>;
 }

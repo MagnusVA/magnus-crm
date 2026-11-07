@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
 
 const roleEditSchema = z.object({
   role: z.enum(["closer", "tenant_admin", "lead_generator"]),
@@ -74,6 +75,8 @@ export function RoleEditDialog({
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const updateRole = useAction(api.workos.userManagement.updateUserRole);
+  const linkCalendly = useMutation(api.users.linkCalendlyMember.linkCloserToCalendlyMember);
+  const assignEventType = useMutation(api.users.assignPersonalEventType.assignPersonalEventType);
 
   const form = useForm({
     resolver: standardSchemaResolver(roleEditSchema),
@@ -101,9 +104,30 @@ export function RoleEditDialog({
 
     setIsSaving(true);
     try {
-      await updateRole({ userId, newRole: values.role });
+      const { previous } = await updateRole({ userId, newRole: values.role });
+      const previousRole = roleOptions.find((option) => option.value === previous.role);
+      // Undo puts back the role and what a change away from closer cleared:
+      // the Calendly member link and the personal event type.
+      const undo = async () => {
+        if (!previousRole) return;
+        try {
+          await updateRole({ userId, newRole: previousRole.value });
+          if (previous.calendlyMemberId) {
+            await linkCalendly({ userId, calendlyMemberId: previous.calendlyMemberId });
+          }
+          if (previous.personalEventTypeUri) {
+            await assignEventType({ userId, personalEventTypeUri: previous.personalEventTypeUri });
+          }
+          toast.success(`${userName} is ${previousRole.label} again`);
+          router.refresh();
+        } catch (error) {
+          reportClientError(error, { flow: "team_role_change_undo" });
+          toast.error(getErrorMessage(error, "Couldn’t undo the role change."));
+        }
+      };
       toast.success(
         `${userName}'s role updated to ${roleOptions.find((r) => r.value === values.role)?.label}`,
+        previousRole ? { action: { label: "Undo", onClick: () => void undo() } } : undefined,
       );
       onOpenChange(false);
       onSuccess?.();

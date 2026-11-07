@@ -48,7 +48,7 @@ import {
   MessageSquareIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { getErrorMessage } from "@/lib/errors";
 
 type FollowUpDialogProps = {

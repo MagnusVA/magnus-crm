@@ -2,122 +2,103 @@
 
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
-import { BotIcon, CopyIcon, TriangleAlertIcon } from "lucide-react";
+import { BotIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { clientDisplayName } from "@/lib/agentClient";
 import { formatAmountMinor } from "@/lib/format-currency";
+import { cn } from "@/lib/utils";
+import { FIGURE, formatPaidAt } from "./billing-format";
 
 // Billing's two markers (docs/plans/closer-assistant.md §7): a payment an
 // agent logged names its client, and a payment whose proof file also backs
 // another payment warns the reviewer, with links to the others.
 
-type BillingPaymentDetail = NonNullable<
-	FunctionReturnType<typeof api.billing.queries.getPaymentDetail>
->;
+type BillingPaymentDetail = NonNullable<FunctionReturnType<typeof api.billing.queries.getPaymentDetail>>;
 
-export const REUSED_PROOF_MESSAGE =
-	"This proof file also backs another payment";
+export const REUSED_PROOF_MESSAGE = "This proof file also backs another payment";
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-	dateStyle: "medium",
-});
-
-/** "via Claude" for a payment an agent logged; nothing for the web. */
+/** "VIA CLAUDE" as a condensed chip for a payment an agent logged; nothing for the web. */
 export function AgentPaymentChip({
-	recordedVia,
-	agentClient,
+  recordedVia,
+  agentClient,
+  className,
 }: {
-	recordedVia: "web" | "mcp" | null;
-	agentClient: string | null;
+  recordedVia: "web" | "mcp" | null;
+  agentClient: string | null;
+  className?: string;
 }) {
-	if (recordedVia !== "mcp") return null;
-	const name = clientDisplayName(agentClient ?? undefined);
-	return (
-		<Badge variant="outline" className="gap-1 font-normal">
-			<BotIcon aria-hidden="true" />
-			via {name}
-		</Badge>
-	);
+  if (recordedVia !== "mcp") return null;
+  const name = clientDisplayName(agentClient ?? undefined);
+  return (
+    <span
+      title={`Logged through ${name}`}
+      className={cn(
+        "inline-flex h-5 shrink-0 items-center gap-1 rounded-[4px] bg-muted px-1.5 font-condensed text-[11px] leading-none font-bold tracking-[0.1em] whitespace-nowrap text-muted-foreground uppercase",
+        className,
+      )}
+    >
+      <BotIcon aria-hidden="true" className="size-3" />
+      via {name}
+    </span>
+  );
 }
 
-/** The queue's icon for a payment flagged as reusing a proof file. */
+/** The queue's amber icon for a payment flagged as reusing a proof file. */
 export function ReusedProofIcon({ proofReused }: { proofReused: boolean }) {
-	if (!proofReused) return null;
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<span
-					aria-label={REUSED_PROOF_MESSAGE}
-					className="inline-flex text-amber-600 dark:text-amber-400"
-					tabIndex={0}
-				>
-					<CopyIcon aria-hidden="true" />
-				</span>
-			</TooltipTrigger>
-			<TooltipContent>{REUSED_PROOF_MESSAGE}</TooltipContent>
-		</Tooltip>
-	);
+  if (!proofReused) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          role="img"
+          aria-label={REUSED_PROOF_MESSAGE}
+          className="relative z-10 inline-flex size-6 items-center justify-center rounded-sm text-warning-ink outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <CopyIcon aria-hidden="true" className="size-3.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{REUSED_PROOF_MESSAGE}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
- * The review page's line under the summary: how the payment was entered,
- * and the other payments its proof file backs. Renders nothing for a web
- * payment with its own proof.
+ * The review page's card for a proof file that backs other payments: one
+ * ruled row per payment, each a link. Renders nothing otherwise.
  */
-export function PaymentProvenanceNotice({
-	detail,
-}: {
-	detail: BillingPaymentDetail;
-}) {
-	const { recordedVia, agentClient, proofReused } = detail.payment;
-	const matches = detail.proofMatches;
-	const showsReuse = proofReused || matches.length > 0;
-	if (recordedVia !== "mcp" && !showsReuse) return null;
-
-	return (
-		<div className="flex flex-col gap-3 pb-2">
-			{recordedVia === "mcp" ? (
-				<p className="flex items-center gap-2 text-sm text-muted-foreground">
-					<AgentPaymentChip
-						recordedVia={recordedVia}
-						agentClient={agentClient}
-					/>
-					The closer logged this payment through their AI assistant.
-				</p>
-			) : null}
-			{showsReuse ? (
-				<Alert className="border-amber-500/40 text-amber-900 dark:text-amber-200">
-					<TriangleAlertIcon aria-hidden="true" />
-					<AlertTitle>{REUSED_PROOF_MESSAGE}</AlertTitle>
-					<AlertDescription>
-						{matches.length === 0 ? (
-							"The other payment is no longer in Billing."
-						) : (
-							<ul className="flex flex-col gap-1">
-								{matches.map((match) => (
-									<li key={match.id}>
-										<Link
-											className="underline underline-offset-4"
-											href={`/workspace/billing/${match.id}`}
-										>
-											{formatAmountMinor(match.amountMinor, match.currency)}{" "}
-											· {match.programName} ·{" "}
-											{dateFormatter.format(new Date(match.recordedAt))}
-										</Link>
-									</li>
-								))}
-							</ul>
-						)}
-					</AlertDescription>
-				</Alert>
-			) : null}
-		</div>
-	);
+export function ReusedProofCard({ detail, now }: { detail: BillingPaymentDetail; now: number }) {
+  const matches = detail.proofMatches;
+  if (!detail.payment.proofReused && matches.length === 0) return null;
+  return (
+    <DetailCard
+      title="Proof reused"
+      meta={<span className="font-condensed text-[13px] font-bold tracking-[0.08em] text-warning-ink uppercase">Check</span>}
+    >
+      <p className="border-b px-4 py-2.5 text-[13px] leading-[1.45] text-warning-ink" role="status">
+        {REUSED_PROOF_MESSAGE}. Compare them before you mark this one reviewed.
+      </p>
+      {matches.length === 0 ? (
+        <p className="px-4 py-2.5 text-[13px] text-muted-foreground">The other payment is no longer in Billing.</p>
+      ) : (
+        <ul>
+          {matches.map((match) => (
+            <li key={match.id} className="relative flex min-h-11 items-center gap-3 border-b px-4 py-1.5 last:border-b-0 hover:bg-muted/60">
+              <span className={cn(FIGURE, "shrink-0")}>{formatAmountMinor(match.amountMinor, match.currency)}</span>
+              <Link
+                href={`/workspace/billing/${match.id}`}
+                className="min-w-0 flex-1 truncate font-semibold outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
+              >
+                {match.programName}
+              </Link>
+              <span className={cn(FIGURE, "shrink-0 text-muted-foreground")}>{formatPaidAt(match.recordedAt, now)}</span>
+              <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+            </li>
+          ))}
+        </ul>
+      )}
+    </DetailCard>
+  );
 }

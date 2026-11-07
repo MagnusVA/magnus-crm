@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import dynamic from "next/dynamic";
-import Link from "next/link";
-import { ClockIcon, Settings2Icon } from "lucide-react";
+import { useQuery } from "convex/react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { mergeBookedCallsDashboard } from "@/convex/analytics/merge/operations";
 import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
@@ -32,7 +31,6 @@ import {
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
-import { Button } from "@/components/ui/button";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
@@ -41,15 +39,11 @@ import { OperationsHealthBanner } from "../../_components/operations-health-bann
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
 import { useAllOperationsReportRows, useOperationsDashboardReport } from "../../_components/use-operations-report-job";
+import { MovedToTeamChip, TipLink, teamHref } from "../../_components/team-links";
 import { bookingTeams } from "./booking-teams";
 import { BookedCallsDetailsList } from "./booked-calls-details-list";
 import { DmClosersByTeam, DmClosersByTeamSkeleton } from "./dm-closers-by-team";
 import { TeamGoalsCard, TeamGoalsSkeletonRows } from "./team-goals-card";
-
-const BookingGoalsDialog = dynamic(() => import("./booking-goals-dialog").then((module) => module.BookingGoalsDialog));
-const DmCloserSchedulesDialog = dynamic(() =>
-  import("./dm-closer-schedules-dialog").then((module) => module.DmCloserSchedulesDialog),
-);
 
 const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
 
@@ -71,9 +65,9 @@ function rangeWords(
   return dates ? `${PRESET_WORDS[range.preset]} · ${dates}` : PRESET_WORDS[range.preset];
 }
 
-/** The band's buttons: board-raised fill with a 15% light border (DESIGN.md, Buttons on the board). */
-const boardButton =
-  "h-[34px] border-board-foreground/15 bg-board-raised text-[13px] text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10";
+/** A plain link on the band: board text, underlined on hover. */
+const boardLink =
+  "inline-flex h-7 items-center gap-0.5 px-1 text-[13px] text-board-muted hover:text-board-foreground hover:underline underline-offset-[3px] focus-visible:ring-offset-board";
 
 export function BookedCallsPageClient() {
   usePageTitle("Booked Calls");
@@ -84,8 +78,6 @@ export function BookedCallsPageClient() {
     defaultRange: { kind: "preset", preset: "today" },
     validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
   });
-  const [goalsOpen, setGoalsOpen] = useState(false);
-  const [schedulesOpen, setSchedulesOpen] = useState(false);
   const requiresSnapshot = useMemo(
     () => requiresOperationsReportSnapshot(queryRange, setting, now),
     [queryRange, now, setting],
@@ -164,9 +156,15 @@ export function BookedCallsPageClient() {
   const shownRange = fresh === undefined && kept ? kept.range : queryRange;
   const phrase = phraseForRange(shownRange);
 
+  // Team names to ids, only to link a team with no goal row to its page.
+  const teamList = useQuery(api.leadGen.workers.listTeams, { includeInactive: true });
+  const teamIdByLabel = useMemo(
+    () => new Map((teamList ?? []).map((team) => [team.name, team._id as string])),
+    [teamList],
+  );
   const teams = useMemo(
-    () => (data ? bookingTeams(data, now < data.window.end) : undefined),
-    [data, now],
+    () => (data ? bookingTeams(data, now < data.window.end, teamIdByLabel) : undefined),
+    [data, now, teamIdByLabel],
   );
   const dmCloserOptions = useMemo(
     () => data?.dmClosers.map((closer) => ({ key: closer.key, label: closer.label })),
@@ -195,16 +193,6 @@ export function BookedCallsPageClient() {
         }
         actions={
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="sm" className={boardButton} onClick={() => setSchedulesOpen(true)}>
-              <ClockIcon data-icon="inline-start" aria-hidden="true" />
-              Schedules
-            </Button>
-            <Button variant="outline" size="sm" className={boardButton} asChild>
-              <Link href="/workspace/operations/booked-calls/attribution">
-                <Settings2Icon data-icon="inline-start" aria-hidden="true" />
-                Configuration
-              </Link>
-            </Button>
             <OperationsReportExportMenu reportKind="booked-calls" range={queryRange} />
             <DateRangePicker
               tone="board"
@@ -216,8 +204,23 @@ export function BookedCallsPageClient() {
           </div>
         }
       >
+        <div className="-mx-4 flex flex-wrap items-center justify-end gap-2 border-t border-board-line px-4 py-1.5 @lg:-mx-[18px] @lg:px-[18px]">
+          <TipLink
+            href="/workspace/booking"
+            tip="Booking setup › Coverage: which links and event types each team's DM closers get."
+            className={boardLink}
+          >
+            Coverage
+            <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+          </TipLink>
+          <MovedToTeamChip
+            href={teamHref.teams()}
+            moved={["Schedules", "Edit goals", "DM teams & links"]}
+            tip="DM teams, their closers' weeks and their goals now live in Team. Change them there; this page follows."
+          />
+        </div>
         {validationMessage ? (
-          <p role="alert" className="-mt-1 pb-3.5 text-[13px] text-board-danger @lg:pb-4">
+          <p role="alert" className="pt-2 pb-3.5 text-[13px] text-board-danger @lg:pb-4">
             {validationMessage}
           </p>
         ) : null}
@@ -241,7 +244,7 @@ export function BookedCallsPageClient() {
         className={cn("flex min-w-0 flex-col gap-3.5 transition-opacity duration-200 short:gap-3", reloading && "opacity-60")}
       >
         {teams ? (
-          <TeamGoalsCard teams={teams} rangePhrase={phrase} onEditGoals={() => setGoalsOpen(true)} />
+          <TeamGoalsCard teams={teams} rangePhrase={phrase} />
         ) : (
           <DetailCard title="Team goals" className="min-w-0">
             <TeamGoalsSkeletonRows />
@@ -252,9 +255,6 @@ export function BookedCallsPageClient() {
           <BookedCallsDetailsList window={data?.window} dmCloserOptions={dmCloserOptions} rangePhrase={phrase} />
         </div>
       </div>
-
-      <BookingGoalsDialog open={goalsOpen} onOpenChange={setGoalsOpen} />
-      <DmCloserSchedulesDialog open={schedulesOpen} onOpenChange={setSchedulesOpen} />
     </div>
   );
 }

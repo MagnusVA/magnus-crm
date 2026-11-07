@@ -4,7 +4,7 @@ import { useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { BanknoteIcon, UploadIcon } from "lucide-react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";

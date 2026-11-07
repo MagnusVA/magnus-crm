@@ -176,8 +176,11 @@ ORDER BY day_key, min((submitted_at_ms, creation_time_ms))`,
 
 /**
  * Daily rows in the shape the builders read. `scheduledHours` is the bucket's
- * snapshot, which the builders use only when the worker has no schedule for
- * the weekday now; schedules are never deleted, so the snapshot is 0 then too.
+ * snapshot, which the builders use only when no schedule row of the worker was
+ * in force on that day (schedules are dated: convex/lib/workSchedule.ts). A
+ * day before the worker's first schedule had none when its bucket was
+ * written, so the snapshot is 0 then too. The exception is a day whose rows a
+ * same-day Undo deleted after a capture had snapshotted them.
  */
 export function dailyStatRows(rows: SqlRow[] | undefined): LeadGenDailyStatInput[] {
   return (rows ?? []).map((row) => ({

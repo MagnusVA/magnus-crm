@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "convex/react";
 import { AlertTriangleIcon, CalendarXIcon } from "lucide-react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
 import {
   AlertDialog,

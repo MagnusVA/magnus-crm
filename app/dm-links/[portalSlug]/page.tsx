@@ -1,5 +1,6 @@
-import { fetchAction } from "convex/nextjs";
+import { fetchQuery } from "convex/nextjs";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { reportServerError } from "@/lib/observability/report-server-error";
 import { DmLinkPortalClient } from "./_components/dm-link-portal-client";
@@ -16,6 +17,7 @@ import {
 	normalizePortalSlugParam,
 	portalSessionCookieName,
 } from "./_lib/portal-session-cookie";
+import { readSessionTokenTimes } from "./_lib/session-token-times";
 
 export const unstable_instant = false;
 
@@ -31,9 +33,14 @@ export default async function DmLinksPage({ params }: Props) {
 		? (await cookies()).get(portalSessionCookieName(portalSlug))?.value
 		: undefined;
 
+	// The Convex client calls Math.random() as it starts. Wait for the request
+	// so Cache Components doesn't flag that as an unstable value during
+	// prerendering (the same reason lib/auth.ts waits before withAuth).
+	if (portalSlug && sessionToken) await connection();
+
 	const bootstrap =
 		portalSlug && sessionToken
-			? await fetchAction(api.linkPortal.portalActions.getPortalBootstrap, {
+			? await fetchQuery(api.linkPortal.portalQueries.getPortalBootstrap, {
 					portalSlug,
 					sessionToken,
 				}).catch(async (error: unknown) => {
@@ -48,10 +55,21 @@ export default async function DmLinksPage({ params }: Props) {
 				})
 			: null;
 
+	// Display only: when the session ends and how long sessions last. A
+	// cookie whose bootstrap failed means the session ended (it expired, the
+	// password or path rotated, or the portal was turned off).
+	const times = sessionToken ? readSessionTokenTimes(sessionToken) : null;
+	const session = {
+		expiresAt: bootstrap ? (times?.expiresAt ?? null) : null,
+		ttlSeconds: times?.ttlSeconds ?? null,
+		ended: Boolean(sessionToken) && !bootstrap,
+	};
+
 	return (
 		<DmLinkPortalClient
 			portalSlug={portalSlug ?? rawPortalSlug}
 			bootstrap={bootstrap}
+			session={session}
 			unlockPortal={unlockPortal}
 			logoutPortal={logoutPortal}
 			recordPortalCopy={recordPortalCopy}

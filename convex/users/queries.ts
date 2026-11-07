@@ -1,6 +1,7 @@
+import type { UserIdentity } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import { internalQuery, query } from "../_generated/server";
+import { internalQuery, query, type QueryCtx } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   getCanonicalIdentityWorkosUserId,
@@ -8,6 +9,40 @@ import {
 } from "../lib/workosUserId";
 import { userMemberIdentity } from "../lib/memberIdentity";
 import { hasDealBlockingUserRemoval } from "../opportunities/dealGuards";
+
+/**
+ * The caller's active CRM user with their avatar identity, or null.
+ * Shared by `getCurrentUser` and `workspaceAccess.getCurrentWorkspaceAccess`.
+ */
+export async function loadCurrentUser(ctx: QueryCtx, identity: UserIdentity) {
+  const workosUserId = getCanonicalIdentityWorkosUserId(identity);
+  if (!workosUserId) {
+    return null;
+  }
+
+  let user = null;
+  for (const candidateWorkosUserId of getWorkosUserIdCandidates(workosUserId)) {
+    user = await ctx.db
+      .query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", candidateWorkosUserId))
+      .unique();
+    if (user) {
+      break;
+    }
+  }
+
+  if (user?.isActive === false) {
+    return null;
+  }
+  if (!user) {
+    return null;
+  }
+
+  return {
+    ...user,
+    avatar: await userMemberIdentity(ctx, user),
+  };
+}
 
 // eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; reads only the caller's user
 export const getCurrentUser = query({
@@ -17,34 +52,7 @@ export const getCurrentUser = query({
     if (!identity) {
       return null;
     }
-
-    const workosUserId = getCanonicalIdentityWorkosUserId(identity);
-    if (!workosUserId) {
-      return null;
-    }
-
-    let user = null;
-    for (const candidateWorkosUserId of getWorkosUserIdCandidates(workosUserId)) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", candidateWorkosUserId))
-        .unique();
-      if (user) {
-        break;
-      }
-    }
-
-    if (user?.isActive === false) {
-      return null;
-    }
-    if (!user) {
-      return null;
-    }
-
-    return {
-      ...user,
-      avatar: await userMemberIdentity(ctx, user),
-    };
+    return await loadCurrentUser(ctx, identity);
   },
 });
 

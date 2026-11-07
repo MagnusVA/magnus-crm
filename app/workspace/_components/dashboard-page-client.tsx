@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import { mergeOverviewDashboard } from "@/convex/analytics/merge/overview";
 import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";

@@ -35,6 +35,12 @@ export type BookingGoalTeamViewModel = Pick<
   LiveGoalTeam,
   "label" | "dailyQuota" | "target" | "progress"
 > & {
+  /** The team's id, for links into Team › Teams; null on answers that don't carry it. */
+  teamId: string | null;
+  /** Days in the range someone on the team works; absent on answers from before goals counted them. */
+  goalDayCount?: number;
+  /** Whether the range's last day is one of the goal's days; absent on older answers. */
+  goalCountsLastDay?: boolean;
   /**
    * The part of progress no DM closer is credited with, and the UTMs it came
    * with (null when the path can't tell them). Null when unknown: an answer
@@ -118,9 +124,12 @@ function readBookingGoalTeam(
   const payload = row.payload;
   return {
     label: requireString(payload, "label", context),
+    teamId: typeof payload.teamId === "string" ? payload.teamId : null,
     dailyQuota: requireNullableNumber(payload, "dailyQuota", context),
     target: requireNullableNumber(payload, "target", context),
     progress: requireNumber(payload, "progress", context),
+    ...(typeof payload.goalDayCount === "number" ? { goalDayCount: payload.goalDayCount } : {}),
+    ...(typeof payload.goalCountsLastDay === "boolean" ? { goalCountsLastDay: payload.goalCountsLastDay } : {}),
     teamOnly:
       typeof payload.teamOnlyBooked === "number"
         ? { booked: payload.teamOnlyBooked, sources: null }
@@ -148,9 +157,12 @@ export function bookedCallsDashboardFromLive(
       businessDayCount: dashboard.goal.businessDayCount,
       teams: dashboard.goal.teams.map((team) => ({
         label: team.label,
+        teamId: team.teamId,
         dailyQuota: team.dailyQuota,
         target: team.target,
         progress: team.progress,
+        ...(team.goalDayCount === undefined ? {} : { goalDayCount: team.goalDayCount }),
+        ...(team.goalCountsLastDay === undefined ? {} : { goalCountsLastDay: team.goalCountsLastDay }),
         teamOnly: team.teamOnly ?? null,
       })),
     },

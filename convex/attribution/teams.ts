@@ -1,3 +1,4 @@
+import { expectedError } from "../lib/observability/errors";
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { normalizeAttributionTeamInput } from "../lib/attribution/teamInput";
@@ -6,6 +7,15 @@ import { requireTenantUser } from "../requireTenantUser";
 
 // Matches MAX_DAILY_TEAM_GOAL in reporting/slackQualifications.ts.
 const MAX_BOOKING_DAILY_QUOTA = 5000;
+
+// Every row sharing one normalised UTM value. The range is tiny (one value),
+// and the uniqueness checks must see all of it: an active row can sit behind
+// any number of disabled ones.
+async function allWithUtmSource<T>(query: AsyncIterable<T>): Promise<T[]> {
+  const rows: T[] = [];
+  for await (const row of query) rows.push(row);
+  return rows;
+}
 
 export const listTeams = query({
   args: {},
@@ -35,16 +45,15 @@ export const createTeam = mutation({
     const normalized = normalizeAttributionTeamInput(args);
     const now = Date.now();
 
-    const existingActive = await ctx.db
+    const existingActive = await allWithUtmSource(ctx.db
       .query("attributionTeams")
       .withIndex("by_tenantId_and_normalizedUtmSource", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("normalizedUtmSource", normalized.normalizedUtmSource),
-      )
-      .take(5);
+      ));
     if (existingActive.some((team) => team.isActive)) {
-      throw new Error("An active attribution team already uses this UTM source.");
+      throw expectedError("attribution.rejected", "An active attribution team already uses this UTM source.");
     }
 
     const teamId = await ctx.db.insert("attributionTeams", {
@@ -75,24 +84,23 @@ export const updateTeam = mutation({
     ]);
     const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
-      throw new Error("Attribution team not found.");
+      throw expectedError("attribution.rejected", "Attribution team not found.");
     }
     const normalized = normalizeAttributionTeamInput(args);
 
-    const existingActive = await ctx.db
+    const existingActive = await allWithUtmSource(ctx.db
       .query("attributionTeams")
       .withIndex("by_tenantId_and_normalizedUtmSource", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("normalizedUtmSource", normalized.normalizedUtmSource),
-      )
-      .take(5);
+      ));
     if (
       existingActive.some(
         (candidate) => candidate.isActive && candidate._id !== args.teamId,
       )
     ) {
-      throw new Error("An active attribution team already uses this UTM source.");
+      throw expectedError("attribution.rejected", "An active attribution team already uses this UTM source.");
     }
 
     await ctx.db.patch("attributionTeams", args.teamId, {
@@ -127,7 +135,7 @@ export const setTeamBookingQuota = mutation({
     ]);
     const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
-      throw new Error("Attribution team not found.");
+      throw expectedError("attribution.rejected", "Attribution team not found.");
     }
 
     if (
@@ -136,7 +144,7 @@ export const setTeamBookingQuota = mutation({
         args.bookingDailyQuota < 0 ||
         args.bookingDailyQuota > MAX_BOOKING_DAILY_QUOTA)
     ) {
-      throw new Error(
+      throw expectedError("attribution.rejected", 
         `Daily booking goal must be an integer between 0 and ${MAX_BOOKING_DAILY_QUOTA}.`,
       );
     }
@@ -161,7 +169,17 @@ export const setTeamActive = mutation({
     ]);
     const team = await ctx.db.get("attributionTeams", teamId);
     if (!team || team.tenantId !== tenantId) {
-      throw new Error("Attribution team not found.");
+      throw expectedError("attribution.rejected", "Attribution team not found.");
+    }
+    if (isActive && !team.isActive) {
+      const sameSource = await allWithUtmSource(ctx.db
+        .query("attributionTeams")
+        .withIndex("by_tenantId_and_normalizedUtmSource", (q) =>
+          q.eq("tenantId", tenantId).eq("normalizedUtmSource", team.normalizedUtmSource),
+        ));
+      if (sameSource.some((candidate) => candidate._id !== teamId && candidate.isActive)) {
+        throw expectedError("attribution.rejected", "An active attribution team already uses this UTM source.");
+      }
     }
     await ctx.db.patch("attributionTeams", teamId, { isActive, updatedAt: Date.now() });
     log.info("attribution.team.active_set", {

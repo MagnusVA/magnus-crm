@@ -77,33 +77,22 @@ export const verifySession = cache(async (): Promise<VerifiedSession> => {
 });
 
 /**
- * Resolve the CRM user for a verified session. If no user exists,
- * attempts to claim an invited account and re-fetches.
- * Cached per-request so multiple consumers share a single result.
+ * Claim an invited account for a session with no CRM user yet, then read
+ * the user it created.
  */
-const resolveCrmUser = cache(async (session: VerifiedSession) => {
-  let crmUser = await fetchQuery(
-    api.users.queries.getCurrentUser,
+async function claimInvitedCrmUser(session: VerifiedSession) {
+  await fetchAction(
+    api.workos.userActions.claimInvitedAccount,
     {},
     { token: session.accessToken }
   );
 
-  if (!crmUser) {
-    await fetchAction(
-      api.workos.userActions.claimInvitedAccount,
-      {},
-      { token: session.accessToken }
-    );
-
-    crmUser = await fetchQuery(
-      api.users.queries.getCurrentUser,
-      {},
-      { token: session.accessToken }
-    );
-  }
-
-  return crmUser;
-});
+  return await fetchQuery(
+    api.users.queries.getCurrentUser,
+    {},
+    { token: session.accessToken }
+  );
+}
 
 /**
  * Resolve the full workspace access state for the current request.
@@ -119,9 +108,10 @@ export const getWorkspaceAccess = cache(
       return { kind: "system_admin", session };
     }
 
-    // Fetch tenant for this organization
-    const tenant = await fetchQuery(
-      api.tenants.getCurrentTenant,
+    // Tenant and user in one Convex call: every workspace document load
+    // waits on this, and each call from the server is a round trip.
+    const { tenant, user } = await fetchQuery(
+      api.workspaceAccess.getCurrentWorkspaceAccess,
       {},
       { token: session.accessToken }
     );
@@ -135,8 +125,8 @@ export const getWorkspaceAccess = cache(
       return { kind: "pending_onboarding", session, tenant };
     }
 
-    // Resolve CRM user (may trigger invite claim)
-    const crmUser = await resolveCrmUser(session);
+    // No CRM user yet: claim the invite, which writes, so only now.
+    const crmUser = user ?? (await claimInvitedCrmUser(session));
     if (!crmUser) {
       return { kind: "not_provisioned", session, tenant };
     }

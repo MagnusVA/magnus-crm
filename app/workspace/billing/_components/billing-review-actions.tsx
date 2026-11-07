@@ -12,12 +12,15 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
 
+/** Mark reviewed: the payment page's one next action while it needs review. */
 export function BillingReviewActions({
   paymentRecordId,
   status,
+  className,
 }: {
   paymentRecordId: Id<"paymentRecords">;
   status: BillingPaymentStatus;
+  className?: string;
 }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,7 +53,7 @@ export function BillingReviewActions({
   };
 
   return (
-    <Button disabled={isSubmitting} onClick={submit}>
+    <Button className={className} disabled={isSubmitting} onClick={submit}>
       {isSubmitting ? (
         <Spinner data-icon="inline-start" />
       ) : (

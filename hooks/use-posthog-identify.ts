@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 
 interface PostHogIdentityProps {

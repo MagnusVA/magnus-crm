@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { expectedError } from "./observability/errors";
 import { repointDealAttributionTeamMember } from "./attribution/dealAttributions";
 
 // One team member per human (CONTEXT.md, "Team member"). The role records
@@ -8,7 +9,7 @@ import { repointDealAttributionTeamMember } from "./attribution/dealAttributions
 // a lead gen worker's user, a DM closer's user, a Slack user's CRM user.
 // Names never do (docs/plans/phase-1-foundations.md §6.1, D5).
 
-async function insertTeamMember(
+export async function insertTeamMember(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   displayName: string,
@@ -26,7 +27,7 @@ async function insertTeamMember(
  * A role record moved to another team member: its attribution rows follow,
  * since they credit the same human (docs/plans/phase-3-attribution.md §4.8).
  */
-async function moveRecordAttributions(
+export async function moveRecordAttributions(
   ctx: MutationCtx,
   args: {
     tenantId: Id<"tenants">;
@@ -43,6 +44,7 @@ async function moveRecordAttributions(
     tenantId: args.tenantId,
     role: args.role,
     recordKey: args.recordKey,
+    followCurrentOwner: true,
     fromTeamMemberId: args.fromTeamMemberId,
     intoTeamMemberId: args.intoTeamMemberId,
   });
@@ -59,6 +61,64 @@ export function slackUserTeamMemberName(slackUser: Doc<"slackUsers">): string {
     slackUser.username?.trim() ||
     slackUser.slackUserId
   );
+}
+
+/** A removed or disabled login never wins over a current login. */
+export function isActiveLogin(user: Doc<"users">): boolean {
+  return user.isActive && user.deletedAt === undefined;
+}
+
+export function preferredLogin(users: readonly Doc<"users">[]): Doc<"users"> | null {
+  return users.find(isActiveLogin) ?? users[0] ?? null;
+}
+
+/** Read the full bounded set, including logins beyond a merge's role page. */
+export async function memberLogins(ctx: MutationCtx | QueryCtx, tenantId: Id<"tenants">, teamMemberId: Id<"teamMembers">) {
+  const users = await ctx.db.query("users")
+    .withIndex("by_tenantId_and_teamMemberId", q => q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId))
+    .take(1001);
+  if (users.length > 1000) throw expectedError("team.rejected", "Too many logins to safely join this member.");
+  return users;
+}
+
+const ATTRIBUTION_ROLES = ["setter", "lead_gen", "dm_closer"] as const;
+
+/**
+ * Deletes a team member nothing points at any more: no role record, deal
+ * credit or event. A record moving to another member (an unlink, its Undo, a
+ * link to a login) runs this on the member it left once its credit has moved,
+ * so no empty member is left behind for Members or Review.
+ */
+export async function deleteTeamMemberIfUnused(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  teamMemberId: Id<"teamMembers">,
+): Promise<boolean> {
+  const member = await ctx.db.get("teamMembers", teamMemberId);
+  if (!member || member.tenantId !== tenantId) return false;
+  for (const table of ROLE_TABLES) {
+    const record = await ctx.db
+      .query(table)
+      .withIndex("by_tenantId_and_teamMemberId", (q) => q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId))
+      .first();
+    if (record) return false;
+  }
+  for (const role of ATTRIBUTION_ROLES) {
+    const credit = await ctx.db
+      .query("dealAttributions")
+      .withIndex("by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt", (q) =>
+        q.eq("tenantId", tenantId).eq("role", role).eq("teamMemberId", teamMemberId),
+      )
+      .first();
+    if (credit) return false;
+  }
+  const event = await ctx.db
+    .query("domainEvents")
+    .withIndex("by_tenantId_and_teamMemberId_and_occurredAt", (q) => q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId))
+    .first();
+  if (event) return false;
+  await ctx.db.delete("teamMembers", teamMemberId);
+  return true;
 }
 
 /** The user's team member, created the first time anything needs it. */
@@ -138,6 +198,10 @@ export async function refreshSlackUserTeamMemberName(
 ): Promise<void> {
   const slackUser = await ctx.db.get("slackUsers", slackUserRowId);
   if (!slackUser?.teamMemberId || slackUser.crmUserId) {
+    return;
+  }
+  const records = await teamMemberRoleRecords(ctx, slackUser.tenantId, slackUser.teamMemberId);
+  if (records.users.length || records.leadGenWorkers.length || records.dmClosers.length || records.slackUsers.length !== 1) {
     return;
   }
   const teamMember = await ctx.db.get("teamMembers", slackUser.teamMemberId);
@@ -226,8 +290,8 @@ export async function teamMemberRoleRecords(
 
 /**
  * Moves every record, event and attribution row of `fromTeamMemberId` to
- * `intoTeamMemberId`, then deletes it. A human can hold one login, so the two
- * can't both have a user. Returns false while events or rows are left to
+ * `intoTeamMemberId`, then deletes it. A human can hold only one active login. Removed logins
+ * may coexist with that login. Returns false while events or rows are left to
  * repoint; call again.
  */
 export async function mergeTeamMembers(
@@ -244,18 +308,20 @@ export async function mergeTeamMembers(
     ctx.db.get("teamMembers", intoTeamMemberId),
   ]);
   if (!into || into.tenantId !== tenantId) {
-    throw new Error(`Team member ${intoTeamMemberId} not found in this tenant`);
+    throw expectedError("team.rejected", "Team member not found in this tenant.");
   }
   if (!from) {
     return true;
   }
   if (from.tenantId !== tenantId || fromTeamMemberId === intoTeamMemberId) {
-    throw new Error(`Can't merge team member ${fromTeamMemberId} into ${intoTeamMemberId}`);
+    throw expectedError("team.rejected", "Choose two different members in this tenant.");
   }
   const moving = await teamMemberRoleRecords(ctx, tenantId, fromTeamMemberId);
-  const staying = await teamMemberRoleRecords(ctx, tenantId, intoTeamMemberId);
-  if (moving.users.length > 0 && staying.users.length > 0) {
-    throw new Error("Both team members have a login; a human has one");
+  const [fromLogins, intoLogins] = await Promise.all([
+    memberLogins(ctx, tenantId, fromTeamMemberId), memberLogins(ctx, tenantId, intoTeamMemberId),
+  ]);
+  if (fromLogins.some(isActiveLogin) && intoLogins.some(isActiveLogin)) {
+    throw expectedError("team.rejected", "Both members have an active login. Remove one login before joining them.");
   }
   for (const table of ROLE_TABLES) {
     for (const record of moving[table]) {

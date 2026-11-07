@@ -2,11 +2,13 @@
  * How a DM team stands against its booking goal for the shown range, the
  * Booked calls page's colour feedback (.impeccable/surfaces brief, Pace rules).
  *
- * The server's goal is the team's daily quota times the days in the range,
- * and the preset ranges run through today, so the goal already counts today
- * in full. Pace compares the bookings with the days that have finished:
- * a team is behind only when it booked fewer than its quota times the days
- * before today. Once the range is over, the whole goal is due.
+ * The server's goal is the team's daily quota times its goal days: the days
+ * in the range someone on the team works (`goalDayCount`), and the preset
+ * ranges run through today, so the goal already counts today in full. Pace
+ * compares the bookings with the goal days that have finished: a team is
+ * behind only when it booked fewer than its quota times the goal days before
+ * today (taken as all but one, so a day off today errs toward on pace).
+ * Once the range is over, the whole goal is due.
  */
 
 export type BookingPaceKind = "met" | "ahead" | "on_pace" | "behind" | "missed" | "no_goal";
@@ -32,11 +34,15 @@ export type BookingPaceInput = {
   goal: number | null;
   /** Days in the range, today included when the range runs through today. */
   dayCount: number;
+  /** The goal's days (the days someone on the team works); `dayCount` when unknown. */
+  goalDayCount?: number;
+  /** Whether today is one of the goal's days; when it isn't, every goal day so far has finished. */
+  todayCounts?: boolean;
   /** True when the range includes today, so today has not finished yet. */
   includesToday: boolean;
 };
 
-export function bookingPace({ booked, dailyQuota, goal, dayCount, includesToday }: BookingPaceInput): BookingPace {
+export function bookingPace({ booked, dailyQuota, goal, dayCount, goalDayCount, todayCounts = true, includesToday }: BookingPaceInput): BookingPace {
   if (goal === null || dailyQuota === null || goal <= 0) {
     return { kind: "no_goal", goal: null, booked, expected: null, gap: 0, toGo: null, share: null };
   }
@@ -48,7 +54,7 @@ export function bookingPace({ booked, dailyQuota, goal, dayCount, includesToday 
   if (!includesToday) {
     return { kind: "missed", goal, booked, expected: goal, gap: goal - booked, toGo, share };
   }
-  const finishedDays = Math.max(0, dayCount - 1);
+  const finishedDays = Math.max(0, (goalDayCount ?? dayCount) - (todayCounts ? 1 : 0));
   const expected = dailyQuota * finishedDays;
   if (booked < expected) {
     return { kind: "behind", goal, booked, expected, gap: expected - booked, toGo, share };

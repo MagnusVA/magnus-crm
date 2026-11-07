@@ -16,7 +16,7 @@ import {
   type SharedDmTeam,
 } from "./sharedTeams";
 import {
-  loadCurrentScheduledHoursByWorkerDay,
+  loadScheduledHoursByWorkerDay,
   scheduledHoursForDailyStat,
 } from "./schedules";
 import { buildExcelReportData } from "./reportBuilders";
@@ -473,7 +473,7 @@ async function hydrateSummaryExportRows(
     ],
   );
   const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+    await loadScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
   return rows.map((row) => {
     const worker = workers.get(row.workerId);
@@ -528,7 +528,7 @@ export const getExcelReportData = query({
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, { tenantId, ...args });
     const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+      await loadScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
     return await buildExcelReportData(ctx, {
       tenantId,
@@ -553,7 +553,7 @@ export const getWorkerExportRows = query({
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, { tenantId, ...args });
     const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+      await loadScheduledHoursByWorkerDay(ctx, { tenantId, rows });
     const byWorker = new Map<
       Id<"leadGenWorkers">,
       {

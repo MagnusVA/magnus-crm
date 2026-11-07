@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { DEFAULT_BUSINESS_DAY, type BusinessDaySetting } from "../../lib/businessDay";
+import { DEFAULT_BUSINESS_DAY, businessDateForInstant, type BusinessDaySetting } from "../../lib/businessDay";
 
 // Contexts belong to one transaction. The auth guard already reads the tenant;
 // share that read with nested reporting helpers without caching across requests.
@@ -18,4 +18,9 @@ export async function getTenantBusinessDay(ctx: QueryCtx, tenantId: Id<"tenants"
   const tenant = await ctx.db.get("tenants", tenantId);
   if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
   return rememberTenantBusinessDay(ctx, tenant);
+}
+
+/** The tenant's business date right now, as "YYYY-MM-DD". */
+export async function tenantBusinessToday(ctx: QueryCtx, tenantId: Id<"tenants">): Promise<string> {
+  return businessDateForInstant(Date.now(), await getTenantBusinessDay(ctx, tenantId));
 }

@@ -47,6 +47,7 @@ import {
   teamMemberRoleRecords,
 } from "./lib/teamMembers";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
+import { scheduleRowInForceOn } from "./workSchedules/datedRows";
 import {
   customerFieldsFromEnrollments,
   isVisibleLifecycle,
@@ -81,6 +82,10 @@ import {
   openDealAging,
   personLosses,
 } from "./reporting/pipelineHealthAggregates";
+import {
+  assertTenantOnCoverage,
+  migrateTenantToCoverage,
+} from "./lib/bookingSetup/coverageData";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -401,16 +406,14 @@ export const backfillLeadGenDailyStatScheduledHours = migrations.define({
   table: "leadGenDailyStats",
   batchSize: 100,
   migrateOne: async (ctx, stat) => {
-    const weekday = leadGenWeekdayForBusinessDate(stat.dayKey);
-    const schedule = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
-        q
-          .eq("tenantId", stat.tenantId)
-          .eq("workerId", stat.workerId)
-          .eq("weekday", weekday),
-      )
-      .unique();
+    // The schedule in force on the stat's day (schedules are dated).
+    const schedule = await scheduleRowInForceOn(
+      ctx,
+      stat.tenantId,
+      { table: "leadGenWorkerSchedules", workerId: stat.workerId },
+      leadGenWeekdayForBusinessDate(stat.dayKey),
+      stat.dayKey,
+    );
     const scheduledHours = schedule?.scheduledHours ?? 0;
 
     if (stat.scheduledHours !== scheduledHours) {
@@ -1370,4 +1373,16 @@ export const assertPaymentProofHashes = migrations.define({
       throw fail(reused ? "shares an earlier payment's proof and isn't flagged" : "is flagged reused and shares no earlier proof");
     }
   },
+});
+
+// Booking coverage (explicit Shared cells and a per-team Shared fallback).
+// The booking setup page also migrates its tenant on first load. Preview one
+// tenant with bookingSetup/queries:previewCoverageMigration.
+export const migrateBookingCoverage = migrations.define({
+  table: "tenants", batchSize: 1,
+  migrateOne: async (ctx, tenant) => { await migrateTenantToCoverage(ctx, tenant._id); },
+});
+export const assertBookingCoverageMigrated = migrations.define({
+  table: "tenants", batchSize: 1,
+  migrateOne: async (ctx, tenant) => { await assertTenantOnCoverage(ctx, tenant._id); },
 });

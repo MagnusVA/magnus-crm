@@ -31,7 +31,7 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 | Convex actions | `requireTenantUserFromAction(ctx, roles)`. Older actions call `requireIdentity(ctx)` and authorize by hand, skipping WorkOS ID canonicalization; use the shared guard in new code. |
 | Billing | `requireBillingPermission` plus `requireBillingOpsEnabled` from `convex/billing/guards.ts`; the second enforces the tenant's `billingOpsEnabled` flag |
 | System admin (`/admin`) | `requireSystemAdmin()` in Next.js and `requireSystemAdminSession(identity)` in Convex. Membership means the identity's org equals `SYSTEM_ADMIN_ORG_ID`, and `/workspace` redirects system admins to `/admin`. `convex/admin/` also holds tenant-admin code (`meetingActions.ts`), so check each function's guard rather than its folder. |
-| DM link portal (`/dm-links/[portalSlug]`) | Shared password, outside WorkOS. Public actions take a `sessionToken`, verify it in `"use node"` code, then call internal functions that run `assertActivePortalSession` (`convex/linkPortal/leadSession.ts`). The tenant comes from the token. |
+| DM link portal (`/dm-links/[portalSlug]`) | Shared password, outside WorkOS. Public functions take a `sessionToken` and verify it with `verifyPortalSessionToken` (`convex/linkPortal/sessionToken.ts`, Web Crypto). The bootstrap is a query (`getPortalBootstrap`); the actions call internal functions that run `assertActivePortalSession` (`convex/linkPortal/leadSession.ts`). The tenant comes from the token. Which event types a DM closer can copy links for comes from booking coverage (`convex/lib/bookingSetup/coverage.ts`); the bootstrap and the copy mutation apply the same rule. |
 | Webhooks | Signature verification; see `docs/agents/convex.md` |
 | MCP tools (`/mcp`) | The mount verifies AuthKit access tokens (issuer `AUTHKIT_DOMAIN`, audience `MCP_RESOURCE_URL`); each tool runs `requireMcpUser(ctx, caller, roles)` from `convex/mcp/guard.ts` on the injected caller. See "AI assistants over MCP" in `docs/agents/convex.md` |
 | UI | `useRole()` and `<RequirePermission>` (`components/auth/`) only control what renders |
@@ -46,3 +46,5 @@ ESLint's `@convex-dev/require-access-control` rule fails any public Convex funct
 ## Routing
 
 - `proxy.ts` is Next.js 16's replacement for middleware: it runs AuthKit, gates `/admin`, and lists unauthenticated routes in `PUBLIC_PREFIXES`. Add new public routes there.
+- The proxy's matcher skips router prefetches (the `next-router-prefetch` header) and the Convex log stream. Prefetches fetch static shells, so a page must read the session behind `connection()`, as `verifySession` does, never in its static shell.
+- The browser's Convex token comes from `app/api/auth/token/route.ts`, not AuthKit's `useAccessToken`. Don't write a cookie from a server action on a timer: Next then clears the client's prefetch cache and re-renders the page on the server.

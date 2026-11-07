@@ -20,6 +20,7 @@ import {
   reloadingClass,
 } from "./lead-gen-format";
 import type { ConversionReport } from "./prospect-conversion-section";
+import { ScheduleHoursLink, TeamPageLink, teamHref } from "../../_components/team-links";
 
 // Who captured them: specialists grouped by team, busiest team first, each
 // with submissions, the rate per scheduled hour, and a small bar of how far
@@ -31,6 +32,7 @@ type TeamOption = { _id: Id<"attributionTeams">; name: string };
 
 type TeamGroup = {
   key: string;
+  teamId: Id<"attributionTeams"> | null;
   teamName: string;
   rows: SpecialistRow[];
   submissions: number;
@@ -46,6 +48,7 @@ function groupRowsByTeam(rows: SpecialistRow[], teams: TeamOption[] | undefined)
     const key = row.teamId ?? NO_TEAM_KEY;
     const group = groups.get(key) ?? {
       key,
+      teamId: row.teamId ?? null,
       teamName: row.teamId ? (teamNameById.get(row.teamId) ?? "Unknown team") : "No team",
       rows: [],
       submissions: 0,
@@ -72,10 +75,6 @@ function Rate({ rate }: { rate: number | null }) {
       <span className="ml-0.5 font-sans text-[13px] font-medium text-muted-foreground">/h</span>
     </span>
   );
-}
-
-function personMeta(row: SpecialistRow) {
-  return row.scheduledHours > 0 ? `${formatHours(row.scheduledHours)} h scheduled` : "No schedule";
 }
 
 /**
@@ -155,7 +154,7 @@ export function SpecialistsSection({
   return (
     <DetailCard
       title="Specialists"
-      meta={allSources ? "Grouped by team" : "Grouped by team · the funnel counts every source"}
+      meta={allSources ? "Grouped by team · hours link to each schedule" : "Grouped by team · the funnel counts every source"}
       className="@container/spec min-w-0"
     >
       <div aria-busy={reloading} className={reloadingClass(reloading)}>
@@ -184,6 +183,9 @@ export function SpecialistsSection({
                   <tr className="border-b bg-muted/40">
                     <th scope="rowgroup" className="h-7 py-1 pr-3 pl-4 text-left font-condensed text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                       {group.teamName} · {plural(group.rows.length, "specialist")}
+                      {group.teamId ? (
+                        <TeamPageLink teamId={group.teamId} teamName={group.teamName} className="ml-2" />
+                      ) : null}
                     </th>
                     <td className={cn("px-2.5 text-right", "font-condensed text-[14px] font-semibold tabular-nums")}>
                       {formatCount(group.submissions)}
@@ -212,7 +214,12 @@ export function SpecialistsSection({
                                 ) : null}
                               </span>
                               <span className="block truncate text-[13px] text-muted-foreground">
-                                {personMeta(row)}
+                                <ScheduleHoursLink
+                                  href={teamHref.worker(row.workerId)}
+                                  hours={row.scheduledHours}
+                                  name={name}
+                                  formatHours={formatHours}
+                                />
                                 {/* Narrow cards drop the rate column; the rate rides in the meta. */}
                                 <span className="@md/spec:hidden">
                                   {row.leadsPerHour !== null ? ` · ${formatPerHour(row.leadsPerHour)}/h` : null}

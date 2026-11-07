@@ -101,6 +101,18 @@ _Avoid_: customer program, subscription
 **Side deal**:
 A deal a closer or admin opens by hand, with no Calendly booking behind it.
 
+## Booking setup
+
+**Event type**:
+A Calendly event type synced into the CRM. Sorted into a program with a scheduling mode, it makes its bookings sales calls for that program; sorted out as **not a sales call**, it leaves booking setup until someone brings it back. Unsorted ones wait in the inbox.
+
+**Scheduling mode**:
+Priority (books soon; `normal` in code) or Standard (books further out; `extended` in code, `isExtended`).
+
+**Coverage**:
+Which event type each DM team's portal links book, per program and scheduling mode: one event type per cell. The Shared column covers every team that uses Shared and has nothing of its own in that cell. Coverage never changes which program a booking counts for; the event type decides that.
+_Avoid_: team routes, portal visibility, published event types
+
 ## Credit and history
 
 **Team member**:

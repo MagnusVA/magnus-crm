@@ -1,8 +1,8 @@
 "use client";
 
-import { PencilIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowUpRightIcon, TargetIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MovedToTeamChip, TipLink, teamHref } from "../../_components/team-links";
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import type {
   QualificationDashboardViewModel,
@@ -11,17 +11,40 @@ import type {
 
 type Goal = QualificationDashboardViewModel["goal"];
 
-/** The band's board-tone outline button: Schedules, Export, Set goal. */
-export const BAND_BUTTON_CLASS =
-  "h-[34px] rounded-[7px] border-board-foreground/15 bg-board-raised px-3 text-[13px] text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10";
+/** The band's board-tone outline button, here a link: Set goal. */
+const BAND_LINK_CLASS =
+  "inline-flex h-[34px] items-center gap-1.5 rounded-[7px] border border-board-foreground/15 bg-board-raised px-3 text-[13px] font-medium text-board-foreground hover:bg-board-foreground/10 focus-visible:ring-offset-board";
 
 const linkClass =
-  "inline-flex min-h-6 items-center rounded-sm text-[13px] font-semibold text-board-foreground underline decoration-board-foreground/40 underline-offset-[3px] outline-none hover:decoration-board-foreground focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex min-h-6 items-center gap-0.5 text-[13px] font-semibold text-board-foreground underline decoration-board-foreground/40 underline-offset-[3px] hover:decoration-board-foreground focus-visible:ring-offset-board";
 
-function quotaWords(goal: Goal) {
+const GOAL_TIP =
+  "Qualified leads per day for the whole workspace, set in Team › Goals. The target counts only the days someone works.";
+
+/**
+ * "70 a day × 22 days someone works": the goal counts only the days some
+ * setter is scheduled. Snapshot ranges don't carry that count yet, so they
+ * say business days.
+ */
+function quotaWords(goal: Goal, goalDayCount: number | undefined) {
   if (goal.dailyQuota === null) return null;
+  const perDay = `${formatWholeNumber(goal.dailyQuota)} a day`;
+  if (goalDayCount !== undefined) {
+    return `${perDay} × ${formatWholeNumber(goalDayCount)} day${goalDayCount === 1 ? "" : "s"} someone works`;
+  }
   const days = goal.businessDayCount;
-  return `${formatWholeNumber(goal.dailyQuota)} a day × ${formatWholeNumber(days)} business day${days === 1 ? "" : "s"}`;
+  return `${perDay} × ${formatWholeNumber(days)} business day${days === 1 ? "" : "s"}`;
+}
+
+/** Where the Schedules and Edit goal buttons were. */
+function MovedChip() {
+  return (
+    <MovedToTeamChip
+      href={teamHref.schedules("slack")}
+      moved={["Schedules", "Edit goal"]}
+      tip="Setters' weeks live in Team › Schedules and the goal in Team › Goals. Change them there; this page follows."
+    />
+  );
 }
 
 /**
@@ -36,16 +59,17 @@ export function QualificationsGoalRow({
   failed,
   setters,
   selectedSetter,
-  onEditGoal,
+  goalDayCount,
 }: {
   goal: Goal | undefined;
+  /** Days in the range some setter works (live answers only). */
+  goalDayCount?: number;
   /** The figures belong to the last range while the new one loads. */
   reloading: boolean;
   /** The report failed with nothing kept; the notice below the band says why. */
   failed: boolean;
   setters: QualificationOpenerViewModel[] | undefined;
   selectedSetter: string | null;
-  onEditGoal: () => void;
 }) {
   return (
     <div
@@ -56,7 +80,7 @@ export function QualificationsGoalRow({
       )}
     >
       {goal !== undefined ? (
-        <GoalFigures goal={goal} setters={setters ?? []} selectedSetter={selectedSetter} onEditGoal={onEditGoal} />
+        <GoalFigures goal={goal} setters={setters ?? []} selectedSetter={selectedSetter} goalDayCount={goalDayCount} />
       ) : failed ? (
         <div>
           <p className="font-condensed text-[11px] font-semibold tracking-[0.14em] text-board-muted uppercase">Team goal</p>
@@ -73,16 +97,16 @@ function GoalFigures({
   goal,
   setters,
   selectedSetter,
-  onEditGoal,
+  goalDayCount,
 }: {
   goal: Goal;
   setters: QualificationOpenerViewModel[];
   selectedSetter: string | null;
-  onEditGoal: () => void;
+  goalDayCount: number | undefined;
 }) {
   const target = goal.target !== null && goal.target > 0 ? goal.target : null;
   const progress = goal.progress;
-  const quota = quotaWords(goal);
+  const quota = quotaWords(goal, goalDayCount);
 
   if (target === null) {
     return (
@@ -94,10 +118,13 @@ function GoalFigures({
             <span className="text-[17px] text-board-muted">qualified · no goal set</span>
           </p>
         </div>
-        <Button type="button" variant="outline" className={cn(BAND_BUTTON_CLASS, "ml-auto")} onClick={onEditGoal}>
-          <PencilIcon data-icon="inline-start" aria-hidden="true" />
-          Set goal
-        </Button>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <MovedChip />
+          <TipLink href={teamHref.goals("qualified")} tip={GOAL_TIP} className={BAND_LINK_CLASS}>
+            <TargetIcon aria-hidden="true" className="size-4" />
+            Set goal
+          </TipLink>
+        </div>
       </>
     );
   }
@@ -146,9 +173,11 @@ function GoalFigures({
       <div className="ml-auto flex items-center gap-3 text-[13px] whitespace-nowrap text-board-muted @3xl:ml-0">
         {percent >= 100 ? <span className="font-medium text-board-foreground">Goal reached</span> : null}
         {quota ? <span>{quota}</span> : null}
-        <button type="button" className={linkClass} onClick={onEditGoal}>
-          Edit goal
-        </button>
+        <TipLink href={teamHref.goals("qualified")} tip={GOAL_TIP} className={linkClass}>
+          Goal
+          <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+        </TipLink>
+        <MovedChip />
       </div>
     </>
   );

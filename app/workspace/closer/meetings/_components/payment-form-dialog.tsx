@@ -40,7 +40,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { BanknoteIcon, AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 import { ProofFileInput } from "./proof-file-input";

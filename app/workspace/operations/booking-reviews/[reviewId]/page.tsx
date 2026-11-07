@@ -2,6 +2,7 @@ import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import { BookingReviewPageClient } from "./_components/booking-review-page-client";
+import { ContentReveal } from "@/components/page-transitions";
 
 export const unstable_instant = false;
 
@@ -19,5 +20,9 @@ export default async function BookingReviewPage({
     { token: session.accessToken },
   );
 
-  return <BookingReviewPageClient preloadedReview={preloadedReview} />;
+  return (
+    <ContentReveal>
+      <BookingReviewPageClient preloadedReview={preloadedReview} />
+    </ContentReveal>
+  );
 }

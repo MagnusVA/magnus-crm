@@ -65,6 +65,10 @@ export default defineSchema({
   ...endOfDayTables,
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
+    // Set when the tenant moved to the booking coverage model: explicit Shared
+    // cells (sharedProgramEventTypes) and a per-team Shared fallback. Until
+    // then the portal uses the legacy rule in lib/attribution/teamEventTypeRoutes.
+    bookingCoverageMigratedAt: v.optional(v.number()),
     // Historical event types and reminder metadata are free strings. Keep
     // their extra buckets bounded; overflow leaves the reader on its scan.
     activityEventCountsExtraValues: v.optional(
@@ -223,6 +227,16 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_tenantId", ["tenantId"]),
 
+  // Team › Review items an admin closed without changing a record ("Not the
+  // same", "Keep both", "Leave Slack-only"), so they stay closed. `key` names
+  // the item (convex/team/review.ts). Deleting the row reopens it.
+  teamReviewDecisions: defineTable({
+    tenantId: v.id("tenants"),
+    key: v.string(),
+    decidedByUserId: v.id("users"),
+    decidedAt: v.number(),
+  }).index("by_tenantId_and_key", ["tenantId", "key"]),
+
   leadGenSettings: defineTable({
     tenantId: v.id("tenants"),
     correctionWindowMinutes: v.optional(v.number()),
@@ -261,13 +275,18 @@ export default defineSchema({
     userId: v.id("users"),
     weekday: leadGenWeekdayValidator,
     scheduledHours: v.number(),
+    // The business date this row applies from, until the next row for the
+    // same weekday (convex/lib/workSchedule.ts, "Dated schedules"). Unset on
+    // rows saved before schedules were dated: they apply from the beginning.
+    effectiveFrom: v.optional(v.string()),
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_workerId_and_weekday", [
+    .index("by_tenantId_and_workerId_and_weekday_and_effectiveFrom", [
       "tenantId",
       "workerId",
       "weekday",
+      "effectiveFrom",
     ]),
 
   slackQualifierSchedules: defineTable({
@@ -275,13 +294,18 @@ export default defineSchema({
     slackUserId: v.string(),
     weekday: weekdayValidator,
     scheduledHours: v.number(),
+    // The business date this row applies from, until the next row for the
+    // same weekday (convex/lib/workSchedule.ts, "Dated schedules"). Unset on
+    // rows saved before schedules were dated: they apply from the beginning.
+    effectiveFrom: v.optional(v.string()),
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_slackUserId_and_weekday", [
+    .index("by_tenantId_and_slackUserId_and_weekday_and_effectiveFrom", [
       "tenantId",
       "slackUserId",
       "weekday",
+      "effectiveFrom",
     ]),
 
   dmCloserSchedules: defineTable({
@@ -289,13 +313,18 @@ export default defineSchema({
     dmCloserId: v.id("dmClosers"),
     weekday: weekdayValidator,
     scheduledHours: v.number(),
+    // The business date this row applies from, until the next row for the
+    // same weekday (convex/lib/workSchedule.ts, "Dated schedules"). Unset on
+    // rows saved before schedules were dated: they apply from the beginning.
+    effectiveFrom: v.optional(v.string()),
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_dmCloserId_and_weekday", [
+    .index("by_tenantId_and_dmCloserId_and_weekday_and_effectiveFrom", [
       "tenantId",
       "dmCloserId",
       "weekday",
+      "effectiveFrom",
     ]),
 
   leadGenProspects: defineTable({
@@ -846,6 +875,9 @@ export default defineSchema({
     // NIM-17: per-team daily booked-calls goal for the Booked Calls page.
     // Cleared (undefined) when no goal is configured.
     bookingDailyQuota: v.optional(v.number()),
+    // Booking coverage: whether cells without a route of their own use the
+    // Shared cell. Read as true when absent on a migrated tenant.
+    usesSharedEventTypes: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -898,6 +930,27 @@ export default defineSchema({
     .index("by_tenantId_and_teamId_and_programId_and_mode", [
       "tenantId",
       "teamId",
+      "programId",
+      "mode",
+    ])
+    .index("by_tenantId_and_eventTypeConfigId", [
+      "tenantId",
+      "eventTypeConfigId",
+    ]),
+
+  // The Shared column of booking coverage: one event type per program and
+  // scheduling mode, used by every team whose own cell is empty and that
+  // uses Shared. Like team routes, it never changes a booking's program.
+  sharedProgramEventTypes: defineTable({
+    tenantId: v.id("tenants"),
+    programId: v.id("tenantPrograms"),
+    mode: v.union(v.literal("normal"), v.literal("extended")),
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_programId_and_mode", [
+      "tenantId",
       "programId",
       "mode",
     ])
@@ -1578,7 +1631,11 @@ export default defineSchema({
         v.literal("calendly_synced"),
       ),
     ),
+    // Legacy portal visibility. A tenant on booking coverage publishes an
+    // event type by putting it in a cell instead.
     linkPortalEnabled: v.optional(v.boolean()),
+    // Sorted out of booking setup as not a sales call. Always unmapped.
+    notSalesCallAt: v.optional(v.number()),
     // Extended event types allow booking further in advance (e.g. 2-3 days out).
     isExtended: v.optional(v.boolean()),
 

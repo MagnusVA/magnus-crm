@@ -65,6 +65,11 @@ function DialogContent({
           className
         )}
         {...props}
+        onInteractOutside={(event) => {
+          // An Undo toast sits outside the dialog; clicking it must not close the dialog.
+          if ((event.target as Element | null)?.closest?.("[data-sonner-toaster]")) event.preventDefault()
+          props.onInteractOutside?.(event)
+        }}
       >
         {children}
         {showCloseButton && (

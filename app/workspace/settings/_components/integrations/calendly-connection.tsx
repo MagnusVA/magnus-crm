@@ -2,90 +2,49 @@
 
 import { useState } from "react";
 import { useAction } from "convex/react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { CARD, CardHead } from "@/app/workspace/team/_components/team-ui";
+import { useNow } from "@/hooks/use-now";
 import {
   formatCalendlyLastRefresh,
   formatCalendlyTokenExpiry,
   getCalendlyTokenTiming,
 } from "@/lib/calendly-connection-status";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  CheckCircle2Icon,
-  AlertCircleIcon,
-  RefreshCwIcon,
-  LinkIcon,
-  UsersIcon,
-  CalendarSyncIcon,
-} from "lucide-react";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import posthog from "posthog-js";
-import { connectionStatusConfig } from "@/lib/status-config";
 import { getErrorMessage } from "@/lib/errors";
+import posthog from "@/lib/posthog-browser";
+import { ActionRow, FACT_FIGURE, Fact, Facts, NoteLine, StatusWord, type Tone } from "../settings-ui";
+import { calendlyState, calendlyWebhookReady, type CalendlyStatus } from "./integration-status";
 
-interface ConnectionStatus {
-  tenantId: string;
-  status: string;
-  needsReconnect: boolean;
-  lastTokenRefresh: number | null;
-  tokenExpiresAt: number | null;
-  calendlyWebhookUri: string | null;
-  hasWebhookSigningKey: boolean;
-  hasAccessToken: boolean;
-  hasRefreshToken: boolean;
-  eventTypeSyncInProgress: boolean;
-  lastEventTypeSyncCompletedAt: number | null;
-  lastEventTypeSyncStatus: "success" | "failed" | "skipped" | null;
-  lastEventTypeSyncError: string | null;
-  lastEventTypeSyncCount: number | null;
-  lastEventTypeSyncSummary: {
-    totalSeen: number;
-    created: number;
-    updated: number;
-    unchanged: number;
-    inactive: number;
-    deleted: number;
-    notReturned: number;
-    questionsMerged: number;
-  } | null;
-}
+const SYNC_RESULT: Record<NonNullable<CalendlyStatus["lastEventTypeSyncStatus"]>, { word: string; tone: Tone }> = {
+  success: { word: "Synced", tone: "muted" },
+  failed: { word: "Failed", tone: "danger" },
+  skipped: { word: "Skipped", tone: "muted" },
+};
 
-interface CalendlyConnectionProps {
-  connectionStatus: ConnectionStatus | null;
-}
-
-export function CalendlyConnection({
-  connectionStatus,
-}: CalendlyConnectionProps) {
+/**
+ * The Calendly connection: one status word in the title row, the token,
+ * webhook and event type sync as dense facts, and the card's actions in the
+ * footer. Lime only on Reconnect while Calendly isn't connected.
+ */
+export function CalendlyConnection({ connectionStatus }: { connectionStatus: CalendlyStatus | null }) {
   const refreshToken = useAction(api.calendly.tokens.refreshMyTenantToken);
   const syncMembers = useAction(api.calendly.orgMembers.syncMyTenantMembers);
-  const syncEventTypes = useAction(
-    api.calendly.eventTypes.syncMyTenantEventTypes,
-  );
+  const syncEventTypes = useAction(api.calendly.eventTypes.syncMyTenantEventTypes);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSyncingEventTypes, setIsSyncingEventTypes] = useState(false);
-  const [now] = useState(() => Date.now());
+  const now = useNow();
 
   if (!connectionStatus) {
     return null;
   }
 
-  const isConnected =
-    connectionStatus.hasAccessToken && !connectionStatus.needsReconnect;
-  const { isExpired, isExpiringSoon } = getCalendlyTokenTiming(
-    connectionStatus.tokenExpiresAt,
-    now,
-  );
+  const state = calendlyState(connectionStatus, now);
+  const isConnected = state.connected;
+  const { isExpired, isExpiringSoon } = getCalendlyTokenTiming(connectionStatus.tokenExpiresAt, now);
 
   const handleRefreshToken = async () => {
     setIsRefreshing(true);
@@ -97,9 +56,7 @@ export function CalendlyConnection({
         toast.info(result.reason ?? "Token refresh skipped");
       }
     } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Failed to refresh token"),
-      );
+      toast.error(getErrorMessage(error, "Failed to refresh token"));
     } finally {
       setIsRefreshing(false);
     }
@@ -122,9 +79,7 @@ export function CalendlyConnection({
         reason: result.reason ?? null,
       });
     } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Failed to sync members"),
-      );
+      toast.error(getErrorMessage(error, "Failed to sync members"));
     } finally {
       setIsSyncing(false);
     }
@@ -141,13 +96,9 @@ export function CalendlyConnection({
         return;
       }
 
-      toast.success(
-        `Synced ${result.totalSeen} event types: ${result.created} new, ${result.updated} updated.`,
-      );
+      toast.success(`Synced ${result.totalSeen} event types: ${result.created} new, ${result.updated} updated.`);
     } catch (error) {
-      toast.error(
-        getErrorMessage(error, "Failed to sync event types"),
-      );
+      toast.error(getErrorMessage(error, "Failed to sync event types"));
     } finally {
       setIsSyncingEventTypes(false);
     }
@@ -167,189 +118,136 @@ export function CalendlyConnection({
     window.location.href = `/api/calendly/start?${params.toString()}`;
   };
 
-  const isEventTypeSyncing =
-    isSyncingEventTypes || connectionStatus.eventTypeSyncInProgress;
+  const isEventTypeSyncing = isSyncingEventTypes || connectionStatus.eventTypeSyncInProgress;
   const syncSummary = connectionStatus.lastEventTypeSyncSummary;
+  const syncResult = connectionStatus.lastEventTypeSyncStatus
+    ? SYNC_RESULT[connectionStatus.lastEventTypeSyncStatus]
+    : null;
+  const webhookReady = calendlyWebhookReady(connectionStatus);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Calendly Connection</CardTitle>
-        <CardDescription>Manage your Calendly integration</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex items-start gap-3">
-          {isConnected ? (
-            <CheckCircle2Icon className={cn("mt-1 size-5 shrink-0", connectionStatusConfig.connected.iconClass)} />
-          ) : (
-            <AlertCircleIcon className={cn("mt-1 size-5 shrink-0", connectionStatusConfig.disconnected.iconClass)} />
-          )}
-          <div className="flex-1">
-            <p className="font-medium">
-              {isConnected ? "Connected" : "Disconnected"}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {isConnected
-                ? "Your Calendly account is connected and active."
-                : "Your Calendly account is not connected. Reconnect to use calendar features."}
-            </p>
-          </div>
-          <Badge
-            variant={isConnected ? connectionStatusConfig.connected.badgeVariant : connectionStatusConfig.disconnected.badgeVariant}
-            className={isConnected ? connectionStatusConfig.connected.badgeClass : ""}
-          >
-            {isConnected ? connectionStatusConfig.connected.label : "Inactive"}
-          </Badge>
+    <section aria-label="Calendly" className={CARD}>
+      <CardHead title="Calendly">
+        <StatusWord tone={state.tone}>{state.word}</StatusWord>
+      </CardHead>
+
+      {!isConnected ? (
+        <div className="px-4 py-3">
+          <NoteLine>
+            {connectionStatus.needsReconnect
+              ? "Magnus lost access to your Calendly account. Reconnect it to keep receiving bookings, members and event types."
+              : "Bookings, members and event types come from Calendly. Connect it to start receiving meetings."}
+          </NoteLine>
         </div>
-
-        {connectionStatus.tokenExpiresAt !== null && (
-          <div className="border-t pt-4">
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-              <div>
-                <p className="text-xs text-muted-foreground">Token Expires</p>
-                <p className="mt-1 text-sm font-medium">
-                  {formatCalendlyTokenExpiry(
-                    connectionStatus.tokenExpiresAt,
-                    now,
-                  )}
-                </p>
-              </div>
-              {connectionStatus.lastTokenRefresh !== null && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Last Refresh</p>
-                  <p className="mt-1 text-sm font-medium">
-                    {formatCalendlyLastRefresh(
-                      connectionStatus.lastTokenRefresh,
-                      now,
-                    )}
-                  </p>
-                </div>
+      ) : (
+        <>
+          {connectionStatus.tokenExpiresAt !== null ? (
+            <Facts>
+              <Fact
+                label="Token expires"
+                tip="Magnus refreshes the Calendly token on its own before it expires. Refresh token does it now."
+              >
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span className={FACT_FIGURE}>
+                    {formatCalendlyTokenExpiry(connectionStatus.tokenExpiresAt, now)}
+                  </span>
+                  {isExpired ? <StatusWord tone="danger">Expired</StatusWord> : null}
+                  {isExpiringSoon ? <StatusWord tone="warning">Expiring soon</StatusWord> : null}
+                </span>
+              </Fact>
+              {connectionStatus.lastTokenRefresh !== null ? (
+                <Fact label="Last refresh">
+                  <span className={FACT_FIGURE}>{formatCalendlyLastRefresh(connectionStatus.lastTokenRefresh, now)}</span>
+                </Fact>
+              ) : null}
+            </Facts>
+          ) : null}
+          <Facts>
+            <Fact
+              label="Webhook"
+              tip="Calendly tells Magnus about each booking and cancellation through this webhook. Reconnecting sets it up again."
+            >
+              {webhookReady ? (
+                <span>Receiving bookings</span>
+              ) : (
+                <span className="text-warning-ink">Not set up. Reconnect Calendly to receive bookings.</span>
               )}
-              <div className="flex items-center">
-                {isExpired && (
-                  <Badge variant="destructive">Token Expired</Badge>
+            </Fact>
+          </Facts>
+          <Facts>
+            <Fact label="Event types" tip="When Magnus last read your Calendly event types, and what it found.">
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                {connectionStatus.lastEventTypeSyncCompletedAt ? (
+                  <span className={FACT_FIGURE}>
+                    {formatCalendlyLastRefresh(connectionStatus.lastEventTypeSyncCompletedAt, now)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Never synced</span>
                 )}
-                {isExpiringSoon && (
-                  <Badge
-                    variant={connectionStatusConfig.expiring.badgeVariant}
-                    className={connectionStatusConfig.expiring.badgeClass}
-                  >
-                    {connectionStatusConfig.expiring.label}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="border-t pt-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <div>
-              <p className="text-xs text-muted-foreground">
-                Last Event Type Sync
-              </p>
-              <p className="mt-1 text-sm font-medium">
-                {connectionStatus.lastEventTypeSyncCompletedAt
-                  ? formatCalendlyLastRefresh(
-                      connectionStatus.lastEventTypeSyncCompletedAt,
-                      now,
-                    )
-                  : "Never synced"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Sync Status</p>
-              <div className="mt-1">
-                <Badge
-                  variant={
-                    connectionStatus.lastEventTypeSyncStatus === "failed"
-                      ? "destructive"
-                      : connectionStatus.lastEventTypeSyncStatus === "success"
-                        ? "secondary"
-                        : "outline"
-                  }
-                >
-                  {connectionStatus.lastEventTypeSyncStatus
-                    ? connectionStatus.lastEventTypeSyncStatus.replace(
-                        /_/g,
-                        " ",
-                      )
-                    : "Not run"}
-                </Badge>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Synced Count</p>
-              <p className="mt-1 text-sm font-medium">
-                {connectionStatus.lastEventTypeSyncCount ?? "-"}
-              </p>
-            </div>
+                {isEventTypeSyncing ? (
+                  <StatusWord tone="muted">Syncing</StatusWord>
+                ) : syncResult ? (
+                  <StatusWord tone={syncResult.tone}>{syncResult.word}</StatusWord>
+                ) : null}
+                {connectionStatus.lastEventTypeSyncCount !== null ? (
+                  <span className="text-[13px] text-muted-foreground">
+                    <span className="font-condensed text-[14px] tabular-nums">
+                      {connectionStatus.lastEventTypeSyncCount}
+                    </span>{" "}
+                    event types
+                  </span>
+                ) : null}
+              </span>
+            </Fact>
             {syncSummary ? (
-              <div>
-                <p className="text-xs text-muted-foreground">Last Summary</p>
-                <p className="mt-1 text-sm font-medium">
-                  {syncSummary.created} new, {syncSummary.updated} updated
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {syncSummary.inactive} inactive, {syncSummary.deleted}{" "}
-                  deleted, {syncSummary.notReturned} not returned
-                </p>
+              <Fact
+                label="Last changes"
+                tip="What the last sync changed. Not returned: event types Calendly no longer lists for your organization."
+              >
+                <span className="font-condensed text-[14px] tabular-nums">
+                  {syncSummary.created} new · {syncSummary.updated} updated
+                </span>
+                <span className="block text-[13px] text-muted-foreground">
+                  {syncSummary.inactive} inactive, {syncSummary.deleted} deleted, {syncSummary.notReturned} not returned
+                </span>
+              </Fact>
+            ) : null}
+            {connectionStatus.lastEventTypeSyncError ? (
+              <div className="px-4 pt-0.5 pb-1.5">
+                <NoteLine tone="danger" role="alert">
+                  {connectionStatus.lastEventTypeSyncError}
+                </NoteLine>
               </div>
             ) : null}
-          </div>
-          {connectionStatus.lastEventTypeSyncError ? (
-            <p className="mt-3 text-xs text-destructive">
-              {connectionStatus.lastEventTypeSyncError}
-            </p>
-          ) : null}
-        </div>
+          </Facts>
+        </>
+      )}
 
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshToken}
-            disabled={isRefreshing || !isConnected}
-          >
-            {isRefreshing ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <RefreshCwIcon data-icon="inline-start" />
-            )}
-            {isRefreshing ? "Refreshing..." : "Refresh Token"}
+      <ActionRow>
+        {isConnected ? (
+          <>
+            <Button variant="outline" size="sm" onClick={handleSyncEventTypes} disabled={isEventTypeSyncing}>
+              {isEventTypeSyncing ? <Spinner data-icon="inline-start" /> : null}
+              {isEventTypeSyncing ? "Syncing event types…" : "Sync event types"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSyncMembers} disabled={isSyncing}>
+              {isSyncing ? <Spinner data-icon="inline-start" /> : null}
+              {isSyncing ? "Syncing members…" : "Sync members"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleRefreshToken} disabled={isRefreshing}>
+              {isRefreshing ? <Spinner data-icon="inline-start" /> : null}
+              {isRefreshing ? "Refreshing…" : "Refresh token"}
+            </Button>
+            <Button variant="ghost" size="sm" className="ml-auto" onClick={handleReconnect}>
+              Reconnect
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" className="font-semibold" onClick={handleReconnect}>
+            {connectionStatus.needsReconnect ? "Reconnect Calendly" : "Connect Calendly"}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncMembers}
-            disabled={isSyncing || !isConnected}
-          >
-            {isSyncing ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <UsersIcon data-icon="inline-start" />
-            )}
-            {isSyncing ? "Syncing Members..." : "Sync Members"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncEventTypes}
-            disabled={isEventTypeSyncing || !isConnected}
-          >
-            {isEventTypeSyncing ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <CalendarSyncIcon data-icon="inline-start" />
-            )}
-            {isEventTypeSyncing ? "Syncing Event Types..." : "Sync Event Types"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleReconnect}>
-            <LinkIcon data-icon="inline-start" />
-            Reconnect Calendly
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+        )}
+      </ActionRow>
+    </section>
   );
 }

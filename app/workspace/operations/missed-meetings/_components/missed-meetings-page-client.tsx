@@ -1,73 +1,68 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { usePaginatedQuery } from "convex/react";
-import { addDays, format, startOfDay, subDays } from "date-fns";
-import { CalendarXIcon, DownloadIcon } from "lucide-react";
+import { DownloadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { MissedMeetingRow } from "@/convex/operations/missedMeetings";
-import type { MissedMeeting } from "@/convex/opportunities/dealState";
-import { SYSTEM_LOSS_REASON_LABELS } from "@/convex/opportunities/stages";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { Label } from "@/components/ui/label";
+  dashboardRangeToDayKeys,
+  OPERATIONS_DASHBOARD_RANGE_VALIDATION,
+} from "@/app/workspace/_components/dashboard-date-utils";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DateRangePicker,
+  formatBusinessDateSpan,
+  rangePhrase,
+  type DashboardRangeInput,
+} from "@/app/workspace/_components/date-range-picker";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
+import { HelpTip } from "@/app/workspace/team/_components/team-ui";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import {
-  ReportDateControls,
-  type DateRange,
-} from "@/app/workspace/reports/_components/report-date-controls";
+  addBusinessDays,
+  businessDateForInstant,
+  businessDayDisclosure,
+  businessDayStart,
+  type BusinessDaySetting,
+} from "@/lib/businessDay";
 import {
-  DEAL_SOURCE_LABELS,
   MISSED_MEETINGS_EXPORT_CAP,
   capMissedMeetingRows,
   missedMeetingsCsv,
   needsMoreMissedMeetingRows,
 } from "@/lib/operations-reports/missed-meetings-export";
+import { MISSED_DEALS_CARD_ID, MissedDealsCard, type KindCounts, type KindFilter, type ListState } from "./missed-deals-card";
+import { KindTabs } from "./missed-kind-tabs";
 
 // Deals read per page; the server reads at most 100 a call.
 const PAGE_SIZE = 100;
 
-type KindFilter = MissedMeeting | "all";
+const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
 
-function lastThirtyDays(): DateRange {
-  const today = startOfDay(new Date());
+/** The last 30 business days through today, as a custom range the picker can show. */
+function lastThirtyDays(todayBusinessDate: string): DashboardRangeInput {
   return {
-    startDate: subDays(today, 29).getTime(),
-    endDate: addDays(today, 1).getTime(),
+    kind: "custom",
+    startBusinessDate: addBusinessDays(todayBusinessDate, -29),
+    endBusinessDateInclusive: todayBusinessDate,
   };
 }
 
-function formatTime(timestamp: number | null) {
-  return timestamp === null ? "—" : format(timestamp, "MMM d, yyyy h:mm a");
+/** The range as the query takes it: business-day starts, the end exclusive. */
+function rangeBounds(range: DashboardRangeInput, now: number, setting: BusinessDaySetting) {
+  const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range, now, setting);
+  return {
+    startDayKey,
+    endDayKey,
+    startDate: businessDayStart(startDayKey, setting),
+    endDate: businessDayStart(addBusinessDays(endDayKey, 1), setting),
+  };
 }
 
 function downloadCsv(filename: string, csv: string) {
@@ -82,21 +77,62 @@ function downloadCsv(filename: string, csv: string) {
   URL.revokeObjectURL(url);
 }
 
+type Shown = {
+  /** The query's arguments, serialized. */
+  key: string;
+  /** The complete list's rows (a new array whenever any row changes). */
+  rows: MissedMeetingRow[];
+  truncated: boolean;
+  words: string;
+  phrase: string;
+  hideBookedAgain: boolean;
+};
+
 export function MissedMeetingsPageClient() {
   usePageTitle("No-shows & Cancellations");
+  const { setting, loaded } = useBusinessDay();
+  const now = useNow();
+  const todayBusinessDate = businessDateForInstant(now, setting);
 
-  const [dateRange, setDateRange] = useState<DateRange>(lastThirtyDays);
+  // The page opens on the last 30 days unless the URL names a range. Until
+  // a range is chosen, that default follows the workspace's business day.
+  const searchParams = useSearchParams();
+  const [chosen, setChosen] = useState(() => searchParams.get("range") !== null);
+  const defaultRange = lastThirtyDays(todayBusinessDate);
+  const { range, setRange, queryRange, validationMessage } = useDashboardRange({
+    urlSync: true,
+    defaultRange,
+    validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
+  });
+  const pickerRange = chosen ? range : defaultRange;
+  const activeRange = chosen ? queryRange : defaultRange;
+  const onRangeChange = (next: DashboardRangeInput) => {
+    setChosen(true);
+    setRange(next);
+  };
+
   const [kind, setKind] = useState<KindFilter>("all");
   const [hideBookedAgain, setHideBookedAgain] = useState(true);
 
+  const bounds = rangeBounds(activeRange, now, setting);
+  const dates = formatBusinessDateSpan(bounds.startDayKey, bounds.endDayKey, todayBusinessDate);
+  const words = !chosen
+    ? `Last 30 days · ${dates}`
+    : activeRange.kind === "custom"
+      ? dates
+      : `${PRESET_WORDS[activeRange.preset]} · ${dates}`;
+  const phrase = !chosen ? "in the last 30 days" : rangePhrase(activeRange);
+
+  // Every kind is read, and the band's tabs filter on the page, so their
+  // counts are exact for the range.
+  const args = useMemo(
+    () => ({ startDate: bounds.startDate, endDate: bounds.endDate, hideBookedAgain }),
+    [bounds.startDate, bounds.endDate, hideBookedAgain],
+  );
+  const argsKey = `${args.startDate}:${args.endDate}:${args.hideBookedAgain}`;
   const { results, status, loadMore } = usePaginatedQuery(
     api.operations.missedMeetings.listMissedMeetings,
-    {
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate,
-      hideBookedAgain,
-      ...(kind === "all" ? {} : { kind }),
-    },
+    loaded ? args : "skip",
     { initialNumItems: PAGE_SIZE },
   );
 
@@ -108,190 +144,125 @@ export function MissedMeetingsPageClient() {
     }
   }, [loadMore, results.length, status]);
 
-  const { rows, truncated } = useMemo(() => capMissedMeetingRows(results), [results]);
-  const isComplete = status === "Exhausted" || truncated;
+  const capped = useMemo(() => capMissedMeetingRows(results), [results]);
+  const isComplete = loaded && (status === "Exhausted" || capped.truncated);
+
+  // A new range or the booked-again switch keeps the last complete list on
+  // screen, dimmed, until the new one has every row (DESIGN.md, Kept Data
+  // While Reloading). The first load fills in place.
+  const [kept, setKept] = useState<Shown | null>(null);
+  // `capped.rows` is a new array whenever any row changes, so `kept` is
+  // always the last complete list shown, live edits included.
+  if (isComplete && (kept?.key !== argsKey || kept.rows !== capped.rows || kept.truncated !== capped.truncated || kept.words !== words)) {
+    setKept({ key: argsKey, rows: capped.rows, truncated: capped.truncated, words, phrase, hideBookedAgain });
+  }
+  const reloading = !isComplete && kept !== null;
+  const firstFill = !isComplete && kept === null && loaded && status !== "LoadingFirstPage";
+  const filling = useMemo(
+    (): Shown | null =>
+      firstFill ? { key: argsKey, rows: capped.rows, truncated: false, words, phrase, hideBookedAgain } : null,
+    [argsKey, capped.rows, firstFill, hideBookedAgain, phrase, words],
+  );
+  // Complete: the fresh rows (an edit to a row's contact or kind shows at
+  // once). Reloading: the kept list. First load: the rows so far.
+  const fresh = useMemo(
+    (): Shown => ({ key: argsKey, rows: capped.rows, truncated: capped.truncated, words, phrase, hideBookedAgain }),
+    [argsKey, capped.rows, capped.truncated, hideBookedAgain, phrase, words],
+  );
+  const shown = isComplete ? fresh : (kept ?? filling);
+
+  const counts = useMemo((): KindCounts | undefined => {
+    if (!shown) return undefined;
+    let noShows = 0;
+    for (const row of shown.rows) {
+      if (row.missedMeeting === "no_show") noShows += 1;
+    }
+    return { all: shown.rows.length, no_show: noShows, canceled: shown.rows.length - noShows };
+  }, [shown]);
+  const visible = useMemo(
+    () => (shown ? (kind === "all" ? shown.rows : shown.rows.filter((row) => row.missedMeeting === kind)) : undefined),
+    [kind, shown],
+  );
+  const listState: ListState = isComplete
+    ? { kind: "complete", truncated: capped.truncated }
+    : { kind: "loading", soFar: capped.rows.length };
 
   const handleExport = () => {
-    const first = format(dateRange.startDate, "yyyy-MM-dd");
-    const last = format(dateRange.endDate - 1, "yyyy-MM-dd");
-    downloadCsv(`no-shows-and-cancellations-${first}-to-${last}.csv`, missedMeetingsCsv(rows));
+    if (!visible) return;
+    const first = bounds.startDayKey;
+    const last = bounds.endDayKey;
+    downloadCsv(`no-shows-and-cancellations-${first}-to-${last}.csv`, missedMeetingsCsv(visible));
     toast.success(
-      truncated
-        ? `Exported ${MISSED_MEETINGS_EXPORT_CAP.toLocaleString()} deals. The range holds more; narrow it for the rest.`
-        : `Exported ${rows.length.toLocaleString()} ${rows.length === 1 ? "deal" : "deals"}.`,
+      capped.truncated
+        ? `Exported ${visible.length.toLocaleString()} deals. The range holds more than ${MISSED_MEETINGS_EXPORT_CAP.toLocaleString()}; narrow it for the rest.`
+        : `Exported ${visible.length.toLocaleString()} ${visible.length === 1 ? "deal" : "deals"}.`,
     );
   };
 
+  const bandWords = shown?.words ?? words;
+
   return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <header className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            No-shows & Cancellations
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Deals a no-show or a cancellation closed, newest first, with the
-            person&apos;s contact details and who worked the deal. Export the
-            list for outreach.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!isComplete || rows.length === 0}
-          onClick={handleExport}
-        >
-          <DownloadIcon data-icon="inline-start" />
-          Export CSV
-        </Button>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <ReportDateControls value={dateRange} onChange={setDateRange} />
-        <Select
-          value={kind}
-          onValueChange={(value) =>
-            setKind(value === "no_show" || value === "canceled" ? value : "all")
-          }
-        >
-          <SelectTrigger aria-label="Filter by missed meeting" className="w-48" size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="all">No-shows and cancellations</SelectItem>
-              <SelectItem value="no_show">No-shows</SelectItem>
-              <SelectItem value="canceled">Cancellations</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="hide-booked-again"
-            checked={hideBookedAgain}
-            onCheckedChange={setHideBookedAgain}
-          />
-          <Label htmlFor="hide-booked-again" className="text-sm font-normal">
-            Hide people who booked again
-          </Label>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-1 text-sm text-muted-foreground" role="status">
-        {isComplete ? (
-          <p>
-            {rows.length.toLocaleString()} {rows.length === 1 ? "deal" : "deals"}
-          </p>
-        ) : (
-          <p className="flex items-center gap-2">
-            <Spinner data-icon="inline-start" />
-            Loading… {rows.length.toLocaleString()} so far
-          </p>
-        )}
-        {truncated ? (
-          <p className="text-foreground">
-            This range holds more than {MISSED_MEETINGS_EXPORT_CAP.toLocaleString()} deals.
-            The list and the export hold {MISSED_MEETINGS_EXPORT_CAP.toLocaleString()} of
-            them; narrow the range for the rest.
-          </p>
-        ) : null}
-      </div>
-
-      {status === "LoadingFirstPage" ? (
-        <Skeleton
-          className="h-[480px] w-full"
-          role="status"
-          aria-label="Loading no-shows and cancellations"
+    <div className="@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3">
+      <PageBand
+        title="No-shows & Cancellations"
+        description={
+          <>
+            <HelpTip tip={`${businessDayDisclosure(setting)}.`} className="font-medium text-board-foreground">
+              {bandWords}
+            </HelpTip>
+            {" · "}
+            Deals closed as a no-show or a cancellation.
+          </>
+        }
+        actions={
+          // On a phone the presets, the dates and Export share one row: the
+          // date button and Export keep their words for screen readers only
+          // (the dates are in the line under the title).
+          <div className="flex min-w-0 flex-wrap items-center gap-2 @max-xl:w-full @max-xl:flex-nowrap @max-xl:gap-1.5">
+            <DateRangePicker
+              tone="board"
+              value={pickerRange}
+              onChange={onRangeChange}
+              validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
+              todayBusinessDate={todayBusinessDate}
+              className="@max-xl:flex-nowrap @max-xl:gap-1.5 @max-xl:[&_[aria-haspopup]]:px-2.5 @max-xl:[&_[aria-haspopup]>span]:sr-only @max-xl:[&_[role=radio]]:px-2"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!isComplete || !visible || visible.length === 0}
+              onClick={handleExport}
+              className="h-[34px] rounded-[7px] border-board-foreground/15 bg-board-raised px-3 text-[13px] text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground @max-xl:px-2.5 dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10"
+            >
+              <DownloadIcon data-icon="inline-start" aria-hidden="true" />
+              <span className="@max-xl:sr-only">Export CSV</span>
+            </Button>
+          </div>
+        }
+      >
+        <KindTabs
+          kind={kind}
+          counts={counts}
+          partial={shown?.truncated ?? false}
+          reloading={reloading}
+          onSelect={setKind}
+          controls={MISSED_DEALS_CARD_ID}
         />
-      ) : rows.length === 0 && isComplete ? (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <CalendarXIcon />
-            </EmptyMedia>
-            <EmptyTitle>No missed meetings in this range</EmptyTitle>
-            <EmptyDescription>
-              {hideBookedAgain
-                ? "No deal closed on a no-show or a cancellation, apart from people who booked again."
-                : "No deal closed on a no-show or a cancellation."}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <Card className="py-0">
-          <CardContent className="px-0">
-            <MissedMeetingsTable rows={rows} />
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
+      </PageBand>
 
-function MissedMeetingsTable({ rows }: { rows: MissedMeetingRow[] }) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="pl-4">Person</TableHead>
-          <TableHead>Contact</TableHead>
-          <TableHead>Missed</TableHead>
-          <TableHead>Meeting</TableHead>
-          <TableHead>Source</TableHead>
-          <TableHead>Closer</TableHead>
-          <TableHead>Setter</TableHead>
-          <TableHead className="pr-4">DM closer</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.opportunityId}>
-            <TableCell className="pl-4">
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <Link
-                  className="font-medium hover:underline"
-                  href={`/workspace/leads-customers/${row.leadId}?opportunityId=${row.opportunityId}`}
-                >
-                  {row.personName ?? row.email ?? row.instagramHandle ?? "Unnamed person"}
-                </Link>
-                {row.instagramHandle ? (
-                  <span className="text-xs text-muted-foreground">@{row.instagramHandle}</span>
-                ) : null}
-                {row.bookedAgain ? (
-                  <Badge variant="outline" className="w-fit">
-                    Booked again
-                  </Badge>
-                ) : null}
-              </div>
-            </TableCell>
-            <TableCell>
-              <div className="flex flex-col gap-0.5 text-sm">
-                <span>{row.email ?? "—"}</span>
-                <span className="text-muted-foreground tabular-nums">{row.phone ?? "—"}</span>
-              </div>
-            </TableCell>
-            <TableCell>
-              <Badge variant={row.missedMeeting === "no_show" ? "destructive" : "muted"}>
-                {SYSTEM_LOSS_REASON_LABELS[row.missedMeeting]}
-              </Badge>
-            </TableCell>
-            <TableCell className="whitespace-nowrap tabular-nums">
-              {formatTime(row.meetingAt)}
-            </TableCell>
-            <TableCell>{DEAL_SOURCE_LABELS[row.source]}</TableCell>
-            <TableCell>{row.closerName ?? "—"}</TableCell>
-            <TableCell>{row.setterName ?? "—"}</TableCell>
-            <TableCell className="pr-4">
-              <div className="flex flex-col gap-0.5">
-                <span>{row.dmCloserName ?? "—"}</span>
-                {row.dmTeamName ? (
-                  <span className="text-xs text-muted-foreground">{row.dmTeamName}</span>
-                ) : null}
-              </div>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+      {chosen && validationMessage ? <p className="text-[13px] text-danger-ink">{validationMessage}</p> : null}
+
+      <MissedDealsCard
+        rows={visible}
+        kind={kind}
+        hideBookedAgain={hideBookedAgain}
+        onHideBookedAgainChange={setHideBookedAgain}
+        listState={listState}
+        reloading={reloading}
+        rangePhrase={shown?.phrase ?? phrase}
+        setting={setting}
+        todayBusinessDate={todayBusinessDate}
+      />
+    </div>
   );
 }

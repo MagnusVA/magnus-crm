@@ -1,3 +1,4 @@
+import { memberLogins, preferredLogin } from "./teamMembers";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -160,12 +161,7 @@ export async function teamMemberIdentity(
   }
 
   const roleIdentity = await (async (): Promise<MemberAvatarIdentity> => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_tenantId_and_teamMemberId", (q) =>
-        q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId),
-      )
-      .first();
+    const user = preferredLogin(await memberLogins(ctx, tenantId, teamMemberId));
     if (user) return await userMemberIdentity(ctx, user);
     const slackUser = await ctx.db
       .query("slackUsers")

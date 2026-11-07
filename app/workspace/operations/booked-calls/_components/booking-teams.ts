@@ -11,6 +11,10 @@ import { bookingPace, type BookingPace, type BookingPaceKind } from "@/lib/opera
 export type BookingTeam = {
   key: string;
   label: string;
+  /** The team's id for links into Team › Teams; null for "No team" or a name no team has now. */
+  teamId: string | null;
+  /** Days in the range someone on the team works; undefined when the answer doesn't say. */
+  goalDayCount: number | undefined;
   dailyQuota: number | null;
   /** True for the DM closers with no team: never a goal, only a ranking. */
   unassigned: boolean;
@@ -42,6 +46,8 @@ function byBooked(a: DmCloserViewModel, b: DmCloserViewModel) {
 export function bookingTeams(
   data: BookedCallsDashboardViewModel,
   includesToday: boolean,
+  /** Team names to ids, only to link a team with no goal row to its page. */
+  teamIdByLabel: ReadonlyMap<string, string> = new Map(),
 ): BookingTeam[] {
   const closersByTeam = new Map<string, DmCloserViewModel[]>();
   for (const closer of data.dmClosers) {
@@ -58,6 +64,8 @@ export function bookingTeams(
     teams.push({
       key: team.label,
       label: team.label,
+      teamId: team.teamId ?? teamIdByLabel.get(team.label) ?? null,
+      goalDayCount: team.goalDayCount,
       dailyQuota: team.dailyQuota,
       unassigned: false,
       closers,
@@ -67,6 +75,8 @@ export function bookingTeams(
         dailyQuota: team.dailyQuota,
         goal: team.target,
         dayCount: data.goal.businessDayCount,
+        goalDayCount: team.goalDayCount,
+        todayCounts: team.goalCountsLastDay ?? true,
         includesToday,
       }),
     });
@@ -79,6 +89,8 @@ export function bookingTeams(
     teams.push({
       key: `closers:${label}`,
       label,
+      teamId: label === NO_TEAM ? null : (teamIdByLabel.get(label) ?? null),
+      goalDayCount: undefined,
       dailyQuota: null,
       unassigned: label === NO_TEAM,
       closers,

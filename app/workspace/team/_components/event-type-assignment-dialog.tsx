@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
 
 const eventTypeSchema = z.object({
   personalEventTypeUri: z
@@ -92,11 +93,25 @@ export function EventTypeAssignmentDialog({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await assignEventType({
+      const { previousPersonalEventTypeUri } = await assignEventType({
         userId,
         personalEventTypeUri: values.personalEventTypeUri,
       });
-      toast.success(`Event type assigned to ${userName}`);
+      toast.success(`Event type assigned to ${userName}`, {
+        action: {
+          label: "Undo",
+          // Puts back the event type they had before, or clears it if they had none.
+          onClick: () => {
+            assignEventType({ userId, personalEventTypeUri: previousPersonalEventTypeUri }).then(
+              () => toast.success(previousPersonalEventTypeUri ? `${userName}'s event type is back` : `${userName} has no event type again`),
+              (error: unknown) => {
+                reportClientError(error, { flow: "team_event_type_undo" });
+                toast.error(getErrorMessage(error, "Couldn’t undo the event type change."));
+              },
+            );
+          },
+        },
+      });
       onOpenChange(false);
     } catch (err) {
       setSubmitError(

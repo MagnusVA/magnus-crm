@@ -1,112 +1,47 @@
 "use client";
-import { useBusinessDay } from "@/hooks/use-business-day";
-import { useNow } from "@/hooks/use-now";
-import { businessDateForInstant } from "@/lib/businessDay";
-import { DayDefinition } from "../../_components/day-definition";
 
-import {
-  useReducer,
-  useState,
-  type ComponentType,
-  type SVGProps,
-} from "react";
+import { useReducer, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation, useQuery } from "convex/react";
-import {
-  AtSignIcon,
-  CheckCircle2Icon,
-  CircleDashedIcon,
-  ClipboardCheckIcon,
-  FileTextIcon,
-  LinkIcon,
-  MessageCircleIcon,
-  RotateCcwIcon,
-  SparklesIcon,
-  UsersIcon,
-  VideoIcon,
-} from "lucide-react";
-import { useForm, type Control } from "react-hook-form";
+import { AtSignIcon, LinkIcon } from "lucide-react";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import { Label } from "@/components/ui/label";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  detectInstagramOriginUrl,
-  type DetectedInstagramOrigin,
-} from "./instagram-origin-detection";
+import { CARD } from "@/app/workspace/team/_components/team-ui";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
+import { usePageTitle } from "@/hooks/use-page-title";
+import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
+import { CAPTURE_PANEL_ID, CaptureBand, sourceTabId, type CaptureSource } from "./capture-band";
+import { captureConfirmation, type CaptureConfirmation, type CaptureKind } from "@/lib/lead-gen/capture-confirmation";
 import {
-  captureConfirmation,
-  type CaptureConfirmation,
-} from "./capture-confirmation";
-
-
-type CaptureSource = "instagram" | "meta_business";
-type NonRankableInstagramOrigin =
-  | "story_poll"
-  | "story"
-  | "follower"
-  | "application";
-
-type InstagramOriginSession =
-  | {
-      kind: "post" | "reel";
-      originUrl: string;
-      shortcode: string;
-      detectedFromUrl: true;
-    }
-  | {
-      kind: NonRankableInstagramOrigin;
-      detectedFromUrl: false;
-    };
+  ORIGIN_URL_INPUT_ID,
+  OriginChooser,
+  OriginChosen,
+  type ChosenOrigin,
+  type NonRankableInstagramOrigin,
+} from "./capture-origin-card";
+import { detectInstagramOriginUrl } from "./instagram-origin-detection";
+import { CAPTURE_ROOT, ROW_TIME, STATUS_WORD, timeOfDay } from "./setter-ui";
 
 type CaptureSessionState =
-  | {
-      source: "meta_business";
-      step: "enter_prospect";
-    }
-  | {
-      source: "instagram";
-      step: "choose_origin";
-      postReelDraft: string;
-    }
-  | {
-      source: "instagram";
-      step: "enter_prospect";
-      origin: InstagramOriginSession;
-    };
+  | { source: "meta_business"; step: "enter_prospect" }
+  | { source: "instagram"; step: "choose_origin"; postReelDraft: string }
+  | { source: "instagram"; step: "enter_prospect"; origin: ChosenOrigin };
 
 type CaptureAction =
   | { type: "sourceChanged"; source: CaptureSource }
   | { type: "postReelDraftChanged"; value: string }
-  | {
-      type: "rankableOriginDetected";
-      origin: Extract<InstagramOriginSession, { detectedFromUrl: true }>;
-    }
+  | { type: "rankableOriginDetected"; origin: Extract<ChosenOrigin, { detectedFromUrl: true }> }
   | { type: "nonRankableOriginSelected"; kind: NonRankableInstagramOrigin }
   | { type: "resetOrigin" };
-
-type ProspectCaptureState = Extract<
-  CaptureSessionState,
-  { step: "enter_prospect" }
->;
 
 const initialCaptureSessionState: CaptureSessionState = {
   source: "instagram",
@@ -115,35 +50,31 @@ const initialCaptureSessionState: CaptureSessionState = {
 };
 
 const prospectSchema = z.object({
-  rawHandleOrProfileUrl: z.string().trim().min(1, "Profile URL is required"),
+  rawHandleOrProfileUrl: z.string().trim().min(1, "Paste a profile URL or handle first."),
 });
 
 type ProspectValues = z.infer<typeof prospectSchema>;
 
-type LastResult = {
+type LastCapture = {
   confirmation: CaptureConfirmation;
-  duplicateProspect: boolean;
-  duplicateRetry: boolean;
+  /** What was pasted, as the setter typed it. */
+  entered: string;
   submittedAt: number;
-  prospectId: string;
 };
 
-const sourceOptions = [
-  { value: "instagram", label: "Instagram" },
-  { value: "meta_business", label: "Meta Business" },
-] as const;
+const PROSPECT_INPUT_ID = "lead-gen-prospect";
 
-const nonRankableInstagramOrigins = [
-  { value: "story_poll", label: "Story Poll", icon: MessageCircleIcon },
-  { value: "story", label: "Story", icon: CircleDashedIcon },
-  { value: "follower", label: "Follower", icon: UsersIcon },
-  { value: "application", label: "Application", icon: FileTextIcon },
-] as const;
+/** The last capture's status word: what happened, coloured by meaning. */
+const KIND_WORD: Record<CaptureKind, { word: string; ink: string }> = {
+  new: { word: "New", ink: "text-foreground" },
+  known: { word: "Known", ink: "text-foreground" },
+  dupe: { word: "Dupe", ink: "text-muted-foreground" },
+  already_saved: { word: "Already saved", ink: "text-muted-foreground" },
+  not_a_fit: { word: "Not a fit", ink: "text-muted-foreground" },
+  do_not_contact: { word: "Don't contact", ink: "text-danger-ink" },
+};
 
-function captureSessionReducer(
-  state: CaptureSessionState,
-  action: CaptureAction,
-): CaptureSessionState {
+function captureSessionReducer(state: CaptureSessionState, action: CaptureAction): CaptureSessionState {
   switch (action.type) {
     case "sourceChanged":
       return action.source === "meta_business"
@@ -155,11 +86,7 @@ function captureSessionReducer(
       }
       return { ...state, postReelDraft: action.value };
     case "rankableOriginDetected":
-      return {
-        source: "instagram",
-        step: "enter_prospect",
-        origin: action.origin,
-      };
+      return { source: "instagram", step: "enter_prospect", origin: action.origin };
     case "nonRankableOriginSelected":
       return {
         source: "instagram",
@@ -179,49 +106,31 @@ function makeClientSubmissionKey() {
   return `${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
 
-function formatSubmittedAt(timestamp: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(timestamp);
-}
-
-function isCaptureSource(value: string): value is CaptureSource {
-  return value === "instagram" || value === "meta_business";
-}
-
-function rankableOriginFromDetection(
-  detected: DetectedInstagramOrigin,
-): Extract<InstagramOriginSession, { detectedFromUrl: true }> {
-  return {
-    kind: detected.originKind,
-    originUrl: detected.originUrl,
-    shortcode: detected.shortcode,
-    detectedFromUrl: true,
-  };
+/** "https://instagram.com/ana.lead/?hl=en" -> "@ana.lead"; a typed handle keeps its own spelling. */
+function enteredHandle(raw: string) {
+  const value = raw.trim();
+  const fromUrl = value.match(/instagram\.com\/([^/?#\s]+)/i)?.[1];
+  return `@${(fromUrl ?? value).replace(/^@+/, "")}`;
 }
 
 export function LeadGenCapturePageClient() {
+  usePageTitle("Capture");
   const submit = useMutation(api.leadGen.capture.submit);
   const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
   const now = useNow();
   const todayKey = businessDateForInstant(now, setting);
-  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, rebuilding || !loaded ? "skip" : {
-    dayKey: todayKey,
-  });
-  const [state, dispatch] = useReducer(
-    captureSessionReducer,
-    initialCaptureSessionState,
+  const daySummary = useQuery(
+    api.leadGen.activity.getMyDaySummary,
+    rebuilding || !loaded ? "skip" : { dayKey: todayKey },
   );
-  const [lastResult, setLastResult] = useState<LastResult | null>(null);
+  const [state, dispatch] = useReducer(captureSessionReducer, initialCaptureSessionState);
+  const [lastCapture, setLastCapture] = useState<LastCapture | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [postReelInputBlurred, setPostReelInputBlurred] = useState(false);
 
   const form = useForm({
     resolver: standardSchemaResolver(prospectSchema),
-    defaultValues: {
-      rawHandleOrProfileUrl: "",
-    },
+    defaultValues: { rawHandleOrProfileUrl: "" },
   });
 
   const showOriginInputError =
@@ -231,6 +140,7 @@ export function LeadGenCapturePageClient() {
     state.postReelDraft.trim().length > 0 &&
     !detectInstagramOriginUrl(state.postReelDraft);
   const prospectState = state.step === "enter_prospect" ? state : null;
+  const isMetaBusiness = state.source === "meta_business";
 
   function resetProspectInput() {
     form.reset({ rawHandleOrProfileUrl: "" });
@@ -258,7 +168,12 @@ export function LeadGenCapturePageClient() {
 
     dispatch({
       type: "rankableOriginDetected",
-      origin: rankableOriginFromDetection(detected),
+      origin: {
+        kind: detected.originKind,
+        originUrl: detected.originUrl,
+        shortcode: detected.shortcode,
+        detectedFromUrl: true,
+      },
     });
     setPostReelInputBlurred(false);
     resetProspectInput();
@@ -272,15 +187,11 @@ export function LeadGenCapturePageClient() {
     focusProspectInput();
   }
 
-  function handleResetSession() {
-    if (state.source === "instagram") {
-      dispatch({ type: "resetOrigin" });
-    } else {
-      dispatch({ type: "sourceChanged", source: "instagram" });
-    }
-
+  function handleChangeOrigin() {
+    dispatch({ type: "resetOrigin" });
     setPostReelInputBlurred(false);
     resetProspectInput();
+    window.setTimeout(() => document.getElementById(ORIGIN_URL_INPUT_ID)?.focus(), 0);
   }
 
   const onSubmit = async (values: ProspectValues) => {
@@ -305,22 +216,14 @@ export function LeadGenCapturePageClient() {
               source: "instagram",
               rawHandleOrProfileUrl: values.rawHandleOrProfileUrl,
               originKind: prospectState.origin.kind,
-              originUrlOrLabel: prospectState.origin.detectedFromUrl
-                ? prospectState.origin.originUrl
-                : undefined,
+              originUrlOrLabel: prospectState.origin.detectedFromUrl ? prospectState.origin.originUrl : undefined,
               clientSubmissionKey: makeClientSubmissionKey(),
             });
 
       // eslint-disable-next-line react-hooks/purity -- runs on submit; the compiler can't see past form.handleSubmit
       const submittedAt = Date.now();
       const confirmation = captureConfirmation(result, submittedAt, setting.timeZone);
-      setLastResult({
-        confirmation,
-        duplicateProspect: result.duplicateProspect,
-        duplicateRetry: result.duplicateRetry,
-        submittedAt,
-        prospectId: result.prospectId,
-      });
+      setLastCapture({ confirmation, entered: values.rawHandleOrProfileUrl, submittedAt });
 
       resetProspectInput();
       focusProspectInput();
@@ -338,391 +241,126 @@ export function LeadGenCapturePageClient() {
     }
   };
 
+  const ready = prospectState !== null;
+  const ProspectIcon = isMetaBusiness ? AtSignIcon : LinkIcon;
+
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
- <DayDefinition bucketKind="lead-gen" />
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-normal text-pretty">
-          Capture Prospect
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          High-volume social prospect capture for active lead-gen sessions.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <CaptureMetric
-          label="Today"
-          value={daySummary?.submissions}
-          icon={ClipboardCheckIcon}
-        />
-        <CaptureMetric
-          label="Unique"
-          value={daySummary?.uniqueProspects}
-          icon={SparklesIcon}
-        />
-        <CaptureMetric
-          label="Dupes"
-          value={daySummary?.duplicates}
-          icon={RotateCcwIcon}
-        />
-      </div>
-
-      <SourceSelector
+    <div className={CAPTURE_ROOT}>
+      <CaptureBand
+        day={daySummary}
+        dayTip={businessDayDisclosure(setting)}
+        rebuilding={rebuilding}
+        source={state.source}
         disabled={isSubmitting}
-        onChange={handleSourceChange}
-        value={state.source}
+        onSourceChange={handleSourceChange}
       />
 
-      {state.source === "instagram" && state.step === "choose_origin" ? (
-        <InstagramOriginStep
-          draft={state.postReelDraft}
-          disabled={isSubmitting}
-          onBlur={() => setPostReelInputBlurred(true)}
-          onDraftChange={handlePostReelInputChange}
-          onSelectNonRankable={handleNonRankableOriginSelect}
-          showInputError={showOriginInputError}
-        />
-      ) : null}
-
-      {prospectState ? (
-        <Form {...form}>
-          <form
-            className="flex flex-col gap-5"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <ActiveSessionSummary
+      <div
+        id={CAPTURE_PANEL_ID}
+        role="tabpanel"
+        aria-labelledby={sourceTabId(state.source)}
+        className="flex min-w-0 flex-col gap-3.5 short:gap-3"
+      >
+        {state.source === "instagram" ? (
+          state.step === "choose_origin" ? (
+            <OriginChooser
+              draft={state.postReelDraft}
               disabled={isSubmitting}
-              onReset={handleResetSession}
-              state={prospectState}
+              showError={showOriginInputError}
+              onDraftChange={handlePostReelInputChange}
+              onBlur={() => setPostReelInputBlurred(true)}
+              onPick={handleNonRankableOriginSelect}
             />
+          ) : (
+            <OriginChosen origin={state.origin} disabled={isSubmitting} onChange={handleChangeOrigin} />
+          )
+        ) : null}
 
-            <ProspectInput
+        <section aria-label="Capture a prospect" className={cn(CARD, "@container/capture")}>
+          <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="px-4 py-3.5">
+            <Controller
               control={form.control}
-              disabled={isSubmitting}
-              source={prospectState.source}
-            />
-
-            <Button
-              className="h-11 w-full touch-manipulation"
-              disabled={isSubmitting}
-              type="submit"
-            >
-              {isSubmitting ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <CheckCircle2Icon data-icon="inline-start" />
+              name="rawHandleOrProfileUrl"
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid} className="gap-1.5">
+                  <FieldLabel htmlFor={PROSPECT_INPUT_ID} className="text-[13px] font-normal text-muted-foreground">
+                    {isMetaBusiness ? "Handle" : "Profile URL"}
+                  </FieldLabel>
+                  <div className="grid gap-2 @md/capture:grid-cols-[minmax(0,1fr)_auto]">
+                    <InputGroup className="h-11">
+                      <InputGroupAddon>
+                        <ProspectIcon aria-hidden="true" />
+                      </InputGroupAddon>
+                      <InputGroupInput
+                        {...field}
+                        id={PROSPECT_INPUT_ID}
+                        aria-invalid={fieldState.invalid}
+                        aria-describedby={
+                          fieldState.error ? `${PROSPECT_INPUT_ID}-error` : ready ? undefined : `${PROSPECT_INPUT_ID}-hint`
+                        }
+                        autoCapitalize="none"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        disabled={!ready || isSubmitting}
+                        inputMode={isMetaBusiness ? "text" : "url"}
+                        placeholder={isMetaBusiness ? "@prospect" : "https://instagram.com/prospect"}
+                        spellCheck={false}
+                        type="text"
+                        className="text-[15px]"
+                      />
+                    </InputGroup>
+                    <Button
+                      type="submit"
+                      disabled={!ready || isSubmitting}
+                      className="h-11 w-full touch-manipulation px-5 text-[15px] font-semibold @md/capture:w-auto"
+                    >
+                      {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
+                      {isSubmitting ? "Capturing…" : "Capture"}
+                    </Button>
+                  </div>
+                  {fieldState.error ? (
+                    <FieldError id={`${PROSPECT_INPUT_ID}-error`} className="text-[13px] text-danger-ink">
+                      {fieldState.error.message}
+                    </FieldError>
+                  ) : null}
+                  {ready ? null : (
+                    <p id={`${PROSPECT_INPUT_ID}-hint`} className="text-[13px] text-muted-foreground">
+                      Pick an origin first.
+                    </p>
+                  )}
+                </Field>
               )}
-              {isSubmitting ? "Capturing..." : "Capture Prospect"}
-            </Button>
-
-            {lastResult ? <LastCaptureResult result={lastResult} /> : null}
+            />
           </form>
-        </Form>
-      ) : null}
+          {lastCapture ? <LastCaptureLine capture={lastCapture} timeZone={setting.timeZone} /> : null}
+        </section>
+      </div>
+
     </div>
   );
 }
 
-function SourceSelector({
-  disabled,
-  onChange,
-  value,
-}: {
-  disabled: boolean;
-  onChange: (value: CaptureSource) => void;
-  value: CaptureSource;
-}) {
+/** The last paste as one ruled line: the status word, the handle, what the CRM knew, the time. */
+function LastCaptureLine({ capture, timeZone }: { capture: LastCapture; timeZone: string }) {
+  const { word, ink } = KIND_WORD[capture.confirmation.kind];
+  const handle = enteredHandle(capture.entered);
   return (
-    <div className="flex flex-col gap-2">
-      <Label>Source</Label>
-      <ToggleGroup
-        aria-label="Source"
-        className="grid w-full grid-cols-2"
-        disabled={disabled}
-        onValueChange={(nextValue) => {
-          if (!nextValue || !isCaptureSource(nextValue) || nextValue === value) {
-            return;
-          }
-          onChange(nextValue);
-        }}
-        type="single"
-        value={value}
-        variant="outline"
-      >
-        {sourceOptions.map((option) => (
-          <ToggleGroupItem
-            className="w-full min-w-0"
-            key={option.value}
-            value={option.value}
-          >
-            <span className="truncate">{option.label}</span>
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
-  );
-}
-
-function InstagramOriginStep({
-  disabled,
-  draft,
-  onBlur,
-  onDraftChange,
-  onSelectNonRankable,
-  showInputError,
-}: {
-  disabled: boolean;
-  draft: string;
-  onBlur: () => void;
-  onDraftChange: (value: string) => void;
-  onSelectNonRankable: (value: NonRankableInstagramOrigin) => void;
-  showInputError: boolean;
-}) {
-  return (
-    <section className="flex flex-col gap-4 rounded-lg border bg-card p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-semibold tracking-normal">
-          Instagram Origin
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Post, reel, story, story poll, follower, or application batch.
-        </p>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="lead-gen-origin-url">Post or Reel URL</Label>
-        <InputGroup className="h-11">
-          <InputGroupAddon>
-            <LinkIcon aria-hidden="true" />
-          </InputGroupAddon>
-          <InputGroupInput
-            aria-invalid={showInputError}
-            autoCapitalize="none"
-            autoComplete="off"
-            autoCorrect="off"
-            disabled={disabled}
-            id="lead-gen-origin-url"
-            inputMode="url"
-            onBlur={onBlur}
-            onChange={(event) => onDraftChange(event.target.value)}
-            placeholder="https://instagram.com/reel/..."
-            spellCheck={false}
-            type="text"
-            value={draft}
-          />
-        </InputGroup>
-        {showInputError ? (
-          <p className="text-sm font-medium text-destructive">
-            Enter an Instagram post or reel URL.
-          </p>
-        ) : null}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        {nonRankableInstagramOrigins.map((option) => {
-          const Icon = option.icon;
-
-          return (
-            <Button
-              className="h-10 justify-start"
-              disabled={disabled}
-              key={option.value}
-              onClick={() => onSelectNonRankable(option.value)}
-              type="button"
-              variant="outline"
-            >
-              <Icon data-icon="inline-start" />
-              <span className="truncate">{option.label}</span>
-            </Button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function ActiveSessionSummary({
-  disabled,
-  onReset,
-  state,
-}: {
-  disabled: boolean;
-  onReset: () => void;
-  state: ProspectCaptureState;
-}) {
-  const summary = getSessionSummary(state);
-  const Icon = summary.icon;
-
-  return (
-    <section className="flex min-w-0 items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground">
-          <Icon aria-hidden="true" className="size-4" />
-        </div>
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <Badge variant="outline">{summary.badge}</Badge>
-            <span className="truncate text-sm font-medium">
-              {summary.title}
-            </span>
-          </div>
-          <p className="truncate text-sm text-muted-foreground">
-            {summary.detail}
-          </p>
-        </div>
-      </div>
-      <Button
-        className="shrink-0"
-        disabled={disabled}
-        onClick={onReset}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        <RotateCcwIcon data-icon="inline-start" />
-        {state.source === "meta_business" ? "Change" : "Reset"}
-      </Button>
-    </section>
-  );
-}
-
-function ProspectInput({
-  control,
-  disabled,
-  source,
-}: {
-  control: Control<ProspectValues>;
-  disabled: boolean;
-  source: CaptureSource;
-}) {
-  const isMetaBusinessSource = source === "meta_business";
-  const ProspectInputIcon = isMetaBusinessSource ? AtSignIcon : LinkIcon;
-  const prospectInputLabel = isMetaBusinessSource ? "Handle" : "Profile URL";
-  const prospectInputMode = isMetaBusinessSource ? "text" : "url";
-  const prospectInputPlaceholder = isMetaBusinessSource
-    ? "@prospect"
-    : "https://instagram.com/prospect";
-
-  return (
-    <FormField
-      control={control}
-      name="rawHandleOrProfileUrl"
-      render={({ field }) => (
-        <FormItem>
-          <FormLabel>{prospectInputLabel}</FormLabel>
-          <FormControl>
-            <InputGroup className="h-11">
-              <InputGroupAddon>
-                <ProspectInputIcon aria-hidden="true" />
-              </InputGroupAddon>
-              <InputGroupInput
-                {...field}
-                autoCapitalize="none"
-                autoComplete="off"
-                autoCorrect="off"
-                disabled={disabled}
-                inputMode={prospectInputMode}
-                name="rawHandleOrProfileUrl"
-                placeholder={prospectInputPlaceholder}
-                spellCheck={false}
-                type="text"
-              />
-            </InputGroup>
-          </FormControl>
-          <FormMessage />
-        </FormItem>
-      )}
-    />
-  );
-}
-
-function getSessionSummary(state: ProspectCaptureState): {
-  badge: string;
-  detail: string;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  title: string;
-} {
-  if (state.source === "meta_business") {
-    return {
-      badge: "Meta Business",
-      detail: "Source-only capture",
-      icon: AtSignIcon,
-      title: "Active source",
-    };
-  }
-
-  const { origin } = state;
-  if (origin.detectedFromUrl) {
-    const isReel = origin.kind === "reel";
-
-    return {
-      badge: isReel ? "Reel" : "Post",
-      detail: origin.originUrl,
-      icon: isReel ? VideoIcon : FileTextIcon,
-      title: origin.shortcode,
-    };
-  }
-
-  const option = nonRankableInstagramOrigins.find(
-    (item) => item.value === origin.kind,
-  );
-
-  return {
-    badge: "Instagram",
-    detail: "Non-rankable origin",
-    icon: option?.icon ?? MessageCircleIcon,
-    title: option?.label ?? "Origin",
-  };
-}
-
-function CaptureMetric({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number | undefined;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-}) {
-  return (
-    <div className="flex min-h-20 min-w-0 flex-col justify-between rounded-lg border bg-card p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium text-muted-foreground">
-          {label}
-        </span>
-        <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
-      </div>
-      <span className="text-2xl font-semibold tabular-nums">
-        {value ?? "-"}
+    <div
+      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-0.5 border-t border-border px-4 py-2.5"
+    >
+      <span className={cn(STATUS_WORD, ink)}>
+        <span className="sr-only">Last capture: </span>
+        {word}
       </span>
-    </div>
-  );
-}
-
-function LastCaptureResult({ result }: { result: LastResult }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/30 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {result.duplicateRetry ? null : (
-          <Badge variant={result.duplicateProspect ? "outline" : "secondary"}>
-            {result.duplicateProspect ? "Duplicate" : "Unique"}
-          </Badge>
-        )}
-        {result.duplicateRetry ? (
-          <Badge variant="outline">Retry Ignored</Badge>
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-sm font-medium">{result.confirmation.title}</p>
-        {result.confirmation.detail ? (
-          <p className="text-sm text-muted-foreground">
-            {result.confirmation.detail}
-          </p>
-        ) : null}
-      </div>
-      <p className="min-w-0 truncate text-sm text-muted-foreground">
-        Last submission {formatSubmittedAt(result.submittedAt)}
+      <span className="truncate text-sm font-medium" title={capture.entered} translate="no">
+        {handle}
+      </span>
+      <time dateTime={new Date(capture.submittedAt).toISOString()} className={cn(ROW_TIME, "text-muted-foreground")}>
+        {timeOfDay(capture.submittedAt, timeZone)}
+      </time>
+      <p className="col-span-3 text-[13px] text-muted-foreground">
+        <span className="font-medium text-foreground">{capture.confirmation.title}</span>
+        {capture.confirmation.detail ? <>. {capture.confirmation.detail}</> : null}
       </p>
     </div>
   );
