@@ -5,25 +5,26 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { useAuthPostHogIdentify } from "@/hooks/use-posthog-identify";
 import { useSignOut } from "@/hooks/use-sign-out";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import {
-  ArrowRightIcon,
-  CalendarIcon,
-  CheckCircle2Icon,
-  CircleAlertIcon,
-  ExternalLinkIcon,
-  LogOutIcon,
-  RadioIcon,
-  Settings2Icon,
-} from "lucide-react";
+import { CheckIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { CARD, LABEL } from "@/app/workspace/team/_components/team-ui";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
+import { cn } from "@/lib/utils";
 
-import { OnboardingShell, PulsingDots } from "../_components/onboarding-shell";
+import { OnboardingShell } from "../_components/onboarding-shell";
+import {
+  CardFooter,
+  NoticeCard,
+  StatusWord,
+  WaitCard,
+  type Tone,
+} from "../_components/onboarding-ui";
 import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -49,8 +50,8 @@ export default function ConnectCalendlyPage() {
   return (
     <Suspense
       fallback={
-        <OnboardingShell>
-          <LoadingCard />
+        <OnboardingShell signOut>
+          <WaitCard>Setting up your account&hellip;</WaitCard>
         </OnboardingShell>
       }
     >
@@ -79,9 +80,9 @@ function ConnectCalendlyPageContent() {
   const immediateErrorMessage = convexLoading || authLoading
     ? null
     : !isAuthenticated || !user
-      ? "You need to sign in before completing onboarding."
+      ? "Sign in to finish setting up your account."
       : !orgId
-        ? "No onboarding organization was found in your session. Restart onboarding from your invite link."
+        ? "Your session isn’t linked to a company. Open your invite link again."
         : null;
 
   useEffect(() => {
@@ -134,7 +135,7 @@ function ConnectCalendlyPageContent() {
         setState({
           status: "error",
           message:
-            getErrorMessage(error, "Unable to finish onboarding for this organization."),
+            getErrorMessage(error, "Your account couldn’t be set up for this company."),
         });
       });
 
@@ -150,20 +151,27 @@ function ConnectCalendlyPageContent() {
     redeemInvite,
   ]);
 
+  // A blocked setup offers Sign out in its own footer, so the bar doesn't repeat it.
   if (immediateErrorMessage) {
     return (
       <OnboardingShell>
-        <ErrorCard message={immediateErrorMessage} />
+        <SetupBlocked message={immediateErrorMessage} />
+      </OnboardingShell>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <OnboardingShell>
+        <SetupBlocked message={state.message} />
       </OnboardingShell>
     );
   }
 
   return (
-    <OnboardingShell>
+    <OnboardingShell signOut>
       {state.status === "loading" ? (
-        <LoadingCard />
-      ) : state.status === "error" ? (
-        <ErrorCard message={state.message} />
+        <WaitCard>Setting up your account&hellip;</WaitCard>
       ) : (
         <ConnectCard
           companyName={state.companyName}
@@ -178,76 +186,30 @@ function ConnectCalendlyPageContent() {
 }
 
 // ---------------------------------------------------------------------------
-// Loading
+// Blocked
 // ---------------------------------------------------------------------------
 
-function LoadingCard() {
-  return (
-    <div
-      className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
-      role="status"
-    >
-      <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-8 text-center shadow-sm">
-        <PulsingDots />
-        <div className="flex flex-col gap-2">
-          <h1 className="text-lg font-semibold tracking-tight text-card-foreground">
-            Finishing Account Setup
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Redeeming your invite and linking your account&hellip;
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Error
-// ---------------------------------------------------------------------------
-
-function ErrorCard({ message }: { message: string }) {
+function SetupBlocked({ message }: { message: string }) {
   const { user } = useAuth();
   const signOut = useSignOut();
-  const isAuthed = !!user;
 
   return (
-    <div className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
-      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        <div className="h-0.5 bg-destructive" />
-        <div className="flex flex-col gap-5 p-8">
-          <div className="flex flex-col gap-2">
-            <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-destructive">
-              Onboarding Blocked
-            </p>
-            <h1 className="text-base font-semibold text-card-foreground">
-              Unable to Complete Setup
-            </h1>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {message}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2.5 pt-1">
-            {isAuthed ? (
-              <Button
-                size="lg"
-                className="w-full"
-                onClick={() => signOut()}
-              >
-                Sign Out
-              </Button>
-            ) : (
-              <Button asChild size="lg" className="w-full">
-                <Link href="/sign-in">Sign In</Link>
-              </Button>
-            )}
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/">Return Home</Link>
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <NoticeCard title="Setup can’t continue" line={message}>
+      <CardFooter>
+        <Button asChild variant="ghost">
+          <Link href="/">Home</Link>
+        </Button>
+        {user ? (
+          <Button type="button" variant="outline" onClick={() => void signOut()}>
+            Sign out
+          </Button>
+        ) : (
+          <Button asChild className="font-semibold">
+            <Link href="/sign-in">Sign in</Link>
+          </Button>
+        )}
+      </CardFooter>
+    </NoticeCard>
   );
 }
 
@@ -255,20 +217,18 @@ function ErrorCard({ message }: { message: string }) {
 // Connect Calendly
 // ---------------------------------------------------------------------------
 
-const PERMISSIONS = [
-  {
-    icon: CalendarIcon,
-    label: "Scheduled events & attendee information",
-  },
-  {
-    icon: Settings2Icon,
-    label: "Event type configurations & availability rules",
-  },
-  {
-    icon: RadioIcon,
-    label: "Real-time webhooks for live data synchronization",
-  },
+const CALENDLY_READS = [
+  "Scheduled events and who booked them",
+  "Event types and availability",
+  "Live updates through webhooks",
 ] as const;
+
+type Step = {
+  name: string;
+  detail: string;
+  done: boolean;
+  word?: { text: string; tone: Tone };
+};
 
 function ConnectCard({
   companyName,
@@ -283,184 +243,132 @@ function ConnectCard({
   calendlyStatus: string | null;
   calendlyError: string | null;
 }) {
-  const signOut = useSignOut();
-  const initial = companyName.charAt(0).toUpperCase() || "C";
   const calendlyConnected = calendlyStatus === "connected";
   const errorCode = calendlyError ?? "";
-  const errorMessage = CALENDLY_ERROR_MESSAGES[errorCode] ?? null;
+  const errorMessage = calendlyConnected ? null : (CALENDLY_ERROR_MESSAGES[errorCode] ?? null);
   const connectHref = `/api/calendly/start?tenantId=${encodeURIComponent(tenantId)}`;
-  const needsUpgrade = UPGRADE_REQUIRED_ERRORS.has(errorCode);
-  const isRetryable = RETRYABLE_ERRORS.has(errorCode);
+  const needsUpgrade = errorMessage !== null && UPGRADE_REQUIRED_ERRORS.has(errorCode);
+  const isRetryable = errorMessage !== null && RETRYABLE_ERRORS.has(errorCode);
+
+  const steps: Step[] = [
+    {
+      name: "Account",
+      detail: alreadyRedeemed ? "Set up earlier" : "Created",
+      done: true,
+      word: { text: "Done", tone: "muted" },
+    },
+    {
+      name: "Calendly",
+      detail: calendlyConnected ? "Bookings now come in live" : "Connect the company’s Calendly account",
+      done: calendlyConnected,
+      word: calendlyConnected
+        ? { text: "Connected", tone: "ink" }
+        : needsUpgrade
+          ? { text: "Plan needed", tone: "warning" }
+          : errorMessage
+            ? { text: "Failed", tone: "danger" }
+            : { text: "Next", tone: "ink" },
+    },
+    {
+      name: "Workspace",
+      detail: calendlyConnected ? "Ready to open" : "Opens once Calendly is connected",
+      done: false,
+      word: calendlyConnected ? { text: "Ready", tone: "ink" } : undefined,
+    },
+  ];
 
   return (
-    <div className="w-full max-w-md motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
-      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-        {/* Accent top border */}
-        <div className="h-0.5 bg-primary" />
+    <>
+      <PageBand
+        title={`Welcome, ${companyName}`}
+        description={
+          calendlyConnected
+            ? "Calendly is connected. Open the workspace to start."
+            : "Connect Calendly to bring in your calls and your team."
+        }
+      />
 
-        {/* Header */}
-        <div className="border-b border-border px-8 pb-8 pt-10 text-center">
-          <div
-            className="mx-auto flex size-16 items-center justify-center rounded-full border-2 border-primary/25 bg-primary/10 text-2xl font-semibold text-primary-ink"
-            aria-hidden="true"
+      <section aria-label="Setup" className={CARD}>
+        <ol aria-label="Setup steps" className="divide-y divide-border">
+          {steps.map((step, index) => (
+            <StepRow key={step.name} number={index + 1} step={step} />
+          ))}
+        </ol>
+
+        {errorMessage ? (
+          <p
+            role="alert"
+            className={cn(
+              "border-t border-border px-4 py-2.5 text-[13px] leading-[1.45] text-pretty",
+              needsUpgrade ? "text-warning-ink" : "text-danger-ink",
+            )}
           >
-            {initial}
-          </div>
-          <h1 className="mt-5 text-xl font-semibold tracking-tight text-card-foreground text-pretty">
-            Welcome to {companyName}
-          </h1>
-          <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground text-pretty">
-            Your account is ready. Connect Calendly to start ingesting meeting
-            activity and team data.
+            {errorMessage}
           </p>
-        </div>
+        ) : null}
 
-        {/* Body */}
-        <div className="flex flex-col gap-6 px-8 py-8">
+        <section aria-labelledby="calendly-reads" className="border-t border-border pt-2.5 pb-2">
+          <h2 id="calendly-reads" className={cn(LABEL, "px-4 pb-1")}>
+            What Magnus reads from Calendly
+          </h2>
+          <ul>
+            {CALENDLY_READS.map((read) => (
+              <li key={read} className="flex min-h-8 items-center px-4 text-sm">
+                {read}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <CardFooter aside={calendlyConnected ? null : "Needed to start the workspace."}>
+          {needsUpgrade ? (
+            <Button asChild variant="outline">
+              <a href="https://calendly.com/pricing" target="_blank" rel="noopener noreferrer">
+                See Calendly plans <span aria-hidden="true">↗</span>
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </Button>
+          ) : null}
           {calendlyConnected ? (
-            <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/10 p-3.5">
-              <CheckCircle2Icon
-                className="mt-0.5 size-4 shrink-0 text-primary-ink"
-                aria-hidden="true"
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-card-foreground">
-                  Calendly Connected
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Workspace activation is complete. Continue into the app.
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          {errorMessage ? (
-            <div
-              className="flex flex-col gap-3 rounded-md border border-destructive/20 bg-destructive/5 p-3.5"
-              role="alert"
-            >
-              <div className="flex items-start gap-3">
-                <CircleAlertIcon
-                  className="mt-0.5 size-4 shrink-0 text-destructive"
-                  aria-hidden="true"
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-card-foreground">
-                    {needsUpgrade
-                      ? "Calendly Plan Upgrade Required"
-                      : "Calendly Connection Failed"}
-                  </p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                    {errorMessage}
-                  </p>
-                </div>
-              </div>
-
-              {/* Actionable CTAs based on error type */}
-              {needsUpgrade ? (
-                <div className="flex items-center gap-2 pl-7">
-                  <Button asChild size="sm" variant="outline" className="text-xs">
-                    <a
-                      href="https://calendly.com/pricing"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      View Calendly Plans
-                      <ExternalLinkIcon
-                        className="ml-1.5 size-3"
-                        aria-hidden="true"
-                      />
-                    </a>
-                  </Button>
-                </div>
-              ) : isRetryable ? (
-                <div className="flex items-center gap-2 pl-7">
-                  <Button asChild size="sm" variant="outline" className="text-xs">
-                    <Link href={connectHref}>Retry Connection</Link>
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* Already-redeemed notice */}
-          {alreadyRedeemed ? (
-            <div className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3.5">
-              <CheckCircle2Icon
-                className="mt-0.5 size-4 shrink-0 text-primary-ink"
-                aria-hidden="true"
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-card-foreground">
-                  Already Linked
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  This organization was previously redeemed. Continue from here.
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Permissions */}
-          <div className="flex flex-col gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Calendly Access Required
-            </p>
-            <ul className="flex flex-col gap-2" role="list">
-              {PERMISSIONS.map(({ icon: Icon, label }, idx) => (
-                <li
-                  key={label}
-                  className="flex items-center gap-3 rounded-md border border-border bg-muted/20 px-4 py-3 text-sm text-card-foreground motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-400"
-                  style={{ animationDelay: `${200 + idx * 80}ms` }}
-                >
-                  <Icon
-                    className="size-4 shrink-0 text-primary-ink"
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0">{label}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* CTA */}
-          {calendlyConnected ? (
-            <Button asChild size="lg" className="w-full">
-              <Link href="/">
-                Enter Workspace
-                <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
-              </Link>
+            <Button asChild className="font-semibold">
+              <Link href="/">Open workspace</Link>
             </Button>
           ) : (
-            <Button asChild size="lg" className="w-full">
-              <Link href={connectHref}>
-                Connect Calendly
-                <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
-              </Link>
+            <Button asChild className="font-semibold">
+              <Link href={connectHref}>{isRetryable ? "Try again" : "Connect Calendly"}</Link>
             </Button>
           )}
+        </CardFooter>
+      </section>
+    </>
+  );
+}
 
-          <p className="text-center text-xs text-muted-foreground">
-            Calendly connection is required to activate the workspace.
-          </p>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full text-muted-foreground"
-            onClick={() => signOut()}
-          >
-            <LogOutIcon
-              className="size-4 shrink-0"
-              data-icon="inline-start"
-              aria-hidden="true"
-            />
-            Sign out
-          </Button>
-        </div>
-      </div>
-    </div>
+/**
+ * One setup step on a 44px row: the number (a check once done) in slate, the
+ * step, its detail in 13px slate and one status word. Below `@md` of the
+ * column the detail folds under the step.
+ */
+function StepRow({ number, step }: { number: number; step: Step }) {
+  return (
+    <li className="grid min-h-11 grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 @md:grid-cols-[1.25rem_5.5rem_minmax(0,1fr)_auto]">
+      <span aria-hidden="true" className="col-start-1 row-start-1 flex justify-center text-muted-foreground">
+        {step.done ? (
+          <CheckIcon className="size-4" strokeWidth={2.5} />
+        ) : (
+          <span className="font-condensed text-[15px] leading-none font-semibold tabular-nums">{number}</span>
+        )}
+      </span>
+      <span className="col-start-2 row-start-1 text-sm font-medium">{step.name}</span>
+      <span className="col-start-2 col-end-4 row-start-2 text-[13px] text-muted-foreground @md:col-start-3 @md:col-end-4 @md:row-start-1">
+        {step.detail}
+      </span>
+      {step.word ? (
+        <StatusWord tone={step.word.tone} className="col-start-3 row-start-1 justify-self-end @md:col-start-4">
+          {step.word.text}
+        </StatusWord>
+      ) : null}
+    </li>
   );
 }
 
