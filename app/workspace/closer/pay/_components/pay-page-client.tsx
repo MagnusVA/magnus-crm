@@ -3,7 +3,7 @@
 import { Component, type ReactNode, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import posthog from "posthog-js";
 import { toast } from "sonner";
 import { AlertCircleIcon, CheckCircle2Icon, PencilIcon } from "lucide-react";
@@ -76,8 +76,9 @@ export function PayPageClient() {
 
 /**
  * Tells a sign-in that hasn't settled apart from a link the closer can't use.
- * Right after a navigation a query can briefly run without the session's
- * token; that is worth a reload, not "this link isn't yours".
+ * The queries wait for the session's token, but one that expires mid-visit
+ * still throws an auth error; that is worth a retry, not "this link isn't
+ * yours". Try again remounts the page, so it reads with the fresh token.
  */
 class PayLinkErrorBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
 	state: { error: unknown } = { error: null };
@@ -102,9 +103,9 @@ class PayLinkErrorBoundary extends Component<{ children: ReactNode }, { error: u
 		if (typeof code === "string" && code.startsWith("auth.")) {
 			return (
 				<PayNotice title="Your sign-in is still loading">
-					Reload the page to open the payment.{" "}
-					<button type="button" className="font-medium underline" onClick={() => window.location.reload()}>
-						Reload
+					Try again in a moment to open the payment.{" "}
+					<button type="button" className="font-medium underline" onClick={() => this.setState({ error: null })}>
+						Try again
 					</button>
 				</PayNotice>
 			);
@@ -138,17 +139,21 @@ type Target =
 function PayTarget({ link }: { link: PaymentLinkInput }) {
 	const meetingId = link.meetingId as Id<"meetings"> | undefined;
 	const followUpId = link.followUpId as Id<"followUps"> | undefined;
+	// Right after a navigation the Convex client can run a query before it has
+	// the session's token; wait for it rather than fail with auth.not_authenticated.
+	const { isAuthenticated } = useConvexAuth();
 	const meetingDetail = useQuery(
 		api.closer.meetingDetail.getMeetingDetail,
-		meetingId ? { meetingId } : "skip",
+		isAuthenticated && meetingId ? { meetingId } : "skip",
 	);
 	const taskDetail = useQuery(
 		api.closer.reminderDetail.getReminderDetail,
-		followUpId ? { followUpId } : "skip",
+		isAuthenticated && followUpId ? { followUpId } : "skip",
 	);
-	const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
-		includeArchived: false,
-	});
+	const programs = useQuery(
+		api.tenantPrograms.queries.listPrograms,
+		isAuthenticated ? { includeArchived: false } : "skip",
+	);
 
 	const detail = meetingId ? meetingDetail : taskDetail;
 	if (detail === undefined || programs === undefined) return <PayPageSkeleton />;
