@@ -70,6 +70,7 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 ## 7. Public, onboarding and portal (6 screens)
 
 - Lower priority. The DM portal and onboarding are the first thing external people see of the brand, so they belong to the brand-forward end of the system, not the dense app end.
+- Done (Nov 2026): the landing, privacy and support pages share the `StandaloneShell` frame through `PublicShell`, as System admin and onboarding do. The DM portal is the one public screen still on its own frame.
 
 ## 8. Closer home (needs its own design brief)
 
