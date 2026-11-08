@@ -273,3 +273,24 @@ export function dashboardRangeFromToday(range: DashboardRange, todayBusinessDate
     endBusinessDateInclusive: end > todayBusinessDate ? end : todayBusinessDate,
   };
 }
+
+/**
+ * A dashboard range as the business dates it covers when today is
+ * `todayBusinessDate`: Today, This week (from Monday) and This month (from
+ * the 1st) each end today. Pages send this to their Convex readers instead of
+ * the preset. A query that resolved the preset itself would read the server's
+ * clock, and Convex doesn't run a query again because time passed, so a page
+ * left open past the business day's change kept yesterday's numbers. Named
+ * dates change when today does, and the query runs again for the new day.
+ */
+export function resolveDashboardRange(
+  range: DashboardRange,
+  todayBusinessDate: string,
+): Extract<DashboardRange, { kind: "custom" }> {
+  if (range.kind === "custom") return range;
+  const { startDate, endDateInclusive } =
+    range.preset === "today"
+      ? { startDate: todayBusinessDate, endDateInclusive: todayBusinessDate }
+      : presetDates(range.preset, todayBusinessDate);
+  return { kind: "custom", startBusinessDate: startDate, endBusinessDateInclusive: endDateInclusive };
+}

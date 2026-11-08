@@ -5,7 +5,7 @@ import { useQuery } from "convex/react";
 import { ArrowUpRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { mergeBookedCallsDashboard } from "@/convex/analytics/merge/operations";
-import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
 import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
 import {
   bookedCallsDashboardFromLive,
@@ -88,6 +88,9 @@ export function BookedCallsPageClient() {
   // need no snapshot job. Until then ranges over 7 days use the snapshot
   // (docs/agents/reporting.md).
   const todayBusinessDate = businessDateForInstant(now, setting);
+  // The queries get the range's dates, not its preset, so they run again when
+  // the business day changes (resolveDashboardRange).
+  const liveRange = useMemo(() => resolveDashboardRange(queryRange, todayBusinessDate), [queryRange, todayBusinessDate]);
   const plan = dashboardRangePlan(queryRange, todayBusinessDate);
   const source = useAnalyticsSource("booked_calls", plan);
   const report = useAnalyticsReport({
@@ -97,7 +100,7 @@ export function BookedCallsPageClient() {
     live: api.operations.bookedCallsDashboard.getBookedCallsDashboard,
     merge: mergeBookedCallsDashboard,
     todayArgs: { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
-    liveArgs: source !== "warehouse" && requiresSnapshot ? "skip" : { range: queryRange },
+    liveArgs: source !== "warehouse" && requiresSnapshot ? "skip" : { range: liveRange },
   });
   const dashboard = report.data;
   const needsSnapshot = source === "live" && (requiresSnapshot || dashboard?.capped === true);

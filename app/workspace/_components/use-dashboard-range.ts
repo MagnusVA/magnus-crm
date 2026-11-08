@@ -93,7 +93,12 @@ export type UseDashboardRangeResult = {
 	range: DashboardRangeInput;
 	/** Pass to `DashboardDateRangeFilter`'s `onChange`. */
 	setRange: (next: DashboardRangeInput) => void;
-	/** The last valid selection — safe to send to Convex queries. */
+	/**
+	 * The last valid selection, preset names kept for labels. Send a live
+	 * Convex reader `resolveDashboardRange(queryRange, todayBusinessDate)`
+	 * (lib/analyticsRange.ts) instead: a preset resolved on the server would
+	 * keep answering for the day the query first ran.
+	 */
 	queryRange: DashboardRangeInput;
 	/** Human-readable label for the committed range. */
 	rangeLabel: string;
