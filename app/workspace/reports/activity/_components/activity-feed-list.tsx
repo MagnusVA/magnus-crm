@@ -56,11 +56,11 @@ export function ActivityFeedList({
       container="@container/feed"
       reloading={reloading}
       footer={
-        events !== undefined && count > 0 && hasMore ? (
+        events !== undefined && hasMore ? (
           <div className="flex min-h-10 items-center justify-between gap-3 border-t border-border px-4 py-1.5 text-[13px] text-muted-foreground">
             <p role="status" className="flex items-center gap-2">
               {loadingMore ? <Spinner aria-hidden="true" className="size-3.5" /> : null}
-              {loadingMore ? "Loading…" : `Showing ${count.toLocaleString()} events`}
+              {loadingMore ? "Loading…" : count > 0 ? `Showing ${count.toLocaleString()} events` : "Matches may be further back"}
             </p>
             <Button variant="outline" size="sm" onClick={onLoadMore} disabled={loadingMore}>
               Show {pageSize} more
@@ -82,9 +82,11 @@ export function ActivityFeedList({
           )}
         </SectionEmpty>
       ) : count === 0 ? (
+        // Matches may sit further back: the footer keeps "Show more" so the
+        // reader can keep looking after the automatic loads stop.
         <p role="status" className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-          <Spinner aria-hidden="true" className="size-3.5" />
-          Looking further back for matches…
+          {loadingMore ? <Spinner aria-hidden="true" className="size-3.5" /> : null}
+          {loadingMore ? "Looking further back for matches…" : "No matches in the events read so far."}
         </p>
       ) : (
         <>
