@@ -1,30 +1,14 @@
 "use client";
-import { DayDefinition } from "../../_components/day-definition";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -32,19 +16,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { FieldGroup } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/spinner";
-import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FIELD_ERROR,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  SubmitError,
+} from "@/app/workspace/_components/action-dialog";
 import { getErrorMessage } from "@/lib/errors";
+import { firstName } from "./team-ui";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -147,6 +141,7 @@ interface MarkUnavailableDialogProps {
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  /** Kept for callers; the title names the person. */
   userIdentity?: MemberAvatarIdentity;
 }
 
@@ -165,8 +160,8 @@ export function MarkUnavailableDialog({
   onOpenChange,
   userId,
   userName,
-  userIdentity,
 }: MarkUnavailableDialogProps) {
+  const ids = useId();
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -189,8 +184,15 @@ export function MarkUnavailableDialog({
     },
   });
 
-  const watchedIsFullDay = form.watch("isFullDay");
-  const watchedDate = form.watch("date");
+  const watchedIsFullDay = useWatch({ control: form.control, name: "isFullDay" });
+  const watchedDate = useWatch({ control: form.control, name: "date" });
+
+  // Clear any previous error each time the dialog opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSubmitError(null);
+  }
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -203,7 +205,6 @@ export function MarkUnavailableDialog({
         startTime: undefined,
         endTime: undefined,
       });
-      setSubmitError(null);
     }
   }, [open, form]);
 
@@ -258,6 +259,9 @@ export function MarkUnavailableDialog({
   // Format today as "YYYY-MM-DD" for the date input default/min
   const todayString = format(new Date(), "yyyy-MM-dd");
 
+  const first = firstName(userName);
+  const { errors } = form.formState;
+
   return (
     <Dialog
       open={open}
@@ -267,234 +271,176 @@ export function MarkUnavailableDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Mark as Unavailable</DialogTitle>
-          <DialogDescription>
-            Mark {userName} as unavailable. Any affected meetings will be flagged
-            for redistribution.
-          </DialogDescription>
-        </DialogHeader>
-        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={`Mark ${userName} unavailable`}
+          description={`If ${first} has calls booked in that time, you choose who takes each one next. Nothing moves until then.`}
+        />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-              {/* Date */}
-              <FormField
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Date <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type="date"
-                        min={todayString}
-                        disabled={isSubmitting}
-                        value={
-                          field.value
-                            ? format(new Date(field.value), "yyyy-MM-dd")
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val) {
-                            field.onChange(dateStringToTimestamp(val));
-                          }
-                        }}
-                      />
-                    </FormControl>
- <DayDefinition browser />
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Reason */}
-              <FormField
-                control={form.control}
-                name="reason"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Reason <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isSubmitting}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a reason" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {REASON_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Note (optional) */}
-              <FormField
-                control={form.control}
-                name="note"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Note</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Additional details (optional)"
-                        className="min-h-[80px] resize-none text-sm"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Full Day Toggle */}
-              <FormField
-                control={form.control}
-                name="isFullDay"
-                render={({ field }) => (
-                  <FormItem className="flex items-center justify-between gap-2">
-                    <FormLabel className="mt-0">Full Day</FormLabel>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        disabled={isSubmitting}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-
-              {/* Start Time / End Time — shown only when not full day */}
-              {!watchedIsFullDay && (
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField
-                    control={form.control}
-                    name="startTime"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Start Time{" "}
-                          <span className="text-destructive">*</span>
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            type="time"
-                            disabled={isSubmitting}
-                            value={
-                              field.value !== undefined
-                                ? timestampToTimeString(
-                                    field.value,
-                                    watchedDate,
-                                  )
-                                : ""
-                            }
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val) {
-                                field.onChange(
-                                  timeStringToTimestamp(val, watchedDate),
-                                );
-                              } else {
-                                field.onChange(undefined);
-                              }
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+          <SubmitError>{submitError}</SubmitError>
+          <FormRows>
+            <Controller
+              control={form.control}
+              name="date"
+              render={({ field, fieldState }) => (
+                <FormRow label="Date" htmlFor={`${ids}-date`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    id={`${ids}-date`}
+                    type="date"
+                    min={todayString}
+                    disabled={isSubmitting}
+                    aria-invalid={fieldState.invalid}
+                    className="w-fit font-condensed text-[15px] tabular-nums"
+                    value={
+                      field.value
+                        ? format(new Date(field.value), "yyyy-MM-dd")
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val) {
+                        field.onChange(dateStringToTimestamp(val));
+                      }
+                    }}
                   />
-
-                  <FormField
-                    control={form.control}
-                    name="endTime"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          End Time{" "}
-                          <span className="text-destructive">*</span>
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            type="time"
-                            disabled={isSubmitting}
-                            value={
-                              field.value !== undefined
-                                ? timestampToTimeString(
-                                    field.value,
-                                    watchedDate,
-                                  )
-                                : ""
-                            }
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val) {
-                                field.onChange(
-                                  timeStringToTimestamp(val, watchedDate),
-                                );
-                              } else {
-                                field.onChange(undefined);
-                              }
-                            }}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                  <DayDefinition browser />
+                </FormRow>
               )}
-            </FieldGroup>
+            />
 
-            {/* Submission-level error (mutation failures) */}
-            {submitError && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircleIcon />
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            )}
+            <Controller
+              control={form.control}
+              name="isFullDay"
+              render={({ field }) => (
+                <FormRow label="Hours" invalid={Boolean(errors.startTime || errors.endTime)}>
+                  <div className="flex min-h-8 items-center gap-2.5">
+                    <Switch
+                      id={`${ids}-full-day`}
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={isSubmitting}
+                    />
+                    <Label htmlFor={`${ids}-full-day`} className="font-normal">
+                      All day
+                    </Label>
+                  </div>
+                  {/* Start Time / End Time — shown only when not full day */}
+                  {!watchedIsFullDay && (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Controller
+                          control={form.control}
+                          name="startTime"
+                          render={({ field: start, fieldState }) => (
+                            <Input
+                              type="time"
+                              aria-label="Start time"
+                              aria-invalid={fieldState.invalid}
+                              disabled={isSubmitting}
+                              className="w-32 font-condensed text-[15px] tabular-nums"
+                              value={
+                                start.value !== undefined
+                                  ? timestampToTimeString(start.value, watchedDate)
+                                  : ""
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val) {
+                                  start.onChange(timeStringToTimestamp(val, watchedDate));
+                                } else {
+                                  start.onChange(undefined);
+                                }
+                              }}
+                            />
+                          )}
+                        />
+                        <span className="text-[13px] text-muted-foreground">to</span>
+                        <Controller
+                          control={form.control}
+                          name="endTime"
+                          render={({ field: end, fieldState }) => (
+                            <Input
+                              type="time"
+                              aria-label="End time"
+                              aria-invalid={fieldState.invalid}
+                              disabled={isSubmitting}
+                              className="w-32 font-condensed text-[15px] tabular-nums"
+                              value={
+                                end.value !== undefined
+                                  ? timestampToTimeString(end.value, watchedDate)
+                                  : ""
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val) {
+                                  end.onChange(timeStringToTimestamp(val, watchedDate));
+                                } else {
+                                  end.onChange(undefined);
+                                }
+                              }}
+                            />
+                          )}
+                        />
+                      </div>
+                      <FieldError className={FIELD_ERROR} errors={[errors.startTime, errors.endTime]} />
+                    </>
+                  )}
+                </FormRow>
+              )}
+            />
 
-            <DialogFooter className="mt-5">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Saving...
-                  </>
-                ) : (
-                  "Mark Unavailable"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+            <Controller
+              control={form.control}
+              name="reason"
+              render={({ field, fieldState }) => (
+                <FormRow label="Reason" htmlFor={`${ids}-reason`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={isSubmitting}
+                  >
+                    <SelectTrigger id={`${ids}-reason`} aria-invalid={fieldState.invalid} className="w-full">
+                      <SelectValue placeholder="Choose a reason" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REASON_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormRow>
+              )}
+            />
+
+            <Controller
+              control={form.control}
+              name="note"
+              render={({ field, fieldState }) => (
+                <FormRow label="Note" htmlFor={`${ids}-note`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Textarea
+                    {...field}
+                    id={`${ids}-note`}
+                    placeholder="Optional"
+                    rows={2}
+                    className="min-h-16 resize-none"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
+              )}
+            />
+          </FormRows>
+
+          <ActionDialogFooter>
+            <CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+            <SubmitButton pending={isSubmitting} pendingLabel="Saving…">
+              Mark unavailable
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

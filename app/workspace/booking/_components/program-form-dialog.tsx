@@ -1,37 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useMutation } from "convex/react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { AlertCircleIcon } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -40,9 +21,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  SubmitError,
+} from "@/app/workspace/_components/action-dialog";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -100,6 +91,7 @@ export function ProgramFormDialog({
   onOpenChange,
   program,
 }: ProgramFormDialogProps) {
+  const ids = useId();
   const isEdit = !!program;
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -188,88 +180,78 @@ export function ProgramFormDialog({
         }
       }}
     >
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {isEdit ? "Edit Program" : "Create Program"}
-          </DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? "Renaming a program updates historical payments and customer records automatically."
-              : "Programs group customers and payments for reporting. They appear in every payment dialog."}
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={program ? `Edit ${program.name}` : "New program"}
+          description={
+            isEdit
+              ? "A new name also shows on this program's past payments."
+              : "Programs group customers and payments, and appear in every payment dialog."
+          }
+        />
 
-        {submitError && (
-          <Alert variant="destructive">
-            <AlertCircleIcon className="size-4" />
-            <AlertDescription>{submitError}</AlertDescription>
-          </Alert>
-        )}
-
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="flex flex-col gap-6"
-          >
-            <FormField
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+          <SubmitError>{submitError}</SubmitError>
+          <FormRows>
+            <Controller
               control={form.control}
               name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Name <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="e.g. Launchpad, Accelerator"
-                      disabled={isSubmitting}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <FormRow label="Name" htmlFor={`${ids}-name`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-name`}
+                    placeholder="e.g. Launchpad, Accelerator"
+                    autoComplete="off"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
               )}
             />
 
-            <FormField
+            <Controller
               control={form.control}
               name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={3}
-                      placeholder="Describe the program"
-                      disabled={isSubmitting}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Optional — visible in admin views only
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <FormRow
+                  label="Description"
+                  htmlFor={`${ids}-description`}
+                  invalid={fieldState.invalid}
+                  error={fieldState.error}
+                  description="Optional. Only admins see it."
+                >
+                  <Textarea
+                    {...field}
+                    id={`${ids}-description`}
+                    rows={3}
+                    placeholder="Describe the program"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
               )}
             />
 
-            <FormField
+            <Controller
               control={form.control}
               name="defaultCurrency"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Default Currency · Optional</FormLabel>
+              render={({ field, fieldState }) => (
+                <FormRow
+                  label="Default currency"
+                  htmlFor={`${ids}-currency`}
+                  invalid={fieldState.invalid}
+                  error={fieldState.error}
+                  description="Pre-fills new payments and customer records. Leave as None to choose per payment."
+                >
                   <Select
                     value={field.value ?? NONE_CURRENCY}
                     onValueChange={field.onChange}
                     disabled={isSubmitting}
                   >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                    </FormControl>
+                    <SelectTrigger id={`${ids}-currency`} aria-invalid={fieldState.invalid} className="w-full">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE_CURRENCY}>None</SelectItem>
                       {CURRENCY_OPTIONS.map((option) => (
@@ -279,37 +261,18 @@ export function ProgramFormDialog({
                       ))}
                     </SelectContent>
                   </Select>
-                  <FormDescription>
-                    Pre-fills new payments and customer records. Leave blank to
-                    decide per-payment.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
+                </FormRow>
               )}
             />
+          </FormRows>
 
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting && <Spinner data-icon="inline-start" />}
-                {isSubmitting
-                  ? isEdit
-                    ? "Saving..."
-                    : "Creating..."
-                  : isEdit
-                    ? "Save"
-                    : "Create Program"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          <ActionDialogFooter>
+            <CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+            <SubmitButton pending={isSubmitting} pendingLabel={isEdit ? "Saving…" : "Creating…"}>
+              {isEdit ? "Save program" : "Create program"}
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
