@@ -89,10 +89,17 @@ export default function PrivacyPage() {
     <PublicShell current="/privacy">
       <PageBand
         title="Privacy policy"
-        description={`Effective ${effectiveDate}. How Magnus CRM and the Magnus Slack app handle your information.`}
+        description={`Effective ${effectiveDate}`}
       />
 
       <article className={`${CARD} divide-y divide-border`}>
+        <div className="px-4 py-4">
+          <p className={PARAGRAPH}>
+            This Privacy Policy explains how Magnus CRM collects, uses, shares,
+            and protects information when customers use Magnus CRM and the
+            Magnus Slack app.
+          </p>
+        </div>
         {sections.map((section) => (
           <PolicySection key={section.title} title={section.title}>
             {section.body.map((paragraph) => (

@@ -214,18 +214,22 @@ export function SupportRequestForm() {
           />
         </div>
 
-        {submitted || submitError ? (
+        {/* Always mounted, so the sent line is announced when it fills in. */}
+        <div
+          role="status"
+          className={submitted ? "border-t border-border px-4 py-2.5" : undefined}
+        >
+          {submitted ? (
+            <NoteLine tone="ok">
+              Request received. We&rsquo;ll reply by email.
+            </NoteLine>
+          ) : null}
+        </div>
+        {submitError ? (
           <div className="border-t border-border px-4 py-2.5">
-            {submitted ? (
-              <NoteLine role="status" tone="ok">
-                Request received. We&rsquo;ll reply by email.
-              </NoteLine>
-            ) : null}
-            {submitError ? (
-              <NoteLine role="alert" tone="danger">
-                Couldn&rsquo;t send the request: {submitError}
-              </NoteLine>
-            ) : null}
+            <NoteLine role="alert" tone="danger">
+              Couldn&rsquo;t send the request: {submitError}
+            </NoteLine>
           </div>
         ) : null}
 
