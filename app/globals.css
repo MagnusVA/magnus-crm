@@ -255,6 +255,20 @@
    View Transitions & Streaming Animations (Phase 4)
    ============================================================ */
 
+/* The transition overlay would swallow clicks while it runs. Let them
+   reach the live page underneath. Hit-testing skips named participants,
+   and the browser names the root by default, so take the root out too.
+   Only the <ViewTransition> areas animate; the sidebar and header stay
+   live and clickable.
+   @see next/dist/docs 02-guides/view-transitions.md — Keeping the page interactive */
+::view-transition {
+  pointer-events: none;
+}
+
+:root {
+  view-transition-name: none;
+}
+
 /* Page transition: cross-fade between old and new page content.
    Triggered by the <ViewTransition> around #main-content in
    workspace-shell-client.tsx, for navigations tagged "workspace-nav"
