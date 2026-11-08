@@ -24,7 +24,10 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => async () => ({ started: false }),
 }));
-vi.mock("@/app/workspace/reports/_components/report-date-controls", () => ({ ReportDateControls: () => null }));
+vi.mock("@/app/workspace/reports/_components/report-date-controls", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ReportDateControls: () => null,
+}));
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
 import { TeamReportPageClient } from "@/app/workspace/reports/team/_components/team-report-page-client";
@@ -33,6 +36,10 @@ import { LeadGenRanking } from "@/app/workspace/_components/overview-rankings";
 import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origins-overview-section";
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+// Pages render inside the app layout's TooltipProvider.
+const renderPage = (component: () => React.ReactNode) =>
+  renderToStaticMarkup(createElement(TooltipProvider, null, createElement(component)));
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
@@ -54,20 +61,20 @@ const pages = [
 
 describe("meeting bucket page readiness", () => {
   it.each(pages)("skips $name bucket queries and renders the rebuild notice", ({ component, query }) => {
-    const html = renderToStaticMarkup(createElement(component));
+    const html = renderPage(component);
     expect(fixture.queries).toHaveBeenCalledWith(query, "skip");
     expect(html).toContain(BUSINESS_DAY_REBUILD_MESSAGE);
   });
 
   it.each(pages)("waits for tenant readiness before subscribing to $name buckets", ({ component, query }) => {
     fixture.loaded = false;
-    renderToStaticMarkup(createElement(component));
+    renderPage(component);
     expect(fixture.queries).toHaveBeenCalledWith(query, "skip");
   });
 
   it.each(pages)("subscribes to $name buckets after readiness", ({ component, query }) => {
     fixture.ready = true;
-    renderToStaticMarkup(createElement(component));
+    renderPage(component);
     expect(fixture.queries).toHaveBeenCalledWith(query, expect.any(Object));
   });
 
@@ -76,7 +83,7 @@ describe("meeting bucket page readiness", () => {
     try {
       vi.setSystemTime(new Date(2026, 9, 22, 12));
       fixture.ready = true;
-      renderToStaticMarkup(createElement(component));
+      renderPage(component);
       expect(fixture.queries).toHaveBeenCalledWith(query, defaultKeys);
     } finally {
       vi.useRealTimers();
@@ -89,7 +96,7 @@ describe("meeting bucket page readiness", () => {
   ])("skips every Team query with loaded=$loaded and ready=$ready", ({ loaded, ready }) => {
     fixture.loaded = loaded;
     fixture.ready = ready;
-    renderToStaticMarkup(createElement(TeamReportPageClient));
+    renderPage(TeamReportPageClient);
     const reportQueries = fixture.queries.mock.calls.filter(([name]) => name.startsWith("reporting/"));
     expect(reportQueries).toHaveLength(4);
     for (const [, args] of reportQueries) expect(args).toBe("skip");
@@ -104,7 +111,7 @@ describe("meeting bucket page readiness", () => {
       vi.setSystemTime(new Date(2026, 9, 22, 12));
       fixture.ready = true;
       fixture.businessDay = setting;
-      renderToStaticMarkup(createElement(TeamReportPageClient));
+      renderPage(TeamReportPageClient);
       for (const query of [
         "reporting/teamPerformance:getTeamPerformanceMetrics",
         "reporting/teamOutcomes:getTeamOutcomeMix",

@@ -1,38 +1,42 @@
 "use client";
-import { useBusinessDay } from "@/hooks/use-business-day";
-import { useNow } from "@/hooks/use-now";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangleIcon, ListChecksIcon, TargetIcon } from "lucide-react";
+import { ListChecksIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { businessDateForInstant } from "@/lib/businessDay";
 import { mergeSlackQualifications } from "@/convex/analytics/merge/slackQualifications";
-import { dashboardRangePlan } from "@/lib/analyticsRange";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { teamHref } from "@/app/workspace/operations/_components/team-links";
-import { Separator } from "@/components/ui/separator";
+import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { dashboardRangePlan } from "@/lib/analyticsRange";
+import { BUSINESS_DAY_REBUILD_MESSAGE, businessDateForInstant } from "@/lib/businessDay";
+import { cn } from "@/lib/utils";
+import { reportDayLine } from "../../_components/report-date-controls";
+import { BAND_BUTTON, REPORT_PAGE, ReportBand } from "../../_components/report-ui";
+import { useReportAnalytics } from "../../_components/use-report-analytics";
 import {
   getInclusiveEndBusinessDate,
   getInitialSlackQualificationFilters,
   getRangeValidationMessage,
   type SlackQualificationFilters,
 } from "./business-date-utils";
-import { useReportAnalytics } from "../../_components/use-report-analytics";
-import { SetterQualificationControls } from "./setter-qualification-controls";
-import { SetterQualificationSummaryCards } from "./setter-qualification-summary-cards";
+import { SetterContributionCard } from "./setter-contribution-card";
+import {
+  SetterFilter,
+  SetterQualificationDateControls,
+  slackRangePhrase,
+  slackRangeWords,
+} from "./setter-qualification-controls";
+import { SetterQualificationFigures } from "./setter-qualification-figures";
 import { SetterQualificationTrend } from "./setter-qualification-trend";
-import { SetterContributionTable } from "./setter-contribution-table";
-import { SlackQualificationReportSkeleton } from "./slack-qualification-report-skeleton";
+
+// Slack Qualifications: the band with its own business-date controls, six
+// figures and the setter filter, then the trend and each setter's events.
+// Operations › Qualifications (the Split Desk) reads the same events by lead;
+// this report keeps the per-period trend and the event-level counts.
 
 export function SlackQualificationReportPageClient() {
   usePageTitle("Slack Qualifications - Reports");
@@ -40,7 +44,7 @@ export function SlackQualificationReportPageClient() {
     "slack_qualifications",
   );
 
-  const { setting } = useBusinessDay();
+  const { setting, rebuilding } = useBusinessDay();
   const now = useNow();
   const [selectedFilters, setFilters] = useState<SlackQualificationFilters | null>(null);
   const filters = useMemo(() => selectedFilters ?? getInitialSlackQualificationFilters(setting, now), [selectedFilters, setting, now]);
@@ -87,7 +91,6 @@ export function SlackQualificationReportPageClient() {
     },
     merge: mergeSlackQualifications,
   });
-  const report = reportResult.data;
 
   useEffect(() => {
     captureViewed();
@@ -102,124 +105,79 @@ export function SlackQualificationReportPageClient() {
     return `/workspace/operations/qualifications?${params.toString()}`;
   }, [filters]);
 
-  // A ClickHouse range can take a while to load; keep the controls and its
-  // status on screen instead of the full-page skeleton.
-  if (report === undefined && !rangeError && reportResult.freshness.source === "live") {
-    return <SlackQualificationReportSkeleton />;
-  }
-
-  const setters = report?.setters ?? [];
+  // A new range or setter keeps the last report on screen, dimmed, until the
+  // new one arrives (DESIGN.md, Kept Data While Reloading). An invalid range
+  // shows nothing kept: its line says why.
+  const kept = useKeptWhileLoading(reportResult.data, slackRangePhrase(filters, setting));
+  const report = rangeError ? undefined : kept.data;
+  const reloading = !rangeError && kept.reloading;
+  const freshness = freshnessSummary([reportResult.freshness], now);
+  const filteredToSetter = report ? report.selectedSlackUserId !== null : filters.slackUserId !== null;
+  const setterName = filteredToSetter
+    ? (report?.setters.find((setter) => setter.slackUserId === report.selectedSlackUserId)?.displayName ?? null)
+    : null;
+  const onChange = (next: SlackQualificationFilters) => {
+    setFilters(next);
+    captureFiltersChanged({
+      date_range_preset: "custom",
+      has_slack_setter_filter: Boolean(next.slackUserId),
+    });
+  };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Slack Qualifications
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Qualification events, unique Slack-sourced opportunities, and setter
-            contribution by business day.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button asChild type="button" variant="outline" size="sm">
-            <Link href={operationsHref}>
-              <ListChecksIcon data-icon="inline-start" />
-              View Events
-            </Link>
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button asChild variant="outline" size="sm">
-                <Link href={teamHref.goals("qualified")}>
-                  <TargetIcon data-icon="inline-start" />
-                  Team Goal
-                </Link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-[17rem] text-[12.5px] leading-snug">
-              The qualified-leads goal is set in Team › Goals. Change it there; this report follows.
-            </TooltipContent>
-          </Tooltip>
-        </div>
+    <>
+      <div className={REPORT_PAGE}>
+        <ReportBand
+          title="Slack Qualifications"
+          range={slackRangeWords(filters, setting)}
+          freshness={reportResult.data !== undefined ? freshness : null}
+          dayLine={reportDayLine("tenant", setting)}
+          actions={<SetterQualificationDateControls value={filters} onChange={onChange} />}
+          figures={
+            rangeError ? undefined : (
+              <SetterQualificationFigures
+                totals={report?.totals}
+                filteredToSetter={filteredToSetter}
+                granularity={filters.granularity}
+                reloading={reloading}
+              />
+            )
+          }
+          filters={
+            <>
+              <SetterFilter setters={report?.setters ?? []} value={filters} onChange={onChange} />
+              <Link href={operationsHref} className={cn(BAND_BUTTON, "ml-auto inline-flex items-center gap-1.5 font-medium")}>
+                <ListChecksIcon aria-hidden="true" className="size-4" />
+                View events
+              </Link>
+            </>
+          }
+        />
+
+        {rangeError ? <p role="alert" className="text-[13px] text-danger-ink">{rangeError}</p> : null}
+        {rebuilding ? <p role="status" className="text-[13px] text-muted-foreground">{BUSINESS_DAY_REBUILD_MESSAGE}</p> : null}
+        <AnalyticsFreshnessAlert summary={freshness} />
+
+        {rangeError ? null : (
+          <>
+            <SetterQualificationTrend
+              periods={report?.periods}
+              filteredToSetter={filteredToSetter}
+              setterName={setterName}
+              granularity={report?.granularity ?? filters.granularity}
+              eventsTruncated={report?.totals.eventsTruncated ?? false}
+              rangePhrase={kept.phrase}
+              reloading={reloading}
+            />
+            <SetterContributionCard
+              rows={report?.users}
+              settersTruncated={report?.settersTruncated ?? false}
+              rangePhrase={kept.phrase}
+              reloading={reloading}
+            />
+          </>
+        )}
       </div>
-
-      <SetterQualificationControls
-        setters={setters}
-        value={filters}
-        onChange={(next) => {
-          setFilters(next);
-          captureFiltersChanged({
-            date_range_preset: "custom",
-            has_slack_setter_filter: Boolean(next.slackUserId),
-          });
-        }}
-      />
-
-      <AnalyticsFreshnessLine items={[reportResult.freshness]} />
-
-      {rangeError ? (
-        <Alert variant="destructive">
-          <AlertTriangleIcon />
-          <AlertTitle>Invalid report range</AlertTitle>
-          <AlertDescription>{rangeError}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {report ? (
-        <>
-          {report.settersTruncated ? (
-            <Alert>
-              <AlertTriangleIcon />
-              <AlertTitle>Setter list capped</AlertTitle>
-              <AlertDescription>
-                Showing the first 500 Slack setters. Contact engineering before
-                relying on contribution totals for larger Slack directories.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {report.totals.eventsTruncated ? (
-            <Alert>
-              <AlertTriangleIcon />
-              <AlertTitle>Qualification event sample capped</AlertTitle>
-              <AlertDescription>
-                Showing the first 1,000 qualification events in this range.
-                Narrow the date range before using these totals for parity
-                checks.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          <SetterQualificationSummaryCards
-            totals={report.totals}
-            filteredToSetter={report.selectedSlackUserId !== null}
-          />
-
-          <SetterQualificationTrend
-            periods={report.periods}
-            filteredToSetter={report.selectedSlackUserId !== null}
-          />
-
-          <section className="flex flex-col gap-4">
-            <div>
-              <h2 className="text-lg font-medium">Setter Contributions</h2>
-              <p className="text-sm text-muted-foreground">
-                Individual rows count qualification events. Unique opportunity
-                counts show entity conversion separately.
-              </p>
-            </div>
-            <SetterContributionTable rows={report.users} />
-          </section>
-
-          <Separator />
-
-          <p className="text-xs text-muted-foreground">
-            Business time zone: {report.timezone}.
-          </p>
-        </>
-      ) : null}
-    </div>
+    </>
   );
 }

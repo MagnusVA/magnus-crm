@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ReportProgramDimensionFilter } from "./report-program-dimension-filter";
+import { cn } from "@/lib/utils";
+import { BAND_SELECT } from "./report-ui";
 
 const ALL_SENTINEL = "__all__";
 
@@ -39,7 +41,7 @@ export function ReportAttributionFilters({
     dmClosers?.filter((dmCloser) => dmCloser.isActive) ?? [];
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="contents">
       <ReportProgramDimensionFilter
         dimension="booking_program"
         value={value.bookingProgramId}
@@ -60,9 +62,9 @@ export function ReportAttributionFilters({
         }
         disabled={isAttributionLoading}
       >
-        <SelectTrigger className="w-[200px]" aria-label="DM team">
+        <SelectTrigger className={cn(BAND_SELECT, "w-[184px] max-w-full")} aria-label="DM team">
           <SelectValue placeholder="DM team" />
-          {isAttributionLoading ? <Spinner className="ml-2 size-3" /> : null}
+          {isAttributionLoading ? <Spinner className="ml-2 size-3 text-board-muted" /> : null}
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
@@ -87,9 +89,9 @@ export function ReportAttributionFilters({
         }
         disabled={isAttributionLoading}
       >
-        <SelectTrigger className="w-[200px]" aria-label="DM closer">
+        <SelectTrigger className={cn(BAND_SELECT, "w-[184px] max-w-full")} aria-label="DM closer">
           <SelectValue placeholder="DM closer" />
-          {isAttributionLoading ? <Spinner className="ml-2 size-3" /> : null}
+          {isAttributionLoading ? <Spinner className="ml-2 size-3 text-board-muted" /> : null}
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>

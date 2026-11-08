@@ -13,6 +13,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
+import { BAND_SELECT } from "./report-ui";
 
 const ALL_SENTINEL = "__all__";
 
@@ -63,9 +65,9 @@ export function ReportProgramFilter({
 			}}
 			disabled={disabled || isLoading}
 		>
-			<SelectTrigger className="w-[200px]" aria-label={label}>
+			<SelectTrigger className={cn(BAND_SELECT, "w-[184px] max-w-full")} aria-label={label}>
 				<SelectValue placeholder={label} />
-				{isLoading ? <Spinner className="ml-2 size-3" /> : null}
+				{isLoading ? <Spinner className="ml-2 size-3 text-board-muted" /> : null}
 			</SelectTrigger>
 			<SelectContent>
 				<SelectGroup>

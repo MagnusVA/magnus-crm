@@ -2,41 +2,31 @@
 
 import { useState } from "react";
 import { addDays, startOfDay } from "date-fns";
-import { AlertTriangleIcon, BellIcon } from "lucide-react";
-import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
 import { mergeReminderOutcomeFunnel } from "@/convex/analytics/merge/reminders";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
 import {
   ReportDateControls,
+  reportDayLine,
+  reportRangePhrase,
+  reportRangeWords,
   type DateRange,
 } from "../../_components/report-date-controls";
 import { ReportProgramFilter } from "../../_components/report-program-filter";
-import {
-  ReportPaymentTypeFilter,
-  type PaymentType,
-} from "../../_components/report-payment-type-filter";
-import { ReminderChainLengthHistogram } from "./reminder-chain-length-histogram";
-import { ReminderDrivenRevenueCard } from "./reminder-driven-revenue-card";
-import { ReminderFunnelChart } from "./reminder-funnel-chart";
-import { ReminderOutcomeCardGrid } from "./reminder-outcome-card-grid";
-import { RemindersReportSkeleton } from "./reminders-report-skeleton";
+import { ReportPaymentTypeFilter, type PaymentType } from "../../_components/report-payment-type-filter";
+import { REPORT_PAGE, ReportBand } from "../../_components/report-ui";
 import { PerCloserReminderConversionTable } from "./per-closer-reminder-conversion-table";
+import { ReminderChainLengthHistogram } from "./reminder-chain-length-histogram";
+import { ReminderFigures } from "./reminder-figures";
+import { ReminderOutcomeStrip } from "./reminder-outcome-strip";
+import { REMINDERS_BAND_TITLE, REMINDERS_PAIR } from "./reminders-report-config";
 
 function getDefaultDateRange(): DateRange {
   const now = new Date();
@@ -48,6 +38,7 @@ function getDefaultDateRange(): DateRange {
 
 export function RemindersReportPageClient() {
   usePageTitle("Reminder Outcomes — Reports");
+  const { setting } = useBusinessDay();
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
@@ -73,107 +64,42 @@ export function RemindersReportPageClient() {
     todayArgs: { ...queryArgs, ...reportWindowFromToday(dateRange, now) },
     merge: mergeReminderOutcomeFunnel,
   });
-  const data = report.data;
-
-  // A ClickHouse range can take a while to load; keep the controls and its
-  // status on screen instead of the full-page skeleton.
-  if (data === undefined && report.freshness.source === "live") {
-    return <RemindersReportSkeleton />;
-  }
+  // A new range or filter keeps the last numbers on screen, dimmed, with the
+  // range they were loaded for (Kept Data While Reloading).
+  const kept = useKeptWhileLoading(report.data, reportRangePhrase(dateRange));
+  const [keptRange, setKeptRange] = useState(dateRange);
+  if (report.data !== undefined && keptRange !== dateRange) setKeptRange(dateRange);
+  const shownRange = kept.reloading ? keptRange : dateRange;
+  const data = kept.data;
+  const freshness = freshnessSummary([report.freshness], now);
+  const empty = data !== undefined && data.totalCreated === 0;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-2">
-          <Badge variant="outline" className="w-fit">
-            Manual reminders only
-          </Badge>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Reminder Outcome Funnel
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Trace reminder performance from creation through completion,
-              outcome mix, and follow-up chain depth.
-            </p>
-          </div>
+    <div className={REPORT_PAGE}>
+      <ReportBand
+        title={REMINDERS_BAND_TITLE}
+        range={reportRangeWords(shownRange)}
+        freshness={report.data !== undefined ? freshness : null}
+        sentence="Manual reminders only"
+        dayLine={reportDayLine("browser", setting)}
+        actions={<ReportDateControls value={dateRange} onChange={setDateRange} />}
+        figures={<ReminderFigures data={data} rangePhrase={kept.phrase} reloading={kept.reloading} />}
+        filters={
+          <>
+            <ReportProgramFilter value={programId} onChange={setProgramId} />
+            <ReportPaymentTypeFilter value={paymentType} onChange={setPaymentType} />
+          </>
+        }
+      />
+      <AnalyticsFreshnessAlert summary={freshness} />
+
+      <ReminderOutcomeStrip data={data} rangePhrase={kept.phrase} reloading={kept.reloading} />
+      {empty ? null : (
+        <div className={REMINDERS_PAIR}>
+          <PerCloserReminderConversionTable data={data} reloading={kept.reloading} />
+          <ReminderChainLengthHistogram data={data} reloading={kept.reloading} />
         </div>
-      </div>
-
-      <ReportDateControls value={dateRange} onChange={setDateRange} />
-      <AnalyticsFreshnessLine items={[report.freshness]} />
-
-      <div className="flex flex-wrap items-center gap-3">
-        <ReportProgramFilter value={programId} onChange={setProgramId} />
-        <ReportPaymentTypeFilter
-          value={paymentType}
-          onChange={setPaymentType}
-        />
-      </div>
-
-      {data === undefined ? (
-        <Skeleton className="h-[360px] rounded-lg" />
-      ) : (
-        <RemindersReportBody data={data} />
       )}
     </div>
-  );
-}
-
-function RemindersReportBody({
-  data,
-}: {
-  data: FunctionReturnType<
-    typeof api.reporting.remindersReporting.getReminderOutcomeFunnel
-  >;
-}) {
-  const isEmpty = data.totalCreated === 0;
-
-  return (
-    <>
-      {data.isTruncated ? (
-        <Alert>
-          <AlertTriangleIcon className="size-4 text-amber-600" />
-          <AlertTitle>Results capped for performance</AlertTitle>
-          <AlertDescription>
-            This report hit the 2,000 reminder scan limit. Narrow the date range
-            to inspect the full funnel.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(18rem,0.5fr)]">
-        {isEmpty ? (
-          <Empty className="min-h-[360px] border bg-card/70">
-            <EmptyMedia variant="icon">
-              <BellIcon />
-            </EmptyMedia>
-            <EmptyHeader>
-              <EmptyTitle>No manual reminders in this range</EmptyTitle>
-              <EmptyDescription>
-                Adjust the date window to inspect reminder completion outcomes,
-                closer conversion, and chain-length behavior once reminders are
-                created.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <ReminderFunnelChart data={data} />
-        )}
-
-        <ReminderDrivenRevenueCard data={data} />
-      </div>
-
-      {isEmpty ? null : (
-        <>
-          <ReminderOutcomeCardGrid outcomeBreakdown={data.outcomeBreakdown} />
-          <ReminderChainLengthHistogram
-            chainLengthHistogram={data.chainLengthHistogram}
-            opportunitiesWithReminderChains={data.opportunitiesWithReminderChains}
-          />
-          <PerCloserReminderConversionTable data={data} />
-        </>
-      )}
-    </>
   );
 }

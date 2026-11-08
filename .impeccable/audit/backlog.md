@@ -44,7 +44,8 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 - **Tables stay inside the page.** Sales Calls renders at 1696px on a 1440px viewport (`min-w-[1080px]`), and Team Performance at 1681px. Group the columns, make the headers sortable, and let clicking a row filter the queue.
 - **Empty and quiet days.** Walls of "$0.00", "—" and "Nothing here", and empty chart axes. An empty state should say what to do next.
 - **Tooltips carry too much meaning.** There are about 20 help icons per page, and they overwrite each header's accessible name.
-- Overlap between Qualifications (ops) and Slack Qualifications (report): decide whether it's one screen or two.
+- Overlap between Qualifications (ops) and Slack Qualifications (report): decide whether it's one screen or two. Both now share the Departures Board grammar; Slack Qualifications adds the per-period trend against the goal and per-setter unique, created and duplicate counts.
+- Reports: the Revenue and Reminders readers sum payment amounts across currencies and the pages label the total in USD. Keeping each currency separate needs per-currency totals from the readers.
 
 ## 4. Record detail (7 screens)
 

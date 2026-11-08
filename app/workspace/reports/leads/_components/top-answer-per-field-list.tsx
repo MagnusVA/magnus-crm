@@ -1,20 +1,13 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { Progress } from "@/components/ui/progress";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
+import { cn } from "@/lib/utils";
+import { FIGURE_15, ReportCard, RowsSkeleton, SINGLE_SERIES } from "../../_components/report-ui";
+import { formatCount } from "./leads-figures";
+
+// Each booking-form field's most common answer in the range, in the bar
+// rows' grammar (The Programs Card) but against 100%: the field over its top
+// answer, and the answer's share of the field's answers as the bar.
 
 interface FieldRow {
   fieldKey: string;
@@ -24,6 +17,7 @@ interface FieldRow {
   topAnswerShare: number;
 }
 
+/** A field key as words, for fields the catalog doesn't name. */
 function formatFieldKey(fieldKey: string) {
   return fieldKey
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -33,61 +27,60 @@ function formatFieldKey(fieldKey: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-export function TopAnswerPerFieldList({ rows }: { rows: FieldRow[] }) {
+const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0 });
+
+export function TopAnswerPerFieldList({
+  rows,
+  fieldLabels,
+  rangePhrase,
+  reloading,
+}: {
+  rows: FieldRow[] | undefined;
+  /** The catalog's label for each field key, when it has one. */
+  fieldLabels: ReadonlyMap<string, string>;
+  rangePhrase: string;
+  reloading?: boolean;
+}) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Top Answer per Field</CardTitle>
-        <CardDescription>
-          Most common response for each captured booking-form field in the
-          selected range.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <Empty className="border bg-muted/20 py-12">
-            <EmptyHeader>
-              <EmptyTitle>No form responses in range</EmptyTitle>
-              <EmptyDescription>
-                Booking form answers will appear here once meetings in the
-                selected period include captured responses.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {rows.map((row) => (
-              <div key={row.fieldKey} className="flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">
-                        {formatFieldKey(row.fieldKey)}
-                      </p>
-                      <Badge variant="outline">
-                        {row.topAnswerCount}/{row.totalResponses}
-                      </Badge>
-                    </div>
-                    <p
-                      className="truncate text-sm text-muted-foreground"
-                      title={row.topAnswer}
-                    >
-                      {row.topAnswer}
-                    </p>
-                  </div>
-                  <p className="tabular-nums text-xs text-muted-foreground">
-                    {(row.topAnswerShare * 100).toFixed(0)}%
+    <ReportCard
+      title="Top answer per field"
+      meta={rows && rows.length > 0 ? "Share of the field's answers" : undefined}
+      container="@container/top"
+      reloading={reloading}
+    >
+      {rows === undefined ? (
+        <RowsSkeleton rows={5} rowHeight="h-[60px]" label="Loading top answers" />
+      ) : rows.length === 0 ? (
+        <SectionEmpty title={`No form answers ${rangePhrase}.`}>
+          Answers appear here once booked meetings include booking-form responses.
+        </SectionEmpty>
+      ) : (
+        <ul aria-label="Top answer per booking-form field" className="flex flex-col">
+          {rows.map((row) => {
+            const label = fieldLabels.get(row.fieldKey) ?? formatFieldKey(row.fieldKey);
+            return (
+              <li
+                key={row.fieldKey}
+                className="grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 border-b px-4 py-2 last:border-b-0 @lg/top:grid-cols-[minmax(0,17rem)_minmax(0,1fr)_auto]"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium" title={label}>
+                    {label}
+                  </p>
+                  <p className="truncate text-[13px] text-muted-foreground" title={row.topAnswer}>
+                    {row.topAnswer || "No answer"} · {formatCount(row.topAnswerCount)} of {formatCount(row.totalResponses)}
                   </p>
                 </div>
-                <Progress
-                  value={row.topAnswerShare * 100}
-                  aria-label={`${formatFieldKey(row.fieldKey)} top answer share`}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                {/* The bar is the share itself, so a full bar is every answer. */}
+                <div aria-hidden="true" className="order-last col-span-2 h-2 overflow-hidden rounded-[3px] bg-muted @lg/top:order-none @lg/top:col-span-1">
+                  <div className="h-full rounded-[3px]" style={{ width: `${row.topAnswerShare * 100}%`, background: SINGLE_SERIES }} />
+                </div>
+                <p className={cn(FIGURE_15, "text-right whitespace-nowrap")}>{share.format(row.topAnswerShare)}</p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </ReportCard>
   );
 }
