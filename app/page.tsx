@@ -2,7 +2,6 @@
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useConvexAuth, useQuery } from "convex/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -103,10 +102,10 @@ export default function Home() {
 				actions={
 					<div className="flex flex-wrap items-center gap-2 @max-lg:basis-full">
 						<Button asChild className="h-[34px] px-3 font-semibold">
-							<Link href="/sign-in">Sign in</Link>
+							<a href="/sign-in">Sign in</a>
 						</Button>
 						<Button asChild variant="outline" className={BAND_BUTTON}>
-							<Link href="/sign-up">Create account</Link>
+							<a href="/sign-up">Create account</a>
 						</Button>
 					</div>
 				}

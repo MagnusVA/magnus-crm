@@ -205,7 +205,7 @@ function SetupBlocked({ message }: { message: string }) {
           </Button>
         ) : (
           <Button asChild className="font-semibold">
-            <Link href="/sign-in">Sign in</Link>
+            <a href="/sign-in">Sign in</a>
           </Button>
         )}
       </CardFooter>
@@ -335,7 +335,7 @@ function ConnectCard({
             </Button>
           ) : (
             <Button asChild className="font-semibold">
-              <Link href={connectHref}>{isRetryable ? "Try again" : "Connect Calendly"}</Link>
+              <a href={connectHref}>{isRetryable ? "Try again" : "Connect Calendly"}</a>
             </Button>
           )}
         </CardFooter>
