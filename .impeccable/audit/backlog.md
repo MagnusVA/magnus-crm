@@ -21,7 +21,7 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 
 ## 1. Foundations (system-wide; blocks everything else)
 
-- **Status colour contract.** `lib/status-config.ts` and the deal-stage chip are on the tokens (Nov 2026); about 30 palette classes remain in six files. Payment statuses conflict between screens: recorded is amber in one place and blue in another, disputed is rose in one and red in another. Define one semantic status scale for deal stage, meeting attendance, payment, lead lifecycle and urgency, with light and dark values and AA contrast. Each concept gets one badge form.
+- **Status colour contract.** `lib/status-config.ts` holds labels only and the old stage badge is gone (Nov 2026); about 27 palette classes remain in four files. Payment statuses conflict between screens: recorded is amber in one place and blue in another, disputed is rose in one and red in another. Define one semantic status scale for deal stage, meeting attendance, payment, lead lifecycle and urgency, with light and dark values and AA contrast. Each concept gets one badge form.
 - **Chart palette.** All five `--chart-*` slots are yellow to brown, and the program pie repeats colours after five programs. A categorical palette is needed.
 - **Type scale.** There are 50 `h1`s ranging from `text-base` to `text-5xl`, and 96 arbitrary text sizes (9.6, 10, 11 and 13px). The 10px uppercase micro-labels appear across the detail pages. KPI numbers are set in mono.
 - **Contrast.** The muted text measures 4.14–4.44:1 on several screens, and "Mark as Lost" measures 3.97:1. Fix this at the token level.
