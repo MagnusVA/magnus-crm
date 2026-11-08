@@ -13,6 +13,7 @@ import { preserveQualificationAuditMatchForScheduledMeeting } from "../leadGen/a
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { countProspectConversions } from "../lib/prospectConversions";
 import { rebuildQualificationRow } from "../operations/projections";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 
 afterEach(() => vi.useRealTimers());
 
@@ -1334,3 +1335,24 @@ it("previews a merge under the limit as allowed", async () => {
   expect(preview.preview.exceedsMergeLimit).toBe(false);
 });
 
+
+it("previews each person's calls, won deals and payments from their search rows", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
+    await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
+    await insertOpportunity(ctx, tenantId, targetLeadId);
+    await rebuildLeadCustomerSearchRow(ctx, tenantId, sourceLeadId);
+    return { sourceLeadId, targetLeadId };
+  });
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.source.summary).toEqual({
+    meetingCount: 0, latestMeetingAt: null, wonOpportunityCount: 1, totalPaidMinor: 50_000, paymentCurrency: "USD",
+  });
+  // The target's row was never built.
+  expect(preview.target.summary).toBeNull();
+});
