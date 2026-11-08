@@ -1,5 +1,6 @@
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { PageBand } from "@/app/workspace/_components/page-band";
+import { LeadGenTotals } from "./lead-gen-band";
 import { ConversionStripSkeleton } from "./prospect-conversion-section";
 import { SpecialistsSkeleton } from "./specialists-section";
 import { PostsSkeleton } from "./top-posts-by-team";
@@ -27,16 +28,10 @@ export function LeadGenAdminSkeleton() {
         description={<BoardBar className="h-3.5 w-72 max-w-full" />}
         actions={<BoardBar className="h-[34px] w-[22rem] max-w-full" />}
       >
-        <div className="-mx-4 grid grid-cols-2 border-t border-board-line @lg:-mx-[18px] @3xl:grid-cols-4">
-          {Array.from({ length: 4 }, (_, index) => (
-            <div key={index} className="flex h-[91px] flex-col gap-2 px-4 py-3 @lg:px-[18px]">
-              <BoardBar className="h-3 w-24" />
-              <BoardBar className="h-7 w-16" />
-              <BoardBar className="h-3 w-32" />
-            </div>
-          ))}
-        </div>
-        <div className="-mx-4 flex h-10 items-center gap-[22px] border-t border-board-line px-4 @lg:-mx-[18px] @lg:px-[18px]">
+        {/* The real totals with nothing loaded (the default range is today),
+            then the source tabs' row: 40px of tabs under a 1px rule. */}
+        <LeadGenTotals totals={undefined} specialistCount={undefined} rangePhrase="today" reloading={false} />
+        <div className="-mx-4 flex h-[41px] items-center gap-[22px] border-t border-board-line px-4 @lg:-mx-[18px] @lg:px-[18px]">
           <BoardBar className="h-3 w-20" />
           <BoardBar className="h-3 w-16" />
           <BoardBar className="h-3 w-24" />

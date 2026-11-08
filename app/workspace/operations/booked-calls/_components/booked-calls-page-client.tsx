@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { ArrowUpRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { mergeBookedCallsDashboard } from "@/convex/analytics/merge/operations";
 import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
@@ -39,8 +38,8 @@ import { OperationsHealthBanner } from "../../_components/operations-health-bann
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
 import { useAllOperationsReportRows, useOperationsDashboardReport } from "../../_components/use-operations-report-job";
-import { MovedToTeamChip, TipLink, teamHref } from "../../_components/team-links";
 import { bookingTeams } from "./booking-teams";
+import { BookedCallsBandLinks } from "./booked-calls-band-links";
 import { BookedCallsDetailsList } from "./booked-calls-details-list";
 import { DmClosersByTeam, DmClosersByTeamSkeleton } from "./dm-closers-by-team";
 import { TeamGoalsCard, TeamGoalsSkeletonRows } from "./team-goals-card";
@@ -64,10 +63,6 @@ function rangeWords(
   if (range.kind === "custom") return dates ?? "Custom range";
   return dates ? `${PRESET_WORDS[range.preset]} · ${dates}` : PRESET_WORDS[range.preset];
 }
-
-/** A plain link on the band: board text, underlined on hover. */
-const boardLink =
-  "inline-flex h-7 items-center gap-0.5 px-1 text-[13px] text-board-muted hover:text-board-foreground hover:underline underline-offset-[3px] focus-visible:ring-offset-board";
 
 export function BookedCallsPageClient() {
   usePageTitle("Booked Calls");
@@ -207,21 +202,7 @@ export function BookedCallsPageClient() {
           </div>
         }
       >
-        <div className="-mx-4 flex flex-wrap items-center justify-end gap-2 border-t border-board-line px-4 py-1.5 @lg:-mx-[18px] @lg:px-[18px]">
-          <TipLink
-            href="/workspace/booking"
-            tip="Booking setup › Coverage: which links and event types each team's DM closers get."
-            className={boardLink}
-          >
-            Coverage
-            <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
-          </TipLink>
-          <MovedToTeamChip
-            href={teamHref.teams()}
-            moved={["Schedules", "Edit goals", "DM teams & links"]}
-            tip="DM teams, their closers' weeks and their goals now live in Team. Change them there; this page follows."
-          />
-        </div>
+        <BookedCallsBandLinks />
         {validationMessage ? (
           <p role="alert" className="pt-2 pb-3.5 text-[13px] text-board-danger @lg:pb-4">
             {validationMessage}

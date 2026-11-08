@@ -2,6 +2,7 @@
 
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { PageBand } from "@/app/workspace/_components/page-band";
+import { TextPlaceholder } from "@/app/workspace/_components/text-placeholder";
 import { cn } from "@/lib/utils";
 import { BandCaptionLink, MovedToTeamChip, teamHref } from "../../_components/team-links";
 import { formatCount, formatHours, formatPerHour } from "./lead-gen-format";
@@ -46,16 +47,12 @@ function Unit({ children }: { children: ReactNode }) {
   return <span className="ml-0.5 font-sans text-[13px] font-medium text-board-muted">{children}</span>;
 }
 
+/** A figure still loading: placeholder text in the figure's type, so the zone keeps its height. */
 function Waiting() {
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-block h-7 w-16 animate-pulse rounded-md bg-board-foreground/10 align-middle motion-reduce:animate-none"
-    />
-  );
+  return <TextPlaceholder sample="000" />;
 }
 
-function LeadGenTotals({
+export function LeadGenTotals({
   totals,
   specialistCount,
   rangePhrase,

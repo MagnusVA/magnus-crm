@@ -59,6 +59,11 @@ vi.mock("@/app/workspace/_components/use-dashboard-range", async (importOriginal
       actual.useDashboardRange(fixture.initialRange ? { ...options, defaultRange: fixture.initialRange } : options),
   };
 });
+// The Operations health banner reads through convex-helpers' cached useQuery;
+// route it to the convex/react mock below.
+vi.mock("convex-helpers/react/cache/hooks", async () => ({
+  useQuery: (await import("convex/react")).useQuery,
+}));
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     const name = getFunctionName(reference);

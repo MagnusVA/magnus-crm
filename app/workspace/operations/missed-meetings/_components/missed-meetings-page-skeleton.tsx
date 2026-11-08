@@ -1,4 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { TextPlaceholder } from "@/app/workspace/_components/text-placeholder";
 
 // Stands in for the page at its real container steps: the band with its
 // title, range line, picker and the 40px kind tabs, then the Deals card's
@@ -11,22 +13,19 @@ export function MissedMeetingsPageSkeleton() {
       aria-label="Loading no-shows and cancellations"
       className="@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3"
     >
-      <div className="overflow-hidden rounded-xl bg-board dark:ring-1 dark:ring-board-foreground/10">
-        <div className="flex flex-col gap-3 px-4 pt-3.5 @lg:px-[18px] @lg:pt-4">
-          <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Skeleton className="h-7 w-72 max-w-full bg-board-raised" />
-              <Skeleton className="h-3.5 w-[26rem] max-w-full bg-board-raised" />
-            </div>
-            <Skeleton className="h-[34px] w-[30rem] max-w-full bg-board-raised" />
-          </div>
-          <div className="-mx-4 flex h-10 items-center gap-[22px] border-t border-board-line px-4 @lg:-mx-[18px] @lg:px-[18px]">
-            <Skeleton className="h-3.5 w-12 bg-board-raised" />
-            <Skeleton className="h-3.5 w-20 bg-board-raised" />
-            <Skeleton className="h-3.5 w-20 bg-board-raised" />
-          </div>
+      {/* The real band, so the title and range lines are as tall as the
+          page's; the kind tabs' row is 40px of tabs under a 1px rule. */}
+      <PageBand
+        title="No-shows & Cancellations"
+        description={<TextPlaceholder sample="Last 30 days · Oct 9 – Nov 7 · Deals closed as a no-show" />}
+        actions={<Skeleton className="h-[34px] w-[30rem] max-w-full bg-board-foreground/10" />}
+      >
+        <div className="-mx-4 flex h-[41px] items-center gap-[22px] border-t border-board-line px-4 @lg:-mx-[18px] @lg:px-[18px]">
+          <Skeleton className="h-3.5 w-12 bg-board-raised" />
+          <Skeleton className="h-3.5 w-20 bg-board-raised" />
+          <Skeleton className="h-3.5 w-20 bg-board-raised" />
         </div>
-      </div>
+      </PageBand>
 
       <div className="@container/missed min-w-0 overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
