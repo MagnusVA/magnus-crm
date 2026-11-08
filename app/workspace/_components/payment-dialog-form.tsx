@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEventHandler, type ReactNode } from "react";
-import { Controller, useFormContext } from "react-hook-form";
+import { Controller, useFormContext, useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -106,6 +106,10 @@ export function PaymentFormStep({
 }) {
   const ids = useId();
   const { control } = useFormContext<PaymentRowFields>();
+  // The picker shows this, not the Controller's value. After Back remounts the
+  // rows, react-hook-form's Controller falls back to the file it mounted with
+  // once the value is cleared, so a removed file would stay on screen.
+  const proofFile = useWatch({ control, name: "proofFile" });
 
   return (
     <form className={ACTION_FORM} onSubmit={onSubmit}>
@@ -222,7 +226,7 @@ export function PaymentFormStep({
         <Controller
           control={control}
           name="proofFile"
-          render={({ field: { value, onChange, onBlur, name }, fieldState }) => (
+          render={({ field: { onChange, onBlur, name }, fieldState }) => (
             <FormRow
               label="Proof file"
               htmlFor={`${ids}-proof`}
@@ -236,7 +240,7 @@ export function PaymentFormStep({
             >
               <ProofFileInput
                 id={`${ids}-proof`}
-                value={value}
+                value={proofFile}
                 onChange={onChange}
                 onBlur={onBlur}
                 name={name}
