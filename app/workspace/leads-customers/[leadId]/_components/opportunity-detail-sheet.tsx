@@ -1,16 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuery } from "convex/react";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { SectionEmpty, SectionError } from "@/app/workspace/closer/_components/section-state";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { DealModalBody } from "./deal-modal-body";
 import { DealModalHeaderFrame } from "./deal-modal-header";
 import { DealModalSkeleton } from "./deal-modal-skeleton";
 import { useOpportunitySheet } from "./opportunity-sheet-context";
+
+// The deal's sections, with their payment dialog and next-step controls, load
+// when a deal first opens; the skeleton holds their place until then.
+const DealModalBody = dynamic(
+	() => import("./deal-modal-body").then((m) => ({ default: m.DealModalBody })),
+	{ loading: () => <DealModalSkeleton /> },
+);
 
 // Centred, up to 42rem wide, the header fixed and the sections scrolling
 // under it. On a phone it fills the screen but for a thin margin.

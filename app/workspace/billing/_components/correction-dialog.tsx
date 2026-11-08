@@ -1,10 +1,9 @@
 "use client";
 
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { PencilIcon } from "lucide-react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
@@ -26,7 +25,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -96,18 +94,26 @@ function defaultValuesForPayment(payment: BillingPayment): CorrectionFormValues 
   };
 }
 
+/**
+ * The correction form. The page keeps the trigger and mounts this on the
+ * first opening, with a new `key` for each opening so the form starts from
+ * the payment as it is now.
+ */
 export function CorrectionDialog({
   payment,
+  open,
+  onOpenChange,
   onCorrected,
-  triggerClassName,
+  triggerRef,
 }: {
   payment: BillingPayment;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onCorrected: (result: CorrectionResult) => void;
-  /** The trigger's look where it sits, such as the band's board tone. */
-  triggerClassName?: string;
+  /** The page's trigger, which takes focus back on close. */
+  triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const ids = useId();
-  const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingValues, setPendingValues] =
@@ -152,7 +158,7 @@ export function CorrectionDialog({
         note: values.note,
         reason: values.reason,
       });
-      setOpen(false);
+      onOpenChange(false);
       setPendingValues(null);
       form.reset(defaultValues);
       onCorrected({
@@ -176,32 +182,22 @@ export function CorrectionDialog({
     await submitCorrection(values);
   };
 
-  if (payment.status === "disputed") {
-    return null;
-  }
-
   return (
     <>
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
           if (isSubmitting) return;
-          // Each opening starts from the payment as it is now.
-          if (nextOpen) {
-            form.reset(defaultValues);
-            setSubmitError(null);
-            setPendingValues(null);
-          }
-          setOpen(nextOpen);
+          onOpenChange(nextOpen);
         }}
       >
-        <DialogTrigger asChild>
-          <Button variant="outline" className={triggerClassName}>
-            <PencilIcon aria-hidden="true" data-icon="inline-start" />
-            Correct payment
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogContent
+          className="gap-0 overflow-hidden p-0 sm:max-w-xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            triggerRef.current?.focus();
+          }}
+        >
           <DialogHeader className="border-b px-4 pt-4 pr-12 pb-3.5">
             <DialogTitle className="text-[17px] font-semibold">Correct payment details</DialogTitle>
             <DialogDescription className="text-[13px]">
@@ -384,7 +380,7 @@ export function CorrectionDialog({
             </FieldGroup>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-background px-4 py-3">
-              <Button disabled={isSubmitting} onClick={() => setOpen(false)} type="button" variant="outline">
+              <Button disabled={isSubmitting} onClick={() => onOpenChange(false)} type="button" variant="outline">
                 Cancel
               </Button>
               <Button disabled={isSubmitting} type="submit" className="font-semibold">
