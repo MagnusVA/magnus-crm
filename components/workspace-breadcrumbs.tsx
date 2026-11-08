@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useContext, useMemo, useState } from "react";
+import { Fragment, use, useMemo, useState } from "react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -34,7 +34,7 @@ interface WorkspaceBreadcrumbsProps {
 
 export function WorkspaceBreadcrumbs({ overrides }: WorkspaceBreadcrumbsProps) {
   const derived = useBreadcrumbs();
-  const segments = useContext(BreadcrumbTrailContext)?.trail ?? derived;
+  const segments = use(BreadcrumbTrailContext)?.trail ?? derived;
 
   if (segments.length <= 1) return null;
 

@@ -12,8 +12,11 @@ const TITLE = "Recent link copies";
 const META = "Who copied which link. Links themselves aren’t stored.";
 const COLLAPSED_COUNT = 8;
 
+const TIMESTAMP_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const SHORT_DATE_FORMAT = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
 function formatTimestamp(timestamp: number) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+  return TIMESTAMP_FORMAT.format(timestamp);
 }
 
 /** "25 min ago", "4 hours ago", "3 days ago", then the date. */
@@ -25,7 +28,7 @@ export function shortAgo(timestamp: number, now: number) {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(timestamp);
+  return SHORT_DATE_FORMAT.format(timestamp);
 }
 
 /**

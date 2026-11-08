@@ -10,11 +10,12 @@ import type { AnalyticsFreshness } from "./use-analytics-report";
 /** Older than this, the reporting data is called delayed (§8.2). */
 const DELAYED_AFTER_MS = 8 * 60 * 60 * 1000;
 
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
 function formatAsOf(timestamp: number, now: number) {
   const sameDay = new Date(timestamp).toDateString() === new Date(now).toDateString();
-  return new Intl.DateTimeFormat(undefined, sameDay ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" }).format(
-    new Date(timestamp),
-  );
+  return (sameDay ? TIME_FORMAT : DATE_TIME_FORMAT).format(new Date(timestamp));
 }
 
 type WarehouseFreshness = Extract<AnalyticsFreshness, { source: "warehouse" }>;

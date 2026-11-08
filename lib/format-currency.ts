@@ -9,11 +9,35 @@
  * separators, and decimal precision.
  */
 
+const FALLBACK_FORMAT = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+});
+
 function fallbackAmount(amount: number, currency: string) {
   const label = currency.trim().toUpperCase() || "UNKNOWN";
-  return `${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-  }).format(amount)} ${label}`;
+  return `${FALLBACK_FORMAT.format(amount)} ${label}`;
+}
+
+const currencyFormats = new Map<string, Intl.NumberFormat>();
+
+/**
+ * One cached formatter per currency and notation. An unknown currency code
+ * throws a RangeError here, as `new Intl.NumberFormat` does, and isn't cached.
+ */
+function currencyFormat(currency: string, compact = false) {
+  const code = currency.toUpperCase();
+  const key = `${compact ? "compact" : "standard"}:${code}`;
+  let formatter = currencyFormats.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(
+      "en-US",
+      compact
+        ? { style: "currency", currency: code, notation: "compact", maximumFractionDigits: 1 }
+        : { style: "currency", currency: code },
+    );
+    currencyFormats.set(key, formatter);
+  }
+  return formatter;
 }
 
 /**
@@ -33,10 +57,7 @@ export function formatAmountMinor(
 ): string {
   const amount = amountMinor / 100;
   try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(amount);
+    return currencyFormat(currency).format(amount);
   } catch {
     return fallbackAmount(amount, currency);
   }
@@ -49,12 +70,7 @@ export function formatCompactAmountMinor(
 ): string {
   const amount = amountMinor / 100;
   try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-      notation: "compact",
-      maximumFractionDigits: 1,
-    }).format(amount);
+    return currencyFormat(currency, true).format(amount);
   } catch {
     return fallbackAmount(amount, currency);
   }
@@ -63,10 +79,7 @@ export function formatCompactAmountMinor(
 /** Number of decimal places Intl uses when presenting a currency. */
 export function getCurrencyFractionDigits(currency: string): number {
   try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).resolvedOptions().maximumFractionDigits ?? 2;
+    return currencyFormat(currency).resolvedOptions().maximumFractionDigits ?? 2;
   } catch {
     return 2;
   }
@@ -83,10 +96,7 @@ export function getCurrencyFractionDigits(currency: string): number {
  */
 export function formatCurrency(amount: number, currency: string): string {
   try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(amount);
+    return currencyFormat(currency).format(amount);
   } catch {
     return fallbackAmount(amount, currency);
   }
