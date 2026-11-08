@@ -42,34 +42,19 @@ const MIN_SEARCH_LENGTH = 2;
 const NOTE_MAX_LENGTH = 2000;
 const NOTE_COUNT_CAP = 20;
 
-const INITIAL_SOURCE_META: Record<
-	PortalLeadInitialSource,
-	{ label: string; className: string }
-> = {
-	cta: {
-		label: "CTA",
-		className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-	},
-	inbound: {
-		label: "Inbound",
-		className:
-			"border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-	},
-	wechat: {
-		label: "WeChat",
-		className:
-			"border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-	},
+const INITIAL_SOURCE_LABEL: Record<PortalLeadInitialSource, string> = {
+	cta: "CTA",
+	inbound: "Inbound",
+	wechat: "WeChat",
 };
 
-const SOURCE_SELECT_OPTIONS: Array<{
-	value: PortalLeadInitialSource;
-	label: string;
-}> = [
-	{ value: "cta", label: "CTA" },
-	{ value: "inbound", label: "Inbound" },
-	{ value: "wechat", label: "WeChat" },
-];
+const SOURCE_SELECT_OPTIONS = (
+	Object.keys(INITIAL_SOURCE_LABEL) as PortalLeadInitialSource[]
+).map((value) => ({ value, label: INITIAL_SOURCE_LABEL[value] }));
+
+/** A neutral condensed chip: the source is a classification, not a status. */
+const SOURCE_CHIP =
+	"inline-flex h-5 shrink-0 items-center rounded bg-muted px-1.5 font-condensed text-[0.6875rem] font-bold tracking-[0.1em] whitespace-nowrap text-foreground uppercase";
 
 const incomeFormatter = new Intl.NumberFormat(undefined, {
 	maximumFractionDigits: 0,
@@ -345,8 +330,8 @@ function LeadResultCard({
 	onSessionExpired: () => void;
 }) {
 	const detailId = `portal-lead-detail-${row.leadId}`;
-	const sourceMeta = row.initialSource
-		? INITIAL_SOURCE_META[row.initialSource]
+	const sourceLabel = row.initialSource
+		? INITIAL_SOURCE_LABEL[row.initialSource]
 		: null;
 
 	return (
@@ -386,10 +371,8 @@ function LeadResultCard({
 						</span>
 					) : null}
 					<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-						{sourceMeta ? (
-							<Badge variant="outline" className={cn(sourceMeta.className)}>
-								{sourceMeta.label}
-							</Badge>
+						{sourceLabel ? (
+							<span className={SOURCE_CHIP}>{sourceLabel}</span>
 						) : (
 							<span>No initial source</span>
 						)}

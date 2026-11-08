@@ -1,9 +1,7 @@
 /**
- * Centralised status configuration for the entire application.
- *
- * Every surface that renders a status (badges, dots, calendar blocks,
- * pipeline strips, admin tables) MUST use this config to ensure
- * visual consistency.
+ * Shared status labels and colours: meeting attendance, and each deal
+ * position's chip. Colours come from the design tokens in app/globals.css,
+ * never raw Tailwind palette classes (status-config.test.ts guards this).
  */
 
 import type { DealPosition } from "../convex/opportunities/stages";
@@ -22,52 +20,27 @@ export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 // ─── Deal position display config ────────────────────────────────────
 
 type DealPositionVisualConfig = {
-  /** Badge background + text classes. */
+  /** Chip fill + ink classes, from the stage tokens in app/globals.css. */
   badgeClass: string;
-  /** Small dot or accent fill. */
-  dotClass: string;
 };
 
 /**
  * The colours of each place a screen shows a deal (docs/plans/phase-5-deal-status.md
- * §4.1). Keyed by the position, so a new one fails the typecheck until it
- * has colours. Labels come from `dealPositionLabel` in
- * `convex/opportunities/stageLabels.ts`.
+ * §4.1), on the stage scale the closer pages use (`STAGE_TONE` in
+ * `app/workspace/closer/meetings/_components/stage-tone.tsx`). Keyed by the
+ * position, so a new one fails the typecheck until it has colours. Labels
+ * come from `dealPositionLabel` in `convex/opportunities/stageLabels.ts`.
  */
 export const dealPositionConfig: Record<DealPosition, DealPositionVisualConfig> = {
-  qualified: {
-    badgeClass:
-      "bg-cyan-500/10 text-cyan-700 border-cyan-200 dark:text-cyan-400 dark:border-cyan-900",
-    dotClass: "bg-cyan-500",
-  },
-  booked: {
-    badgeClass:
-      "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-    dotClass: "bg-blue-500",
-  },
-  call_held: {
-    badgeClass:
-      "bg-indigo-500/10 text-indigo-700 border-indigo-200 dark:text-indigo-400 dark:border-indigo-900",
-    dotClass: "bg-indigo-500",
-  },
-  follow_up: {
-    badgeClass:
-      "bg-violet-500/10 text-violet-700 border-violet-200 dark:text-violet-400 dark:border-violet-900",
-    dotClass: "bg-violet-500",
-  },
-  won: {
-    badgeClass:
-      "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-    dotClass: "bg-emerald-500",
-  },
-  lost: {
-    badgeClass:
-      "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
-    dotClass: "bg-red-500",
-  },
+  qualified: { badgeClass: "bg-stage-held/15 text-stage-held-ink" },
+  booked: { badgeClass: "bg-stage-booked/15 text-stage-booked-ink" },
+  call_held: { badgeClass: "bg-stage-held/15 text-stage-held-ink" },
+  follow_up: { badgeClass: "bg-stage-follow-up/15 text-stage-follow-up-ink" },
+  won: { badgeClass: "bg-stage-won/15 text-stage-won-ink" },
+  lost: { badgeClass: "bg-stage-lost/12 text-stage-lost-ink" },
 };
 
-// ─── Meeting block config (calendar) ─────────────────────────────────
+// ─── Meeting attendance ──────────────────────────────────────────────
 
 export type MeetingAttendanceStatus = MeetingStatus | "not_recorded";
 
@@ -83,48 +56,18 @@ export function meetingAttendanceDisplay(
 
 type MeetingBlockConfig = {
   label: string;
-  blockClass: string;
-  textClass: string;
-  badgeClass: string;
-  dotClass: string;
 };
 
+/**
+ * Each attendance's label. Screens colour the status word themselves, by
+ * meaning (DESIGN.md: owed is amber, failed red, live ink, done slate).
+ */
 export const meetingStatusConfig: Record<MeetingAttendanceStatus, MeetingBlockConfig> = {
-  scheduled: {
-    label: "Scheduled",
-    blockClass: "bg-blue-500/10 border-l-blue-500",
-    textClass: "text-blue-700 dark:text-blue-300",
-    badgeClass: "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-    dotClass: "bg-blue-500",
-  },
-  held: {
-    label: "Held",
-    blockClass: "bg-emerald-500/10 border-l-emerald-500",
-    textClass: "text-emerald-700 dark:text-emerald-300",
-    badgeClass: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-    dotClass: "bg-emerald-500",
-  },
-  canceled: {
-    label: "Canceled",
-    blockClass: "bg-muted/60 border-l-muted-foreground",
-    textClass: "text-muted-foreground line-through",
-    badgeClass: "bg-muted text-muted-foreground border-border",
-    dotClass: "bg-muted-foreground",
-  },
-  no_show: {
-    label: "No-show",
-    blockClass: "bg-orange-500/10 border-l-orange-500",
-    textClass: "text-orange-700 dark:text-orange-300",
-    badgeClass: "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
-    dotClass: "bg-orange-500",
-  },
-  not_recorded: {
-    label: "Not recorded",
-    blockClass: "bg-amber-500/10 border-l-amber-500/60",
-    textClass: "text-amber-700 dark:text-amber-300",
-    badgeClass: "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-400 dark:border-amber-900",
-    dotClass: "bg-amber-500/60",
-  },
+  scheduled: { label: "Scheduled" },
+  held: { label: "Held" },
+  canceled: { label: "Canceled" },
+  no_show: { label: "No-show" },
+  not_recorded: { label: "Not recorded" },
 };
 
 /** Meeting event history keeps its stored status but uses today's attendance label. */
@@ -134,39 +77,3 @@ export function meetingEventStatusLabel(eventType: string, status: string | null
     ? meetingStatusConfig.held.label
     : status;
 }
-
-// ─── Connection health config ────────────────────────────────────────
-
-type ConnectionStatusConfig = {
-  label: string;
-  iconClass: string;
-  badgeVariant: "default" | "secondary" | "destructive" | "outline";
-  badgeClass: string;
-};
-
-export const connectionStatusConfig = {
-  connected: {
-    label: "Active",
-    iconClass: "text-emerald-600 dark:text-emerald-400",
-    badgeVariant: "outline" as const,
-    badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  },
-  expiring: {
-    label: "Expiring Soon",
-    iconClass: "text-amber-600 dark:text-amber-400",
-    badgeVariant: "outline" as const,
-    badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  },
-  expired: {
-    label: "Token Expired",
-    iconClass: "text-destructive",
-    badgeVariant: "destructive" as const,
-    badgeClass: "",
-  },
-  disconnected: {
-    label: "Disconnected",
-    iconClass: "text-destructive",
-    badgeVariant: "destructive" as const,
-    badgeClass: "",
-  },
-} satisfies Record<string, ConnectionStatusConfig>;
