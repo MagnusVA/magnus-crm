@@ -212,7 +212,9 @@ function PersonBlock({ name, kept, rows, side, legend }: { name: string; kept: b
   return (
     <div className={cn("relative px-4 pt-2.5 pb-1.5", side === "target" && "border-t border-border")}>
       {legend ? <span className="absolute top-2.5 right-4">{legend}</span> : null}
-      <PersonHead name={name} kept={kept} as="h3" />
+      <div className={legend ? "pr-24" : undefined}>
+        <PersonHead name={name} kept={kept} as="h3" />
+      </div>
       {rows.map((group, index) => (
         <dl key={index} className={cn("mt-1.5", index > 0 && "border-t border-border pt-0.5")}>
           {group.map((row) => (
