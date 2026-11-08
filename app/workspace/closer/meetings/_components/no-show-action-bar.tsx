@@ -7,10 +7,10 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { CalendarPlusIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { getErrorMessage } from "@/lib/errors";
+import { LocalTime } from "./local-time";
 
 type NoShowActionBarProps = {
   meeting: Doc<"meetings">;
@@ -116,7 +116,7 @@ export function NoShowActionBar({
               : null}
           </p>
           <p className="mt-0.5 text-[0.8125rem] text-muted-foreground tabular-nums">
-            {format(new Date(meeting.scheduledAt), "MMM d, h:mm a")}
+            <LocalTime at={meeting.scheduledAt} pattern="MMM d, h:mm a" />
             {sourceLabel && ` \u00b7 ${sourceLabel}`}
             {meeting.noShowNote && ` \u00b7 \u201c${meeting.noShowNote}\u201d`}
           </p>

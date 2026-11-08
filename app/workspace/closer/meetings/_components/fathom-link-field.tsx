@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import { useMutation } from "convex/react";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import { AlertTriangleIcon, CheckCircle2Icon } from "lucide-react";
 import posthog from "@/lib/posthog-browser";
@@ -16,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
 import { DetailCard } from "./detail-card";
+import { LocalTime } from "./local-time";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -197,7 +197,7 @@ function StatusIndicator({
         aria-live="polite"
       >
         <CheckCircle2Icon className="size-3 shrink-0" aria-hidden />
-        Saved {format(new Date(savedAt), "h:mm a")}
+        Saved <LocalTime at={savedAt} pattern="h:mm a" />
       </span>
     );
   }

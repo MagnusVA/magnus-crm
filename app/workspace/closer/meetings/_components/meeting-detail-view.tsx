@@ -15,6 +15,7 @@ import { CallStrip } from "./call-strip";
 import { DealCard } from "./deal-card";
 import { DealWonCard } from "./deal-won-card";
 import { FathomLinkField } from "./fathom-link-field";
+import { LocalTime } from "./local-time";
 import { MeetingComments } from "./meeting-comments";
 import { OutcomeSection } from "./outcome-section";
 import { PaymentLinksPanel } from "./payment-links-panel";
@@ -142,7 +143,7 @@ export function MeetingDetailView({
             <span className="font-medium text-foreground">
               {reassignmentInfo.reassignedFromCloserName}
             </span>{" "}
-            on {format(new Date(reassignmentInfo.reassignedAt), "MMM d, h:mm a")}:{" "}
+            on <LocalTime at={reassignmentInfo.reassignedAt} pattern="MMM d, h:mm a" />:{" "}
             {reassignmentInfo.reason}
           </AlertDescription>
         </Alert>

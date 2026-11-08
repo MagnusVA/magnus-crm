@@ -6,7 +6,8 @@ import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-c
 import { HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { cn } from "@/lib/utils";
 import type { BillingPaymentDetail } from "./billing-payment-facts";
-import { FIGURE, formatPaidAt, plural } from "./billing-format";
+import { FIGURE, plural } from "./billing-format";
+import { PaidAt } from "./paid-at";
 
 // Who qualified the lead in Slack, one dense row each: when, who, result.
 // One line at any width; the Slack user ID shows once the card has room.
@@ -43,7 +44,7 @@ export function SlackContributorTimeline({ events, now }: { events: SlackContrib
               className={cn(SLACK_COLUMNS, "min-h-9 items-center border-b px-4 py-1 last:border-b-0")}
             >
               <time dateTime={new Date(event.submittedAt).toISOString()} className={cn(FIGURE, "whitespace-nowrap")}>
-                {formatPaidAt(event.submittedAt, now)}
+                <PaidAt at={event.submittedAt} now={now} />
               </time>
               <div className="flex min-w-0 items-center gap-3">
                 <MemberIdentity identity={event.identity} className="min-w-0 gap-2" textClassName="[&>p]:hidden" />

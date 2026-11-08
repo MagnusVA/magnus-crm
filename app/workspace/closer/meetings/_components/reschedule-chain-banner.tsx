@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { RefreshCwIcon, ArrowRightIcon } from "lucide-react";
-import { format } from "date-fns";
+import { LocalTime } from "./local-time";
 
 type RescheduleChainBannerProps = {
   rescheduledFromMeeting: {
@@ -35,10 +35,10 @@ export function RescheduleChainBanner({
       <AlertDescription className="flex flex-wrap items-center justify-between gap-x-3">
         <span>
           This is a reschedule of the{" "}
-          {format(
-            new Date(rescheduledFromMeeting.scheduledAt),
-            "MMM d, h:mm a",
-          )}{" "}
+          <LocalTime
+            at={rescheduledFromMeeting.scheduledAt}
+            pattern="MMM d, h:mm a"
+          />{" "}
           call ({status.label})
         </span>
         <Button
