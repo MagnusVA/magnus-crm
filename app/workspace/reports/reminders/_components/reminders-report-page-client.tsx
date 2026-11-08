@@ -40,8 +40,8 @@ export function RemindersReportPageClient() {
     plan: range.plan,
     filters: { programId, paymentType },
     live: api.reporting.remindersReporting.getReminderOutcomeFunnel,
-    liveArgs: range.ready ? { ...range.window, ...filterArgs } : "skip",
-    todayArgs: range.ready ? { ...range.todayWindow, ...filterArgs } : "skip",
+    liveArgs: range.loaded ? { ...range.window, ...filterArgs } : "skip",
+    todayArgs: range.loaded ? { ...range.todayWindow, ...filterArgs } : "skip",
     merge: mergeReminderOutcomeFunnel,
   });
   // A new range or filter keeps the last numbers on screen, dimmed, with the

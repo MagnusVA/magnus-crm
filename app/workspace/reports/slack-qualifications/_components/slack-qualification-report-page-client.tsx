@@ -38,7 +38,7 @@ export function SlackQualificationReportPageClient() {
   );
 
   const range = useReportRange();
-  const { ready, rebuilding, plan } = range;
+  const { loaded, rebuilding, plan } = range;
   const now = useNow();
   const [granularity, setGranularity] = useState<SlackQualificationGranularity>("day");
   const [slackUserId, setSlackUserId] = useState<string | null>(null);
@@ -56,7 +56,6 @@ export function SlackQualificationReportPageClient() {
   const rangeError = getRangeValidationMessage(filters);
   // The events are read by business date, which isn't known until the
   // tenant's day definition loads. A rebuild only adds its notice.
-  const loaded = ready || rebuilding;
 
   const queryArgs = useMemo(() => {
     if (rangeError || !loaded) {

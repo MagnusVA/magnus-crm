@@ -50,7 +50,9 @@ export function useReportRange() {
     };
     return {
       setting,
-      /** False until the tenant's business day is known, and while it rebuilds: readers skip. */
+      /** True once the tenant's business day is known: timestamp readers wait for this. */
+      loaded,
+      /** Also false while meeting buckets rebuild: day-key bucket readers wait for this. */
       ready: loaded && !rebuilding,
       rebuilding,
       todayBusinessDate,

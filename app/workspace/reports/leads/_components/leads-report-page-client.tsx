@@ -32,15 +32,15 @@ export function LeadsReportPageClient() {
   // days before today read ClickHouse once the page is switched
   // (docs/agents/reporting.md).
   const now = useNow();
-  const { plan, todayWindow, ready } = range;
+  const { plan, todayWindow, loaded } = range;
   const rangeArgs = range.window;
   const metricsReport = useAnalyticsReport({
     page: "leads",
     reportId: "leads.conversion_metrics",
     plan,
     live: api.reporting.leadConversion.getLeadConversionMetrics,
-    liveArgs: ready ? rangeArgs : "skip",
-    todayArgs: ready ? todayWindow : "skip",
+    liveArgs: loaded ? rangeArgs : "skip",
+    todayArgs: loaded ? todayWindow : "skip",
     merge: mergeLeadConversionMetrics,
   });
   const formKpisReport = useAnalyticsReport({
@@ -48,8 +48,8 @@ export function LeadsReportPageClient() {
     reportId: "leads.form_kpis",
     plan,
     live: api.reporting.formResponseAnalytics.getFormResponseKpis,
-    liveArgs: ready ? rangeArgs : "skip",
-    todayArgs: ready ? todayWindow : "skip",
+    liveArgs: loaded ? rangeArgs : "skip",
+    todayArgs: loaded ? todayWindow : "skip",
     merge: mergeFormResponseKpis,
   });
   const distributionReport = useAnalyticsReport({
@@ -58,10 +58,10 @@ export function LeadsReportPageClient() {
     plan,
     filters: { fieldKey: selectedFieldKey },
     live: api.reporting.formResponseAnalytics.getAnswerDistribution,
-    liveArgs: ready && selectedFieldKey
+    liveArgs: loaded && selectedFieldKey
       ? { fieldKey: selectedFieldKey, ...rangeArgs }
       : "skip",
-    todayArgs: ready && selectedFieldKey
+    todayArgs: loaded && selectedFieldKey
       ? { fieldKey: selectedFieldKey, ...todayWindow }
       : "skip",
     merge: mergeAnswerDistribution,

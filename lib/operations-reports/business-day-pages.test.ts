@@ -160,6 +160,13 @@ describe("meeting bucket page readiness", () => {
     }
   });
 
+  it("keeps a timestamp report (Revenue) reading while meeting buckets rebuild", () => {
+    fixture.ready = false;
+    renderPage(RevenueReportPageClient);
+    expect(fixture.queries).toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", expect.any(Object));
+    expect(fixture.queries).not.toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", "skip");
+  });
+
   it("renders rebuilding Overview sections without totals or generic errors", () => {
     const section = { status: "rebuilding" as const, data: null, truncated: false as const, message: BUSINESS_DAY_REBUILD_MESSAGE, errorCode: null };
     const sections = [

@@ -39,8 +39,8 @@ export function ActivityFeedPageClient() {
     reportId: "activity.summary",
     plan: range.plan,
     live: api.reporting.activityFeed.getActivitySummary,
-    liveArgs: range.ready ? range.window : "skip",
-    todayArgs: range.ready ? range.todayWindow : "skip",
+    liveArgs: range.loaded ? range.window : "skip",
+    todayArgs: range.loaded ? range.todayWindow : "skip",
     merge: mergeActivitySummary,
   });
   // A new range keeps the last summary on screen, dimmed, with its own range
@@ -87,7 +87,7 @@ export function ActivityFeedPageClient() {
       <ActivityBreakdown summary={summary} rangePhrase={kept.phrase} reloading={kept.reloading} />
 
       <ActivityFeedResults
-        args={range.ready ? feedArgs : "skip"}
+        args={range.loaded ? feedArgs : "skip"}
         oneDay={range.dates.startBusinessDate === range.dates.endBusinessDateInclusive}
         rangePhrase={range.phrase}
         onClearFilters={filtered ? () => setFilters({}) : undefined}

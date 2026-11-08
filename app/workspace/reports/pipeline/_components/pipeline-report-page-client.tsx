@@ -36,7 +36,7 @@ function capitalize(words: string) {
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
   const range = useReportRange();
-  const { ready, rebuilding, plan } = range;
+  const { ready, loaded, rebuilding, plan } = range;
   const { captureViewed, captureFiltersChanged } = useReportAnalytics("pipeline_health");
 
   const [attributionFilters, setAttributionFilters] = useState<ReportAttributionFilterValue>({});
@@ -66,7 +66,6 @@ export function PipelineReportPageClient() {
   // nothing reads until they're known; the show rate's buckets also wait out
   // a rebuild, while the backlog and losses read timestamps and carry on.
   const now = useNow();
-  const loaded = ready || rebuilding;
   const backlogAndLossReport = useAnalyticsReport({
     page: "pipeline",
     reportId: "pipeline.backlog_and_loss",

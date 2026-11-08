@@ -77,7 +77,7 @@ export function RevenueReportPageClient() {
   // days before today read ClickHouse once the page is switched
   // (docs/agents/reporting.md).
   const now = useNow();
-  const { plan, todayWindow, ready } = range;
+  const { plan, todayWindow, loaded } = range;
   const filters = { programId, paymentType };
   const readerFilters = {
     ...(programId ? { programId } : {}),
@@ -93,8 +93,8 @@ export function RevenueReportPageClient() {
     plan,
     filters,
     live: api.reporting.revenue.getRevenueMetrics,
-    liveArgs: !ready ? "skip" : { ...range.window, ...readerFilters },
-    todayArgs: !ready ? "skip" : { ...todayWindow, ...readerFilters },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...readerFilters },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...readerFilters },
     merge: mergeRevenueMetrics,
   });
   const detailsReport = useAnalyticsReport({
@@ -103,8 +103,8 @@ export function RevenueReportPageClient() {
     plan,
     filters,
     live: api.reporting.revenue.getRevenueDetails,
-    liveArgs: !ready ? "skip" : { ...range.window, ...readerFilters },
-    todayArgs: !ready ? "skip" : { ...todayWindow, ...readerFilters },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...readerFilters },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...readerFilters },
     merge: mergeRevenueDetails,
   });
   const trendReport = useAnalyticsReport({
@@ -113,8 +113,8 @@ export function RevenueReportPageClient() {
     plan,
     filters: { ...filters, granularity },
     live: api.reporting.revenueTrend.getRevenueTrend,
-    liveArgs: !ready ? "skip" : { ...range.window, ...readerFilters, granularity },
-    todayArgs: !ready ? "skip" : { ...todayWindow, ...readerFilters, granularity },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...readerFilters, granularity },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...readerFilters, granularity },
     merge: mergeRevenueTrend,
   });
   const bookedVsSoldReport = useAnalyticsReport({
@@ -123,8 +123,8 @@ export function RevenueReportPageClient() {
     plan,
     filters,
     live: api.reporting.bookedVsSold.getBookedVsSoldMatrix,
-    liveArgs: !ready ? "skip" : { ...range.window, ...matrixFilters },
-    todayArgs: !ready ? "skip" : { ...todayWindow, ...matrixFilters },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...matrixFilters },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...matrixFilters },
     merge: mergeBookedVsSold,
   });
   const phrase = range.phrase;
