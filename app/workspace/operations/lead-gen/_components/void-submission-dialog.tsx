@@ -1,37 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useId, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { BanIcon } from "lucide-react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  WhatHappens,
+} from "@/app/workspace/_components/action-dialog";
 
 const voidSubmissionSchema = z.object({
   reason: z
@@ -43,6 +35,13 @@ const voidSubmissionSchema = z.object({
 
 type VoidSubmissionFormValues = z.infer<typeof voidSubmissionSchema>;
 
+/** What Void does, in the order `leadGen.corrections.voidSubmission` does it. */
+const STEPS = [
+  "Takes it out of Lead Gen counts and reports.",
+  "Marks it voided, with your reason.",
+  "Adds the void to the person’s timeline, if they’re in Magnus.",
+];
+
 export function VoidSubmissionDialog({
   submissionId,
   prospectLabel,
@@ -53,6 +52,61 @@ export function VoidSubmissionDialog({
   compactTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isSubmitting) setOpen(nextOpen);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          aria-label={`Void submission${prospectLabel ? ` for ${prospectLabel}` : ""}`}
+          size={compactTrigger ? "icon-sm" : "sm"}
+          variant={compactTrigger ? "ghost" : "destructive"}
+          className={compactTrigger ? "text-danger-ink hover:bg-destructive/10 hover:text-danger-ink" : undefined}
+          title={compactTrigger ? "Void submission" : undefined}
+        >
+          <BanIcon aria-hidden="true" data-icon="inline-start" />
+          {compactTrigger ? null : "Void"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={
+            prospectLabel ? (
+              <>
+                Void the submission for <span translate="no">{prospectLabel}</span>?
+              </>
+            ) : (
+              "Void this submission?"
+            )
+          }
+          description="The raw record and its history stay. Nothing is deleted."
+        />
+        {/* Inside the content, so the reason clears each time the dialog opens. */}
+        <VoidSubmissionForm
+          submissionId={submissionId}
+          onSubmittingChange={setIsSubmitting}
+          onDone={() => setOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VoidSubmissionForm({
+  submissionId,
+  onSubmittingChange,
+  onDone,
+}: {
+  submissionId: Id<"leadGenSubmissions">;
+  onSubmittingChange: (submitting: boolean) => void;
+  onDone: () => void;
+}) {
+  const reasonId = useId();
   const voidSubmission = useMutation(api.leadGen.corrections.voidSubmission);
   const form = useForm({
     resolver: standardSchemaResolver(voidSubmissionSchema),
@@ -65,13 +119,8 @@ export function VoidSubmissionDialog({
   const canSubmit =
     trimmedReasonLength >= 3 && trimmedReasonLength <= 1000 && !isSubmitting;
 
-  useEffect(() => {
-    if (!open) {
-      form.reset({ reason: "" });
-    }
-  }, [form, open]);
-
   async function onSubmit(values: VoidSubmissionFormValues) {
+    onSubmittingChange(true);
     try {
       const result = await voidSubmission({
         submissionId,
@@ -82,87 +131,46 @@ export function VoidSubmissionDialog({
           ? "Submission was already voided"
           : "Submission voided",
       );
-      setOpen(false);
+      onSubmittingChange(false);
+      onDone();
     } catch (error) {
+      onSubmittingChange(false);
       toast.error(
         getErrorMessage(error, "Failed to void submission"),
       );
     }
   }
 
-  function handleOpenChange(nextOpen: boolean) {
-    if (isSubmitting) return;
-    setOpen(nextOpen);
-  }
-
   return (
-    <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogTrigger asChild>
-        <Button
-          aria-label={`Void submission${prospectLabel ? ` for ${prospectLabel}` : ""}`}
-          size={compactTrigger ? "icon-sm" : "sm"}
-          variant={compactTrigger ? "ghost" : "destructive"}
-          className={compactTrigger ? "text-danger-ink hover:bg-destructive/10 hover:text-danger-ink" : undefined}
-          title={compactTrigger ? "Void submission" : undefined}
-        >
-          <BanIcon aria-hidden="true" data-icon="inline-start" />
-          {compactTrigger ? null : "Void"}
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent className="sm:max-w-md">
-        <AlertDialogHeader>
-          <AlertDialogMedia>
-            <BanIcon aria-hidden="true" />
-          </AlertDialogMedia>
-          <AlertDialogTitle>Void submission?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Voiding excludes this submission from reporting while keeping the
-            raw record and audit trail. It does not delete the submission.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-
-        <Form {...form}>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={form.handleSubmit(onSubmit)}
-          >
-            <FormField
-              control={form.control}
-              name="reason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Reason for voiding</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      autoComplete="off"
-                      disabled={isSubmitting}
-                      maxLength={1000}
-                      placeholder="Explain why this submission should be voided…"
-                      rows={4}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isSubmitting}>
-                Cancel
-              </AlertDialogCancel>
-              <Button disabled={!canSubmit} type="submit" variant="destructive">
-                {isSubmitting ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <BanIcon aria-hidden="true" data-icon="inline-start" />
-                )}
-                Void submission
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </Form>
-      </AlertDialogContent>
-    </AlertDialog>
+    <form className={ACTION_FORM} onSubmit={form.handleSubmit(onSubmit)}>
+      <WhatHappens steps={STEPS} />
+      <FormRows>
+        <Controller
+          control={form.control}
+          name="reason"
+          render={({ field, fieldState }) => (
+            <FormRow label="Reason" htmlFor={reasonId} invalid={fieldState.invalid} error={fieldState.error}>
+              <Textarea
+                {...field}
+                id={reasonId}
+                aria-invalid={fieldState.invalid}
+                autoComplete="off"
+                disabled={isSubmitting}
+                maxLength={1000}
+                placeholder="Explain why this submission should be voided…"
+                rows={3}
+                className="max-h-48 resize-none"
+              />
+            </FormRow>
+          )}
+        />
+      </FormRows>
+      <ActionDialogFooter>
+        <CancelButton onClick={onDone} disabled={isSubmitting} />
+        <SubmitButton pending={isSubmitting} pendingLabel="Voiding…" danger disabled={!canSubmit}>
+          Void submission
+        </SubmitButton>
+      </ActionDialogFooter>
+    </form>
   );
 }

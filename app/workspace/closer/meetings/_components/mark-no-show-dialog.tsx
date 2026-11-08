@@ -1,29 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useId, useState } from "react";
+import { Controller, useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -32,12 +16,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  WhatHappens,
+} from "@/app/workspace/_components/action-dialog";
 
 const NO_SHOW_REASONS = [
   { value: "no_response", label: "Lead didn't show up (no communication)" },
@@ -55,7 +47,7 @@ const markNoShowSchema = z.object({
     "late_cancel",
     "technical_issues",
     "other",
-  ]),
+  ], { error: "Pick a reason" }),
   note: z.string().max(500, "Note must be under 500 characters").optional(),
 });
 
@@ -71,6 +63,11 @@ type MarkNoShowDialogProps = {
   leadName?: string | null;
 };
 
+/**
+ * The person missed the call: the server closes the deal as lost, then marks
+ * the call no-show with the reason (`closer.noShowActions.markNoShow`, or
+ * `admin.meetingActions.adminMarkNoShow` for an admin).
+ */
 export function MarkNoShowDialog({
   open,
   onOpenChange,
@@ -79,9 +76,65 @@ export function MarkNoShowDialog({
   onSuccess,
   leadName,
 }: MarkNoShowDialogProps) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        // Esc mid-submit would drop the form under the running mutation.
+        if (!isSubmitting) onOpenChange(value);
+      }}
+    >
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={
+            leadName ? (
+              <>
+                Mark <span translate="no">{leadName}</span>&rsquo;s call as a no-show?
+              </>
+            ) : (
+              "Mark the call as a no-show?"
+            )
+          }
+          description={
+            mode === "admin"
+              ? "You can send a reschedule link from this page after."
+              : "You can send a reschedule link after."
+          }
+        />
+        {/* Inside the content, so the form starts empty each time the dialog opens. */}
+        <NoShowForm
+          meetingId={meetingId}
+          mode={mode}
+          onSuccess={onSuccess}
+          onOpenChange={onOpenChange}
+          isSubmitting={isSubmitting}
+          setIsSubmitting={setIsSubmitting}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NoShowForm({
+  meetingId,
+  mode,
+  onSuccess,
+  onOpenChange,
+  isSubmitting,
+  setIsSubmitting,
+}: {
+  meetingId: Id<"meetings">;
+  mode: "closer" | "admin";
+  onSuccess?: () => Promise<void>;
+  onOpenChange: (open: boolean) => void;
+  isSubmitting: boolean;
+  setIsSubmitting: (submitting: boolean) => void;
+}) {
+  const ids = useId();
   const closerMarkNoShow = useMutation(api.closer.noShowActions.markNoShow);
   const adminMarkNoShow = useMutation(api.admin.meetingActions.adminMarkNoShow);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Do NOT pass an explicit generic to useForm — let the resolver infer types
   const form = useForm({
@@ -91,13 +144,6 @@ export function MarkNoShowDialog({
       note: "",
     },
   });
-
-  // Reset form state when dialog opens/closes
-  useEffect(() => {
-    if (!open) {
-      form.reset();
-    }
-  }, [open, form]);
 
   const handleSubmit = async (values: MarkNoShowValues) => {
     setIsSubmitting(true);
@@ -129,108 +175,64 @@ export function MarkNoShowDialog({
   };
 
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(value) => {
-        // Esc mid-submit would reset the form under the running mutation.
-        if (!isSubmitting) onOpenChange(value);
-      }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
-            <UserXIcon className="size-5" />
-            {leadName ? `${leadName} didn\u2019t show up` : "Record a no-show"}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            The call is marked no-show and the deal closes as lost, with the
-            reason you pick.{" "}
-            {mode === "admin"
-              ? "You can then send a reschedule link from this page."
-              : "You can then send a reschedule link."}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleSubmit)}
-            className="flex flex-col gap-4"
-          >
-            {/* Reason — required Select */}
-            <FormField
-              control={form.control}
-              name="reason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Reason <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isSubmitting}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a reason…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {NO_SHOW_REASONS.map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            {r.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Note — optional Textarea */}
-            <FormField
-              control={form.control}
-              name="note"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Note (optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      placeholder="Any additional context…"
-                      disabled={isSubmitting}
-                      rows={3}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isSubmitting}>
-                Cancel
-              </AlertDialogCancel>
-              <Button
-                type="submit"
-                variant="destructive"
-                className="text-danger-ink"
+    <form onSubmit={form.handleSubmit(handleSubmit)} className={ACTION_FORM}>
+      <WhatHappens steps={["Closes the deal as lost.", "Marks the call no-show, with your reason and note."]} />
+      <FormRows>
+        <Controller
+          control={form.control}
+          name="reason"
+          render={({ field, fieldState }) => (
+            <FormRow label="Reason" htmlFor={`${ids}-reason`} invalid={fieldState.invalid} error={fieldState.error}>
+              <Select onValueChange={field.onChange} value={field.value ?? ""} disabled={isSubmitting}>
+                <SelectTrigger
+                  id={`${ids}-reason`}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                  aria-invalid={fieldState.invalid}
+                  className="w-full"
+                >
+                  <SelectValue placeholder="Pick a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  {NO_SHOW_REASONS.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormRow>
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="note"
+          render={({ field, fieldState }) => (
+            <FormRow
+              label="Note"
+              htmlFor={`${ids}-note`}
+              invalid={fieldState.invalid}
+              error={fieldState.error}
+              description="Optional."
+            >
+              <Textarea
+                {...field}
+                id={`${ids}-note`}
+                aria-invalid={fieldState.invalid}
+                placeholder="Any additional context…"
+                className="max-h-48 min-h-20 resize-none text-sm"
                 disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Marking…
-                  </>
-                ) : (
-                  "Record no-show"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </Form>
-      </AlertDialogContent>
-    </AlertDialog>
+              />
+            </FormRow>
+          )}
+        />
+      </FormRows>
+      <ActionDialogFooter>
+        <CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+        <SubmitButton pending={isSubmitting} pendingLabel="Marking…" danger>
+          Mark no-show
+        </SubmitButton>
+      </ActionDialogFooter>
+    </form>
   );
 }

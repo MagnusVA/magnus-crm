@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation } from "convex/react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { toast } from "sonner";
-import { AlertCircleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -17,24 +16,7 @@ import {
 	type Disposition,
 	type LifecycleStage,
 } from "@/convex/leads/lifecycle";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import {
-	Form,
-	FormControl,
-	FormField,
-	FormItem,
-	FormLabel,
-	FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
 	Select,
 	SelectContent,
@@ -42,10 +24,22 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
+import { firstNameOf } from "@/app/workspace/closer/meetings/_components/meeting-detail-types";
+import {
+	ACTION_DIALOG,
+	ACTION_FORM,
+	ActionDialogFooter,
+	ActionDialogHeader,
+	CancelButton,
+	FormRow,
+	FormRows,
+	SubmitButton,
+	SubmitError,
+} from "@/app/workspace/_components/action-dialog";
+import { useEntityDetail } from "./entity-detail-context";
 
 const changeSchema = z.object({
 	target: z.string().min(1, "Pick one"),
@@ -58,6 +52,29 @@ const changeSchema = z.object({
 
 export type LifecycleChangeMode = "move_back" | "disposition";
 
+/** "Booked, Showed and Customer". */
+function joinWords(words: string[]) {
+	return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
+/** What moving back to `target` drops, stated before Move back confirms it. */
+function moveBackConsequence(stage: LifecycleStage, target: LifecycleStage | null, firstName: string) {
+	if (!target) {
+		return `Later stages stop counting until ${firstName} reaches them again.`;
+	}
+	const dropped = LIFECYCLE_STAGES.slice(stageIndex(target) + 1, stageIndex(stage) + 1).map(
+		(option) => LIFECYCLE_STAGE_LABELS[option],
+	);
+	return dropped.length === 1
+		? `${dropped[0]} stops counting until ${firstName} reaches it again.`
+		: `${joinWords(dropped)} stop counting until ${firstName} reaches them again.`;
+}
+
+/**
+ * An admin corrects a person's lifecycle on the person page: moves the stage
+ * back (`leads.lifecycleAdmin.moveLifecycleStageBack`) or sets the
+ * disposition (`setDisposition`), with a reason either way.
+ */
 export function LifecycleChangeDialog({
 	open,
 	onOpenChange,
@@ -73,6 +90,8 @@ export function LifecycleChangeDialog({
 	stage: LifecycleStage;
 	disposition: Disposition;
 }) {
+	const { lead } = useEntityDetail();
+	const ids = useId();
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const moveBack = useMutation(api.leads.lifecycleAdmin.moveLifecycleStageBack);
 	const setDisposition = useMutation(api.leads.lifecycleAdmin.setDisposition);
@@ -81,6 +100,10 @@ export function LifecycleChangeDialog({
 		defaultValues: { target: "", reason: "" },
 	});
 	const isSubmitting = form.formState.isSubmitting;
+	const target = useWatch({ control: form.control, name: "target" });
+
+	const name = lead.fullName ?? lead.email ?? "this person";
+	const firstName = firstNameOf(lead.fullName) ?? "the person";
 
 	const options =
 		mode === "move_back"
@@ -122,37 +145,53 @@ export function LifecycleChangeDialog({
 				}
 			}}
 		>
-			<DialogContent className="max-w-md">
-				<DialogHeader>
-					<DialogTitle>{mode === "move_back" ? "Move stage back" : "Set disposition"}</DialogTitle>
-					<DialogDescription>
-						{mode === "move_back"
-							? "Use this to correct a stage the records got wrong. The later stages stop counting until the person reaches them again."
-							: "Whether the team should keep working this person. Only an admin can change it after this."}
-					</DialogDescription>
-				</DialogHeader>
-
-				{submitError ? (
-					<Alert variant="destructive">
-						<AlertCircleIcon className="size-4" />
-						<AlertDescription>{submitError}</AlertDescription>
-					</Alert>
-				) : null}
-
-				<Form {...form}>
-					<form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-						<FormField
+			<DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+				<ActionDialogHeader
+					title={
+						mode === "move_back" ? (
+							<>
+								Move <span translate="no">{name}</span> back a stage
+							</>
+						) : (
+							<>
+								Set <span translate="no">{name}</span>&rsquo;s disposition
+							</>
+						)
+					}
+					description={
+						mode === "move_back"
+							? "For a stage the records got wrong."
+							: `Whether the team should keep working ${firstName}.`
+					}
+				/>
+				<form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+					<SubmitError>{submitError}</SubmitError>
+					<FormRows>
+						<Controller
 							control={form.control}
 							name="target"
-							render={({ field }) => (
-								<FormItem>
-									<FormLabel>{mode === "move_back" ? "New stage" : "Disposition"}</FormLabel>
+							render={({ field, fieldState }) => (
+								<FormRow
+									label={mode === "move_back" ? "New stage" : "Disposition"}
+									htmlFor={`${ids}-target`}
+									invalid={fieldState.invalid}
+									error={fieldState.error}
+									description={
+										mode === "move_back"
+											? moveBackConsequence(stage, (field.value || null) as LifecycleStage | null, firstName)
+											: "Only an admin can change it after this."
+									}
+								>
 									<Select value={field.value} onValueChange={field.onChange} disabled={isSubmitting}>
-										<FormControl>
-											<SelectTrigger className="w-full">
-												<SelectValue placeholder="Choose…" />
-											</SelectTrigger>
-										</FormControl>
+										<SelectTrigger
+											id={`${ids}-target`}
+											ref={field.ref}
+											onBlur={field.onBlur}
+											aria-invalid={fieldState.invalid}
+											className="w-full"
+										>
+											<SelectValue placeholder="Choose…" />
+										</SelectTrigger>
 										<SelectContent>
 											{options.map((option) => (
 												<SelectItem key={option.value} value={option.value}>
@@ -161,34 +200,42 @@ export function LifecycleChangeDialog({
 											))}
 										</SelectContent>
 									</Select>
-									<FormMessage />
-								</FormItem>
+								</FormRow>
 							)}
 						/>
-						<FormField
+						<Controller
 							control={form.control}
 							name="reason"
-							render={({ field }) => (
-								<FormItem>
-									<FormLabel>Reason</FormLabel>
-									<FormControl>
-										<Textarea rows={3} disabled={isSubmitting} {...field} />
-									</FormControl>
-									<FormMessage />
-								</FormItem>
+							render={({ field, fieldState }) => (
+								<FormRow
+									label="Reason"
+									htmlFor={`${ids}-reason`}
+									invalid={fieldState.invalid}
+									error={fieldState.error}
+								>
+									<Textarea
+										{...field}
+										id={`${ids}-reason`}
+										aria-invalid={fieldState.invalid}
+										rows={3}
+										className="max-h-48 resize-none"
+										disabled={isSubmitting}
+									/>
+								</FormRow>
 							)}
 						/>
-						<DialogFooter>
-							<Button type="button" variant="outline" disabled={isSubmitting} onClick={() => onOpenChange(false)}>
-								Cancel
-							</Button>
-							<Button type="submit" disabled={isSubmitting}>
-								{isSubmitting ? <Spinner /> : null}
-								Save
-							</Button>
-						</DialogFooter>
-					</form>
-				</Form>
+					</FormRows>
+					<ActionDialogFooter>
+						<CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+						<SubmitButton pending={isSubmitting} pendingLabel="Saving…">
+							{mode === "move_back"
+								? target
+									? `Move back to ${LIFECYCLE_STAGE_LABELS[target as LifecycleStage]}`
+									: "Move back"
+								: "Set disposition"}
+						</SubmitButton>
+					</ActionDialogFooter>
+				</form>
 			</DialogContent>
 		</Dialog>
 	);

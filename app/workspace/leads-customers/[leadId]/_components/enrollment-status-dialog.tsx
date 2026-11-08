@@ -1,7 +1,8 @@
 "use client";
 
+import { useId } from "react";
 import { useMutation } from "convex/react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -10,28 +11,21 @@ import {
 	ENROLLMENT_STATUS_LABELS,
 	type EnrollmentStatus,
 } from "@/convex/enrollments/validators";
-import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import {
-	Form,
-	FormControl,
-	FormDescription,
-	FormField,
-	FormItem,
-	FormLabel,
-	FormMessage,
-} from "@/components/ui/form";
-import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/errors";
-import type { EntityDetailEnrollment } from "./entity-detail-context";
+import { firstNameOf } from "@/app/workspace/closer/meetings/_components/meeting-detail-types";
+import {
+	ACTION_DIALOG,
+	ACTION_FORM,
+	ActionDialogFooter,
+	ActionDialogHeader,
+	CancelButton,
+	FormRow,
+	FormRows,
+	SubmitButton,
+} from "@/app/workspace/_components/action-dialog";
+import { useEntityDetail, type EntityDetailEnrollment } from "./entity-detail-context";
 import { announceStatusOutcome } from "./enrollment-status-outcome";
 
 const REASON_MAX_LENGTH = 500;
@@ -60,6 +54,8 @@ export function EnrollmentStatusDialog({
 	// the request stale.
 	expectedStatus: EnrollmentStatus;
 }) {
+	const { lead } = useEntityDetail();
+	const reasonId = useId();
 	const updateStatus = useMutation(api.enrollments.mutations.updateEnrollmentStatus);
 	const form = useForm({
 		resolver: standardSchemaResolver(reasonSchema),
@@ -68,6 +64,8 @@ export function EnrollmentStatusDialog({
 	const isSubmitting = form.formState.isSubmitting;
 	const reasonLength = useWatch({ control: form.control, name: "reason" }).length;
 	const label = ENROLLMENT_STATUS_LABELS[status];
+	const name = lead.fullName ?? lead.email ?? null;
+	const firstName = firstNameOf(lead.fullName);
 
 	const onSubmit = async (values: z.infer<typeof reasonSchema>) => {
 		try {
@@ -95,56 +93,61 @@ export function EnrollmentStatusDialog({
 				}
 			}}
 		>
-			<DialogContent className="max-w-md">
-				<DialogHeader>
-					<DialogTitle>
-						{status === "paused" ? "Pause" : "Churn"} {enrollment.programName}
-					</DialogTitle>
-					<DialogDescription>
-						The program will show as {label}. The reason, if you give one, appears on the
-						person&apos;s timeline with the change.
-					</DialogDescription>
-				</DialogHeader>
-
-				<Form {...form}>
-					<form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
-						<FormField
+			<DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+				<ActionDialogHeader
+					title={
+						<>
+							{status === "paused" ? "Pause" : "Churn"}{" "}
+							{name ? (
+								<>
+									<span translate="no">{name}</span>&rsquo;s{" "}
+								</>
+							) : null}
+							{enrollment.programName}
+						</>
+					}
+					description={`The program will show as ${label}.`}
+				/>
+				<form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+					<FormRows>
+						<Controller
 							control={form.control}
 							name="reason"
-							render={({ field }) => (
-								<FormItem>
-									<FormLabel>Reason (optional)</FormLabel>
-									<FormControl>
-										<Textarea
-											rows={3}
-											maxLength={REASON_MAX_LENGTH}
-											disabled={isSubmitting}
-											{...field}
-										/>
-									</FormControl>
-									<FormDescription className="text-right tabular-nums">
-										{reasonLength}/{REASON_MAX_LENGTH}
-									</FormDescription>
-									<FormMessage />
-								</FormItem>
+							render={({ field, fieldState }) => (
+								<FormRow
+									label="Reason"
+									htmlFor={reasonId}
+									invalid={fieldState.invalid}
+									error={fieldState.error}
+									description={
+										<span className="flex justify-between gap-3">
+											<span>Optional. Shown on {firstName ?? "the person"}&rsquo;s timeline with the change.</span>
+											<span className="shrink-0 tabular-nums">
+												{reasonLength}/{REASON_MAX_LENGTH}
+											</span>
+										</span>
+									}
+								>
+									<Textarea
+										{...field}
+										id={reasonId}
+										aria-invalid={fieldState.invalid}
+										rows={3}
+										className="max-h-48 resize-none"
+										maxLength={REASON_MAX_LENGTH}
+										disabled={isSubmitting}
+									/>
+								</FormRow>
 							)}
 						/>
-						<DialogFooter>
-							<Button
-								type="button"
-								variant="outline"
-								disabled={isSubmitting}
-								onClick={() => onOpenChange(false)}
-							>
-								Cancel
-							</Button>
-							<Button type="submit" disabled={isSubmitting}>
-								{isSubmitting ? <Spinner /> : null}
-								Set to {label}
-							</Button>
-						</DialogFooter>
-					</form>
-				</Form>
+					</FormRows>
+					<ActionDialogFooter>
+						<CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+						<SubmitButton pending={isSubmitting} pendingLabel="Saving…">
+							Set to {label}
+						</SubmitButton>
+					</ActionDialogFooter>
+				</form>
 			</DialogContent>
 		</Dialog>
 	);
