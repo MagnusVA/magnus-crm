@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
@@ -39,12 +39,9 @@ type CoverageContextValue = {
   xray: boolean;
   setXray: (on: boolean) => void;
 
-  hover: Hover;
+  // Highlight setters. Read the highlight itself with useHighlight.
   setHover: (hover: Hover) => void;
-  // A cell lit from the phone (refKey), or a phone tile lit from the matrix ("programId|mode").
-  litCell: string | null;
   setLitCell: (key: string | null) => void;
-  litTile: string | null;
   setLitTile: (key: string | null) => void;
 
   // Teams the last change reached, when the previewed closer isn't on one.
@@ -55,9 +52,52 @@ type CoverageContextValue = {
 const CoverageContext = createContext<CoverageContextValue | null>(null);
 
 export function useCoverage() {
-  const value = useContext(CoverageContext);
+  const value = use(CoverageContext);
   if (!value) throw new Error("useCoverage must be used inside CoverageProvider");
   return value;
+}
+
+/**
+ * What the pointer lights up: the hovered cell's row and column, a cell lit
+ * from the phone (refKey), or a phone tile lit from the matrix ("programId|mode").
+ */
+type Highlight = { hover: Hover; litCell: string | null; litTile: string | null };
+
+const NO_HIGHLIGHT: Highlight = { hover: null, litCell: null, litTile: null };
+
+// Highlight changes on every pointer move, so it lives outside the context
+// value: each reader subscribes to just the part it shows.
+function createHighlightStore() {
+  let state = NO_HIGHLIGHT;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => state,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set(change: Partial<Highlight>) {
+      state = { ...state, ...change };
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+type HighlightStore = ReturnType<typeof createHighlightStore>;
+
+const HighlightContext = createContext<HighlightStore | null>(null);
+
+/** Reads one piece of the highlight. Return a primitive, so a reader re-renders only when its piece changes. */
+export function useHighlight<T extends string | boolean | null>(select: (highlight: Highlight) => T): T {
+  const store = use(HighlightContext);
+  if (!store) throw new Error("useHighlight must be used inside CoverageProvider");
+  return useSyncExternalStore(
+    store.subscribe,
+    () => select(store.get()),
+    () => select(NO_HIGHLIGHT),
+  );
 }
 
 /** Reads and writes the tab's URL state in place (`history.replaceState`), so nothing navigates. */
@@ -97,9 +137,7 @@ export function CoverageProvider({
   const { searchParams, write } = useUrlState();
   const tally = useMemo(() => tallies(board), [board]);
 
-  const [hover, setHover] = useState<Hover>(null);
-  const [litCell, setLitCell] = useState<string | null>(null);
-  const [litTile, setLitTile] = useState<string | null>(null);
+  const [highlight] = useState(createHighlightStore);
   const [xray, setXray] = useState(false);
   const [hint, setHint] = useState<string[] | null>(null);
 
@@ -146,40 +184,86 @@ export function CoverageProvider({
   const teamParam = searchParams.get("team");
   const teamId = teamParam && coverage.teams.some((team) => team._id === teamParam) ? teamParam : null;
 
-  const value: CoverageContextValue = {
-    coverage,
-    board,
-    tally,
-    bookings,
-    activityLoaded,
-    closers: closers === undefined ? undefined : activeClosers,
-    disabled: !coverage.migrated,
-    actions,
-    cell,
-    openCell: (ref) => write({ cell: ref ? cellParam(ref) : null }),
-    programId,
-    openProgram: (id) => write({ program: id, team: null }),
-    teamId,
-    openTeam: (id) => write({ team: id, program: null }),
-    problemsOnly: searchParams.get("show") === "problems",
-    setProblemsOnly: (on) => write({ show: on ? "problems" : null }),
-    previewCloserId: previewCloser?._id ?? null,
-    setPreviewCloser: (closerId) => {
+  const problemsOnly = searchParams.get("show") === "problems";
+  const previewCloserId = previewCloser?._id ?? null;
+
+  const openCell = useCallback((ref: CellRef | null) => write({ cell: ref ? cellParam(ref) : null }), [write]);
+  const openProgram = useCallback((id: string | null) => write({ program: id, team: null }), [write]);
+  const openTeam = useCallback((id: string | null) => write({ team: id, program: null }), [write]);
+  const setProblemsOnly = useCallback((on: boolean) => write({ show: on ? "problems" : null }), [write]);
+  const setPreviewCloser = useCallback(
+    (closerId: string) => {
       setHint(null);
       write({ closer: closerId });
     },
-    previewTeamId,
-    xray,
-    setXray,
-    hover,
-    setHover,
-    litCell,
-    setLitCell,
-    litTile,
-    setLitTile,
-    hint,
-    dismissHint: () => setHint(null),
-  };
+    [write],
+  );
+  const dismissHint = useCallback(() => setHint(null), []);
+  const setHover = useCallback((hover: Hover) => highlight.set({ hover }), [highlight]);
+  const setLitCell = useCallback((litCell: string | null) => highlight.set({ litCell }), [highlight]);
+  const setLitTile = useCallback((litTile: string | null) => highlight.set({ litTile }), [highlight]);
 
-  return <CoverageContext.Provider value={value}>{children}</CoverageContext.Provider>;
+  const value = useMemo<CoverageContextValue>(
+    () => ({
+      coverage,
+      board,
+      tally,
+      bookings,
+      activityLoaded,
+      closers: closers === undefined ? undefined : activeClosers,
+      disabled: !coverage.migrated,
+      actions,
+      cell,
+      openCell,
+      programId,
+      openProgram,
+      teamId,
+      openTeam,
+      problemsOnly,
+      setProblemsOnly,
+      previewCloserId,
+      setPreviewCloser,
+      previewTeamId,
+      xray,
+      setXray,
+      setHover,
+      setLitCell,
+      setLitTile,
+      hint,
+      dismissHint,
+    }),
+    [
+      coverage,
+      board,
+      tally,
+      bookings,
+      activityLoaded,
+      closers,
+      activeClosers,
+      actions,
+      cell,
+      openCell,
+      programId,
+      openProgram,
+      teamId,
+      openTeam,
+      problemsOnly,
+      setProblemsOnly,
+      previewCloserId,
+      setPreviewCloser,
+      previewTeamId,
+      xray,
+      setHover,
+      setLitCell,
+      setLitTile,
+      hint,
+      dismissHint,
+    ],
+  );
+
+  return (
+    <HighlightContext value={highlight}>
+      <CoverageContext value={value}>{children}</CoverageContext>
+    </HighlightContext>
+  );
 }

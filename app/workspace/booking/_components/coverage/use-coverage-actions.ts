@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useRef } from "react";
 import { useMutation } from "convex/react";
 import type { OptimisticLocalStore } from "convex/browser";
 import posthog from "@/lib/posthog-browser";
@@ -291,7 +292,22 @@ export function useCoverageActions(onCellChanged?: (ref: CellRef) => void) {
     }
   }
 
-  return { assign, sortAndAssign, sortOnly, setUrlAndAssign, setUsesShared };
+  // The writes close over this render's mutations. Hand out stable wrappers
+  // that call the latest ones, so readers of the actions don't re-render.
+  const latest = useRef({ assign, sortAndAssign, sortOnly, setUrlAndAssign, setUsesShared });
+  useEffect(() => {
+    latest.current = { assign, sortAndAssign, sortOnly, setUrlAndAssign, setUsesShared };
+  });
+  return useMemo(
+    () => ({
+      assign: (...args: Parameters<typeof assign>) => latest.current.assign(...args),
+      sortAndAssign: (...args: Parameters<typeof sortAndAssign>) => latest.current.sortAndAssign(...args),
+      sortOnly: (...args: Parameters<typeof sortOnly>) => latest.current.sortOnly(...args),
+      setUrlAndAssign: (...args: Parameters<typeof setUrlAndAssign>) => latest.current.setUrlAndAssign(...args),
+      setUsesShared: (...args: Parameters<typeof setUsesShared>) => latest.current.setUsesShared(...args),
+    }),
+    [],
+  );
 }
 
 export type CoverageActions = ReturnType<typeof useCoverageActions>;
