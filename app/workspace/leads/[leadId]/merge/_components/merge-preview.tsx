@@ -352,7 +352,7 @@ export function MergePreviewCard({
       <CardHead title={<span id="merge-preview-title">Merge preview</span>} />
 
       {/* From @3xl of the card: one table, the person absorbed beside the person kept. */}
-      <table className="hidden w-full table-fixed border-collapse text-[14px] @3xl/cmp:table">
+      <table aria-labelledby="merge-preview-title" className="hidden w-full table-fixed border-collapse text-[14px] @3xl/cmp:table">
         <colgroup>
           <col className="w-[7.5rem]" />
           <col />
