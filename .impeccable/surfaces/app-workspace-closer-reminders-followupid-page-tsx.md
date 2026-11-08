@@ -12,7 +12,7 @@ Mode: Operate. Third surface in the world locked on Closer Today (`.impeccable/s
 ## Scope
 Audience: the closer working their call-back and text-back tasks, usually several in one sitting, calling from this page (user decision, 2026-10-29). Task: read why the task exists, reach the person (call, text, copy the number), record what happened, move on to the next task. Constraints: the existing reminder outcome mutations only (`logReminderPayment`, `markReminderLost`, `markReminderNoResponse` with `schedule_new` / `close_only` / `give_up`), so no backend or report changes; `CONTEXT.md` vocabulary ("Task", never "Reminder" in the UI; deal, deal stage); outcome writes carry side effects (`docs/agents/convex.md`); copy never assumes the person's pronouns.
 
-Approved sketch: `.impeccable/mocks/decision/task-queue.html` (render: `.impeccable/review/task-queue.png`). Decision round payload: `.impeccable/mocks/decision/task-payload.json`.
+Approved sketch: `.impeccable/mocks/decision/task-queue.html` (retired) (render: `.impeccable/review/task-queue.png`). Decision round payload: `.impeccable/mocks/decision/task-payload.json` (retired).
 
 ## Direction contract
 THESIS: Tasks are worked as a queue, not opened one by one. Refuses the record page that strands the closer after one outcome and sends them back to Today for the next.
@@ -41,7 +41,7 @@ Each choice states its consequence before it is confirmed.
 - The queue reuses `getCloserTasks` (Today's Tasks card), so it adds no new query. Scheduling-link rows open in the queue too (see Waiting-link tasks); stale-deal nudges open the deal.
 
 ## Waiting-link tasks (user decisions, 2026-10-29)
-Approved sketch: `.impeccable/mocks/task-link.html` (render: `.impeccable/review/task-link.png`).
+Approved sketch: `.impeccable/mocks/task-link.html` (retired) (render: `.impeccable/review/task-link.png`).
 - A scheduling-link task (`type: "scheduling_link"`, "Waiting on the person") opens in the same queue and pane as a call-back task, never on the person page.
 - Strip: SENT (when the link went out) / PERSON (and why: "Reschedule link · after the Oct 26 no-show") / DEAL / REACH BY ("Link · not booked yet") / STATUS ("Waiting", with how long and "no booking").
 - Left column: the link card (the full URL, lime Copy link, one line on what happens when the person books through it), the reach card (number with Call, Text, Copy; none lime, the link is the next action), then "Not booking?" with two choices that state their consequence: Cancel the link (closes the task, the deal stays in Follow-up) and Mark the deal lost (closes the task and the deal as lost). Right column: Deal card and Calls on this deal, as for call-back tasks.

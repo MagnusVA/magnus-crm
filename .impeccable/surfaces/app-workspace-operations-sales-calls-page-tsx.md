@@ -11,7 +11,7 @@ Mode: Operate. Built in the Departures Board world (`DESIGN.md`), in the Overvie
 
 ## Scope
 Audience: owners and admins. They open it to see how the phone sales floor did over a range: calls, show rate, cash, close rate, average sale; then which closers and programs produced it; then look up a meeting.
-User decisions (2026-11-02): same content and data, new design; all sections weigh equally (keep the order figures, closers, programs, meetings); Programs keeps its bar / pie / table switch; money leads with the main currency (most payment sales) with other currencies listed beside it, and the tables keep one currency select; structure "Figures in the band" (`.impeccable/mocks/decision/sc-band-figures.html`).
+User decisions (2026-11-02): same content and data, new design; all sections weigh equally (keep the order figures, closers, programs, meetings); Programs keeps its bar / pie / table switch; money leads with the main currency (most payment sales) with other currencies listed beside it, and the tables keep one currency select; structure "Figures in the band" (`.impeccable/mocks/decision/sc-band-figures.html` (retired)).
 Untouched: every number and its definition, the snapshot-job path for long ranges, the live/ClickHouse split, the export menu, admin-only access, the meetings queries (one row per page today, see open issues).
 
 ## Direction contract

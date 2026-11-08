@@ -11,7 +11,7 @@ Mode: Operate. Eighth surface in the Departures Board world (tokens and recipes 
 
 ## Scope
 Audience: owners and admins (`tenant_master`, `tenant_admin`). They open it to see whether each DM team is booking enough calls for its goal, which DM closers inside each team are booking, and to look up a booking.
-User decisions (2026-11-02): same content and data, new design; round 1 (goal in band, closers open in place, bookings lead) rejected as not visual enough; steer: more visual, colour as feedback, DM closers ranked separately per team (same table allowed, clearly separated by team). Locked structure: Team rings (`.impeccable/mocks/decision/booked-team-rings.html`).
+User decisions (2026-11-02): same content and data, new design; round 1 (goal in band, closers open in place, bookings lead) rejected as not visual enough; steer: more visual, colour as feedback, DM closers ranked separately per team (same table allowed, clearly separated by team). Locked structure: Team rings (`.impeccable/mocks/decision/booked-team-rings.html` (retired)).
 Untouched: every number and its definition (booked = new-classification meetings attributed to a DM closer; goal = team daily quota × days in range; booked per scheduled hour; hourly contract rate), the live/ClickHouse/snapshot-job split, export, schedules and goals dialogs, the bookings list query, search and closer filter, admin-only access. No Convex or ClickHouse changes.
 
 ## Direction contract

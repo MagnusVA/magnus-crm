@@ -11,7 +11,7 @@ Mode: Operate. Eighth surface in the Departures Board world; recipes and tokens 
 
 ## Scope
 Audience: owners and admins (`lead-gen:view-all`). They open it to see what the lead gen team captured in a range, how far those people went, who produced it, which posts pulled them in, and to export or void a bad submission.
-User decisions (2026-11-02): same content and data, new design; structure "Funnel first" (`.impeccable/mocks/decision/leadgen-funnel.html`); raw submissions must stay on the page but folded at the foot, with no prominence. Browser verification deferred by the user; captures come later.
+User decisions (2026-11-02): same content and data, new design; structure "Funnel first" (`.impeccable/mocks/decision/leadgen-funnel.html` (retired)); raw submissions must stay on the page but folded at the foot, with no prominence. Browser verification deferred by the user; captures come later.
 Untouched: every query and ClickHouse report, the snapshot-job path for long ranges, the export menu's formats, the void mutation and its dialog's consequence text, admin-only access, the URL range sync.
 Sibling threads redesign Qualifications, Booked Calls and Sales Calls in parallel; this page keeps the Overview skeleton (band with range words, freshness and picker; sections as DetailCards) so the four read as one family.
 

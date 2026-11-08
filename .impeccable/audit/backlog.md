@@ -1,6 +1,6 @@
 # Redesign backlog, grouped by archetype
 
-Sources: `routes.md` (route map), `drift.md` (source drift), `.impeccable/review/inventory/` (285 screenshots), and the critique snapshots in `.impeccable/critique/` (closer dashboard 24/40, meeting detail 18/40, person detail 22/40, Sales Calls 25/40). Written 2026-10-28.
+Sources: `routes.md` (route map), `drift.md` (source drift), `.impeccable/review/inventory/` (285 screenshots), and the critique snapshots of the pages before the redesign (closer dashboard 24/40, meeting detail 18/40, person detail 22/40, Sales Calls 25/40; removed once those pages were redesigned). Written 2026-10-28.
 
 Scope: 43 live screens. The 11 redirect-only routes need no design work.
 

@@ -11,7 +11,7 @@ Mode: Operate. Seventh surface in the world locked on Closer Today; recipes and 
 
 ## Scope
 Audience: owners and admins (closers and lead generators are redirected to their own homes). They open it to see who produced what today, this week or this month, and which posts bring people in.
-User decisions (2026-11-01): same content, new design (no new headline figures, no attention line); the date picker designed here is the shared one and goes onto the Operations pages at once (they adopt it through `DashboardDateRangeFilter`); Top Posts & Reels stays on Overview with link previews (caption, author, handle, date, thumbnail) fetched unofficially from Instagram and stored, falling back to the readable URL; structure "Leaders first" (`.impeccable/mocks/decision/overview-leaders.html`).
+User decisions (2026-11-01): same content, new design (no new headline figures, no attention line); the date picker designed here is the shared one and goes onto the Operations pages at once (they adopt it through `DashboardDateRangeFilter`); Top Posts & Reels stays on Overview with link previews (caption, author, handle, date, thumbnail) fetched unofficially from Instagram and stored, falling back to the readable URL; structure "Leaders first" (`.impeccable/mocks/decision/overview-leaders.html` (retired)).
 Untouched: every number and its definition, the ranking rules, what Show all loads, the ClickHouse/live split, admin-only access.
 
 ## Direction contract
