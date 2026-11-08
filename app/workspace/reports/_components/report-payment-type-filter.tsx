@@ -9,6 +9,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { BAND_SELECT } from "./report-ui";
 
 const ALL_SENTINEL = "__all__";
 
@@ -49,7 +51,7 @@ export function ReportPaymentTypeFilter({
 			disabled={disabled}
 		>
 			<SelectTrigger
-				className="w-[180px]"
+				className={cn(BAND_SELECT, "w-[164px] max-w-full")}
 				aria-label="Filter by payment type"
 			>
 				<SelectValue placeholder="Payment Type" />
