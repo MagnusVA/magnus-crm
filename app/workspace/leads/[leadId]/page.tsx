@@ -5,7 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
 import { isExpectedConvexRejection } from "@/lib/errors";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function LegacyLeadDetailPage({
 	params,

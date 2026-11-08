@@ -7,7 +7,7 @@ import { ContentReveal } from "@/components/page-transitions";
 
 // PPR-ready architecture marker — see AGENTS.md §RSC three-layer page
 // pattern. The static shell renders before dynamic data.
-export const unstable_instant = false;
+export const instant = false;
 
 /**
  * The admin twin of the closer's task page: any reminder in the tenant,

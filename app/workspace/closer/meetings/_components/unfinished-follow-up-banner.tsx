@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { format } from "date-fns";
 import { CalendarClockIcon, CheckIcon, CopyIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -15,6 +14,7 @@ import {
 } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
+import { useLocalFormat } from "./local-time";
 
 type UnfinishedFollowUpBannerProps = {
   followUp: ActiveFollowUpSummary;
@@ -37,6 +37,7 @@ export function UnfinishedFollowUpBanner({
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const format = useLocalFormat();
 
   const closerCancel = useMutation(
     api.closer.followUpMutations.cancelPendingFollowUp,
@@ -76,12 +77,12 @@ export function UnfinishedFollowUpBanner({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const createdAt = format(new Date(followUp.createdAt), "MMM d, h:mm a");
+  const createdAt = format(followUp.createdAt, "MMM d, h:mm a");
   const what = isLink
     ? `A scheduling link from ${createdAt} is still open`
     : `A task set on ${createdAt}${
         followUp.reminderScheduledAt
-          ? ` for ${format(new Date(followUp.reminderScheduledAt), "MMM d, h:mm a")}`
+          ? ` for ${format(followUp.reminderScheduledAt, "MMM d, h:mm a")}`
           : ""
       } is still open`;
 

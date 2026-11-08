@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -92,7 +92,6 @@ const EMPTY_HINT: Record<BillingPaymentStatus, string> = {
 export function BillingPageClient() {
   usePageTitle("Billing");
   const now = useNow();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const status = statusFromParam(searchParams.get("status"));
 
@@ -167,6 +166,7 @@ export function BillingPageClient() {
     if (param) params.set("status", param);
     else params.delete("status");
     const search = params.toString();
+    const { pathname } = window.location;
     window.history.replaceState(null, "", search ? `${pathname}?${search}` : pathname);
   };
 

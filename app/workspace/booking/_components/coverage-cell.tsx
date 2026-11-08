@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { modeLabel } from "./booking-model";
-import { useCoverage } from "./coverage/coverage-context";
+import { useCoverage, useHighlight } from "./coverage/coverage-context";
 import {
   faceOf,
   faceSignature,
@@ -114,12 +114,14 @@ export function CoverageHalf({
   programName: string;
   size?: "matrix" | "mini";
 }) {
-  const { board, problemsOnly, openCell, setHover, litCell, setLitTile, previewTeamId, disabled } = useCoverage();
+  const { board, problemsOnly, openCell, setHover, setLitTile, previewTeamId, disabled } = useCoverage();
   const tip = useCellTip();
   const face = faceOf(board, resolveRef(board, cellRef), cellRef);
   const shared = cellRef.teamId === null;
   const [flipping, doneFlipping] = useChanged(faceSignature(face));
   const key = refKey(cellRef);
+  // Lit from the phone tile this cell feeds.
+  const lit = useHighlight((highlight) => highlight.litCell === key);
   const teamName = shared ? "Shared" : (board.teams.find((team) => team._id === cellRef.teamId)?.displayName ?? "Team");
   // Lights the phone tile this cell feeds, when it feeds the previewed closer.
   const feedsPreview =
@@ -159,7 +161,7 @@ export function CoverageHalf({
         size === "matrix" ? "h-5" : "h-6",
         FACE_CLASS[face.kind],
         flipping && "cov-flip",
-        litCell === key && "z-[2] shadow-[0_0_0_2px_var(--color-stage-booked)]",
+        lit && "z-[2] shadow-[0_0_0_2px_var(--color-stage-booked)]",
         problemsOnly && !isProblem(face) && "opacity-[0.22]",
         "transition-opacity duration-200",
       )}

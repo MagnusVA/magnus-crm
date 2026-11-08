@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import dynamic from "next/dynamic";
 import { type Preloaded, useAction, usePreloadedQuery } from "convex/react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -19,11 +20,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { CARD, CardHead, HelpTip, LABEL } from "@/app/workspace/team/_components/team-ui";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { ActionRow, FACT_FIGURE, Fact, Facts, NoteLine, StatusWord } from "../settings-ui";
-import { SlackChannelPickerDialog } from "./slack-channel-picker-dialog";
 import { slackChannelErrors, slackMissingChannel, slackState, type SlackConnected } from "./integration-status";
+
+const SlackChannelPickerDialog = dynamic(() =>
+  import("./slack-channel-picker-dialog").then((m) => ({ default: m.SlackChannelPickerDialog })),
+);
 
 type Props = {
   preloadedStatus: Preloaded<typeof api.slack.channels.getInstallationStatus>;
@@ -50,10 +55,16 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
     searchParams.get("slack") === "connected" &&
     searchParams.get("pickChannel") === "true";
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The picker's code loads on its first opening, and it stays mounted after
+  // so it can close with its animation.
+  const [pickerMounted, setPickerMounted] = useState(false);
   const [autoOpenedPicker, setAutoOpenedPicker] = useState(false);
   if (shouldAutoOpenPicker !== autoOpenedPicker) {
     setAutoOpenedPicker(shouldAutoOpenPicker);
-    if (shouldAutoOpenPicker) setPickerOpen(true);
+    if (shouldAutoOpenPicker) {
+      setPickerOpen(true);
+      setPickerMounted(true);
+    }
   }
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -136,7 +147,7 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
             </span>
           </Fact>
           <Fact label="Connected">
-            <span className={FACT_FIGURE}>{formatDay(status.installedAt)}</span>
+            <span className={FACT_FIGURE}><LocalDay at={status.installedAt} /></span>
           </Fact>
         </Facts>
 
@@ -149,7 +160,15 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
             </HelpTip>
           </span>
           {active ? (
-            <Button variant="outline" size="xs" className="ml-auto" onClick={() => setPickerOpen(true)}>
+            <Button
+              variant="outline"
+              size="xs"
+              className="ml-auto"
+              onClick={() => {
+                setPickerOpen(true);
+                setPickerMounted(true);
+              }}
+            >
               {needsChannels ? "Pick channels" : "Change channels"}
             </Button>
           ) : null}
@@ -214,16 +233,22 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
         ) : null}
       </section>
 
-      <SlackChannelPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        initialNotifyChannelId={status.notifyChannelId}
-        initialStaleChannelId={status.staleReminderChannelId}
-        initialLeadGenChannelId={status.leadGenNotifyChannelId}
-        initialLeadGenChannelName={status.leadGenNotifyChannelName}
-        initialBookingReviewChannelId={status.bookingReviewChannelId}
-        initialBookingReviewChannelName={status.bookingReviewChannelName}
-      />
+      {/* The dialog suspends on its first render; this boundary keeps that
+          wait to the dialog. */}
+      <Suspense fallback={null}>
+        {pickerMounted ? (
+          <SlackChannelPickerDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            initialNotifyChannelId={status.notifyChannelId}
+            initialStaleChannelId={status.staleReminderChannelId}
+            initialLeadGenChannelId={status.leadGenNotifyChannelId}
+            initialLeadGenChannelName={status.leadGenNotifyChannelName}
+            initialBookingReviewChannelId={status.bookingReviewChannelId}
+            initialBookingReviewChannelName={status.bookingReviewChannelName}
+          />
+        ) : null}
+      </Suspense>
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>
@@ -353,12 +378,20 @@ function repickChannelCopy(kind: ChannelKind) {
   }
 }
 
+const DAY = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const DAY_WITH_YEAR = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
+
 /** "Oct 12", or "Oct 12, 2025" outside this year. */
 function formatDay(value: number) {
   const sameYear = new Date(value).getFullYear() === new Date().getFullYear();
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(sameYear ? {} : { year: "numeric" }),
-  }).format(value);
+  return (sameYear ? DAY : DAY_WITH_YEAR).format(value);
+}
+
+/**
+ * `formatDay` in the viewer's browser time zone. The server renders in UTC,
+ * so it shows an em dash until the page hydrates.
+ */
+function LocalDay({ at }: { at: number }) {
+  const hydrated = useHydrated();
+  return hydrated ? formatDay(at) : "—";
 }

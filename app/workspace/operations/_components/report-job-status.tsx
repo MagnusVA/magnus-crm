@@ -19,12 +19,14 @@ export type OperationsReportJobState =
   | "canceled"
   | "expired";
 
+const GENERATED_AT_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 function formatGeneratedAt(timestamp: number | null) {
   if (timestamp === null) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(timestamp));
+  return GENERATED_AT_FORMAT.format(new Date(timestamp));
 }
 
 export function OperationsReportJobStatus({

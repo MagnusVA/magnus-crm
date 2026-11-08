@@ -29,14 +29,13 @@ export function OverviewHelpTooltip({
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<span
+				<button
+					type="button"
 					className={cn(
-						"inline-flex cursor-help items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+						"inline-flex cursor-help items-center gap-1 rounded-sm text-left font-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring",
 						triggerClassName,
 						className,
 					)}
-					tabIndex={0}
-					role="button"
 					aria-label={`About ${label}`}
 				>
 					{children}
@@ -44,7 +43,7 @@ export function OverviewHelpTooltip({
 						className="size-3 shrink-0 text-muted-foreground/80"
 						aria-hidden="true"
 					/>
-				</span>
+				</button>
 			</TooltipTrigger>
 			<TooltipContent
 				side={side}

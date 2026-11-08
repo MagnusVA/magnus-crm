@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-export const unstable_instant = false;
+export const instant = false;
 
 const PHONE_SALES_STATUSES = new Set([
   "scheduled",

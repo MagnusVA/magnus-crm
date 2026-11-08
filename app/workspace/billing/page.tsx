@@ -6,7 +6,7 @@ import { BillingPageClient } from "./_components/billing-page-client";
 import { BillingPageSkeleton } from "./_components/billing-page-skeleton";
 import { BillingUnavailable } from "./_components/billing-unavailable";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function BillingPage() {
   const access = await requirePermission("billing:view");

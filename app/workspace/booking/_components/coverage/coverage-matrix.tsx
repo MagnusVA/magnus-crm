@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { SCHEDULING_MODES, type CoverageProgram, type CoverageTeam } from "../booking-model";
 import { CoverageHalf } from "../coverage-cell";
 import { ProgramFormDialog } from "../program-form-dialog";
-import { useCoverage } from "./coverage-context";
+import { useCoverage, useHighlight } from "./coverage-context";
 import { eventTypesOfProgram, looksLikeEventTypeName, plural } from "./coverage-model";
 import { TickingNumber } from "./coverage-motion";
 
@@ -236,14 +236,14 @@ function Legend() {
 }
 
 function SharedHead({ usingShared, filled }: { usingShared: number; filled: number }) {
-  const { hover } = useCoverage();
+  const hovered = useHighlight((highlight) => highlight.hover?.column === "shared");
   return (
     <div
       role="columnheader"
       title="Shared cells are the fallback for teams whose empty cells use Shared"
       className={cn(
         "flex min-w-0 flex-col border-r-2 border-l border-r-[color-mix(in_oklab,var(--color-border)_60%,var(--color-stage-held))] border-l-border bg-muted px-2.5 pt-[9px] pb-2 transition-colors",
-        hover?.column === "shared" && "bg-[color-mix(in_oklab,var(--color-muted)_70%,var(--color-stage-held))]",
+        hovered && "bg-[color-mix(in_oklab,var(--color-muted)_70%,var(--color-stage-held))]",
       )}
     >
       <span className="font-condensed text-[14px] leading-[1.1] font-bold tracking-[0.1em] uppercase">Shared</span>
@@ -257,7 +257,8 @@ function SharedHead({ usingShared, filled }: { usingShared: number; filled: numb
 }
 
 function TeamHead({ team }: { team: CoverageTeam }) {
-  const { tally, hover, openTeam, xray, previewTeamId, closers, setPreviewCloser } = useCoverage();
+  const { tally, openTeam, xray, previewTeamId, closers, setPreviewCloser } = useCoverage();
+  const hovered = useHighlight((highlight) => highlight.hover?.column === team._id);
   const count = tally.teams.get(team._id) ?? { working: 0, problems: 0, total: 0 };
   const full = count.total > 0 && count.working === count.total;
   const pct = count.total ? Math.round((count.working / count.total) * 100) : 0;
@@ -269,7 +270,7 @@ function TeamHead({ team }: { team: CoverageTeam }) {
       role="columnheader"
       className={cn(
         "group/head relative flex min-w-0 flex-col border-l border-border px-2.5 pt-[9px] pb-2 text-left transition-colors hover:bg-background",
-        hover?.column === team._id && "bg-background",
+        hovered && "bg-background",
         xrayed && "bg-stage-booked/8 shadow-[inset_0_3px_0_var(--color-stage-booked)]",
       )}
     >
@@ -327,7 +328,7 @@ function ProgramRow({
   onEdit: () => void;
   onArchive: () => void;
 }) {
-  const { coverage, board, tally, hover, openProgram, problemsOnly, xray, previewTeamId } = useCoverage();
+  const { coverage, board, tally, openProgram, problemsOnly, xray, previewTeamId } = useCoverage();
   const row = tally.programs.get(program._id) ?? { working: 0, problems: 0, total: 0, routed: false };
   const eventTypeCount = eventTypesOfProgram(coverage, program._id).length;
   const lookalike = looksLikeEventTypeName(coverage, program);
@@ -338,14 +339,7 @@ function ProgramRow({
       className={cn("grid border-b border-border", entering && "cov-row-in")}
       style={{ gridTemplateColumns: template, minWidth }}
     >
-      <div
-        role="rowheader"
-        className={cn(
-          "group/row sticky left-0 z-[3] grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 bg-card py-1 pr-1.5 pl-3 transition-[background-color,opacity]",
-          hover?.programId === program._id && "bg-background",
-          problemsOnly && row.problems === 0 && "opacity-60",
-        )}
-      >
+      <RowHeader programId={program._id} dimmed={problemsOnly && row.problems === 0}>
         <div className="min-w-0">
           <button
             type="button"
@@ -379,7 +373,7 @@ function ProgramRow({
           <span>PRI</span>
           <span>STD</span>
         </div>
-      </div>
+      </RowHeader>
       <div
         role="cell"
         className="flex min-w-0 flex-col gap-0.5 border-r-2 border-l border-r-[color-mix(in_oklab,var(--color-border)_60%,var(--color-stage-held))] border-l-border bg-muted/55 px-1 py-[3px]"
@@ -403,6 +397,23 @@ function ProgramRow({
         </div>
       ))}
       <div aria-hidden className="border-l border-dashed border-input" />
+    </div>
+  );
+}
+
+/** The row's sticky header. It alone re-renders when the pointer enters or leaves the row, not the row's cells. */
+function RowHeader({ programId, dimmed, children }: { programId: string; dimmed: boolean; children: React.ReactNode }) {
+  const hovered = useHighlight((highlight) => highlight.hover?.programId === programId);
+  return (
+    <div
+      role="rowheader"
+      className={cn(
+        "group/row sticky left-0 z-[3] grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 bg-card py-1 pr-1.5 pl-3 transition-[background-color,opacity]",
+        hovered && "bg-background",
+        dimmed && "opacity-60",
+      )}
+    >
+      {children}
     </div>
   );
 }

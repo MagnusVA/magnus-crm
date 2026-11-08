@@ -4,7 +4,6 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useIdle } from "@/hooks/use-idle";
-import { format } from "date-fns";
 import {
   BanknoteIcon,
   CalendarPlusIcon,
@@ -29,6 +28,7 @@ import { StageChip } from "./stage-tone";
 import { NoShowActionBar } from "./no-show-action-bar";
 import { RescheduleLinkDisplay } from "./reschedule-link-display";
 import { UnfinishedFollowUpBanner } from "./unfinished-follow-up-banner";
+import { LocalTime, useLocalFormat } from "./local-time";
 import {
   firstNameOf,
   type MeetingDetail,
@@ -562,7 +562,7 @@ function OutcomeOpensNote({ scheduledAt }: { scheduledAt: number }) {
     <p className="flex items-center gap-2 rounded-xl border border-dashed bg-card px-4 py-3 text-muted-foreground">
       <ClockIcon className="size-4 shrink-0" aria-hidden />
       You can record the outcome from{" "}
-      {format(scheduledAt - 5 * 60_000, "h:mm a")}, five minutes before the call.
+      <LocalTime at={scheduledAt - 5 * 60_000} pattern="h:mm a" />, five minutes before the call.
     </p>
   );
 }
@@ -587,6 +587,7 @@ function OutcomeSummary({
   action: React.ReactNode;
 }) {
   const { meeting, opportunity, payments, assignedCloser, activeFollowUp } = detail;
+  const format = useLocalFormat();
   const when = (at: number) => format(at, "MMM d, h:mm a");
 
   let headline: React.ReactNode;

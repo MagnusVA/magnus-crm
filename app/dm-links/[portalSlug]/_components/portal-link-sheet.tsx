@@ -414,10 +414,12 @@ function modeColumns(tiles: LinkTile[]) {
 		.filter((column) => column.length > 0);
 }
 
+const SESSION_END_FORMAT = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+
 function SessionEnd({ at }: { at: number }) {
 	return (
 		<time dateTime={new Date(at).toISOString()} suppressHydrationWarning>
-			{new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(at)}
+			{SESSION_END_FORMAT.format(at)}
 		</time>
 	);
 }

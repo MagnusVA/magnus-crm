@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon, XIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 /* -------------------------------------------------------------------------- */
@@ -100,6 +100,19 @@ export function CalendlyConnectionGuard({
 }: {
   children: React.ReactNode;
 }) {
+  // usePathname() suspends while a dynamic route prerenders, so it is read
+  // only inside this boundary and the children still prerender.
+  return (
+    <>
+      <Suspense fallback={null}>
+        <CalendlyConnectionBanner />
+      </Suspense>
+      {children}
+    </>
+  );
+}
+
+function CalendlyConnectionBanner() {
   const pathname = usePathname();
   // This component is mounted in ConvexClientProvider (app root), OUTSIDE the
   // workspace RoleProvider tree. It cannot use useRole(). Instead it queries
@@ -189,16 +202,11 @@ export function CalendlyConnectionGuard({
     setIsDismissed(true);
   };
 
-  return (
-    <>
-      {showBanner ? (
-        <CalendlyReconnectBanner
-          onReconnect={handleReconnect}
-          onDismiss={handleDismiss}
-          isReconnecting={isReconnecting}
-        />
-      ) : null}
-      {children}
-    </>
-  );
+  return showBanner ? (
+    <CalendlyReconnectBanner
+      onReconnect={handleReconnect}
+      onDismiss={handleDismiss}
+      isReconnecting={isReconnecting}
+    />
+  ) : null;
 }

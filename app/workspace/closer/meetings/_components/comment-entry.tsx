@@ -55,23 +55,37 @@ const ROLE_LABEL: Record<
 /** "Oct 27, 4:12 PM", with the year when it isn't this year's. */
 function commentDate(ms: number, timeZone: string) {
   const year = (at: number) =>
-    new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric" }).format(at);
-  return new Intl.DateTimeFormat("en-US", {
+    dateFormat(timeZone, "year", { timeZone, year: "numeric" }).format(at);
+  const sameYear = year(ms) === year(Date.now());
+  return dateFormat(timeZone, sameYear ? "short" : "shortWithYear", {
     timeZone,
     month: "short",
     day: "numeric",
-    year: year(ms) === year(Date.now()) ? undefined : "numeric",
+    year: sameYear ? undefined : "numeric",
     hour: "numeric",
     minute: "2-digit",
   }).format(ms);
 }
 
 function commentDateFull(ms: number, timeZone: string) {
-  return new Intl.DateTimeFormat("en-US", {
+  return dateFormat(timeZone, "full", {
     timeZone,
     dateStyle: "full",
     timeStyle: "short",
   }).format(ms);
+}
+
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** One en-US formatter per time zone and kind, built on first use. */
+function dateFormat(timeZone: string, kind: string, options: Intl.DateTimeFormatOptions) {
+  const key = `${timeZone}:${kind}`;
+  let formatter = dateFormats.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", options);
+    dateFormats.set(key, formatter);
+  }
+  return formatter;
 }
 
 /** One comment as a ruled row, like Prep's notes: "Name · role · date", then the text. */

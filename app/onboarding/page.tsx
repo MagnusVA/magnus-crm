@@ -229,7 +229,7 @@ function InviteProblem({
       <CardFooter>
         {error === "already_redeemed" ? (
           <Button asChild className="font-semibold">
-            <Link href={signInHref}>Sign in to continue</Link>
+            <a href={signInHref}>Sign in to continue</a>
           </Button>
         ) : (
           <>
@@ -237,7 +237,7 @@ function InviteProblem({
               <Link href="/">Home</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/sign-in">Sign in</Link>
+              <a href="/sign-in">Sign in</a>
             </Button>
           </>
         )}

@@ -25,6 +25,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   Collapsible,
@@ -231,7 +232,14 @@ function WorkspaceShellClientInner({
   const needsOutcomeCount = useNeedsOutcomeCount(role === "closer");
   const pathname = usePathname();
   const router = useRouter();
+  const { setOpenMobile } = useSidebar();
   const displayName = initialDisplayName || initialEmail;
+
+  // Below 1280px the sidebar is a sheet over the page: picking a link in it
+  // closes it. Enter on a link fires click too.
+  const closeSheetOnLink = (event: React.MouseEvent) => {
+    if ((event.target as HTMLElement).closest("a[href]")) setOpenMobile(false);
+  };
 
   const navItems = navForRole(role, isAdmin, billingOpsEnabled);
   const homeHref = homeHrefForRole(role, isAdmin);
@@ -285,7 +293,7 @@ function WorkspaceShellClientInner({
   return (
     <>
       <Sidebar>
-        <SidebarHeader className="px-3 pt-4 pb-3">
+        <SidebarHeader className="px-3 pt-4 pb-3" onClickCapture={closeSheetOnLink}>
           <Link
             href={homeHref}
             transitionTypes={WORKSPACE_NAV}
@@ -301,7 +309,7 @@ function WorkspaceShellClientInner({
             />
           </Link>
         </SidebarHeader>
-        <SidebarContent>
+        <SidebarContent onClickCapture={closeSheetOnLink}>
           {/* Sidebar nav items */}
           <SidebarGroup className="pt-0">
             <SidebarGroupContent>
@@ -384,7 +392,7 @@ function WorkspaceShellClientInner({
         </SidebarContent>
 
         {/* Sidebar footer — user info and sign out */}
-        <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
+        <SidebarFooter className="border-t border-sidebar-border px-3 py-3" onClickCapture={closeSheetOnLink}>
           <div className="flex items-center gap-1">
             <Link
               href="/workspace/profile"

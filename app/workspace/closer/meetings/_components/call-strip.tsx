@@ -6,7 +6,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { cn } from "@/lib/utils";
+import { LocalTime } from "./local-time";
 
 /** "Boarding" opens this long before the call, as the outcome window does. */
 const BOARDING_LEAD_MS = 15 * 60_000;
@@ -144,6 +146,9 @@ export function CallStrip({
 }: CallStripProps) {
   const joinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
   const status = callStatus(meeting, now);
+  // The detail can carry a local date ("Call on Oct 9"), so it waits for
+  // hydration like the time does.
+  const hydrated = useHydrated();
 
   return (
     <section
@@ -171,13 +176,13 @@ export function CallStrip({
       >
         <StripCell label="Time" className={cn(PLACE.time, PLACE_RESET)}>
           <p className="font-condensed text-[1.625rem] leading-none font-semibold tabular-nums">
-            {format(meeting.scheduledAt, "h:mm")}
+            <LocalTime at={meeting.scheduledAt} pattern="h:mm" />
             <span className="ml-1 text-sm font-medium text-board-muted">
-              {format(meeting.scheduledAt, "a")}
+              <LocalTime at={meeting.scheduledAt} pattern="a" placeholder="" />
             </span>
           </p>
           <p className="mt-1 text-[0.8125rem] text-board-muted tabular-nums">
-            {format(meeting.scheduledAt, "EEE, MMM d")} · {meeting.durationMinutes} min
+            <LocalTime at={meeting.scheduledAt} pattern="EEE, MMM d" /> · {meeting.durationMinutes} min
           </p>
         </StripCell>
 
@@ -196,9 +201,8 @@ export function CallStrip({
           </p>
           <p
             className="mt-1 text-[0.8125rem] text-board-muted"
-            suppressHydrationWarning
           >
-            {status.detail}
+            {hydrated ? status.detail : "—"}
           </p>
         </StripCell>
 

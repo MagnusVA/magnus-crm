@@ -14,10 +14,10 @@ import {
   customerName,
   FIGURE,
   formatBytes,
-  formatPaidAt,
   proofTypeLabel,
   STATUS_LABELS,
 } from "./billing-format";
+import { PaidAt } from "./paid-at";
 
 // The payment page's facts: the band's figure row (amount, status, proof,
 // closer) and the three fact cards under it (Payment, Customer and call,
@@ -176,7 +176,7 @@ export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDet
                   <>
                     <span translate="no">{review.reviewer?.name ?? review.reviewerName ?? "Unknown"}</span>
                     <span className="text-muted-foreground"> · </span>
-                    <span className={FIGURE}>{formatPaidAt(review.reviewedAt, now)}</span>
+                    <span className={FIGURE}><PaidAt at={review.reviewedAt} now={now} /></span>
                   </>
                 ) : (
                   <None>Not yet</None>
@@ -218,7 +218,7 @@ export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDet
             </Facts>
             <Facts>
               <Fact label="Scheduled">
-                {meeting.scheduledAt ? <span className={FIGURE}>{formatPaidAt(meeting.scheduledAt, now)}</span> : <None>No meeting</None>}
+                {meeting.scheduledAt ? <span className={FIGURE}><PaidAt at={meeting.scheduledAt} now={now} /></span> : <None>No meeting</None>}
               </Fact>
               <Fact label="Recording">
                 {fathomLink ? (

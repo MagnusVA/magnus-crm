@@ -19,7 +19,7 @@ import {
 } from "./_lib/portal-session-cookie";
 import { readSessionTokenTimes } from "./_lib/session-token-times";
 
-export const unstable_instant = false;
+export const instant = false;
 
 type Props = {
 	params: Promise<{ portalSlug: string }>;

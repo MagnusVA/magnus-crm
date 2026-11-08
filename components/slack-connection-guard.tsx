@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { useQuery } from "convex/react";
@@ -173,6 +173,19 @@ function SlackReconnectBanner({
 }
 
 export function SlackConnectionGuard({ children }: { children: ReactNode }) {
+  // usePathname() suspends while a dynamic route prerenders, so it is read
+  // only inside this boundary and the children still prerender.
+  return (
+    <>
+      <Suspense fallback={null}>
+        <SlackConnectionBanner />
+      </Suspense>
+      {children}
+    </>
+  );
+}
+
+function SlackConnectionBanner() {
   const pathname = usePathname();
   const processedSlackRedirectRef = useRef<string | null>(null);
   const currentUser = useQuery(
@@ -231,15 +244,10 @@ export function SlackConnectionGuard({ children }: { children: ReactNode }) {
     currentDismissKey !== null &&
     dismissedKey !== currentDismissKey;
 
-  return (
-    <>
-      {showBanner ? (
-        <SlackReconnectBanner
-          status={reconnectStatus}
-          onDismiss={() => setDismissedKey(currentDismissKey)}
-        />
-      ) : null}
-      {children}
-    </>
-  );
+  return showBanner ? (
+    <SlackReconnectBanner
+      status={reconnectStatus}
+      onDismiss={() => setDismissedKey(currentDismissKey)}
+    />
+  ) : null;
 }

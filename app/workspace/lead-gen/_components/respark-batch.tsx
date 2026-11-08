@@ -232,13 +232,13 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
         </BandZones>
       </PageBand>
 
-      <div className="flex flex-col gap-3.5" aria-label="People in this batch" role="list">
+      <ul className="flex flex-col gap-3.5" aria-label="People in this batch">
         {segments.map((segment) => {
           const [first] = segment;
           const { item } = first;
           if (first.kind === "worked" || first.kind === "sent") {
             return (
-              <div key={item.itemId} role="listitem" className={RESPARK_CARD}>
+              <li key={item.itemId} className={RESPARK_CARD}>
                 <ul aria-label="Worked">
                   {segment.map((row) => (
                     <WorkedLine
@@ -248,11 +248,11 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
                     />
                   ))}
                 </ul>
-              </div>
+              </li>
             );
           }
           return (
-            <div key={item.itemId} role="listitem">
+            <li key={item.itemId}>
               {first.kind === "sending" ? (
                 <SendingLine handle={handleOf(item)} />
               ) : first.kind === "pending" ? (
@@ -281,10 +281,10 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
                   onView={() => setPanelItem({ itemId: item.itemId, bucket: item.bucket })}
                 />
               )}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       {panelItem !== null ? (
         <ResparkPersonSheet

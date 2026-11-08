@@ -7,7 +7,8 @@ import { getEventLabel } from "@/convex/reporting/lib/eventLabels";
 import type { BillingPaymentStatus } from "@/convex/billing/types";
 import { cn } from "@/lib/utils";
 import type { BillingPaymentDetail } from "./billing-payment-facts";
-import { FIGURE, formatPaidAt, PAYMENT_TYPE_LABELS, plural, STATUS_LABELS } from "./billing-format";
+import { FIGURE, PAYMENT_TYPE_LABELS, plural, STATUS_LABELS } from "./billing-format";
+import { PaidAt } from "./paid-at";
 
 // The payment's history as dense ruled rows, one per event: when, what
 // happened (with each change as a before → after line), who.
@@ -106,7 +107,7 @@ export function BillingEventHistory({ events, now }: { events: BillingPaymentEve
             return (
               <li key={event.id} className={cn(HISTORY_COLUMNS, "min-h-9 items-baseline border-b px-4 py-1.5 last:border-b-0")}>
                 <time dateTime={new Date(event.occurredAt).toISOString()} className={FIGURE}>
-                  {formatPaidAt(event.occurredAt, now)}
+                  <PaidAt at={event.occurredAt} now={now} />
                 </time>
                 <div className="min-w-0">
                   <p className="flex flex-wrap items-baseline gap-x-2 leading-5">
