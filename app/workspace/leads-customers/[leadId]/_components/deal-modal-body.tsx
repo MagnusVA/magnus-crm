@@ -170,6 +170,7 @@ export function DealModalBody({
 							<AddOpportunityPaymentDialog
 								opportunityId={opportunity._id}
 								programName={permissions.additionalPaymentProgramName}
+								leadName={detail.lead?.fullName ?? null}
 							/>
 						</div>
 					) : null}
