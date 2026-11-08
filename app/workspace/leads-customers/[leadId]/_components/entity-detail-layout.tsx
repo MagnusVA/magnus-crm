@@ -12,8 +12,7 @@ import { PersonStrip } from "./person-strip";
 import { PersonTimelineCard } from "./person-timeline-card";
 
 /**
- * The person page at a glance (.impeccable/mocks/person-glance.html): the
- * person as one board row; the open deals with their calls, the closed
+ * The person page at a glance: the person as one board row; the open deals with their calls, the closed
  * deals folded into a list, and the booking answers beside the timeline;
  * one dense person card on the right. The page responds to its own width
  * (DESIGN.md, Responsive rules): from @4xl the person card takes a 360px
