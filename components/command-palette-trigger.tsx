@@ -23,7 +23,7 @@ export function CommandPaletteTrigger() {
       }}
     >
       <SearchIcon data-icon="inline-start" />
-      <span className="text-sm">Search people and deals</span>
+      <span className="text-sm">Find a page or action</span>
       <Kbd className="ml-auto">
         <span className="text-[10px]">⌘K</span>
       </Kbd>

@@ -18,21 +18,27 @@ import {
 } from "@/app/workspace/reports/_components/report-payment-type-filter";
 import { MemberIdentityOption } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { HelpTip } from "@/app/workspace/team/_components/team-ui";
+import { BAND_SELECT } from "@/app/workspace/reports/_components/report-ui";
+import { cn } from "@/lib/utils";
+
+// The feed's filters as board-tone selects in the report band's filters
+// slot. The payment filters show only while payment events can match.
 
 const ENTITY_TYPE_OPTIONS = [
-  { label: "All", value: "__all__" },
+  { label: "All records", value: "__all__" },
   { label: "Customer", value: "customer" },
   { label: "Enrollment", value: "enrollment" },
-  { label: "Follow-Up", value: "followUp" },
+  { label: "Follow-up", value: "followUp" },
   { label: "Lead", value: "lead" },
   { label: "Meeting", value: "meeting" },
-  { label: "Opportunity", value: "opportunity" },
+  { label: "Deal", value: "opportunity" },
   { label: "Payment", value: "payment" },
-  { label: "User", value: "user" },
+  { label: "Team member", value: "user" },
 ] as const;
 
 const EVENT_TYPE_OPTIONS = [
-  { label: "All", value: "__all__" },
+  { label: "All events", value: "__all__" },
   ...Object.entries(EVENT_LABELS)
     .map(([key, { verb }]) => ({
       label: verb.charAt(0).toUpperCase() + verb.slice(1),
@@ -53,7 +59,7 @@ type EntityType =
   | "payment"
   | "user";
 
-interface Filters {
+export interface ActivityFilters {
   entityType?: EntityType;
   eventType?: string;
   actorUserId?: string;
@@ -62,8 +68,8 @@ interface Filters {
 }
 
 interface ActivityFeedFiltersProps {
-  filters: Filters;
-  onChange: (filters: Filters) => void;
+  filters: ActivityFilters;
+  onChange: (filters: ActivityFilters) => void;
   actorBreakdown: Array<{
     actorUserId: string;
     actorName: string | null;
@@ -72,7 +78,7 @@ interface ActivityFeedFiltersProps {
   }>;
 }
 
-function shouldShowPaymentFilters(filters: Filters): boolean {
+function shouldShowPaymentFilters(filters: ActivityFilters): boolean {
   // Always show when explicitly scoped to payment entities
   if (filters.entityType === "payment") {
     return true;
@@ -102,8 +108,7 @@ export function ActivityFeedFilters({
   const showPaymentFilters = shouldShowPaymentFilters(filters);
 
   return (
-    <div className="flex flex-col gap-1.5">
-    <div className="flex flex-wrap items-center gap-3">
+    <>
       {/* Entity Type filter */}
       <Select
         value={filters.entityType ?? "__all__"}
@@ -125,12 +130,12 @@ export function ActivityFeedFilters({
           onChange(next);
         }}
       >
-        <SelectTrigger className="w-[160px]">
-          <SelectValue placeholder="Entity Type" />
+        <SelectTrigger aria-label="Record" className={cn(BAND_SELECT, "w-[150px] max-w-full")}>
+          <SelectValue placeholder="Record" />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectLabel>Entity Type</SelectLabel>
+            <SelectLabel>Record</SelectLabel>
             {ENTITY_TYPE_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
@@ -160,12 +165,12 @@ export function ActivityFeedFilters({
           onChange(next);
         }}
       >
-        <SelectTrigger className="w-[240px]">
-          <SelectValue placeholder="Event Type" />
+        <SelectTrigger aria-label="Event" className={cn(BAND_SELECT, "w-[230px] max-w-full")}>
+          <SelectValue placeholder="Event" />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectLabel>Event Type</SelectLabel>
+            <SelectLabel>Event</SelectLabel>
             {EVENT_TYPE_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
@@ -188,13 +193,13 @@ export function ActivityFeedFilters({
           onChange(next);
         }}
       >
-        <SelectTrigger className="w-[200px]">
-          <SelectValue placeholder="Actor" />
+        <SelectTrigger aria-label="Who" className={cn(BAND_SELECT, "w-[200px] max-w-full")}>
+          <SelectValue placeholder="Who" />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectLabel>Actor</SelectLabel>
-            <SelectItem value="__all__">All</SelectItem>
+            <SelectLabel>Who</SelectLabel>
+            <SelectItem value="__all__">Everyone</SelectItem>
             {actorBreakdown.filter((actor) => actor.actorUserId !== "removed").map((actor) => (
               <SelectItem key={actor.actorUserId} value={actor.actorUserId}>
                 <div className="flex min-w-0 items-center justify-between gap-3">
@@ -237,16 +242,13 @@ export function ActivityFeedFilters({
               onChange(next);
             }}
           />
+          <span className="text-[13px] text-board-muted">
+            <HelpTip tip="The program and payment type filters match payment events only. Pick a program or type to see just those payments.">
+              Payments only
+            </HelpTip>
+          </span>
         </>
       ) : null}
-    </div>
-      {showPaymentFilters ? (
-        <p className="text-xs text-muted-foreground">
-          Payment Program and Payment Type filters apply only to payment events
-          (payment.*, customer.paid, deal.*). Narrow to the Payment entity or
-          a payment event type above to see richer payment-specific columns.
-        </p>
-      ) : null}
-    </div>
+    </>
   );
 }

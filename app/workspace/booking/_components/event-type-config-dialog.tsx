@@ -1,35 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormMessage,
-  FormDescription,
-} from "@/components/ui/form";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { PaymentLinkEditor } from "./payment-link-editor";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Select,
   SelectContent,
@@ -42,6 +23,17 @@ import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG_WIDE,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  SubmitError,
+} from "@/app/workspace/_components/action-dialog";
 
 // Sentinel value for "no selection" in Select components
 // (Radix Select doesn't support empty string as a value)
@@ -154,6 +146,7 @@ export function EventTypeConfigDialog({
   config,
   onSuccess,
 }: EventTypeConfigDialogProps) {
+  const ids = useId();
   const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>(
     config.paymentLinks || [],
   );
@@ -174,11 +167,20 @@ export function EventTypeConfigDialog({
     defaultValues: defaultsFromConfig(config),
   });
 
+  // Each time the dialog opens, or the config changes while open, start over
+  // from the saved links with no error.
+  const [synced, setSynced] = useState({ open, config });
+  if (synced.open !== open || synced.config !== config) {
+    setSynced({ open, config });
+    if (open) {
+      setPaymentLinks(config.paymentLinks || []);
+      setSubmitError(null);
+    }
+  }
+
   useEffect(() => {
     if (open) {
       form.reset(defaultsFromConfig(config));
-      setPaymentLinks(config.paymentLinks || []);
-      setSubmitError(null);
     }
   }, [config, form, open]);
 
@@ -265,286 +267,261 @@ export function EventTypeConfigDialog({
   };
 
   const isSubmitting = form.formState.isSubmitting;
-  const watchSocialField = form.watch("socialHandleField");
+  const watchSocialField = useWatch({ control: form.control, name: "socialHandleField" });
   const isSocialFieldSelected =
     watchSocialField && watchSocialField !== NONE_VALUE;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] grid-cols-1 overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Edit Event Type</DialogTitle>
-          <DialogDescription>
-            Display, program mapping, payment links, and Calendly form field
-            mappings for <strong>{config.displayName}</strong>.
-          </DialogDescription>
-        </DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isSubmitting) onOpenChange(next);
+      }}
+    >
+      <DialogContent className={ACTION_DIALOG_WIDE} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={`Edit ${config.displayName}`}
+          description="Its name, booked program, payment links and form field mappings."
+        />
 
-        {submitError && (
-          <Alert variant="destructive">
-            <AlertDescription>{submitError}</AlertDescription>
-          </Alert>
-        )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+          <SubmitError>{submitError}</SubmitError>
+          <FormRows>
+            <Controller
+              control={form.control}
+              name="displayName"
+              render={({ field, fieldState }) => (
+                <FormRow label="Display name" htmlFor={`${ids}-name`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-name`}
+                    autoComplete="off"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
+              )}
+            />
 
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="flex flex-col gap-6"
-          >
-            <section className="flex flex-col gap-4">
-              <h3 className="text-sm font-semibold">General</h3>
+            <Controller
+              control={form.control}
+              name="bookingProgramId"
+              render={({ field, fieldState }) => (
+                <FormRow label="Booked program" htmlFor={`${ids}-program`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={isSubmitting || programs === undefined}
+                  >
+                    <SelectTrigger id={`${ids}-program`} aria-invalid={fieldState.invalid} className={SELECT_TRIGGER_CLASS}>
+                      <SelectValue placeholder="Select booked program" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value={NONE_VALUE}>Unmapped</SelectItem>
+                        {programs?.map((program) => (
+                          <SelectItem key={program._id} value={program._id}>
+                            {program.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormRow>
+              )}
+            />
 
-              <FormField
-                control={form.control}
-                name="displayName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Display Name</FormLabel>
-                    <FormControl>
-                      <Input {...field} disabled={isSubmitting} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <Controller
+              control={form.control}
+              name="bookingBaseUrl"
+              render={({ field, fieldState }) => (
+                <FormRow label="Booking base URL" htmlFor={`${ids}-url`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-url`}
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="https://calendly.com/..."
+                    className="text-[13px]"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
+              )}
+            />
 
-              <FormField
-                control={form.control}
-                name="bookingProgramId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Booked Program</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isSubmitting || programs === undefined}
+            <Controller
+              control={form.control}
+              name="isExtended"
+              render={({ field, fieldState }) => (
+                <FormRow
+                  label="Standard scheduling"
+                  htmlFor={`${ids}-extended`}
+                  invalid={fieldState.invalid}
+                  error={fieldState.error}
+                  description="Turn on when this event type books further in advance. Leave off for Priority event types."
+                >
+                  <div className="flex min-h-8 items-center">
+                    <Switch
+                      id={`${ids}-extended`}
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                </FormRow>
+              )}
+            />
+
+            <SectionTitle>Payment links</SectionTitle>
+            <div className="px-4 py-3">
+              <PaymentLinkEditor links={paymentLinks} onChange={setPaymentLinks} disabled={isSubmitting} />
+            </div>
+
+            <SectionTitle
+              meta={
+                mappingsAvailable ? (
+                  <>
+                    {config.bookingCount !== undefined
+                      ? `${config.bookingCount} booking${config.bookingCount === 1 ? "" : "s"} · `
+                      : null}
+                    {fieldCount} form field{fieldCount === 1 ? "" : "s"} found
+                  </>
+                ) : null
+              }
+            >
+              Form field mappings
+            </SectionTitle>
+            {mappingsAvailable ? (
+              <>
+                <Controller
+                  control={form.control}
+                  name="socialHandleField"
+                  render={({ field, fieldState }) => (
+                    <FormRow
+                      label="Social handle"
+                      htmlFor={`${ids}-social`}
+                      invalid={fieldState.invalid}
+                      error={fieldState.error}
+                      description="The form question that asks for the lead's social handle."
                     >
-                      <FormControl>
-                        <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-                          <SelectValue placeholder="Select booked program" />
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={isSubmitting}
+                      >
+                        <SelectTrigger id={`${ids}-social`} aria-invalid={fieldState.invalid} className={SELECT_TRIGGER_CLASS}>
+                          <SelectValue placeholder="Select a form field..." />
                         </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectGroup>
-                          <SelectItem value={NONE_VALUE}>Unmapped</SelectItem>
-                          {programs?.map((program) => (
-                            <SelectItem key={program._id} value={program._id}>
-                              {program.name}
+                        <SelectContent
+                          position="popper"
+                          className={FORM_FIELD_SELECT_CONTENT_CLASS}
+                        >
+                          <SelectItem value={NONE_VALUE}>(none)</SelectItem>
+                          {knownKeys.map((key) => (
+                            <SelectItem key={key} value={key}>
+                              {key}
                             </SelectItem>
                           ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="bookingBaseUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Booking Base URL</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        disabled={isSubmitting}
-                        placeholder="https://calendly.com/..."
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="isExtended"
-                render={({ field }) => (
-                  <FormItem>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0 space-y-1">
-                        <FormLabel>Standard scheduling</FormLabel>
-                        <FormDescription>
-                          Enable when this event type books further in advance.
-                          Leave off for Priority event types.
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          disabled={isSubmitting}
-                          aria-label="Standard scheduling event type"
-                        />
-                      </FormControl>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </section>
-
-            <Separator />
-
-            <section className="flex flex-col gap-3">
-              <h3 className="text-sm font-semibold">Payment Links</h3>
-              <PaymentLinkEditor links={paymentLinks} onChange={setPaymentLinks} />
-            </section>
-
-            <Separator />
-
-            <section className="flex flex-col gap-4">
-              <div>
-                <h3 className="text-sm font-semibold">Field Mappings</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {mappingsAvailable ? (
-                    <>
-                      Map Calendly form questions to CRM identity fields.{" "}
-                      {config.bookingCount !== undefined
-                        ? `${config.bookingCount} booking${config.bookingCount === 1 ? "" : "s"} · `
-                        : null}
-                      {fieldCount} form field{fieldCount === 1 ? "" : "s"}{" "}
-                      discovered.
-                    </>
-                  ) : (
-                    "Form fields appear after the first booking syncs for this event type."
+                        </SelectContent>
+                      </Select>
+                    </FormRow>
                   )}
-                </p>
-              </div>
+                />
 
-              {mappingsAvailable ? (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="socialHandleField"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Social Handle Field</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={isSubmitting}
+                <Controller
+                  control={form.control}
+                  name="socialHandleType"
+                  render={({ field, fieldState }) => (
+                    <FormRow
+                      label="Platform"
+                      htmlFor={`${ids}-platform`}
+                      invalid={fieldState.invalid}
+                      error={fieldState.error}
+                      description="The platform that handle belongs to."
+                    >
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={isSubmitting || !isSocialFieldSelected}
+                      >
+                        <SelectTrigger id={`${ids}-platform`} aria-invalid={fieldState.invalid} className={SELECT_TRIGGER_CLASS}>
+                          <SelectValue placeholder="Select platform..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NONE_VALUE}>(none)</SelectItem>
+                          {SOCIAL_PLATFORMS.map((p) => (
+                            <SelectItem key={p.value} value={p.value}>
+                              {p.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormRow>
+                  )}
+                />
+
+                <Controller
+                  control={form.control}
+                  name="phoneField"
+                  render={({ field, fieldState }) => (
+                    <FormRow
+                      label="Phone"
+                      htmlFor={`${ids}-phone`}
+                      invalid={fieldState.invalid}
+                      error={fieldState.error}
+                      description="Only when the phone number comes from a custom question instead of Calendly's own phone field."
+                    >
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={isSubmitting}
+                      >
+                        <SelectTrigger id={`${ids}-phone`} aria-invalid={fieldState.invalid} className={SELECT_TRIGGER_CLASS}>
+                          <SelectValue placeholder="Select a form field..." />
+                        </SelectTrigger>
+                        <SelectContent
+                          position="popper"
+                          className={FORM_FIELD_SELECT_CONTENT_CLASS}
                         >
-                          <FormControl>
-                            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-                              <SelectValue placeholder="Select a form field..." />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent
-                            position="popper"
-                            className={FORM_FIELD_SELECT_CONTENT_CLASS}
-                          >
-                            <SelectItem value={NONE_VALUE}>(none)</SelectItem>
-                            {knownKeys.map((key) => (
-                              <SelectItem key={key} value={key}>
-                                {key}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Which form question asks for the lead&apos;s social
-                          media handle?
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                          <SelectItem value={NONE_VALUE}>(none)</SelectItem>
+                          {knownKeys.map((key) => (
+                            <SelectItem key={key} value={key}>
+                              {key}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormRow>
+                  )}
+                />
+              </>
+            ) : (
+              <p className="px-4 py-3 text-[13px] leading-[1.45] text-muted-foreground">
+                Form fields appear after the first booking syncs for this event type.
+              </p>
+            )}
+          </FormRows>
 
-                  <FormField
-                    control={form.control}
-                    name="socialHandleType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Social Platform</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={isSubmitting || !isSocialFieldSelected}
-                        >
-                          <FormControl>
-                            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-                              <SelectValue placeholder="Select platform..." />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value={NONE_VALUE}>(none)</SelectItem>
-                            {SOCIAL_PLATFORMS.map((p) => (
-                              <SelectItem key={p.value} value={p.value}>
-                                {p.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Which social media platform does this handle belong
-                          to?
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="phoneField"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Phone Field (Override)</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={isSubmitting}
-                        >
-                          <FormControl>
-                            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-                              <SelectValue placeholder="Select a form field..." />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent
-                            position="popper"
-                            className={FORM_FIELD_SELECT_CONTENT_CLASS}
-                          >
-                            <SelectItem value={NONE_VALUE}>(none)</SelectItem>
-                            {knownKeys.map((key) => (
-                              <SelectItem key={key} value={key}>
-                                {key}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Override if the lead&apos;s phone number is captured
-                          in a custom form field instead of Calendly&apos;s
-                          built-in phone field.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              ) : null}
-            </section>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting && <Spinner className="mr-2 size-4" />}
-                {isSubmitting ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </form>
-        </Form>
+          <ActionDialogFooter>
+            <CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+            <SubmitButton pending={isSubmitting} pendingLabel="Saving…">
+              Save event type
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A 44px section title inside the ruled rows, with optional slate meta on the right. */
+function SectionTitle({ children, meta }: { children: ReactNode; meta?: ReactNode }) {
+  return (
+    <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-4 py-2">
+      <h3 className="text-[15px] font-semibold">{children}</h3>
+      {meta ? <p className="text-[13px] text-muted-foreground tabular-nums">{meta}</p> : null}
+    </div>
   );
 }

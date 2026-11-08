@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { mergeQualificationsDashboard } from "@/convex/analytics/merge/operations";
-import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
 import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
 import { cn } from "@/lib/utils";
 import { useBusinessDay } from "@/hooks/use-business-day";
@@ -92,6 +92,9 @@ export function QualificationsPageClient() {
   // need no snapshot job. Until then ranges over 7 days use the snapshot
   // (docs/agents/reporting.md).
   const todayBusinessDate = businessDateForInstant(now, setting);
+  // The queries get the range's dates, not its preset, so they run again when
+  // the business day changes (resolveDashboardRange).
+  const liveRange = useMemo(() => resolveDashboardRange(queryRange, todayBusinessDate), [queryRange, todayBusinessDate]);
   const plan = dashboardRangePlan(queryRange, todayBusinessDate);
   const source = useAnalyticsSource("qualifications", plan);
   const report = useAnalyticsReport({
@@ -101,7 +104,7 @@ export function QualificationsPageClient() {
     live: api.operations.qualificationsDashboard.getQualificationsDashboard,
     merge: mergeQualificationsDashboard,
     todayArgs: { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
-    liveArgs: source !== "warehouse" && requiresSnapshot ? "skip" : { range: queryRange },
+    liveArgs: source !== "warehouse" && requiresSnapshot ? "skip" : { range: liveRange },
   });
   const dashboard = report.data;
   const needsSnapshot = source === "live" && (requiresSnapshot || dashboard?.capped === true);

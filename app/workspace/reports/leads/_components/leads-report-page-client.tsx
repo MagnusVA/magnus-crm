@@ -1,62 +1,46 @@
 "use client";
 
-import { useState } from "react";
-import { addDays, startOfDay } from "date-fns";
+import { useMemo, useState } from "react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
 import {
   mergeAnswerDistribution,
   mergeFormResponseKpis,
   mergeLeadConversionMetrics,
 } from "@/convex/analytics/merge/leads";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
-import {
-  ReportDateControls,
-  type DateRange,
-} from "../../_components/report-date-controls";
-import { AvgMeetingsPerSaleCard } from "./avg-meetings-per-sale-card";
-import { AvgTimeToConversionCard } from "./avg-time-to-conversion-card";
-import { ConversionKpiCards } from "./conversion-kpi-cards";
+import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
+import { REPORT_PAGE, REPORT_PAIR, ReportBand } from "../../_components/report-ui";
+import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { ConversionByCloserTable } from "./conversion-by-closer-table";
-import { FormResponseRateCard } from "./form-response-rate-card";
 import { FormResponseAnalyticsSection } from "./form-response-analytics-section";
-import { LeadsReportSkeleton } from "./leads-report-skeleton";
+import { LeadsFigures } from "./leads-figures";
 import { TopAnswerPerFieldList } from "./top-answer-per-field-list";
 
-function getDefaultDateRange(): DateRange {
-  const now = new Date();
-  return {
-    startDate: startOfDay(now).getTime(),
-    endDate: startOfDay(addDays(now, 1)).getTime(),
-  };
-}
+// Leads & Conversions: the band's six figures, then conversions by closer
+// beside each form field's top answer, and one field's answers in full.
 
 export function LeadsReportPageClient() {
   usePageTitle("Leads & Conversions");
-
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const range = useReportRange();
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
 
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse once the page is switched
   // (docs/agents/reporting.md).
   const now = useNow();
-  const plan = reportRangePlan(dateRange, now);
-  const todayWindow = reportWindowFromToday(dateRange, now);
-  const rangeArgs = {
-    startDate: dateRange.startDate,
-    endDate: dateRange.endDate,
-  };
+  const { plan, todayWindow, loaded } = range;
+  const rangeArgs = range.window;
   const metricsReport = useAnalyticsReport({
     page: "leads",
     reportId: "leads.conversion_metrics",
     plan,
     live: api.reporting.leadConversion.getLeadConversionMetrics,
-    liveArgs: rangeArgs,
-    todayArgs: todayWindow,
+    liveArgs: loaded ? rangeArgs : "skip",
+    todayArgs: loaded ? todayWindow : "skip",
     merge: mergeLeadConversionMetrics,
   });
   const formKpisReport = useAnalyticsReport({
@@ -64,8 +48,8 @@ export function LeadsReportPageClient() {
     reportId: "leads.form_kpis",
     plan,
     live: api.reporting.formResponseAnalytics.getFormResponseKpis,
-    liveArgs: rangeArgs,
-    todayArgs: todayWindow,
+    liveArgs: loaded ? rangeArgs : "skip",
+    todayArgs: loaded ? todayWindow : "skip",
     merge: mergeFormResponseKpis,
   });
   const distributionReport = useAnalyticsReport({
@@ -74,86 +58,80 @@ export function LeadsReportPageClient() {
     plan,
     filters: { fieldKey: selectedFieldKey },
     live: api.reporting.formResponseAnalytics.getAnswerDistribution,
-    liveArgs: selectedFieldKey
+    liveArgs: loaded && selectedFieldKey
       ? { fieldKey: selectedFieldKey, ...rangeArgs }
       : "skip",
-    todayArgs: selectedFieldKey
+    todayArgs: loaded && selectedFieldKey
       ? { fieldKey: selectedFieldKey, ...todayWindow }
       : "skip",
     merge: mergeAnswerDistribution,
   });
-  const metrics = metricsReport.data;
-  const formKpis = formKpisReport.data;
-  const freshness = [
-    metricsReport.freshness,
-    formKpisReport.freshness,
-    ...(selectedFieldKey ? [distributionReport.freshness] : []),
-  ];
+  const catalog = useQuery(api.reporting.formResponseAnalytics.getFieldCatalog);
+  const fieldLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const field of catalog ?? []) if (!labels.has(field.fieldKey)) labels.set(field.fieldKey, field.currentLabel);
+    return labels;
+  }, [catalog]);
 
-  const isLoading = metrics === undefined || formKpis === undefined;
+  const freshness = freshnessSummary(
+    [metricsReport.freshness, formKpisReport.freshness, ...(selectedFieldKey ? [distributionReport.freshness] : [])],
+    now,
+  );
+
+  // A new range keeps the last numbers on screen, dimmed, with the range
+  // phrase they were loaded for (DESIGN.md, Kept Data While Reloading).
+  const phrase = range.phrase;
+  const metrics = useKeptWhileLoading(metricsReport.data, phrase);
+  const formKpis = useKeptWhileLoading(formKpisReport.data, phrase);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Leads & Conversions
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Lead-to-customer conversion tracking and booking form insights
-        </p>
+    <div className={REPORT_PAGE}>
+      <ReportBand
+        title="Leads & Conversions"
+        range={range.words}
+        freshness={metricsReport.data !== undefined && formKpisReport.data !== undefined ? freshness : null}
+        dayLine={range.dayLine}
+        actions={
+          <ReportRangePicker
+            range={range}
+            // The form section reloaded with a new range and lost its field.
+            onChange={() => setSelectedFieldKey(null)}
+          />
+        }
+        figures={
+          <LeadsFigures
+            metrics={metrics.data}
+            formKpis={formKpis.data}
+            rangePhrase={metrics.phrase}
+            reloading={metrics.reloading || formKpis.reloading}
+          />
+        }
+      />
+      <ReportRangeMessage range={range} />
+      <AnalyticsFreshnessAlert summary={freshness} />
+
+      <div className={REPORT_PAIR}>
+        <ConversionByCloserTable
+          byCloser={metrics.data?.byCloser}
+          totalConversions={metrics.data?.totalConversions}
+          rangePhrase={metrics.phrase}
+          reloading={metrics.reloading}
+        />
+        <TopAnswerPerFieldList
+          rows={formKpis.data?.topAnswerPerField}
+          fieldLabels={fieldLabels}
+          rangePhrase={formKpis.phrase}
+          reloading={formKpis.reloading}
+        />
       </div>
 
-      <ReportDateControls
-        value={dateRange}
-        onChange={(next) => {
-          setDateRange(next);
-          // The form section reloaded with a new range and lost its field.
-          setSelectedFieldKey(null);
-        }}
+      <FormResponseAnalyticsSection
+        catalog={catalog}
+        selectedFieldKey={selectedFieldKey}
+        onSelectedFieldKeyChange={setSelectedFieldKey}
+        distribution={distributionReport.data}
+        rangePhrase={phrase}
       />
-      <AnalyticsFreshnessLine items={freshness} />
-
-      {isLoading ? (
-        <LeadsReportSkeleton />
-      ) : (
-        <>
-          <ConversionKpiCards
-            newLeads={metrics.newLeads}
-            totalConversions={metrics.totalConversions}
-            conversionRate={metrics.conversionRate}
-          />
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <AvgMeetingsPerSaleCard
-              avg={metrics.avgMeetingsPerSale}
-              numerator={metrics.meetingsPerSaleNumerator}
-              denominator={metrics.meetingsPerSaleDenominator}
-            />
-            <AvgTimeToConversionCard
-              avgMs={metrics.avgTimeToConversionMs}
-              sampleCount={metrics.timeToConversionSampleCount}
-            />
-            <FormResponseRateCard
-              rate={formKpis.formResponseRate}
-              numerator={formKpis.respondedMeetingsCount}
-              denominator={formKpis.totalMeetings}
-            />
-          </div>
-
-          <ConversionByCloserTable
-            byCloser={metrics.byCloser}
-            totalConversions={metrics.totalConversions}
-          />
-
-          <TopAnswerPerFieldList rows={formKpis.topAnswerPerField} />
-
-          <FormResponseAnalyticsSection
-            selectedFieldKey={selectedFieldKey}
-            onSelectedFieldKeyChange={setSelectedFieldKey}
-            distribution={distributionReport.data}
-          />
-        </>
-      )}
     </div>
   );
 }

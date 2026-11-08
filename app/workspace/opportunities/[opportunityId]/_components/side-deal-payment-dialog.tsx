@@ -2,66 +2,31 @@
 
 import { useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { useMutation } from "convex/react";
-import { BanknoteIcon, UploadIcon } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { BanknoteIcon } from "lucide-react";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { useForm } from "react-hook-form";
+import { FormProvider, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getErrorMessage } from "@/lib/errors";
+import { ACTION_DIALOG, ActionDialogHeader } from "@/app/workspace/_components/action-dialog";
+import {
+  CURRENCIES,
+  MAX_PROOF_FILE_SIZE,
+  PAYMENT_TYPES,
+  PROOF_FILE_TYPES,
+  PaymentConfirmStep,
+  PaymentFormStep,
+  formatPaymentAmount,
+  useConfirmStep,
+} from "@/app/workspace/_components/payment-dialog-form";
 import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
 import { useProofRequired } from "@/hooks/use-proof-required";
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const VALID_FILE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "application/pdf",
-];
-const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
-const PAYMENT_TYPES = ["monthly", "split", "pif", "deposit"] as const;
-const PAYMENT_TYPE_LABELS: Record<(typeof PAYMENT_TYPES)[number], string> = {
-  monthly: "Monthly",
-  split: "Split",
-  pif: "Paid in Full",
-  deposit: "Deposit",
-};
 
 const paymentSchema = z.object({
   amount: z
@@ -80,22 +45,30 @@ const paymentSchema = z.object({
     .instanceof(File)
     .optional()
     .refine(
-      (file) => !file || file.size <= MAX_FILE_SIZE,
+      (file) => !file || file.size <= MAX_PROOF_FILE_SIZE,
       "File size must be less than 10 MB",
     )
     .refine(
-      (file) => !file || VALID_FILE_TYPES.includes(file.type),
+      (file) => !file || PROOF_FILE_TYPES.includes(file.type),
       "Only images (JPEG, PNG, GIF) and PDFs are allowed",
     ),
 });
 
 type PaymentValues = z.infer<typeof paymentSchema>;
 
+/**
+ * The side deal's payment, from the deal modal. The form validates, then a
+ * confirm step records it with `sideDeals.logPayment`, which closes the side
+ * deal as won.
+ */
 export function SideDealPaymentDialog({
   opportunityId,
+  leadName,
   variant = "default",
 }: {
   opportunityId: Id<"opportunities">;
+  /** Named in the title so the payment lands on the right person's deal. */
+  leadName?: string | null;
   /**
    * Lime ("default") when recording the payment is the deal's one next
    * action; "outline" when another lime button sits beside it.
@@ -104,11 +77,17 @@ export function SideDealPaymentDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Closers must attach proof; the mutation refuses a payment without it.
-  const proofRequired = useProofRequired();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Closers must attach proof; the payment mutations refuse a payment without it.
+  const proofRequired = useProofRequired();
+  const [confirming, setConfirming] = useConfirmStep<PaymentValues>(open);
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.sideDeals.logPayment.logPayment);
+  // The confirm step names the chosen program; ProgramSelect reads the same list.
+  const programs = useQuery(
+    api.tenantPrograms.queries.listPrograms,
+    open ? { includeArchived: false } : "skip",
+  );
 
   const form = useForm({
     resolver: standardSchemaResolver(paymentSchema),
@@ -122,10 +101,6 @@ export function SideDealPaymentDialog({
   });
 
   const onSubmit = async (values: PaymentValues) => {
-    if (proofRequired && !values.proofFile) {
-      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
-      return;
-    }
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -182,6 +157,12 @@ export function SideDealPaymentDialog({
     }
   };
 
+  const firstName = leadName?.trim().split(/\s+/)[0] || "the lead";
+  const programName = confirming
+    ? (programs?.find((program) => program._id === confirming.programId)?.name ?? null)
+    : null;
+  const amountLabel = confirming ? formatPaymentAmount(confirming.amount, confirming.currency) : "";
+
   return (
     <Dialog
       open={open}
@@ -202,207 +183,64 @@ export function SideDealPaymentDialog({
         </Button>
       </DialogTrigger>
       {open ? (
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Record the side-deal payment</DialogTitle>
-            <DialogDescription>
-              The payment is logged and the side deal closes as won.
-            </DialogDescription>
-          </DialogHeader>
-
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <FieldGroup>
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Amount <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          step="0.01"
-                          min="0"
-                          placeholder="299.99"
-                          autoComplete="off"
-                          disabled={isSubmitting}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="currency"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Currency <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        disabled={isSubmitting}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {CURRENCIES.map((currency) => (
-                              <SelectItem key={currency} value={currency}>
-                                {currency}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="programId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Program <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <ProgramSelect
-                          value={field.value || undefined}
-                          onChange={field.onChange}
-                          disabled={isSubmitting}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Attribute this payment to the correct tenant program.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="paymentType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Payment type{" "}
-                        <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        disabled={isSubmitting}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select payment type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {PAYMENT_TYPES.map((paymentType) => (
-                              <SelectItem key={paymentType} value={paymentType}>
-                                {PAYMENT_TYPE_LABELS[paymentType]}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Choose how the revenue should be classified.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="proofFile"
-                  render={({ field: { value, onChange, ...fieldProps } }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Proof file{" "}
-                        {proofRequired ? <span className="text-destructive">*</span> : null}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="file"
-                          accept="image/jpeg,image/png,image/gif,application/pdf"
-                          disabled={isSubmitting}
-                          onChange={(event) => {
-                            onChange(event.target.files?.[0]);
-                          }}
-                          {...fieldProps}
-                        />
-                      </FormControl>
-                      {value ? (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <UploadIcon
-                            aria-hidden="true"
-                            className="size-3 shrink-0"
-                          />
-                          <span className="truncate">
-                            {value.name} ({(value.size / 1024).toFixed(1)} KB)
-                          </span>
-                        </div>
-                      ) : null}
-                      <FormDescription>
-                        Max 10 MB. Allowed: PNG, JPEG, GIF, PDF.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </FieldGroup>
-
-              {submitError ? (
-                <Alert variant="destructive" className="mt-4">
-                  <AlertDescription>{submitError}</AlertDescription>
-                </Alert>
-              ) : null}
-
-              <DialogFooter className="mt-5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
+        <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+          {confirming ? (
+            <>
+              <ActionDialogHeader
+                title={
+                  leadName
+                    ? `Record ${amountLabel} on ${leadName}’s side deal?`
+                    : `Record ${amountLabel} on this side deal?`
+                }
+                description="Check the payment before you record it."
+              />
+              <PaymentConfirmStep
+                amount={confirming.amount}
+                currency={confirming.currency}
+                programName={programName}
+                paymentType={confirming.paymentType}
+                proofFile={confirming.proofFile}
+                steps={[
+                  "Adds the payment to Billing’s Needs review, credited to the deal’s closer.",
+                  "Closes the side deal as won.",
+                  programName ? `Makes ${firstName} a customer of ${programName}.` : `Makes ${firstName} a customer.`,
+                ]}
+                submitError={submitError}
+                pending={isSubmitting}
+                onBack={() => {
+                  setSubmitError(null);
+                  setConfirming(null);
+                }}
+                onConfirm={() => void onSubmit(confirming)}
+              />
+            </>
+          ) : (
+            <>
+              <ActionDialogHeader
+                title={leadName ? `Record the payment for ${leadName}’s side deal` : "Record the side-deal payment"}
+                description="The payment is logged and the side deal closes as won."
+              />
+              <FormProvider {...form}>
+                <PaymentFormStep
+                  onSubmit={form.handleSubmit((values) => {
+                    if (proofRequired && !values.proofFile) {
+                      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+                      return;
+                    }
+                    setSubmitError(null);
+                    setConfirming(values);
+                  })}
+                  onCancel={() => {
                     setOpen(false);
                     form.reset();
                     setSubmitError(null);
                   }}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Spinner data-icon="inline-start" />
-                      Recording…
-                    </>
-                  ) : (
-                    "Record payment"
-                  )}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+                  program={{ kind: "choose", description: "The program this payment is for." }}
+                  proofRequired={proofRequired}
+                />
+              </FormProvider>
+            </>
+          )}
         </DialogContent>
       ) : null}
     </Dialog>

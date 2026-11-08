@@ -18,6 +18,9 @@ import {
 } from "../lib/respark/people";
 import { batchValidator, panelValidator } from "../lib/respark/queryValidators";
 
+// A card looks for a time zone in at most this many of the newest deal's calls.
+const CARD_CALL_LIMIT = 3;
+
 /**
  * A lead generator whose lead gen access was turned off can't read their
  * batch, as the actions can't work it. Admins work through a worker profile
@@ -31,6 +34,25 @@ async function requireActiveLeadGenWorker(ctx: QueryCtx, access: TenantUserResul
     throw expectedError("lead_gen.inactive_worker", "Lead Gen Ops access is not active for this user");
   }
   return worker;
+}
+
+/**
+ * The card's time zone, from the person's newest booking that still has its
+ * stored payload. Its reads get their own budget, so a batch of retained
+ * payloads can't crowd out the other cards' history.
+ */
+async function cardTimeZone(ctx: QueryCtx, person: Doc<"leads">, opportunityId: Id<"opportunities"> | undefined) {
+  if (!opportunityId) return null;
+  const state = createLiveReadState();
+  const calls = await readPersonRows(ctx.db.query("meetings")
+    .withIndex("by_opportunityId_and_scheduledAt", (q) => q.eq("opportunityId", opportunityId))
+    .order("desc"), CARD_CALL_LIMIT, state);
+  for (const call of calls.rows) {
+    if (call.tenantId !== person.tenantId) continue;
+    const zone = await bookingTimeZone(ctx, call, state);
+    if (zone) return maskContactText(zone, [person]);
+  }
+  return null;
 }
 
 export const getMyResparkBatch = query({
@@ -56,9 +78,12 @@ export const getMyResparkBatch = query({
       if (item.tenantId !== tenantId || item.userId !== userId) throw new Error("Respark item ownership mismatch");
       const lead = await ctx.db.get("leads", item.leadId);
       const person = lead?.tenantId === tenantId ? lead : null;
+      const base = person ? await personCard(ctx, person, state) : null;
+      const card = person && base
+        ? { ...base, timeZone: await cardTimeZone(ctx, person, base.newestDeal?.opportunityId) } : null;
       cards.push({ itemId: item._id, position: item.position, bucket: item.bucket,
         result: item.result ?? null, workedAt: item.workedAt ?? null,
-        person: person ? await personCard(ctx, person, state) : null,
+        person: card,
         blockedReason: (await leftPoolReason(ctx, person)) ??
           (person?.resparkTeamId === teamId ? null : "This person is now in another team's pool.") });
     }

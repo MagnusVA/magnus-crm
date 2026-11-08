@@ -1,41 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { Trash2Icon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  SubmitError,
+} from "@/app/workspace/_components/action-dialog";
 
 const deleteOpportunitySchema = z.object({
   reason: z
@@ -47,17 +38,79 @@ const deleteOpportunitySchema = z.object({
 
 type DeleteOpportunityValues = z.infer<typeof deleteOpportunitySchema>;
 
+/**
+ * Deletes an empty side deal for good (`sideDeals.deleteEmptyOpportunity`).
+ * The deal modal shows it only while the deal has no payment, call or task.
+ */
 export function DeleteOpportunityDialog({
   opportunityId,
   onDeleted,
+  leadName,
 }: {
   opportunityId: Id<"opportunities">;
   /** Runs after the delete, such as closing the deal modal; else the page leaves for the deals list. */
   onDeleted?: () => void;
+  /** Named in the title so the reader knows whose deal goes. */
+  leadName?: string | null;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (!isSubmitting) setOpen(value);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Trash2Icon aria-hidden="true" data-icon="inline-start" />
+          Delete
+        </Button>
+      </DialogTrigger>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={
+            leadName ? (
+              <>
+                Delete <span translate="no">{leadName}</span>&rsquo;s side deal?
+              </>
+            ) : (
+              "Delete this side deal?"
+            )
+          }
+          description={"The empty side deal is removed for good. This can’t be undone."}
+          tone="danger"
+        />
+        {/* Inside the content, so the reason and any error clear each time the dialog opens. */}
+        <DeleteOpportunityForm
+          opportunityId={opportunityId}
+          onDeleted={onDeleted}
+          isSubmitting={isSubmitting}
+          setIsSubmitting={setIsSubmitting}
+          setOpen={setOpen}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteOpportunityForm({
+  opportunityId,
+  onDeleted,
+  isSubmitting,
+  setIsSubmitting,
+  setOpen,
+}: {
+  opportunityId: Id<"opportunities">;
+  onDeleted?: () => void;
+  isSubmitting: boolean;
+  setIsSubmitting: (submitting: boolean) => void;
+  setOpen: (open: boolean) => void;
+}) {
+  const router = useRouter();
+  const reasonId = useId();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const deleteOpportunity = useMutation(
     api.sideDeals.deleteEmptyOpportunity.deleteEmptyOpportunity,
@@ -98,94 +151,40 @@ export function DeleteOpportunityDialog({
   };
 
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!isSubmitting) {
-          setOpen(value);
-          if (!value) {
-            form.reset();
-            setSubmitError(null);
-          }
-        }
-      }}
-    >
-      <AlertDialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Trash2Icon aria-hidden="true" data-icon="inline-start" />
-          Delete
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
-              <Trash2Icon className="size-4 text-danger-ink" aria-hidden="true" />
-            </div>
-            <div className="flex-1">
-              <AlertDialogTitle>Delete this side deal?</AlertDialogTitle>
-              <AlertDialogDescription>
-                The empty side deal is removed for good. Once it has a payment,
-                a call or a task, mark it lost instead.
-              </AlertDialogDescription>
-            </div>
-          </div>
-        </AlertDialogHeader>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-            <FormField
-              control={form.control}
-              name="reason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Reason (optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={3}
-                      className="resize-none"
-                      placeholder="Created by mistake…"
-                      autoComplete="off"
-                      disabled={isSubmitting}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            </FieldGroup>
-
-            {submitError ? (
-              <Alert variant="destructive" className="mt-4">
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <AlertDialogFooter className="mt-4">
-              <AlertDialogCancel disabled={isSubmitting}>
-                Cancel
-              </AlertDialogCancel>
-              <Button
-                type="submit"
-                variant="destructive"
-                className="text-danger-ink"
+    <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+      <SubmitError>{submitError}</SubmitError>
+      <FormRows>
+        <Controller
+          control={form.control}
+          name="reason"
+          render={({ field, fieldState }) => (
+            <FormRow
+              label="Reason"
+              htmlFor={reasonId}
+              invalid={fieldState.invalid}
+              error={fieldState.error}
+              description="Optional."
+            >
+              <Textarea
+                {...field}
+                id={reasonId}
+                aria-invalid={fieldState.invalid}
+                rows={3}
+                className="max-h-48 resize-none"
+                placeholder="Created by mistake…"
+                autoComplete="off"
                 disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Deleting…
-                  </>
-                ) : (
-                  "Delete side deal"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </Form>
-      </AlertDialogContent>
-    </AlertDialog>
+              />
+            </FormRow>
+          )}
+        />
+      </FormRows>
+      <ActionDialogFooter>
+        <CancelButton onClick={() => setOpen(false)} disabled={isSubmitting} />
+        <SubmitButton pending={isSubmitting} pendingLabel="Deleting…" danger>
+          Delete side deal
+        </SubmitButton>
+      </ActionDialogFooter>
+    </form>
   );
 }

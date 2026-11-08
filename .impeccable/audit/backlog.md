@@ -1,6 +1,6 @@
 # Redesign backlog, grouped by archetype
 
-Sources: `routes.md` (route map), `drift.md` (source drift), `.impeccable/review/inventory/` (285 screenshots), and the critique snapshots in `.impeccable/critique/` (closer dashboard 24/40, meeting detail 18/40, person detail 22/40, Sales Calls 25/40). Written 2026-10-28.
+Sources: `routes.md` (route map), `drift.md` (source drift), `.impeccable/review/inventory/` (285 screenshots), and the critique snapshots of the pages before the redesign (closer dashboard 24/40, meeting detail 18/40, person detail 22/40, Sales Calls 25/40; removed once those pages were redesigned). Written 2026-10-28.
 
 Scope: 43 live screens. The 11 redirect-only routes need no design work.
 
@@ -16,12 +16,12 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 | B4 | Opening a deal in the sheet never writes `?opportunityId=` to the URL, so Back and share don't work. | `opportunity-sheet-context.tsx:51-58` |
 | B5 | `hsl(var(--x))` wraps OKLCH tokens, which makes the colour invalid. Affected: the skeleton shimmer, a sticky table-header shadow, and the No Show chart colour. | `app/globals.css:207-209`, `event-type-config-list.tsx:216`, `meeting-outcome-distribution-chart.tsx:32` |
 | B6 | Legacy redirects drop query filters: `/pipeline` → `/opportunities` → list, and Sales Calls ignores the `status`/`closerId` it receives. | `app/workspace/pipeline/page.tsx:26-38` |
-| B7 | Merge and redistribute have no page-level guard. Convex enforces roles on the data, so this is defence in depth. | `routes.md` §6 |
-| B8 | The notification bell is a placeholder over an empty array. Either build it or remove it. | `components/notification-center.tsx:24-32` |
+| B7 | Merge and redistribute have no page-level guard. Convex enforces roles on the data, so this is defence in depth. **Fixed (Nov 2026):** `requirePermission` on both pages. | `routes.md` §6 |
+| B8 | The notification bell is a placeholder over an empty array. Either build it or remove it. **Fixed (Nov 2026):** removed. | `components/notification-center.tsx:24-32` |
 
 ## 1. Foundations (system-wide; blocks everything else)
 
-- **Status colour contract.** About 360 palette classes in 42 files bypass the tokens, and the hub is `lib/status-config.ts`. Payment statuses conflict between screens: recorded is amber in one place and blue in another, disputed is rose in one and red in another. Define one semantic status scale for deal stage, meeting attendance, payment, lead lifecycle and urgency, with light and dark values and AA contrast. Each concept gets one badge form.
+- **Status colour contract.** `lib/status-config.ts` holds labels only and the old stage badge is gone (Nov 2026); about 27 palette classes remain in four files. Payment statuses conflict between screens: recorded is amber in one place and blue in another, disputed is rose in one and red in another. Define one semantic status scale for deal stage, meeting attendance, payment, lead lifecycle and urgency, with light and dark values and AA contrast. Each concept gets one badge form.
 - **Chart palette.** All five `--chart-*` slots are yellow to brown, and the program pie repeats colours after five programs. A categorical palette is needed.
 - **Type scale.** There are 50 `h1`s ranging from `text-base` to `text-5xl`, and 96 arbitrary text sizes (9.6, 10, 11 and 13px). The 10px uppercase micro-labels appear across the detail pages. KPI numbers are set in mono.
 - **Contrast.** The muted text measures 4.14–4.44:1 on several screens, and "Mark as Lost" measures 3.97:1. Fix this at the token level.
@@ -44,7 +44,8 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 - **Tables stay inside the page.** Sales Calls renders at 1696px on a 1440px viewport (`min-w-[1080px]`), and Team Performance at 1681px. Group the columns, make the headers sortable, and let clicking a row filter the queue.
 - **Empty and quiet days.** Walls of "$0.00", "—" and "Nothing here", and empty chart axes. An empty state should say what to do next.
 - **Tooltips carry too much meaning.** There are about 20 help icons per page, and they overwrite each header's accessible name.
-- Overlap between Qualifications (ops) and Slack Qualifications (report): decide whether it's one screen or two.
+- Overlap between Qualifications (ops) and Slack Qualifications (report): decide whether it's one screen or two. Both now share the Departures Board grammar; Slack Qualifications adds the per-period trend against the goal and per-setter unique, created and duplicate counts.
+- Reports: the Revenue and Reminders readers sum payment amounts across currencies and the pages label the total in USD. Keeping each currency separate needs per-currency totals from the readers.
 
 ## 4. Record detail (7 screens)
 
@@ -63,13 +64,14 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 
 ## 6. Forms, wizards and settings (8 screens)
 
-- 21 form files still use the `FormItem` composition. Move them to `Field` and `FieldGroup`.
+- Done (Nov 2026): every form moved from `FormItem` to `Field` rows; the action dialogs share `app/workspace/_components/action-dialog.tsx`.
 - 17 select and menu files are missing their group components.
-- High-stakes dialogs (payment, lost, no-show, void, delete) share one pattern: name the record, state the consequence, review, then confirm.
+- Done (Nov 2026): high-stakes dialogs (payment, lost, no-show, void, delete) share one pattern: name the record, state the consequence, review, then confirm.
 
 ## 7. Public, onboarding and portal (6 screens)
 
 - Lower priority. The DM portal and onboarding are the first thing external people see of the brand, so they belong to the brand-forward end of the system, not the dense app end.
+- Done (Nov 2026): the landing, privacy and support pages share the `StandaloneShell` frame through `PublicShell`, as System admin and onboarding do. The DM portal is the one public screen still on its own frame.
 
 ## 8. Closer home (needs its own design brief)
 

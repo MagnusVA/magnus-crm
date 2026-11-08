@@ -1,43 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+} from "@/app/workspace/_components/action-dialog";
+import { firstName } from "./team-ui";
+import { CRM_ROLES, RoleChoices, roleLabel, type CrmRole } from "./team-dialog-parts";
 
 const roleEditSchema = z.object({
   role: z.enum(["closer", "tenant_admin", "lead_generator"]),
@@ -45,22 +32,27 @@ const roleEditSchema = z.object({
 
 type RoleEditFormValues = z.infer<typeof roleEditSchema>;
 
-type CrmRole = "tenant_admin" | "closer" | "lead_generator";
-
-const roleOptions: Array<{ value: CrmRole; label: string }> = [
-  { value: "closer", label: "Closer" },
-  { value: "lead_generator", label: "Lead Generator" },
-  { value: "tenant_admin", label: "Admin" },
-];
-
 interface RoleEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  /** Kept for callers; the title names the person. */
   userIdentity?: MemberAvatarIdentity;
   currentRole: string;
   onSuccess?: () => void;
+}
+
+/** What the chosen role changes beyond access (convex/workos/userMutations.ts `updateRole`). */
+function roleChangeNote(first: string, currentRole: string, nextRole: string) {
+  if (nextRole === currentRole) return undefined;
+  if (currentRole === "closer") {
+    return `Moving ${first} off Closer unlinks the Calendly member and clears the personal event type.`;
+  }
+  if (nextRole === "closer") {
+    return `Closers need a linked Calendly member. Link one for ${first} after this.`;
+  }
+  return undefined;
 }
 
 export function RoleEditDialog({
@@ -68,10 +60,10 @@ export function RoleEditDialog({
   onOpenChange,
   userId,
   userName,
-  userIdentity,
   currentRole,
   onSuccess,
 }: RoleEditDialogProps) {
+  const ids = useId();
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const updateRole = useAction(api.workos.userManagement.updateUserRole);
@@ -86,7 +78,7 @@ export function RoleEditDialog({
   });
 
   // Watch the role field for no-op detection (save button disable)
-  const watchedRole = form.watch("role");
+  const watchedRole = useWatch({ control: form.control, name: "role" });
 
   // Reset form when dialog opens (currentRole may have changed between opens)
   useEffect(() => {
@@ -105,7 +97,7 @@ export function RoleEditDialog({
     setIsSaving(true);
     try {
       const { previous } = await updateRole({ userId, newRole: values.role });
-      const previousRole = roleOptions.find((option) => option.value === previous.role);
+      const previousRole = CRM_ROLES.find((option) => option.value === previous.role);
       // Undo puts back the role and what a change away from closer cleared:
       // the Calendly member link and the personal event type.
       const undo = async () => {
@@ -126,7 +118,7 @@ export function RoleEditDialog({
         }
       };
       toast.success(
-        `${userName}'s role updated to ${roleOptions.find((r) => r.value === values.role)?.label}`,
+        `${userName}'s role updated to ${roleLabel(values.role)}`,
         previousRole ? { action: { label: "Undo", onClick: () => void undo() } } : undefined,
       );
       onOpenChange(false);
@@ -142,70 +134,58 @@ export function RoleEditDialog({
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Change Role</DialogTitle>
-          <DialogDescription>
-            Update the role for {userName}. Role changes take effect on their
-            next session.
-          </DialogDescription>
-        </DialogHeader>
-        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
+  const first = firstName(userName);
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FormField
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isSaving) onOpenChange(next);
+      }}
+    >
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSaving}>
+        <ActionDialogHeader
+          title={`Change ${userName}'s role`}
+          description={`The new role applies from ${first}'s next session.`}
+        />
+
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+          <FormRows>
+            <Controller
               control={form.control}
               name="role"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>New Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
+              render={({ field, fieldState }) => (
+                <FormRow
+                  label="Role"
+                  labelHidden
+                  invalid={fieldState.invalid}
+                  error={fieldState.error}
+                  description={
+                    roleChangeNote(first, currentRole, field.value) ? (
+                      <span className="text-foreground">{roleChangeNote(first, currentRole, field.value)}</span>
+                    ) : undefined
+                  }
+                >
+                  <RoleChoices
+                    id={`${ids}-role`}
                     value={field.value}
+                    onChange={field.onChange}
+                    currentRole={currentRole}
                     disabled={isSaving}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectGroup>
-                        {roleOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
+                    invalid={fieldState.invalid}
+                  />
+                </FormRow>
               )}
             />
+          </FormRows>
 
-            <div className="flex justify-end gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSaving}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSaving || watchedRole === currentRole}
-              >
-                {isSaving && <Spinner data-icon="inline-start" />}
-                {isSaving ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </form>
-        </Form>
+          <ActionDialogFooter>
+            <CancelButton onClick={() => onOpenChange(false)} disabled={isSaving} />
+            <SubmitButton pending={isSaving} pendingLabel="Saving…" disabled={watchedRole === currentRole}>
+              {watchedRole === currentRole ? "Change role" : `Change to ${roleLabel(watchedRole)}`}
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

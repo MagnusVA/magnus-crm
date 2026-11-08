@@ -11,7 +11,7 @@ Mode: Operate. Sixth surface in the world locked on Closer Today; recipes and to
 
 ## Scope
 Audience: closers and admins on the same composition. It is the tenant's directory: everyone, not only the viewer's deals (My Pipeline is that). Closers come to find a person (by name, phone, email, handle or ID) before or after a call and to see where that person stands; admins to find and check people.
-User decisions (2026-11-01): each row shows the person's current deal (newest open deal, else the newest deal of any outcome) with its stage, closer and next step; the list stays the directory (no "Mine" filter); New side deal keeps its own page; the search-first composition (`.impeccable/mocks/leads-customers-b.html`, approved over the seven-column table `.impeccable/mocks/leads-customers.html`). The optional "Needs you" summary line was offered and not taken.
+User decisions (2026-11-01): each row shows the person's current deal (newest open deal, else the newest deal of any outcome) with its stage, closer and next step; the list stays the directory (no "Mine" filter); New side deal keeps its own page; the search-first composition (`.impeccable/mocks/leads-customers-b.html` (retired), approved over the seven-column table `.impeccable/mocks/leads-customers.html` (retired)). The optional "Needs you" summary line was offered and not taken.
 Related: New side deal (`/workspace/leads-customers/new-opportunity`, form in `app/workspace/opportunities/new/_components`) and Profile (`/workspace/profile`) move into the world in the same pass; the command palette's closer entries become Today, My Pipeline, Leads & Customers.
 
 ## Direction contract

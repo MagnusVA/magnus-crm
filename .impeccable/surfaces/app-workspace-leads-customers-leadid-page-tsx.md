@@ -18,7 +18,7 @@ Actions (user decisions, 2026-10-31):
 - The deal opens in a centred modal, not a side sheet; `?opportunityId=` deep links keep opening it.
 Constraints: `CONTEXT.md` vocabulary (person, deal, stage, program, task; never "opportunity" in the UI); money only from recorded payments, never added across currencies; business-day dates; bounded indexed Convex reads; closers see every deal on the person but open only their own (summary rows for others).
 
-Approved sketch: `.impeccable/mocks/decision/person-strip.html`, revised by the at-a-glance sketch `.impeccable/mocks/person-glance.html` (user approval, 2026-10-31: the first build felt hollow on thin people and scrolled too much). Decision payload: `.impeccable/mocks/decision/person-payload.json`.
+Approved sketch: `.impeccable/mocks/decision/person-strip.html` (retired), revised by the at-a-glance sketch `.impeccable/mocks/person-glance.html` (retired) (user approval, 2026-10-31: the first build felt hollow on thin people and scrolled too much). Decision payload: `.impeccable/mocks/decision/person-payload.json` (retired).
 
 ## Direction contract
 THESIS: The person as one board row, then each deal as its own card with its stage track and next step. Refuses the record page of equal-weight cards where calls, payments and deals only connect through a program name.

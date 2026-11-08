@@ -1,36 +1,30 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { useMutation } from "convex/react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  SubmitButton,
+  SubmitError,
+} from "@/app/workspace/_components/action-dialog";
+import { firstName } from "./team-ui";
 
 const eventTypeSchema = z.object({
   personalEventTypeUri: z
@@ -49,6 +43,7 @@ type EventTypeAssignmentDialogProps = {
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  /** Kept for callers; the title names the person. */
   userIdentity?: MemberAvatarIdentity;
   currentUri?: string;
 };
@@ -58,9 +53,9 @@ export function EventTypeAssignmentDialog({
   onOpenChange,
   userId,
   userName,
-  userIdentity,
   currentUri,
 }: EventTypeAssignmentDialogProps) {
+  const ids = useId();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -123,61 +118,49 @@ export function EventTypeAssignmentDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {currentUri ? "Change" : "Assign"} Personal Event Type
-          </DialogTitle>
-          <DialogDescription>
-            Enter the Calendly booking page URL for {userName}. This URL will be
-            used to generate scheduling links for follow-ups.
-          </DialogDescription>
-        </DialogHeader>
-        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isSubmitting) onOpenChange(next);
+      }}
+    >
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={`${currentUri ? "Change" : "Set"} ${userName}'s personal event type`}
+          description={`Follow-up scheduling links for ${firstName(userName)} book on this Calendly page.`}
+        />
 
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="flex flex-col gap-4"
-          >
-            <FormField
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM}>
+          <SubmitError>{submitError}</SubmitError>
+          <FormRows>
+            <Controller
               control={form.control}
               name="personalEventTypeUri"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Calendly Booking URL{" "}
-                    <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="https://calendly.com/john-doe/30min"
-                      disabled={isSubmitting}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <FormRow label="Booking page" htmlFor={`${ids}-uri`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-uri`}
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="https://calendly.com/name/30min"
+                    className="text-[13px]"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
               )}
             />
+          </FormRows>
 
-            {submitError && (
-              <Alert variant="destructive">
-                <AlertCircleIcon className="size-4" />
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            )}
-
-            <Button type="submit" disabled={isSubmitting} className="w-full">
-              {isSubmitting
-                ? "Assigning..."
-                : currentUri
-                  ? "Update Event Type"
-                  : "Assign Event Type"}
-            </Button>
-          </form>
-        </Form>
+          <ActionDialogFooter>
+            <CancelButton onClick={() => onOpenChange(false)} disabled={isSubmitting} />
+            <SubmitButton pending={isSubmitting} pendingLabel="Saving…">
+              {currentUri ? "Change event type" : "Set event type"}
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

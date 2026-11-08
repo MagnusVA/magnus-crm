@@ -4,15 +4,7 @@ Sections 1 to 5 came up while rewriting `AGENTS.md` on 2026-10-08; line numbers 
 
 ## 1. Unused code
 
-This file isn't imported anywhere in `app/`, `components/`, `lib/`, `hooks/`, or `convex/`.
-
-| File | Lines | Notes |
-| --- | --- | --- |
-| `components/ui/stream-boundary.tsx` | 36 | Unused streaming wrapper |
-
-### Fix
-
-Delete the file, then run `pnpm typecheck` and `pnpm lint`.
+Done: `components/ui/stream-boundary.tsx` and 18 other shadcn components nothing imported were removed in November 2026.
 
 ## 2. Orphaned View Transition CSS
 

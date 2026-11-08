@@ -64,7 +64,6 @@ Magnus is built for high-ticket program sales teams in which setters and lead ge
   - `.impeccable/audit/routes.md`: 54 routes, 43 live screens grouped by archetype, navigation per role.
   - `.impeccable/audit/drift.md`: styling drift in the source.
   - `.impeccable/audit/backlog.md`: the redesign backlog.
-  - Critique snapshots in `.impeccable/critique/`.
   - 285 screenshots in `.impeccable/review/inventory/` (not committed).
 - The dev deployment has test users for owner, closer and lead generator, and test data that is thin on most dashboards.
 - There are no customer testimonials, benchmarks or published metrics. Don't invent any.

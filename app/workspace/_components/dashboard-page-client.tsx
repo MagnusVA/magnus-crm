@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import { mergeOverviewDashboard } from "@/convex/analytics/merge/overview";
-import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
 import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
 import {
   AnalyticsFreshnessAlert,
@@ -69,12 +69,15 @@ export function DashboardPageClient() {
   // days before today read ClickHouse once the page is switched
   // (docs/agents/reporting.md).
   const todayBusinessDate = businessDateForInstant(now, setting);
+  // The query gets the range's dates, not its preset, so it runs again when
+  // the business day changes (resolveDashboardRange).
+  const liveRange = useMemo(() => resolveDashboardRange(range, todayBusinessDate), [range, todayBusinessDate]);
   const report = useAnalyticsReport({
     page: "overview",
     reportId: "overview.dashboard",
     plan: dashboardRangePlan(range, todayBusinessDate),
     live: api.dashboard.overview.getOverviewDashboard,
-    liveArgs: isAdmin && loaded ? { range } : "skip",
+    liveArgs: isAdmin && loaded ? { range: liveRange } : "skip",
     todayArgs: isAdmin && loaded ? { range: dashboardRangeFromToday(range, todayBusinessDate) } : "skip",
     merge: mergeOverviewDashboard,
   });

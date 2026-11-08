@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
 import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
 import { cn } from "@/lib/utils";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
@@ -83,6 +83,9 @@ export function SalesCallsPageClient() {
   // need no snapshot job. Until then ranges over 7 days use the snapshot
   // (docs/agents/reporting.md).
   const todayBusinessDate = businessDateForInstant(now, setting);
+  // The queries get the range's dates, not its preset, so they run again when
+  // the business day changes (resolveDashboardRange).
+  const liveRange = useMemo(() => resolveDashboardRange(queryRange, todayBusinessDate), [queryRange, todayBusinessDate]);
   const plan = dashboardRangePlan(queryRange, todayBusinessDate);
   const source = useAnalyticsSource("sales_calls", plan);
   const report = useAnalyticsReport({
@@ -92,7 +95,7 @@ export function SalesCallsPageClient() {
     live: api.operations.salesCallsDashboard.getSalesCallsDashboard,
     merge: mergeSalesCallsDashboard,
     todayArgs: rebuilding || !loaded ? "skip" : { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
-    liveArgs: rebuilding || !loaded || (source !== "warehouse" && requiresSnapshot) ? "skip" : { range: queryRange },
+    liveArgs: rebuilding || !loaded || (source !== "warehouse" && requiresSnapshot) ? "skip" : { range: liveRange },
   });
   const dashboard = report.data;
   const needsSnapshot = source === "live" && (requiresSnapshot || dashboard?.capped === true);

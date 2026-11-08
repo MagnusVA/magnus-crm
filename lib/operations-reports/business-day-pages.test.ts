@@ -12,7 +12,11 @@ const fixture = vi.hoisted(() => ({
   queries: vi.fn(),
 }));
 // A tenant whose pages still read Convex (useAnalyticsSource).
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/workspace/reports",
+  useRouter: () => ({ replace: () => {} }),
+}));
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     const name = getFunctionName(reference);
@@ -24,15 +28,19 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => async () => ({ started: false }),
 }));
-vi.mock("@/app/workspace/reports/_components/report-date-controls", () => ({ ReportDateControls: () => null }));
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
 import { TeamReportPageClient } from "@/app/workspace/reports/team/_components/team-report-page-client";
 import { PipelineReportPageClient } from "@/app/workspace/reports/pipeline/_components/pipeline-report-page-client";
+import { RevenueReportPageClient } from "@/app/workspace/reports/revenue/_components/revenue-report-page-client";
 import { LeadGenRanking } from "@/app/workspace/_components/overview-rankings";
 import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origins-overview-section";
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+// Pages render inside the app layout's TooltipProvider.
+const renderPage = (component: () => React.ReactNode) =>
+  renderToStaticMarkup(createElement(TooltipProvider, null, createElement(component)));
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
@@ -54,29 +62,29 @@ const pages = [
 
 describe("meeting bucket page readiness", () => {
   it.each(pages)("skips $name bucket queries and renders the rebuild notice", ({ component, query }) => {
-    const html = renderToStaticMarkup(createElement(component));
+    const html = renderPage(component);
     expect(fixture.queries).toHaveBeenCalledWith(query, "skip");
     expect(html).toContain(BUSINESS_DAY_REBUILD_MESSAGE);
   });
 
   it.each(pages)("waits for tenant readiness before subscribing to $name buckets", ({ component, query }) => {
     fixture.loaded = false;
-    renderToStaticMarkup(createElement(component));
+    renderPage(component);
     expect(fixture.queries).toHaveBeenCalledWith(query, "skip");
   });
 
   it.each(pages)("subscribes to $name buckets after readiness", ({ component, query }) => {
     fixture.ready = true;
-    renderToStaticMarkup(createElement(component));
+    renderPage(component);
     expect(fixture.queries).toHaveBeenCalledWith(query, expect.any(Object));
   });
 
-  it.each(pages)("passes browser calendar keys to $name buckets", ({ component, query, defaultKeys }) => {
+  it.each(pages)("passes today's business day keys to $name buckets", ({ component, query, defaultKeys }) => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date(2026, 9, 22, 12));
       fixture.ready = true;
-      renderToStaticMarkup(createElement(component));
+      renderPage(component);
       expect(fixture.queries).toHaveBeenCalledWith(query, defaultKeys);
     } finally {
       vi.useRealTimers();
@@ -89,7 +97,7 @@ describe("meeting bucket page readiness", () => {
   ])("skips every Team query with loaded=$loaded and ready=$ready", ({ loaded, ready }) => {
     fixture.loaded = loaded;
     fixture.ready = ready;
-    renderToStaticMarkup(createElement(TeamReportPageClient));
+    renderPage(TeamReportPageClient);
     const reportQueries = fixture.queries.mock.calls.filter(([name]) => name.startsWith("reporting/"));
     expect(reportQueries).toHaveLength(4);
     for (const [, args] of reportQueries) expect(args).toBe("skip");
@@ -104,7 +112,7 @@ describe("meeting bucket page readiness", () => {
       vi.setSystemTime(new Date(2026, 9, 22, 12));
       fixture.ready = true;
       fixture.businessDay = setting;
-      renderToStaticMarkup(createElement(TeamReportPageClient));
+      renderPage(TeamReportPageClient);
       for (const query of [
         "reporting/teamPerformance:getTeamPerformanceMetrics",
         "reporting/teamOutcomes:getTeamOutcomeMix",
@@ -122,6 +130,41 @@ describe("meeting bucket page readiness", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it.each(pages)("keeps $name on yesterday's business date until the tenant's day starts", ({ component, query }) => {
+    vi.useFakeTimers();
+    try {
+      // 12:30 am on Oct 23 in Tegucigalpa: days run from 1:00 am, so it's still Oct 22.
+      vi.setSystemTime(Date.UTC(2026, 9, 23, 6, 30));
+      fixture.ready = true;
+      renderPage(component);
+      expect(fixture.queries).toHaveBeenCalledWith(query, { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads a browser-day report (Revenue) on the tenant's business day", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.UTC(2026, 9, 22, 18));
+      fixture.ready = true;
+      renderPage(RevenueReportPageClient);
+      expect(fixture.queries).toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", {
+        startDate: Date.parse("2026-10-22T07:00:00Z"),
+        endDate: Date.parse("2026-10-23T07:00:00Z"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a timestamp report (Revenue) reading while meeting buckets rebuild", () => {
+    fixture.ready = false;
+    renderPage(RevenueReportPageClient);
+    expect(fixture.queries).toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", expect.any(Object));
+    expect(fixture.queries).not.toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", "skip");
   });
 
   it("renders rebuilding Overview sections without totals or generic errors", () => {

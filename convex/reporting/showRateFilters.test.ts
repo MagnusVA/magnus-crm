@@ -4,7 +4,7 @@
  * numbers were pinned against the bucket read on the copied columns; the
  * filtered paths now read `dealAttributions` and must keep them.
  */
-import { reportRangeDayKeys } from "../../lib/reportDateRange";
+import { reportDayKeys } from "../../lib/reportDateRange";
 import { afterEach, expect, it, vi } from "vitest";
 // Meetings record attendance as held only since the narrow; "completed" below
 // is the test's own label for a held call.
@@ -363,10 +363,7 @@ it("counts only October 22 for a Honduras browser range in buckets and attributi
   const { admin, t1, d1a } = await seed("held", 21);
   for (const filters of [{}, { attributionTeamId: t1 }, { dmCloserId: d1a }]) {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      ...reportRangeDayKeys({
-        startDate: new Date(2026, 9, 22).getTime(),
-        endDate: new Date(2026, 9, 23).getTime(),
-      }),
+      ...reportDayKeys({ startBusinessDate: "2026-10-22", endBusinessDateInclusive: "2026-10-22" }),
       ...filters,
     });
     expect(result.totals.scheduled).toBe("attributionTeamId" in filters || "dmCloserId" in filters ? 3 : 4);

@@ -122,7 +122,11 @@ export function OpportunityPaymentsList({
             </span>
             <span className="justify-self-end">
               {voidablePaymentId === payment._id && !disputed ? (
-                <VoidPaymentDialog paymentId={payment._id} />
+                <VoidPaymentDialog
+                  paymentId={payment._id}
+                  payment={payment}
+                  dateLabel={formatDealDate(payment.recordedAt, setting, now)}
+                />
               ) : null}
             </span>
           </li>

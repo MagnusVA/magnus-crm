@@ -633,7 +633,7 @@ export const getMergePreview = query({
       throw new Error(`Target lead cannot receive a merge from status "${target.status}"`);
     }
 
-    const [sourceIdentifiers, targetIdentifiers, sourceOpportunities, targetOpportunities] =
+    const [sourceIdentifiers, targetIdentifiers, sourceOpportunities, targetOpportunities, sourceSummary, targetSummary] =
       await Promise.all([
         ctx.db
           .query("leadIdentifiers")
@@ -655,6 +655,8 @@ export const getMergePreview = query({
             q.eq("tenantId", tenantId).eq("leadId", targetLeadId),
           )
           .take(50),
+        mergePersonSummary(ctx, tenantId, sourceLeadId),
+        mergePersonSummary(ctx, tenantId, targetLeadId),
       ]);
 
     const targetIdentifierKeys = new Set(
@@ -685,11 +687,13 @@ export const getMergePreview = query({
         lead: source,
         identifiers: sourceIdentifiers,
         opportunityCount: sourceOpportunities.length,
+        summary: sourceSummary,
       },
       target: {
         lead: target,
         identifiers: targetIdentifiers,
         opportunityCount: targetOpportunities.length,
+        summary: targetSummary,
       },
       preview: {
         identifiersToMove: identifiersToMove.length,
@@ -716,6 +720,25 @@ export const getMergePreview = query({
     };
   },
 });
+
+/**
+ * What the merge page compares for each person, from their search row: calls,
+ * won deals and what they've paid. Null while the row hasn't been built.
+ */
+async function mergePersonSummary(ctx: QueryCtx, tenantId: Id<"tenants">, leadId: Id<"leads">) {
+  const row = await ctx.db
+    .query("leadCustomerSearchRows")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+    .unique();
+  if (!row) return null;
+  return {
+    meetingCount: row.meetingCount,
+    latestMeetingAt: row.latestMeetingAt ?? null,
+    wonOpportunityCount: row.wonOpportunityCount,
+    totalPaidMinor: row.totalPaidMinor ?? 0,
+    paymentCurrency: row.paymentCurrency ?? null,
+  };
+}
 
 /** Each program's current name; a program that is gone reads "Unknown program". */
 async function programNames(
