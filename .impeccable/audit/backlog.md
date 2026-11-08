@@ -63,9 +63,9 @@ These are behaviour bugs. Fix them in small PRs off `main`, not on the redesign 
 
 ## 6. Forms, wizards and settings (8 screens)
 
-- 21 form files still use the `FormItem` composition. Move them to `Field` and `FieldGroup`.
+- Done (Nov 2026): every form moved from `FormItem` to `Field` rows; the action dialogs share `app/workspace/_components/action-dialog.tsx`.
 - 17 select and menu files are missing their group components.
-- High-stakes dialogs (payment, lost, no-show, void, delete) share one pattern: name the record, state the consequence, review, then confirm.
+- Done (Nov 2026): high-stakes dialogs (payment, lost, no-show, void, delete) share one pattern: name the record, state the consequence, review, then confirm.
 
 ## 7. Public, onboarding and portal (6 screens)
 

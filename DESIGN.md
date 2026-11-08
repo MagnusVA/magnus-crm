@@ -781,6 +781,14 @@ New side deal and Profile each sit in one ruled card on the 640px measure, under
 - **Footer:** a paper band, ruled above, with the outline Cancel and the lime submit on the right.
 - **Profile** uses the person card's dense rows instead: a 96px slate label column, about 32px each, in groups split by a rule. The picture row carries the avatar with outline Upload or Replace and a ghost Remove.
 
+### Action Dialogs
+The dialogs behind the main actions (payment, lost, no-show, follow-up, the task outcomes, lifecycle, enrollment, void, delete, and the Team and Booking setup forms) share one frame, `app/workspace/_components/action-dialog.tsx`, the correction dialog's.
+- **Frame:** a card-white `Dialog` with no padding. The header is ruled below: a 17px semibold title that names the record ("Close Ana García's deal as lost?", "Mark Priya Shah unavailable") and one 13px line under it.
+- **Rows:** `FormRow` is the form card's `Field` row (12px by 16px, a 13px slate label in a 120px column from `@lg`, the description and a 13px danger-ink error under the control). The rows scroll inside the dialog when they run long. A submit failure is one ruled danger-ink line above them.
+- **Footer:** the paper band, the outline Cancel (or Back) and the action on the right. The action says what happens ("Send invite", "Set reminder"). It is lime, or danger for what can't be undone.
+- **Risky actions** (payment, lost, no-show, void, delete) follow the tenant delete dialog. The title names the record, and dense facts identify it where that helps. What happens comes next: one danger-ink header line for a single consequence, or ruled numbered steps in the order the server applies them. The danger action comes last. Payment dialogs validate the form first, then switch to a confirm step (amount, program, type, proof file, what happens) whose "Record $1,500.00 payment" is the only button that records.
+- Shared bodies: `payment-dialog-form.tsx` (the four payment dialogs), `outcome-dialog-parts.tsx` (the four lost dialogs), `follow-up-dialog-parts.tsx` (the closer and admin follow-up dialogs and the task's try-again rows) and `team/_components/team-dialog-parts.tsx` (the role choices).
+
 ### Kept Data While Reloading
 When a month, tab, filter or search changes, the section keeps its previous data at 60% opacity (a 200ms fade, `aria-busy`) until the new data arrives, instead of flashing a skeleton. Skeletons appear only on first load. The book panel, the lookup and the directory all follow this.
 
@@ -831,7 +839,7 @@ The system above is complete on five closer surfaces (Today, the meeting page, t
 - **Legacy status colours.** `lib/status-config.ts` still maps deal positions and meeting attendance to raw Tailwind palettes (cyan, blue, indigo, violet, emerald, orange, amber), and about 365 palette utilities in 42 files bypass the tokens. The `--status-*` aliases in `app/globals.css` point at the stage tokens only until that file moves over. The new surfaces read `status-config` for attendance logic and labels only, not colours.
 - **Type scale.** About 50 page headers range from `text-base` to `text-5xl`, with 96 arbitrary text sizes and KPI figures in mono. `PageBand` is the header they move to.
 - **Layout.** 216 arbitrary layout values, nested page padding and 59 card padding overrides.
-- **Forms.** 21 form files still use `FormItem` instead of `Field`/`FieldGroup`. Seven of them open from the person page and deal modal: the lifecycle, enrolment-status, mark-lost, delete, side-deal payment, add payment and void payment dialogs.
+- **Forms.** No form uses `FormItem` any more: the 25 action dialogs moved to `Field` rows in the Action Dialogs frame (Nov 2026), so `components/ui/form.tsx` has no users left.
 - **Charts.** The chart tokens are now categorical (blue, teal, lime, amber, slate); chart modules have not been reviewed against them.
 - **Date range.** Lead Gen activity (My activity) no longer uses `DashboardDateRangeFilter`: the board-tone picker sits in its band, and the Operations pages set it in their bands too. The report pages still use their own `report-date-controls` and move to the picker later; No-shows & Cancellations now sets the picker in its band.
 - **Admin twins.** The admin meeting and task pages and the person page share these components; the other admin, report and settings screens have not been migrated.
