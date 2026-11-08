@@ -1,22 +1,22 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import { CheckCircle2Icon, SendIcon } from "lucide-react";
 import { useState } from "react";
 
 import { api } from "@/convex/_generated/api";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  FormFooter,
+  NoteLine,
+  SettingRow,
+} from "@/app/workspace/settings/_components/settings-ui";
+import { CARD, CardHead } from "@/app/workspace/team/_components/team-ui";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
 const initialForm = {
   name: "",
@@ -30,6 +30,8 @@ const initialForm = {
 
 type SupportFormState = typeof initialForm;
 type SupportFormErrors = Partial<Record<keyof SupportFormState, string>>;
+
+const SUPPORT_EMAIL = "vas.claudio15+supportmagnus@icloud.com";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -96,98 +98,84 @@ export function SupportRequestForm() {
   }
 
   return (
-    <section className="border-t border-border pt-8">
-      <div className="mb-5">
-        <h2 className="text-xl font-semibold tracking-tight">
-          Contact Support
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Submit a request and a system administrator will review it.
-        </p>
-      </div>
+    <section aria-labelledby="support-form-title" className={cn(CARD, "@container")}>
+      <CardHead
+        title={<span id="support-form-title">Send a request</span>}
+        meta="A system admin reviews it and replies by email."
+      />
+      <form onSubmit={handleSubmit} noValidate>
+        <FieldGroup className="gap-0 divide-y divide-border">
+          <SettingRow
+            label="Name"
+            htmlFor="support-name"
+            invalid={Boolean(errors.name)}
+            description={errorLine(errors.name)}
+          >
+            <Input
+              id="support-name"
+              name="name"
+              autoComplete="name"
+              value={form.name}
+              onChange={(event) => setField("name", event.target.value)}
+              aria-invalid={errors.name ? true : undefined}
+            />
+          </SettingRow>
 
-      {submitted ? (
-        <Alert className="mb-5 border-primary/30 bg-primary/5">
-          <CheckCircle2Icon className="size-4 text-primary-ink" aria-hidden="true" />
-          <AlertTitle>Request submitted</AlertTitle>
-          <AlertDescription>
-            We received your support request and will respond by email.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+          <SettingRow
+            label="Email"
+            htmlFor="support-email"
+            invalid={Boolean(errors.email)}
+            description={errorLine(errors.email)}
+          >
+            <Input
+              id="support-email"
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={form.email}
+              onChange={(event) => setField("email", event.target.value)}
+              aria-invalid={errors.email ? true : undefined}
+            />
+          </SettingRow>
 
-      {submitError ? (
-        <Alert variant="destructive" className="mb-5">
-          <AlertTitle>Submission failed</AlertTitle>
-          <AlertDescription>{submitError}</AlertDescription>
-        </Alert>
-      ) : null}
+          <SettingRow
+            label="Organization"
+            htmlFor="support-organization"
+            description="Optional. The company your Magnus account belongs to."
+          >
+            <Input
+              id="support-organization"
+              name="organizationName"
+              autoComplete="organization"
+              value={form.organizationName}
+              onChange={(event) =>
+                setField("organizationName", event.target.value)
+              }
+            />
+          </SettingRow>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <FieldGroup>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field data-invalid={errors.name ? true : undefined}>
-              <FieldLabel htmlFor="support-name">Name</FieldLabel>
-              <Input
-                id="support-name"
-                name="name"
-                autoComplete="name"
-                value={form.name}
-                onChange={(event) => setField("name", event.target.value)}
-                aria-invalid={errors.name ? true : undefined}
-              />
-              <FieldError>{errors.name}</FieldError>
-            </Field>
+          <SettingRow
+            label="Slack workspace"
+            htmlFor="support-slack-workspace"
+            description="Optional. Helps with Slack app issues."
+          >
+            <Input
+              id="support-slack-workspace"
+              name="slackWorkspace"
+              value={form.slackWorkspace}
+              onChange={(event) =>
+                setField("slackWorkspace", event.target.value)
+              }
+            />
+          </SettingRow>
 
-            <Field data-invalid={errors.email ? true : undefined}>
-              <FieldLabel htmlFor="support-email">Email</FieldLabel>
-              <Input
-                id="support-email"
-                name="email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                value={form.email}
-                onChange={(event) => setField("email", event.target.value)}
-                aria-invalid={errors.email ? true : undefined}
-              />
-              <FieldError>{errors.email}</FieldError>
-            </Field>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="support-organization">
-                Organization
-              </FieldLabel>
-              <Input
-                id="support-organization"
-                name="organizationName"
-                autoComplete="organization"
-                value={form.organizationName}
-                onChange={(event) =>
-                  setField("organizationName", event.target.value)
-                }
-              />
-            </Field>
-
-            <Field>
-              <FieldLabel htmlFor="support-slack-workspace">
-                Slack Workspace
-              </FieldLabel>
-              <Input
-                id="support-slack-workspace"
-                name="slackWorkspace"
-                value={form.slackWorkspace}
-                onChange={(event) =>
-                  setField("slackWorkspace", event.target.value)
-                }
-              />
-            </Field>
-          </div>
-
-          <Field data-invalid={errors.subject ? true : undefined}>
-            <FieldLabel htmlFor="support-subject">Subject</FieldLabel>
+          <SettingRow
+            label="Subject"
+            htmlFor="support-subject"
+            invalid={Boolean(errors.subject)}
+            description={errorLine(errors.subject)}
+          >
             <Input
               id="support-subject"
               name="subject"
@@ -195,11 +183,14 @@ export function SupportRequestForm() {
               onChange={(event) => setField("subject", event.target.value)}
               aria-invalid={errors.subject ? true : undefined}
             />
-            <FieldError>{errors.subject}</FieldError>
-          </Field>
+          </SettingRow>
 
-          <Field data-invalid={errors.message ? true : undefined}>
-            <FieldLabel htmlFor="support-message">Message</FieldLabel>
+          <SettingRow
+            label="Message"
+            htmlFor="support-message"
+            invalid={Boolean(errors.message)}
+            description={errorLine(errors.message)}
+          >
             <Textarea
               id="support-message"
               name="message"
@@ -208,40 +199,72 @@ export function SupportRequestForm() {
               onChange={(event) => setField("message", event.target.value)}
               aria-invalid={errors.message ? true : undefined}
             />
-            <FieldError>{errors.message}</FieldError>
-          </Field>
-
-          <div className="hidden" aria-hidden="true">
-            <label htmlFor="support-website">Website</label>
-            <input
-              id="support-website"
-              name="website"
-              tabIndex={-1}
-              autoComplete="off"
-              value={form.website}
-              onChange={(event) => setField("website", event.target.value)}
-            />
-          </div>
+          </SettingRow>
         </FieldGroup>
 
-        <div>
-          <Button type="submit" disabled={!canSubmit}>
+        <div className="hidden" aria-hidden="true">
+          <label htmlFor="support-website">Website</label>
+          <input
+            id="support-website"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={form.website}
+            onChange={(event) => setField("website", event.target.value)}
+          />
+        </div>
+
+        {/* Always mounted, so the sent line is announced when it fills in. */}
+        <div
+          role="status"
+          className={submitted ? "border-t border-border px-4 py-2.5" : undefined}
+        >
+          {submitted ? (
+            <NoteLine tone="ok">
+              Request received. We&rsquo;ll reply by email.
+            </NoteLine>
+          ) : null}
+        </div>
+        {submitError ? (
+          <div className="border-t border-border px-4 py-2.5">
+            <NoteLine role="alert" tone="danger">
+              Couldn&rsquo;t send the request: {submitError}
+            </NoteLine>
+          </div>
+        ) : null}
+
+        <FormFooter
+          aside={
+            <>
+              Or email{" "}
+              <a
+                href={`mailto:${SUPPORT_EMAIL}`}
+                className="rounded-sm break-all text-foreground underline decoration-foreground/40 underline-offset-4 outline-none hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {SUPPORT_EMAIL}
+              </a>
+            </>
+          }
+        >
+          <Button type="submit" className="font-semibold" disabled={!canSubmit}>
             {isSubmitting ? (
               <>
                 <Spinner data-icon="inline-start" />
                 Sending&hellip;
               </>
             ) : (
-              <>
-                <SendIcon data-icon="inline-start" aria-hidden="true" />
-                Send Request
-              </>
+              "Send request"
             )}
           </Button>
-        </div>
+        </FormFooter>
       </form>
     </section>
   );
+}
+
+/** A field's error, announced when it appears. */
+function errorLine(error: string | undefined) {
+  return error ? <span role="alert">{error}</span> : undefined;
 }
 
 function validateForm(form: SupportFormState): SupportFormErrors {

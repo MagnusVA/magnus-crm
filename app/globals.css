@@ -157,8 +157,6 @@
   --stage-won-ink: #4a7212;
   --stage-lost: #d93a40;
   --stage-lost-ink: #b42328;
-  /* Dot-grid overlay, theme-aware */
-  --dot-grid: oklch(0 0 0 / 0.06);
   /* Legacy status names, kept for lib/status-config.ts until it moves to the
      stage tokens. */
   --status-scheduled: var(--stage-booked);
@@ -171,7 +169,6 @@
 }
 
 .dark {
-  --dot-grid: oklch(1 0 0 / 0.03);
   --background: #090d14;
   --foreground: #eef1f6;
   --card: #121826;
