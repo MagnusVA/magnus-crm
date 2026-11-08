@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import dynamic from "next/dynamic";
 import { CalendarPlusIcon } from "lucide-react";
-import { FollowUpDialog } from "@/app/workspace/closer/meetings/_components/follow-up-dialog";
-import { AdminFollowUpDialog } from "@/app/workspace/pipeline/meetings/_components/admin-follow-up-dialog";
 import { useRole } from "@/components/auth/role-context";
 import { Button } from "@/components/ui/button";
 import type { Id } from "@/convex/_generated/dataModel";
+
+const FollowUpDialog = dynamic(() =>
+  import("@/app/workspace/closer/meetings/_components/follow-up-dialog").then((m) => ({
+    default: m.FollowUpDialog,
+  })),
+);
+const AdminFollowUpDialog = dynamic(() =>
+  import("@/app/workspace/pipeline/meetings/_components/admin-follow-up-dialog").then((m) => ({
+    default: m.AdminFollowUpDialog,
+  })),
+);
 
 /**
  * "Set next step" on an open deal with none: a call-back or a booking link,
@@ -41,23 +51,27 @@ export function SetNextStepButton({
           Set next step
         </Button>
       ) : null}
-      {open ? (
-        isAdmin ? (
-          <AdminFollowUpDialog
-            open
-            onOpenChange={setOpen}
-            opportunityId={opportunityId}
-            leadName={leadName}
-          />
-        ) : (
-          <FollowUpDialog
-            open
-            onOpenChange={setOpen}
-            opportunityId={opportunityId}
-            leadName={leadName}
-          />
-        )
-      ) : null}
+      {/* The dialog suspends on its first render; this boundary keeps that
+          wait to the dialog. */}
+      <Suspense fallback={null}>
+        {open ? (
+          isAdmin ? (
+            <AdminFollowUpDialog
+              open
+              onOpenChange={setOpen}
+              opportunityId={opportunityId}
+              leadName={leadName}
+            />
+          ) : (
+            <FollowUpDialog
+              open
+              onOpenChange={setOpen}
+              opportunityId={opportunityId}
+              leadName={leadName}
+            />
+          )
+        ) : null}
+      </Suspense>
     </>
   );
 }

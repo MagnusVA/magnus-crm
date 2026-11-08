@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import type { DateRange } from "react-day-picker";
 import { CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -15,6 +15,15 @@ import {
   type DashboardRangeValidationOptions,
   validateCustomDashboardRange,
 } from "./dashboard-date-utils";
+
+// react-day-picker loads when the custom range popover first opens, or
+// earlier when the pointer or focus reaches its button. Until then the
+// popover holds the calendar's size: one month below md, two from md.
+const loadCalendar = () => import("@/components/ui/calendar");
+const Calendar = dynamic(
+  () => import("@/components/ui/calendar").then((m) => ({ default: m.Calendar })),
+  { ssr: false, loading: () => <div aria-hidden="true" className="h-[294px] w-[212px] md:w-[424px]" /> },
+);
 
 export type DashboardRangePreset = "today" | "this_week" | "this_month";
 
@@ -152,6 +161,8 @@ export function DateRangePicker({
           <Button
             variant="outline"
             aria-pressed={value.kind === "custom"}
+            onPointerEnter={loadCalendar}
+            onFocus={loadCalendar}
             className={cn(
               "h-[34px] rounded-[7px] px-3 text-[13px]",
               onBoard
@@ -169,6 +180,7 @@ export function DateRangePicker({
         <PopoverContent align="end" collisionPadding={16} className="w-[calc(100vw-2rem)] max-w-fit p-2">
           <Calendar
             mode="range"
+            autoFocus
             selected={draftRange}
             onSelect={setDraftRange}
             numberOfMonths={isMobile ? 1 : 2}
