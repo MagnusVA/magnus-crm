@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type SlackConnectionStatus = FunctionReturnType<
   typeof api.slack.installations.getConnectionStatus
@@ -20,10 +21,27 @@ type ReconnectStatus = Extract<
   "token_expired" | "revoked" | "uninstalled"
 >;
 
+/**
+ * Red when Slack has cut Magnus off (expired or revoked tokens), amber when the
+ * app was removed and waits to be reinstalled, matching the Slack card in
+ * Settings. Only amber has a surface tint, so the red band sits on the card.
+ */
+const BANNER_TONE = {
+  danger: {
+    band: "bg-card text-danger-ink",
+    body: "text-foreground",
+  },
+  warning: {
+    band: "bg-warning-surface text-warning-ink",
+    body: "text-warning-ink",
+  },
+} as const;
+
 function bannerCopy(status: ReconnectStatus) {
   switch (status) {
     case "token_expired":
       return {
+        tone: "danger" as const,
         title: "Slack disconnected",
         body: (
           <>
@@ -37,6 +55,7 @@ function bannerCopy(status: ReconnectStatus) {
       };
     case "revoked":
       return {
+        tone: "danger" as const,
         title: "Slack access revoked",
         body: (
           <>
@@ -48,6 +67,7 @@ function bannerCopy(status: ReconnectStatus) {
       };
     case "uninstalled":
       return {
+        tone: "warning" as const,
         title: "Slack app uninstalled",
         body: (
           <>
@@ -116,12 +136,18 @@ function SlackReconnectBanner({
   onDismiss: () => void;
 }) {
   const copy = bannerCopy(status);
+  const tone = BANNER_TONE[copy.tone];
 
   return (
-    <Alert className="rounded-none border-x-0 border-t-0 border-amber-500/30 bg-amber-50 text-amber-950 animate-in fade-in slide-in-from-top-2 duration-300 motion-reduce:animate-none dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-100">
+    <Alert
+      className={cn(
+        "rounded-none border-x-0 border-t-0 border-border animate-in fade-in slide-in-from-top-2 duration-300 motion-reduce:animate-none",
+        tone.band,
+      )}
+    >
       <TriangleAlertIcon aria-hidden="true" />
       <AlertTitle>{copy.title}</AlertTitle>
-      <AlertDescription className="text-amber-900/90 dark:text-amber-100/85">
+      <AlertDescription className={tone.body}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p>{copy.body}</p>
           <div className="flex shrink-0 items-center gap-2">
