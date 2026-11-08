@@ -2,37 +2,24 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { format } from "date-fns";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { DayDefinition } from "@/app/workspace/_components/day-definition";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { FieldGroup } from "@/components/ui/field";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Spinner } from "@/components/ui/spinner";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircleIcon, MessageSquareIcon, PhoneIcon } from "lucide-react";
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRows,
+  SubmitButton,
+  SubmitError,
+} from "@/app/workspace/_components/action-dialog";
+import { NoteRow, ReachByRow, WhenRow } from "@/app/workspace/_components/follow-up-dialog-parts";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
@@ -145,6 +132,8 @@ export function ReminderTryAgainDialog({
   // Keeps the date picker from offering past days; the schema is the real guard.
   const todayIso = format(new Date(), "yyyy-MM-dd");
 
+  const { errors } = form.formState;
+
   return (
     <Dialog
       open={open}
@@ -154,140 +143,57 @@ export function ReminderTryAgainDialog({
         if (!value) reset();
       }}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Try {firstName} again</DialogTitle>
-          <DialogDescription>
-            This task closes and a new one is set for when you pick. The deal stays as it is.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={`Try ${firstName} again`}
+          description="This task closes and a new one is set for when you pick. The deal stays as it is."
+        />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-              <FormField
-                control={form.control}
-                name="contactMethod"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Reach by <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <ToggleGroup
-                        type="single"
-                        variant="outline"
-                        value={field.value}
-                        onValueChange={(value) => {
-                          if (value) field.onChange(value);
-                        }}
-                        className="justify-start"
-                        disabled={isSubmitting}
-                      >
-                        <ToggleGroupItem value="call" className="px-3">
-                          <PhoneIcon data-icon="inline-start" aria-hidden />
-                          Call
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="text" className="px-3">
-                          <MessageSquareIcon data-icon="inline-start" aria-hidden />
-                          Text
-                        </ToggleGroupItem>
-                      </ToggleGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className="grid grid-cols-2 gap-3">
-                <FormField
-                  control={form.control}
-                  name="date"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Date <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input type="date" min={todayIso} disabled={isSubmitting} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM} noValidate>
+          <SubmitError>{submitError}</SubmitError>
+          <FormRows>
+            <Controller
+              control={form.control}
+              name="contactMethod"
+              render={({ field, fieldState }) => (
+                <ReachByRow
+                  value={field.value}
+                  onChange={field.onChange}
+                  disabled={isSubmitting}
+                  error={fieldState.error}
                 />
-                <FormField
-                  control={form.control}
-                  name="time"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Time <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input type="time" disabled={isSubmitting} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="col-span-2 -mt-1">
-                  <DayDefinition browser />
-                </div>
-              </div>
+              )}
+            />
+            <WhenRow
+              date={form.register("date")}
+              time={form.register("time")}
+              min={todayIso}
+              disabled={isSubmitting}
+              dateError={errors.date}
+              timeError={errors.time}
+            />
+            <NoteRow
+              label="Note for next time"
+              placeholder="Optional: what to try or mention on the next attempt"
+              disabled={isSubmitting}
+              error={errors.note}
+              field={form.register("note")}
+            />
+          </FormRows>
 
-              <FormField
-                control={form.control}
-                name="note"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Note for next time (optional)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={2}
-                        placeholder="What to try or mention on the next attempt"
-                        className="resize-none text-sm"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </FieldGroup>
-
-            {submitError && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircleIcon />
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            )}
-
-            <DialogFooter className="mt-5">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={isSubmitting}
-                onClick={() => {
-                  onOpenChange(false);
-                  reset();
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Saving…
-                  </>
-                ) : (
-                  "Close this task and set the new one"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          <ActionDialogFooter>
+            <CancelButton
+              disabled={isSubmitting}
+              onClick={() => {
+                onOpenChange(false);
+                reset();
+              }}
+            />
+            <SubmitButton pending={isSubmitting} pendingLabel="Saving…">
+              Close task, set new one
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

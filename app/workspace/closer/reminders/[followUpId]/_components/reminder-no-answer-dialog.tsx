@@ -7,28 +7,18 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { FieldGroup } from "@/components/ui/field";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Spinner } from "@/components/ui/spinner";
-import { AlertTriangleIcon, CheckIcon } from "lucide-react";
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRows,
+  SubmitButton,
+  WhatHappens,
+} from "@/app/workspace/_components/action-dialog";
+import { NoteRow } from "@/app/workspace/_components/follow-up-dialog-parts";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
@@ -106,99 +96,59 @@ export function ReminderNoAnswerDialog({
     }
   };
 
+  const close = (value: boolean) => {
+    if (isSubmitting) return; // don't dismiss mid-submit
+    onOpenChange(value);
+    if (!value) form.reset();
+  };
+
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (isSubmitting) return; // don't dismiss mid-submit
-        onOpenChange(value);
-        if (!value) form.reset();
-      }}
-    >
-      <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <div className="flex items-start gap-3">
-            <div
-              className={
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        {givingUp ? (
+          <ActionDialogHeader
+            title={leadName ? `Close ${leadName}’s deal as lost?` : "Close the deal as lost?"}
+            description={`No answer from ${firstName}.`}
+          />
+        ) : (
+          <ActionDialogHeader
+            title="Close this task only?"
+            description={`No answer from ${firstName}. This task closes, the deal stays at ${dealStageLabel}, and nothing new is scheduled.`}
+          />
+        )}
+
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM} noValidate>
+          {givingUp ? (
+            <WhatHappens
+              steps={[
+                "The deal closes as lost, with the reason below, or “No response to outreach” without one.",
+                "This task closes.",
+              ]}
+            />
+          ) : null}
+          <FormRows>
+            <NoteRow
+              label={givingUp ? "Reason (optional)" : "Note (optional)"}
+              placeholder={
                 givingUp
-                  ? "flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-danger-ink"
-                  : "flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+                  ? "Why is this deal over? (e.g., stopped replying after the call)"
+                  : "Anything to remember about this attempt"
               }
-            >
-              {givingUp ? (
-                <AlertTriangleIcon className="size-4" aria-hidden />
-              ) : (
-                <CheckIcon className="size-4" aria-hidden />
-              )}
-            </div>
-            <div className="flex-1">
-              <AlertDialogTitle>
-                {givingUp
-                  ? leadName
-                    ? `Close ${leadName}’s deal as lost?`
-                    : "Close the deal as lost?"
-                  : "Close this task only?"}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {givingUp
-                  ? `No answer from ${firstName}. The deal closes as lost and this task closes. Without a reason, the deal records “No response to outreach”.`
-                  : `No answer from ${firstName}. This task closes, the deal stays at ${dealStageLabel}, and nothing new is scheduled.`}
-              </AlertDialogDescription>
-            </div>
-          </div>
-        </AlertDialogHeader>
+              rows={3}
+              disabled={isSubmitting}
+              error={form.formState.errors.note}
+              field={form.register("note")}
+            />
+          </FormRows>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-              <FormField
-                control={form.control}
-                name="note"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{givingUp ? "Reason (optional)" : "Note (optional)"}</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={3}
-                        placeholder={
-                          givingUp
-                            ? "Why is this deal over? (e.g., stopped replying after the call)"
-                            : "Anything to remember about this attempt"
-                        }
-                        className="resize-none text-sm"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </FieldGroup>
-
-            <AlertDialogFooter className="mt-4">
-              <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
-              <Button
-                type="submit"
-                variant={givingUp ? "destructive" : "default"}
-                className={givingUp ? "text-danger-ink" : undefined}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Saving…
-                  </>
-                ) : givingUp ? (
-                  "Close as lost"
-                ) : (
-                  "Close task"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </Form>
-      </AlertDialogContent>
-    </AlertDialog>
+          <ActionDialogFooter>
+            <CancelButton disabled={isSubmitting} onClick={() => close(false)} />
+            <SubmitButton pending={isSubmitting} pendingLabel="Saving…" danger={givingUp}>
+              {givingUp ? "Close as lost" : "Close task"}
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
