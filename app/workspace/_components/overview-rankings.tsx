@@ -1,10 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { mergeOverviewLeaderboard } from "@/convex/analytics/merge/overview";
-import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
 import { businessDateForInstant } from "@/lib/businessDay";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
@@ -212,13 +212,14 @@ function ExpandedRanking({ kind, range, label }: { kind: RankingKind; range: Das
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse (docs/agents/reporting.md).
   const todayBusinessDate = businessDateForInstant(now, setting);
+  const liveRange = useMemo(() => resolveDashboardRange(range, todayBusinessDate), [range, todayBusinessDate]);
   const report = useAnalyticsReport({
     page: "overview",
     reportId: "overview.leaderboard",
     plan: dashboardRangePlan(range, todayBusinessDate),
     filters: { kind },
     live: api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
-    liveArgs: { kind, range },
+    liveArgs: { kind, range: liveRange },
     todayArgs: { kind, range: dashboardRangeFromToday(range, todayBusinessDate) },
     merge: mergeOverviewLeaderboard,
   });

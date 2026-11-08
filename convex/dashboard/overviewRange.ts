@@ -23,6 +23,12 @@ export function isRangeCapErrorMessage(message: string): boolean {
   return RANGE_CAP_MESSAGE.test(message);
 }
 
+/**
+ * Pages send their range as dates (`custom`, from `resolveDashboardRange` in
+ * lib/analyticsRange.ts), so a query re-runs when the business day changes.
+ * The preset shape resolves against the server's clock, which a cached query
+ * never re-reads; it stays accepted for tabs still running older JS.
+ */
 export const overviewRangeValidator = v.union(
   v.object({
     kind: v.literal("preset"),

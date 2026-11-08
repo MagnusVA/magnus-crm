@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { usePaginatedQuery } from "convex-helpers/react";
 import { api } from "@/convex/_generated/api";
 import { mergeMyActivitySummary } from "@/convex/analytics/merge/leadGen";
@@ -21,7 +21,7 @@ import { CARD, HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { dashboardRangeFromToday, dashboardRangePlan } from "@/lib/analyticsRange";
+import { dashboardRangeFromToday, dashboardRangePlan, resolveDashboardRange } from "@/lib/analyticsRange";
 import { BUSINESS_DAY_REBUILD_MESSAGE, businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
 import { ACTIVITY_PAGE_SIZE, ActivitySubmissionsCard } from "./activity-submissions-card";
 import { ActivityZones } from "./activity-zones";
@@ -39,6 +39,9 @@ export function LeadGenActivityPageClient() {
   const now = useNow();
   const todayBusinessDate = businessDateForInstant(now, setting);
   const { range, setRange, queryRange, validationMessage } = useDashboardRange();
+  // The queries get the range's dates, not its preset, so they run again when
+  // the business day changes (resolveDashboardRange).
+  const liveRange = useMemo(() => resolveDashboardRange(queryRange, todayBusinessDate), [queryRange, todayBusinessDate]);
 
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse once the page is switched
@@ -52,7 +55,7 @@ export function LeadGenActivityPageClient() {
     live: api.leadGen.activity.getMyActivitySummary,
     merge: mergeMyActivitySummary,
     todayArgs: !loaded || rebuilding ? "skip" : { range: dashboardRangeFromToday(queryRange, todayBusinessDate) },
-    liveArgs: !loaded || (!warehouse && rebuilding) ? "skip" : { range: queryRange },
+    liveArgs: !loaded || (!warehouse && rebuilding) ? "skip" : { range: liveRange },
   });
 
   const { startDayKey, endDayKey } = dashboardRangeToDayKeys(queryRange, now, setting);
@@ -76,10 +79,10 @@ export function LeadGenActivityPageClient() {
 
   const recent = usePaginatedQuery(
     api.leadGen.activity.listMyRecentSubmissions,
-    !loaded || rebuilding ? "skip" : { range: queryRange },
+    !loaded || rebuilding ? "skip" : { range: liveRange },
     { initialNumItems: ACTIVITY_PAGE_SIZE },
   );
-  const argsKey = JSON.stringify(queryRange);
+  const argsKey = JSON.stringify(liveRange);
   const fresh = !loaded || rebuilding || recent.status === "LoadingFirstPage" ? undefined : recent.results;
   const freshKey = fresh ? `${argsKey}|${fresh.map((row) => row._id).join(",")}` : undefined;
   // The rows keep the days they were read for: they can arrive before or
