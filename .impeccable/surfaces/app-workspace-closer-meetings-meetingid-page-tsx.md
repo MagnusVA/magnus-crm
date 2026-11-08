@@ -12,7 +12,7 @@ Mode: Operate. Second flagship; inherits the world locked on Closer Today (`.imp
 ## Scope
 Audience: the closer right before, during or after a call. Task: join, prepare, then record the outcome. Owners and admins record outcomes on the admin twin; the product has no path to correct a recorded outcome yet, so the recorded state shows a one-line summary (a won deal links to its payment details). Constraints: outcome writes carry side effects (`docs/agents/convex.md`); outcome eligibility rules (`hooks/use-outcome-eligibility.ts`); pending follow-up handling from PR #214; `CONTEXT.md` vocabulary (meeting attendance vs deal stage vs outcome).
 
-Approved sketch: `.impeccable/mocks/meeting-detail.html` (render: `.impeccable/review/meeting-detail.png`), after-call state.
+Approved sketch: `.impeccable/mocks/meeting-detail.html` (retired) (render: `.impeccable/review/meeting-detail.png`), after-call state.
 
 ## Direction contract
 THESIS: A call page is a question to answer, not a record to read. Refuses the equal-weight card grid with a row of peer action buttons.

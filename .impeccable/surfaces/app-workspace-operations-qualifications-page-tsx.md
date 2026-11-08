@@ -11,7 +11,7 @@ Mode: Operate. Inherits the Departures Board world (`DESIGN.md`); closest preced
 
 ## Scope
 Audience: owners and admins. They open it to see whether the team is on goal for the range, which setters produced the qualified leads, and what each lead became.
-User decisions (2026-11-02): same content and data, new design; the goal leads; pressing a setter filters Submissions through the queue's existing `slackUserId` argument (one primary filter at a time, so choosing a setter clears the stage filter and the reverse); "setter" everywhere (CONTEXT.md names the role), not "opener"; round 1 (live board, tiles, goal beside ranking) and a straight restyle of the current layout were rejected as too far or not purposeful; round 2 chose "Split desk" (`.impeccable/mocks/decision/qual-split-desk.html`).
+User decisions (2026-11-02): same content and data, new design; the goal leads; pressing a setter filters Submissions through the queue's existing `slackUserId` argument (one primary filter at a time, so choosing a setter clears the stage filter and the reverse); "setter" everywhere (CONTEXT.md names the role), not "opener"; round 1 (live board, tiles, goal beside ranking) and a straight restyle of the current layout were rejected as too far or not purposeful; round 2 chose "Split desk" (`.impeccable/mocks/decision/qual-split-desk.html` (retired)).
 Untouched: every number and its definition, the live/ClickHouse/snapshot split, exports, schedules dialog, team goal dialog, admin-only access, Convex queries.
 
 ## Direction contract

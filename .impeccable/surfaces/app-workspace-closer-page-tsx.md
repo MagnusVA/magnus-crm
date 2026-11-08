@@ -12,7 +12,7 @@ Mode: Operate. First flagship of the whole-app redesign; its world becomes the a
 ## Scope
 Audience: closers at a desk beside a live video call. Task: see the next call and join it, record outcomes still owed, work today's tasks, glance at the week's performance. Constraints: business-day time (tenant time zone), honest metric definitions, `CONTEXT.md` vocabulary (deal, task, deal stage), WCAG 2.2 AA.
 
-Approved sketch: `.impeccable/mocks/hybrid-today.html` (render: `.impeccable/review/hybrid-today.png`). Decision round: `.impeccable/mocks/decision/`.
+Approved sketch: `.impeccable/mocks/hybrid-today.html` (retired) (render: `.impeccable/review/hybrid-today.png`). Decision round: `.impeccable/mocks/decision/` (retired).
 
 ## Direction contract
 THESIS: The closer's day is a departures board inside a calm, standard CRM. Refuses the category default of equal-weight KPI cards and a month calendar leading the page.
