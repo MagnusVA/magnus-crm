@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { AlertTriangleIcon } from "lucide-react";
-import { useQuery } from "convex/react";
+// The cached useQuery keeps these subscriptions for a few minutes after the
+// banner unmounts, so the next Operations page (and its loading skeleton)
+// shows the banner at once instead of pushing the page down when it arrives.
+import { useQuery } from "convex-helpers/react/cache/hooks";
 import { api } from "@/convex/_generated/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";

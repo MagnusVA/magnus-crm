@@ -43,41 +43,39 @@ export function EventTypesTable({
 }) {
   const allChecked = rows.length > 0 && rows.every((row) => selected.has(row.eventType._id));
   return (
-    <div role="table" aria-label="Event types" aria-rowcount={rows.length + 1}>
-      <div role="row" className={cn(ROW_GRID, "sticky top-0 z-[2] min-h-[30px] border-b border-border bg-card")}>
-        <span role="columnheader" className="flex items-center">
-          <input
-            type="checkbox"
-            className={CHECKBOX}
-            aria-label="Select all shown"
-            checked={allChecked}
-            disabled={rows.length === 0}
-            onChange={(event) => onSelectAll(event.target.checked)}
-          />
-        </span>
-        <span role="columnheader" className={LABEL}>
-          Event type
-        </span>
-        <span role="columnheader" className={cn(LABEL, "pl-1.5")}>
-          Counts for
-        </span>
-        <span role="columnheader" className={cn(LABEL, COL_SCHEDULING)}>
-          Scheduling
-        </span>
-        <span role="columnheader" className={cn(LABEL, COL_BOOKABLE)}>
-          Bookable
-        </span>
-        <span role="columnheader" className={cn(LABEL, COL_PORTAL)}>
-          In portal
-        </span>
-        <span role="columnheader" className={cn(LABEL, "text-right")}>
-          30 days
-        </span>
-      </div>
-      {rows.length === 0 ? (
-        <p className="px-4 py-7 text-[13.5px] text-muted-foreground">{emptyText}</p>
-      ) : (
-        rows.map((row) => (
+    <>
+      <div role="table" aria-label="Event types" aria-rowcount={rows.length + 1}>
+        <div role="row" className={cn(ROW_GRID, "sticky top-0 z-[2] min-h-[30px] border-b border-border bg-card")}>
+          <span role="columnheader" className="flex items-center">
+            <input
+              type="checkbox"
+              className={CHECKBOX}
+              aria-label="Select all shown"
+              checked={allChecked}
+              disabled={rows.length === 0}
+              onChange={(event) => onSelectAll(event.target.checked)}
+            />
+          </span>
+          <span role="columnheader" className={LABEL}>
+            Event type
+          </span>
+          <span role="columnheader" className={cn(LABEL, "pl-1.5")}>
+            Counts for
+          </span>
+          <span role="columnheader" className={cn(LABEL, COL_SCHEDULING)}>
+            Scheduling
+          </span>
+          <span role="columnheader" className={cn(LABEL, COL_BOOKABLE)}>
+            Bookable
+          </span>
+          <span role="columnheader" className={cn(LABEL, COL_PORTAL)}>
+            In portal
+          </span>
+          <span role="columnheader" className={cn(LABEL, "text-right")}>
+            30 days
+          </span>
+        </div>
+        {rows.map((row) => (
           <Row
             key={row.eventType._id}
             row={row}
@@ -87,9 +85,11 @@ export function EventTypesTable({
             onOpen={onOpen}
             onSort={onSort}
           />
-        ))
-      )}
-    </div>
+        ))}
+      </div>
+      {/* Outside the table: a table may hold only rows. */}
+      {rows.length === 0 ? <p className="px-4 py-7 text-[13.5px] text-muted-foreground">{emptyText}</p> : null}
+    </>
   );
 }
 

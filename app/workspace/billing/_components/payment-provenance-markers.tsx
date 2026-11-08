@@ -9,7 +9,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { clientDisplayName } from "@/lib/agentClient";
 import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
-import { FIGURE, formatPaidAt } from "./billing-format";
+import { FIGURE } from "./billing-format";
+import { PaidAt } from "./paid-at";
 
 // Billing's two markers (docs/plans/closer-assistant.md §7): a payment an
 // agent logged names its client, and a payment whose proof file also backs
@@ -93,7 +94,7 @@ export function ReusedProofCard({ detail, now }: { detail: BillingPaymentDetail;
               >
                 {match.programName}
               </Link>
-              <span className={cn(FIGURE, "shrink-0 text-muted-foreground")}>{formatPaidAt(match.recordedAt, now)}</span>
+              <span className={cn(FIGURE, "shrink-0 text-muted-foreground")}><PaidAt at={match.recordedAt} now={now} /></span>
               <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
             </li>
           ))}

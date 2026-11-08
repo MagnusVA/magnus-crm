@@ -1,4 +1,8 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageBand } from "@/app/workspace/_components/page-band";
+import { TextPlaceholder } from "@/app/workspace/_components/text-placeholder";
+import { OperationsHealthBanner } from "../../_components/operations-health-banner";
+import { SalesFigures } from "./sales-figures";
 
 // Stands in for the page at its real container steps: the band with its
 // five figure zones, Phone closers, then Programs beside Meetings.
@@ -30,27 +34,16 @@ export function SalesCallsPageSkeleton() {
       aria-label="Loading sales calls"
       className="@container mx-auto flex w-full max-w-[1500px] flex-col gap-3.5 pb-6 short:gap-3"
     >
-      <div className="overflow-hidden rounded-xl bg-board dark:ring-1 dark:ring-board-foreground/10">
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-4 pt-3.5 pb-3 @lg:px-[18px] @lg:pt-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-7 w-36 bg-board-raised" />
-            <Skeleton className="h-3.5 w-80 max-w-full bg-board-raised" />
-          </div>
-          <Skeleton className="h-[34px] w-[26rem] max-w-full bg-board-raised" />
-        </div>
-        <div className="grid grid-cols-2 gap-px border-t border-board-line bg-board-line @3xl:grid-cols-3 @5xl:grid-cols-5">
-          {Array.from({ length: 5 }, (_, index) => (
-            <div
-              key={index}
-              className={`flex flex-col gap-1.5 bg-board px-4 py-3 @lg:px-[18px] ${index === 4 ? "col-span-2 @3xl:col-span-2 @5xl:col-span-1" : ""}`}
-            >
-              <Skeleton className="h-3 w-16 bg-board-raised" />
-              <Skeleton className="h-8 w-20 bg-board-raised" />
-              <Skeleton className="h-3.5 w-36 max-w-full bg-board-raised" />
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* The real band and figure zones with nothing loaded, so the band is
+          the same height when the page replaces this. */}
+      <PageBand
+        title="Sales calls"
+        description={<TextPlaceholder sample="Today · Nov 7 · Live" />}
+        actions={<Skeleton className="h-[34px] w-[26rem] max-w-full bg-board-foreground/10" />}
+      >
+        <SalesFigures stats={undefined} mainCurrency="USD" />
+      </PageBand>
+      <OperationsHealthBanner />
       <CardSkeleton rows={5} />
       <div className="grid items-start gap-3.5 @5xl:grid-cols-[1fr_1.1fr] short:gap-3">
         <CardSkeleton rows={4} />

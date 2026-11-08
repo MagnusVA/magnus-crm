@@ -153,6 +153,13 @@ describe("dashboardRangePlan", () => {
     });
   });
 
+  it("reads a single custom day live, even before today", () => {
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-26", endBusinessDateInclusive: "2026-10-26" }, "2026-10-27")).toEqual({ kind: "live" });
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-03-14", endBusinessDateInclusive: "2026-03-14" }, "2026-10-27")).toEqual({ kind: "live" });
+    // Two days still read ClickHouse.
+    expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-25", endBusinessDateInclusive: "2026-10-26" }, "2026-10-27")).toMatchObject({ kind: "warehouse" });
+  });
+
   it("reads a range that ended before today from ClickHouse", () => {
     expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-26" }, "2026-10-27")).toEqual({
       kind: "warehouse",

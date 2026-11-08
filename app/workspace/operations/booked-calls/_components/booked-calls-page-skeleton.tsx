@@ -1,6 +1,8 @@
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OperationsHealthBanner } from "../../_components/operations-health-banner";
+import { BookedCallsBandLinks } from "./booked-calls-band-links";
 import { DmClosersByTeamSkeleton } from "./dm-closers-by-team";
 import { TeamGoalsSkeletonRows } from "./team-goals-card";
 
@@ -23,7 +25,10 @@ export function BookedCallsPageSkeleton() {
           />
         }
         actions={<Skeleton className="h-[34px] w-[30rem] max-w-full bg-board-foreground/10" />}
-      />
+      >
+        <BookedCallsBandLinks />
+      </PageBand>
+      <OperationsHealthBanner />
       <DetailCard title="Team goals" className="min-w-0">
         <TeamGoalsSkeletonRows />
       </DetailCard>

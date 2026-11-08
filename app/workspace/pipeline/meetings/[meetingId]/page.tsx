@@ -5,7 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AdminMeetingDetailClient } from "./_components/admin-meeting-detail-client";
 import { ContentReveal } from "@/components/page-transitions";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function AdminMeetingDetailPage({
   params,

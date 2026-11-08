@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { format } from "date-fns";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { DealAttributionDetail } from "@/convex/lib/attribution/detailPayload";
 import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
@@ -11,6 +10,7 @@ import {
   TOUCH_CHANNEL_LABELS,
 } from "@/app/workspace/_components/deal-stage-track";
 import { DetailCard, DetailCardFooter, detailLinkClass } from "./detail-card";
+import { useLocalFormat } from "./local-time";
 import { StageChip } from "./stage-tone";
 
 /**
@@ -58,6 +58,7 @@ export function DealCard({
     opportunity.firstBookingProgramName ??
     null;
   const firstTouch = detail.dealAttribution?.firstTouch ?? null;
+  const format = useLocalFormat();
 
   return (
     <DetailCard

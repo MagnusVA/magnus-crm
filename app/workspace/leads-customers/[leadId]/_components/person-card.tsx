@@ -65,6 +65,8 @@ function socialLabel(type: string) {
   return SOCIAL_LABELS[type.toLowerCase()] ?? type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+const INCOME_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
 const SMALL_DATE = "font-condensed text-[0.8125rem] font-semibold tracking-[0.02em] text-muted-foreground tabular-nums";
 
 /**
@@ -146,7 +148,7 @@ export function PersonCard() {
             {income !== undefined ? (
               <Fact label="Income" title="Self-reported in the DM portal">
                 <span className="font-condensed text-[15px] font-semibold tabular-nums">
-                  {new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(income)}
+                  {INCOME_FORMAT.format(income)}
                 </span>{" "}
                 <Muted>self-reported</Muted>
               </Fact>

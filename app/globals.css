@@ -255,6 +255,20 @@
    View Transitions & Streaming Animations (Phase 4)
    ============================================================ */
 
+/* The transition overlay would swallow clicks while it runs. Let them
+   reach the live page underneath. Hit-testing skips named participants,
+   and the browser names the root by default, so take the root out too.
+   Only the <ViewTransition> areas animate; the sidebar and header stay
+   live and clickable.
+   @see next/dist/docs 02-guides/view-transitions.md — Keeping the page interactive */
+::view-transition {
+  pointer-events: none;
+}
+
+:root {
+  view-transition-name: none;
+}
+
 /* Page transition: cross-fade between old and new page content.
    Triggered by the <ViewTransition> around #main-content in
    workspace-shell-client.tsx, for navigations tagged "workspace-nav"
@@ -266,12 +280,14 @@
   animation-timing-function: ease-out;
 }
 
+/* `both` holds each end state: the transition runs 200ms, so without it the
+   old page snapped back to full opacity for the 50ms after its fade ended. */
 ::view-transition-old(.page-transition) {
-  animation: vt-fade-out 150ms ease-out;
+  animation: vt-fade-out 150ms ease-out both;
 }
 
 ::view-transition-new(.page-transition) {
-  animation: vt-fade-in 200ms ease-out;
+  animation: vt-fade-in 200ms ease-out both;
 }
 
 /* vt-fade-out is 150ms and vt-fade-in is 200ms — the old page fades

@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { PayPageClient } from "./_components/pay-page-client";
 import { PayPageSkeleton } from "./_components/pay-page-skeleton";
 
-export const unstable_instant = false;
+export const instant = false;
 
 /**
  * The payment link's receipt page (docs/plans/closer-assistant.md decision

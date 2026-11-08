@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, use, type ReactNode } from "react";
+import { createContext, use, useMemo, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
@@ -25,19 +25,17 @@ export function RoleProvider({
   const currentUser = useQuery(api.users.queries.getCurrentUser);
   const role = currentUser?.role ?? initialRole;
 
-  const isAdmin = role === "tenant_master" || role === "tenant_admin";
-
-  return (
-    <RoleContext
-      value={{
-        role,
-        isAdmin,
-        hasPermission: (permission) => hasPermission(role, permission),
-      }}
-    >
-      {children}
-    </RoleContext>
+  // One value per role, so useRole() readers re-render only when it changes.
+  const value = useMemo<RoleContextValue>(
+    () => ({
+      role,
+      isAdmin: role === "tenant_master" || role === "tenant_admin",
+      hasPermission: (permission) => hasPermission(role, permission),
+    }),
+    [role],
   );
+
+  return <RoleContext value={value}>{children}</RoleContext>;
 }
 
 export function useRole() {

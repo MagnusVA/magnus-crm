@@ -38,7 +38,7 @@ export function PublicShell({
           <ThemeToggle />
           {signIn ? (
             <Button asChild variant="ghost" className={BAR_BUTTON}>
-              <Link href="/sign-in">Sign in</Link>
+              <a href="/sign-in">Sign in</a>
             </Button>
           ) : null}
         </>

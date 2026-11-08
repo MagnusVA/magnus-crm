@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useRef, useState } from "react";
+import { createContext, use, useMemo, useRef, useState } from "react";
 import { modeLabel } from "../booking-model";
 import { useCoverage } from "./coverage-context";
 import { faceOf, inheritorsOf, ISSUE_WORD, ISSUE_WHY, resolveRef, type CellRef } from "./coverage-model";
@@ -11,7 +11,7 @@ type TipState = { ref: CellRef; left: number; top: number; below: boolean } | nu
 const TipContext = createContext<TipApi>({ show: () => {}, hide: () => {} });
 
 export function useCellTip() {
-  return useContext(TipContext);
+  return use(TipContext);
 }
 
 /** One navy tip for every half-cell: what the cell holds, who it reaches, and why it's broken. */

@@ -17,6 +17,7 @@ import { isAwaitingOutcome, isDealWon } from "@/lib/deal-controls";
 import { CallStrip } from "./call-strip";
 import { DealCard } from "./deal-card";
 import { DealWonCard } from "./deal-won-card";
+import { LocalTime } from "./local-time";
 import { RecordingCard } from "@/components/fathom/recording-card";
 import { MeetingComments } from "./meeting-comments";
 import { OutcomeSection } from "./outcome-section";
@@ -145,7 +146,7 @@ export function MeetingDetailView({
             <span className="font-medium text-foreground">
               {reassignmentInfo.reassignedFromCloserName}
             </span>{" "}
-            on {format(new Date(reassignmentInfo.reassignedAt), "MMM d, h:mm a")}:{" "}
+            on <LocalTime at={reassignmentInfo.reassignedAt} pattern="MMM d, h:mm a" />:{" "}
             {reassignmentInfo.reason}
           </AlertDescription>
         </Alert>

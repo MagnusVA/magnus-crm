@@ -26,6 +26,11 @@ vi.mock("convex-helpers/react", () => ({
 }));
 // A tenant whose Operations pages still read Convex (useAnalyticsSource).
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+// The Operations health banner reads through convex-helpers' cached useQuery;
+// route it to the convex/react mock below.
+vi.mock("convex-helpers/react/cache/hooks", async () => ({
+  useQuery: (await import("convex/react")).useQuery,
+}));
 vi.mock("convex/react", () => ({
   useQuery: (reference: Parameters<typeof getFunctionName>[0], args: unknown) => {
     fixture.queries(getFunctionName(reference), args);

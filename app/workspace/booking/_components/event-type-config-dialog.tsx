@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useState,
+  type ReactNode,
+} from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
@@ -167,22 +173,27 @@ export function EventTypeConfigDialog({
     defaultValues: defaultsFromConfig(config),
   });
 
-  // Each time the dialog opens, or the config changes while open, start over
-  // from the saved links with no error.
-  const [synced, setSynced] = useState({ open, config });
-  if (synced.open !== open || synced.config !== config) {
-    setSynced({ open, config });
+  // Each time the dialog opens, or it switches to another event type, start
+  // over from the saved values with no error. A live refresh of the same
+  // config keeps the open draft.
+  const configKey = config._id ?? config.calendlyEventTypeUri;
+  const [synced, setSynced] = useState({ open, configKey });
+  if (synced.open !== open || synced.configKey !== configKey) {
+    setSynced({ open, configKey });
     if (open) {
       setPaymentLinks(config.paymentLinks || []);
       setSubmitError(null);
     }
   }
 
+  const resetForm = useEffectEvent(() => {
+    form.reset(defaultsFromConfig(config));
+  });
   useEffect(() => {
     if (open) {
-      form.reset(defaultsFromConfig(config));
+      resetForm();
     }
-  }, [config, form, open]);
+  }, [configKey, open]);
 
   const knownKeys = config.knownCustomFieldKeys ?? [];
   const fieldCount = config.fieldCount ?? knownKeys.length;

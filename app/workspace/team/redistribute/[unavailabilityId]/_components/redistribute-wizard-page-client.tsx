@@ -78,7 +78,6 @@ export function RedistributeWizardPageClient({ unavailabilityId }: RedistributeW
   const [currentResolveIndex, setCurrentResolveIndex] = useState(0);
   const [resolveCloserId, setResolveCloserId] = useState<string>("");
   const [resolving, setResolving] = useState<"assign" | "cancel" | null>(null);
-  const [resolvedCount, setResolvedCount] = useState(0);
   const [cancelOpen, setCancelOpen] = useState(false);
   // For the Done card: who took the calls assigned by hand, and how many were canceled.
   const [manualAssignees, setManualAssignees] = useState<string[]>([]);
@@ -218,8 +217,6 @@ export function RedistributeWizardPageClient({ unavailabilityId }: RedistributeW
         targetCloserId: resolveCloserId as Id<"users">,
         action: "assign",
       });
-      const nextResolved = resolvedCount + 1;
-      setResolvedCount(nextResolved);
       const assignee = enabledClosers.find((c) => c.closerId === resolveCloserId)?.closerName;
       if (assignee) setManualAssignees((prev) => [...prev, assignee]);
       const nextIndex = currentResolveIndex + 1;
@@ -242,7 +239,6 @@ export function RedistributeWizardPageClient({ unavailabilityId }: RedistributeW
     manuallyResolve,
     currentResolveIndex,
     unassignedMeetings.length,
-    resolvedCount,
     enabledClosers,
   ]);
 

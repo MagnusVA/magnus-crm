@@ -1,7 +1,7 @@
 import { requirePermission } from "@/lib/auth";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SecondOpinionDetailPageClient } from "../_components/second-opinion-detail-page-client";
-export const unstable_instant = false;
+export const instant = false;
 export default async function SecondOpinionDetailPage({
   params,
 }: {

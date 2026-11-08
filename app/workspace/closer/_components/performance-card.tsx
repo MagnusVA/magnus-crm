@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -13,7 +14,6 @@ import { businessDateForInstant, type BusinessDaySetting } from "@/lib/businessD
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -23,6 +23,15 @@ import {
   validateCustomDashboardRange,
 } from "@/app/workspace/_components/dashboard-date-utils";
 import { formatRangeLabel, performanceRange, type PerformancePeriod } from "./today-time";
+
+// react-day-picker loads when the custom range popover first opens, or
+// earlier when the pointer or focus reaches its button. Until then the
+// popover holds the calendar's size: one month below md, two from md.
+const loadCalendar = () => import("@/components/ui/calendar");
+const Calendar = dynamic(
+  () => import("@/components/ui/calendar").then((m) => ({ default: m.Calendar })),
+  { ssr: false, loading: () => <div aria-hidden="true" className="h-[294px] w-[212px] md:w-[424px]" /> },
+);
 
 type Summary = FunctionReturnType<typeof api.closer.dashboard.getPipelineSummary>;
 
@@ -324,6 +333,8 @@ function PeriodControl({
             size="sm"
             className="h-7 text-[13px] text-muted-foreground aria-expanded:text-foreground data-[custom=true]:text-foreground"
             data-custom={period.kind === "custom"}
+            onPointerEnter={loadCalendar}
+            onFocus={loadCalendar}
           >
             <CalendarIcon data-icon="inline-start" aria-hidden="true" />
             Custom
@@ -332,6 +343,7 @@ function PeriodControl({
         <PopoverContent align="end" className="w-[calc(100vw-2rem)] max-w-fit p-2">
           <Calendar
             mode="range"
+            autoFocus
             selected={draft}
             onSelect={setDraft}
             numberOfMonths={isMobile ? 1 : 2}

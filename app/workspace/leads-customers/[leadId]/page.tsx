@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import { requirePermission } from "@/lib/auth";
+import { ContentReveal, SkeletonExit } from "@/components/page-transitions";
 import { EntityDetailSkeleton } from "./_components/entity-detail-skeleton";
 import { EntityDetailContent } from "./_components/entity-detail-content";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function LeadCustomerDetailPage({
 	params,
@@ -14,8 +15,16 @@ export default async function LeadCustomerDetailPage({
 	const { leadId } = await params;
 
 	return (
-		<Suspense fallback={<EntityDetailSkeleton />}>
-			<EntityDetailContent leadId={leadId} accessToken={session.accessToken} />
+		<Suspense
+			fallback={
+				<SkeletonExit>
+					<EntityDetailSkeleton />
+				</SkeletonExit>
+			}
+		>
+			<ContentReveal>
+				<EntityDetailContent leadId={leadId} accessToken={session.accessToken} />
+			</ContentReveal>
 		</Suspense>
 	);
 }

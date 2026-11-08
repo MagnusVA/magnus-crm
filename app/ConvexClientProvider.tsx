@@ -2,7 +2,8 @@
 
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-nextjs/components";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ConvexQueryCacheProvider } from "convex-helpers/react/cache/provider";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
 import { CalendlyConnectionGuard } from "@/components/calendly-connection-guard";
@@ -73,23 +74,28 @@ function getConvexUrl(): string {
   return url;
 }
 
-export function ConvexClientProvider({ children }: { children: ReactNode }) {
-  // initialAuthTokenReuse: keep the page-load token and refresh it before it
-  // expires, instead of forcing a second token right after connecting.
-  const [convex] = useState(
-    () => new ConvexReactClient(getConvexUrl(), { initialAuthTokenReuse: true }),
-  );
+// One client per page, built at module scope: building it during render calls
+// Math.random(), which stops the static shell from prerendering. The client
+// opens its WebSocket on first use, so nothing connects on the server.
+// initialAuthTokenReuse: keep the page-load token and refresh it before it
+// expires, instead of forcing a second token right after connecting.
+const convex = new ConvexReactClient(getConvexUrl(), { initialAuthTokenReuse: true });
 
+export function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
     // onSessionExpired={false} stops AuthKit's checkSessionAction POST on
     // every tab focus. A failed token request below shows the expiry toast.
     <AuthKitProvider onSessionExpired={false}>
       <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
-        <CalendlyConnectionGuard>
-          <SlackConnectionGuard>
-            {children}
-          </SlackConnectionGuard>
-        </CalendlyConnectionGuard>
+        {/* For the convex-helpers cached useQuery: a component that uses it
+            gets its last result at once when it mounts again within minutes. */}
+        <ConvexQueryCacheProvider>
+          <CalendlyConnectionGuard>
+            <SlackConnectionGuard>
+              {children}
+            </SlackConnectionGuard>
+          </CalendlyConnectionGuard>
+        </ConvexQueryCacheProvider>
       </ConvexProviderWithAuth>
     </AuthKitProvider>
   );

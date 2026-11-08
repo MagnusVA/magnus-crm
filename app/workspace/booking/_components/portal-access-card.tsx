@@ -37,8 +37,10 @@ function sessionLabel(seconds: number) {
   return `${hours} hour${hours === 1 ? "" : "s"}`;
 }
 
+const TIMESTAMP_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
 function formatTimestamp(timestamp: number) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+  return TIMESTAMP_FORMAT.format(timestamp);
 }
 
 async function copyText(text: string, success: string) {

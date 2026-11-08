@@ -178,7 +178,10 @@ export function ActivityEventRow({ event, oneDay }: { event: ActivityEvent; oneD
   const iso = new Date(event.occurredAt).toISOString();
 
   return (
-    <li className="border-b border-border transition-colors last:border-b-0 hover:bg-muted/60">
+    // Off-screen rows skip layout and paint. The intrinsic size is the row's
+    // content height (58px narrow, 43px from @3xl; the border is added on top),
+    // so the scrollbar holds still.
+    <li className="border-b border-border transition-colors [contain-intrinsic-size:auto_58px] [content-visibility:auto] last:border-b-0 hover:bg-muted/60 @3xl/feed:[contain-intrinsic-size:auto_43px]">
       <div className={cn("flex flex-col gap-0.5 px-4 py-2 @3xl/feed:h-[43px] @3xl/feed:items-center @3xl/feed:py-0", FEED_COLUMNS)}>
         {/* WHEN, from @3xl */}
         <time dateTime={iso} className="hidden truncate font-condensed text-[15px] font-semibold tabular-nums @3xl/feed:block">

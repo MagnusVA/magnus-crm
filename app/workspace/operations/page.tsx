@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-export const unstable_instant = false;
+export const instant = false;
 
 /**
  * Legacy operations hub. The old tabbed page (`?tab=...`) is now split into

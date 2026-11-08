@@ -1,6 +1,5 @@
 "use client";
 
-import { forwardRef } from "react";
 import { ArrowRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -49,6 +48,7 @@ export type InboxCardProps = {
   onLater: () => void;
   onUndo: () => void;
   helpButton: React.ReactNode;
+  ref?: React.Ref<HTMLElement>;
 };
 
 const STRENGTH: Record<Strength, { word: string; className: string }> = {
@@ -61,7 +61,7 @@ const LABEL = "font-condensed text-[11px] leading-[1.2] font-semibold tracking-[
 const WORD = "font-condensed text-[13px] leading-[1.1] font-bold tracking-[0.08em] whitespace-nowrap uppercase";
 
 /** The focused inbox card: what the event type is, where it probably goes and why, and one key per choice. */
-export const InboxCard = forwardRef<HTMLElement, InboxCardProps>(function InboxCard(props, ref) {
+export function InboxCard({ ref, ...props }: InboxCardProps) {
   const { card, members, facts } = props;
   const best = card.result.best;
   const strength = best ? STRENGTH[best.strength] : null;
@@ -232,7 +232,7 @@ export const InboxCard = forwardRef<HTMLElement, InboxCardProps>(function InboxC
       ) : null}
     </article>
   );
-});
+}
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (

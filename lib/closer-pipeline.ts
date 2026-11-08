@@ -130,24 +130,37 @@ export function amountIn(amounts: CurrencyAmount[], currency: string): number {
  */
 export function formatCash(amountMinor: number, currency: string, signed = false): string {
   const whole = amountMinor % 100 === 0;
-  const options: Intl.NumberFormatOptions = {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    minimumFractionDigits: whole ? 0 : 2,
-    maximumFractionDigits: whole ? 0 : 2,
-    signDisplay: signed ? "exceptZero" : "auto",
-  };
+  const code = currency.toUpperCase();
+  const signDisplay = signed ? "exceptZero" : "auto";
   let formatted: string;
   try {
-    formatted = new Intl.NumberFormat("en-US", options).format(amountMinor / 100);
-  } catch {
-    const figure = new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: 2,
-      signDisplay: options.signDisplay,
+    formatted = cachedNumberFormat(`${code}:${whole}:${signDisplay}`, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: whole ? 0 : 2,
+      maximumFractionDigits: whole ? 0 : 2,
+      signDisplay,
     }).format(amountMinor / 100);
-    formatted = `${figure} ${currency.toUpperCase()}`;
+  } catch {
+    const figure = cachedNumberFormat(`plain:${signDisplay}`, {
+      maximumFractionDigits: 2,
+      signDisplay,
+    }).format(amountMinor / 100);
+    formatted = `${figure} ${code}`;
   }
   return formatted.replace(/^-/, "\u2212");
+}
+
+const cashFormats = new Map<string, Intl.NumberFormat>();
+
+/** One en-US formatter per key; a bad currency code throws and isn't cached. */
+function cachedNumberFormat(key: string, options: Intl.NumberFormatOptions) {
+  let formatter = cashFormats.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("en-US", options);
+    cashFormats.set(key, formatter);
+  }
+  return formatter;
 }
 
 // ── The book ──────────────────────────────────────────────────────────────

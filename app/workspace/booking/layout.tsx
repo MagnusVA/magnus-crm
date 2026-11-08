@@ -4,7 +4,7 @@ import { BookingBand } from "./_components/booking-band";
 import { BOOKING_ROOT_CLASS } from "./_components/booking-layout";
 import { BookingPageSkeleton } from "./_components/booking-page-skeleton";
 
-export const unstable_instant = false;
+export const instant = false;
 
 /**
  * Booking setup's sections share one band, rendered here so it stays mounted

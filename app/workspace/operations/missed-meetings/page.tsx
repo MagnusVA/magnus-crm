@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { MissedMeetingsPageClient } from "./_components/missed-meetings-page-client";
 import { MissedMeetingsPageSkeleton } from "./_components/missed-meetings-page-skeleton";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function OperationsMissedMeetingsPage() {
   await requireRole(["tenant_master", "tenant_admin"]);

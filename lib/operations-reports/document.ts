@@ -31,6 +31,8 @@ export const MAX_RENDER_CELLS = 200_000;
 export const MAX_PDF_ROWS = 5_000;
 export const MAX_XLSX_ROWS = 20_000;
 
+const NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+
 export function formatCell(
   value: ReportCell | undefined,
   format?: ReportColumn["format"],
@@ -42,7 +44,7 @@ export function formatCell(
   if (format === "percent") return `${(value * 100).toFixed(1)}%`;
   if (format === "money") return formatAmountMinor(value, currency);
   if (format === "decimal") return value.toFixed(2);
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+  return NUMBER_FORMAT.format(value);
 }
 
 export function currencyForCell(row: ReportRecord, column: ReportColumn) {

@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/auth";
 import { BookingReviewPageClient } from "./_components/booking-review-page-client";
 import { ContentReveal } from "@/components/page-transitions";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function BookingReviewPage({
   params,

@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth";
 import { SettingsPageClient } from "./_components/settings-page-client";
 import { ContentReveal } from "@/components/page-transitions";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function SettingsPage({
   searchParams,

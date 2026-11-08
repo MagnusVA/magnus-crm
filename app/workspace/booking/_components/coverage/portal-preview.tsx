@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { buildBookingUrl } from "@/app/dm-links/[portalSlug]/_components/build-booking-url";
 import { modeLabel, type CoverageEventType, type SchedulingMode } from "../booking-model";
 import { EventTypeMark } from "../coverage-cell";
-import { useCoverage } from "./coverage-context";
+import { useCoverage, useHighlight } from "./coverage-context";
 import { closerLinks, firstName, ISSUE_WORD, isWorking, plural, refKey } from "./coverage-model";
 
 const LABEL = "font-condensed text-[11px] leading-none font-semibold tracking-[0.14em] text-muted-foreground uppercase";
@@ -184,7 +184,8 @@ function Phone({
   onCampaign: (id: string) => void;
   loading: boolean;
 }) {
-  const { xray, litTile, setLitCell, openCell } = useCoverage();
+  const { xray, setLitCell, openCell } = useCoverage();
+  const litTile = useHighlight((highlight) => highlight.litTile);
   const [copied, setCopied] = useState<Copied>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);

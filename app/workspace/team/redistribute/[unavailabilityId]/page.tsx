@@ -2,7 +2,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
 import { RedistributeWizardPageClient } from "./_components/redistribute-wizard-page-client";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function RedistributePage({
 	params,

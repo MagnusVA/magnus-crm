@@ -224,9 +224,15 @@ export type DashboardRange =
   | { kind: "preset"; preset: "today" | "this_week" | "this_month" }
   | { kind: "custom"; startBusinessDate: string; endBusinessDateInclusive: string };
 
-/** Plans an Overview, Operations or lead gen range, in the tenant's business days. */
+/**
+ * Plans an Overview, Operations or lead gen range, in the tenant's business
+ * days. A custom range of one day reads live even when it's before today:
+ * one day is a small read for the page's Convex reader, and it skips waiting
+ * on a ClickHouse run.
+ */
 export function dashboardRangePlan(range: DashboardRange, todayBusinessDate: string): AnalyticsRangePlan {
   if (range.kind === "custom") {
+    if (range.startBusinessDate === range.endBusinessDateInclusive) return { kind: "live" };
     return planAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate);
   }
   if (range.preset === "today") return { kind: "live" };
