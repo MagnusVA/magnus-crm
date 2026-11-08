@@ -5,43 +5,30 @@ import { useEffect, useRef, useState } from "react";
 // The feed pages a stream, so it needs the helper's hook, which pins each
 // loaded page's end cursor; Convex's own hook doesn't for stream pagination.
 import { usePaginatedQuery } from "convex-helpers/react";
-import { addDays, startOfDay } from "date-fns";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
+import { countBusinessDays } from "@/lib/businessDay";
 import { mergeActivitySummary } from "@/convex/analytics/merge/activity";
 import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
-import {
-  ReportDateControls,
-  reportDayLine,
-  reportRangePhrase,
-  reportRangeWords,
-  type DateRange,
-} from "@/app/workspace/reports/_components/report-date-controls";
 import { REPORT_PAGE, ReportBand } from "@/app/workspace/reports/_components/report-ui";
+import {
+  ReportRangeMessage,
+  ReportRangePicker,
+  useReportRange,
+} from "@/app/workspace/reports/_components/use-report-range";
 import { ActivityFeedFilters, type ActivityFilters } from "./activity-feed-filters";
 import { ActivityFeedList } from "./activity-feed-list";
 import { ActivityBreakdown, ActivityFigures } from "./activity-summary";
 
 const PAGE_SIZE = 50;
-const DAY_MS = 86_400_000;
 
 export function ActivityFeedPageClient() {
   usePageTitle("Activity Feed");
-  const { setting } = useBusinessDay();
-
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const today = new Date();
-    return {
-      startDate: startOfDay(today).getTime(),
-      endDate: startOfDay(addDays(today, 1)).getTime(),
-    };
-  });
+  const range = useReportRange();
   const [filters, setFilters] = useState<ActivityFilters>({});
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse once the page is switched
@@ -50,23 +37,27 @@ export function ActivityFeedPageClient() {
   const summaryReport = useAnalyticsReport({
     page: "activity",
     reportId: "activity.summary",
-    plan: reportRangePlan(dateRange, now),
+    plan: range.plan,
     live: api.reporting.activityFeed.getActivitySummary,
-    liveArgs: dateRange,
-    todayArgs: reportWindowFromToday(dateRange, now),
+    liveArgs: range.ready ? range.window : "skip",
+    todayArgs: range.ready ? range.todayWindow : "skip",
     merge: mergeActivitySummary,
   });
-  // A new range keeps the last summary on screen, dimmed, with its own range.
-  const kept = useKeptWhileLoading(summaryReport.data, reportRangePhrase(dateRange));
-  const [keptRange, setKeptRange] = useState(dateRange);
-  if (summaryReport.data !== undefined && keptRange !== dateRange) setKeptRange(dateRange);
-  const shownRange = kept.reloading ? keptRange : dateRange;
+  // A new range keeps the last summary on screen, dimmed, with its own range
+  // and its own number of days.
+  const kept = useKeptWhileLoading(summaryReport.data, range.phrase);
+  const days = countBusinessDays(range.dayKeys.startDayKey, range.dayKeys.endDayKeyExclusive);
+  const [keptRange, setKeptRange] = useState({ queryRange: range.queryRange, days });
+  if (summaryReport.data !== undefined && (keptRange.queryRange !== range.queryRange || keptRange.days !== days)) {
+    setKeptRange({ queryRange: range.queryRange, days });
+  }
+  const shownRange = kept.reloading ? keptRange : { queryRange: range.queryRange, days };
   const summary = kept.data;
   const freshness = freshnessSummary([summaryReport.freshness], now);
 
   // Only include defined filter values in query args
   const feedArgs = {
-    ...dateRange,
+    ...range.window,
     ...(filters.entityType ? { entityType: filters.entityType } : {}),
     ...(filters.eventType ? { eventType: filters.eventType } : {}),
     ...(filters.actorUserId ? { actorUserId: filters.actorUserId as Id<"users"> } : {}),
@@ -79,23 +70,26 @@ export function ActivityFeedPageClient() {
     <div className={REPORT_PAGE}>
       <ReportBand
         title="Activity feed"
-        range={reportRangeWords(shownRange)}
+        range={range.wordsFor(shownRange.queryRange)}
         freshness={summaryReport.data !== undefined ? freshness : null}
-        dayLine={reportDayLine("browser", setting)}
-        actions={<ReportDateControls value={dateRange} onChange={setDateRange} />}
-        figures={<ActivityFigures summary={summary} range={shownRange} rangePhrase={kept.phrase} reloading={kept.reloading} />}
+        dayLine={range.dayLine}
+        actions={<ReportRangePicker range={range} />}
+        figures={
+          <ActivityFigures summary={summary} days={shownRange.days} rangePhrase={kept.phrase} reloading={kept.reloading} />
+        }
         filters={
           <ActivityFeedFilters filters={filters} onChange={setFilters} actorBreakdown={summary?.actorBreakdown ?? []} />
         }
       />
+      <ReportRangeMessage range={range} />
       <AnalyticsFreshnessAlert summary={freshness} />
 
       <ActivityBreakdown summary={summary} rangePhrase={kept.phrase} reloading={kept.reloading} />
 
       <ActivityFeedResults
-        args={feedArgs}
-        oneDay={dateRange.endDate - dateRange.startDate <= DAY_MS + 3_600_000}
-        rangePhrase={reportRangePhrase(dateRange)}
+        args={range.ready ? feedArgs : "skip"}
+        oneDay={range.dates.startBusinessDate === range.dates.endBusinessDateInclusive}
+        rangePhrase={range.phrase}
         onClearFilters={filtered ? () => setFilters({}) : undefined}
       />
     </div>
@@ -110,7 +104,7 @@ function ActivityFeedResults({
   rangePhrase,
   onClearFilters,
 }: {
-  args: FeedArgs;
+  args: FeedArgs | "skip";
   oneDay: boolean;
   rangePhrase: string;
   onClearFilters?: () => void;

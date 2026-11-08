@@ -3,6 +3,7 @@ import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-c
 import { FreshnessWords, type FreshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { HelpTip } from "@/app/workspace/team/_components/team-ui";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -419,5 +420,35 @@ export function ChartLegend({ items }: { items: Array<{ key: string; label: Reac
         </li>
       ))}
     </ul>
+  );
+}
+
+// ─── Granularity ─────────────────────────────────────────────────────────────
+
+export type ReportGranularity = "day" | "week" | "month";
+
+const GRANULARITY_LABEL: Record<ReportGranularity, string> = { day: "By day", week: "By week", month: "By month" };
+
+/** How a trend groups its periods, as a board-tone select beside the picker. */
+export function ReportGranularitySelect({
+  value,
+  onChange,
+}: {
+  value: ReportGranularity;
+  onChange: (next: ReportGranularity) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={(next) => onChange(next as ReportGranularity)}>
+      <SelectTrigger aria-label="Group the trend" className={cn(BAND_SELECT, "w-[112px]")}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {(Object.keys(GRANULARITY_LABEL) as ReportGranularity[]).map((option) => (
+          <SelectItem key={option} value={option}>
+            {GRANULARITY_LABEL[option]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

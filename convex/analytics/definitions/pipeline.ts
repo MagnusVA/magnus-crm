@@ -227,7 +227,7 @@ export const pipelineReports = [
     id: "pipeline.backlog_and_loss",
     page: "pipeline",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: noFilters,
     sql: backlogAndLossSql,
     finalize: async (ctx, input) =>

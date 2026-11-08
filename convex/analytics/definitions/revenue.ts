@@ -74,7 +74,7 @@ export const revenueReports = [
     id: "revenue.metrics",
     page: "revenue",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: parseRevenueFilters,
     sql: paymentsSql,
     finalize: async (ctx, input) =>
@@ -85,7 +85,7 @@ export const revenueReports = [
     id: "revenue.details",
     page: "revenue",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: parseRevenueFilters,
     sql: paymentsSql,
     finalize: async (ctx, input) =>
@@ -96,7 +96,7 @@ export const revenueReports = [
     id: "revenue.trend",
     page: "revenue",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: async (ctx, raw) => ({
       ...(await parseRevenueFilters(ctx, raw)),
       granularity: optionalEnumFilter(raw.granularity, ["day", "week", "month"] as const) ?? "day",
@@ -122,7 +122,7 @@ export const revenueReports = [
     id: "revenue.booked_vs_sold",
     page: "revenue",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: parseRevenueFilters,
     sql: paymentsSql,
     finalize: async (ctx, input) =>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { addDays, startOfDay } from "date-fns";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { mergePipelineBacklogAndLoss, mergeSchedulingShowRate } from "@/convex/analytics/merge/pipeline";
@@ -9,25 +8,15 @@ import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_comp
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
-import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { dashboardRangePlan, reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
-import { addBusinessDays, businessDateForInstant } from "@/lib/businessDay";
-import { reportRangeDayKeys } from "@/lib/reportDateRange";
 import {
   ReportAttributionFilters,
   type ReportAttributionFilterValue,
 } from "../../_components/report-attribution-filters";
-import {
-  ReportDateControls,
-  reportDayLine,
-  reportRangePhrase,
-  reportRangeWords,
-  type DateRange,
-} from "../../_components/report-date-controls";
 import { REPORT_PAGE, REPORT_PAIR, ReportBand } from "../../_components/report-ui";
 import { useReportAnalytics } from "../../_components/use-report-analytics";
+import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { LossAttributionCard } from "./loss-attribution-card";
 import { NoShowSourcesCard } from "./no-show-sources-card";
 import { PipelineAgingTable } from "./pipeline-aging-table";
@@ -40,24 +29,16 @@ import { StalePipelineList } from "./stale-pipeline-list";
 // open reminders, velocity); then the live stage and aging cards, the stale
 // deals, and the range's no-show sources and losses.
 
-function getTodayRange(nowMs = Date.now()): DateRange {
-  const now = new Date(nowMs);
-  return {
-    startDate: startOfDay(now).getTime(),
-    endDate: startOfDay(addDays(now, 1)).getTime(),
-  };
-}
-
 function capitalize(words: string) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
-  const { loaded, rebuilding, setting } = useBusinessDay();
+  const range = useReportRange();
+  const { ready, rebuilding, plan } = range;
   const { captureViewed, captureFiltersChanged } = useReportAnalytics("pipeline_health");
 
-  const [dateRange, setDateRange] = useState<DateRange>(() => getTodayRange());
   const [attributionFilters, setAttributionFilters] = useState<ReportAttributionFilterValue>({});
 
   useEffect(() => {
@@ -81,72 +62,50 @@ export function PipelineReportPageClient() {
   const aging = useQuery(api.reporting.pipelineHealth.getPipelineAging);
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse once the page is switched
-  // (docs/agents/reporting.md).
+  // (docs/agents/reporting.md). The range is the tenant's business days, so
+  // nothing reads until they're known; the show rate's buckets also wait out
+  // a rebuild, while the backlog and losses read timestamps and carry on.
   const now = useNow();
-  const plan = reportRangePlan(dateRange, now);
-  const todayWindow = reportWindowFromToday(dateRange, now);
+  const loaded = ready || rebuilding;
   const backlogAndLossReport = useAnalyticsReport({
     page: "pipeline",
     reportId: "pipeline.backlog_and_loss",
     plan,
     live: api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
-    liveArgs: {
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate,
-    },
-    todayArgs: todayWindow,
+    liveArgs: loaded ? range.window : "skip",
+    todayArgs: loaded ? range.todayWindow : "skip",
     merge: mergePipelineBacklogAndLoss,
   });
-  // The show rate counts the tenant's business days, so its range is planned
-  // in them: between midnight and the business day's start, the browser's
-  // today is a business day ahead.
-  const showRateDays = reportRangeDayKeys(dateRange);
-  const todayBusinessDate = businessDateForInstant(now, setting);
-  const showRatePlan = dashboardRangePlan(
-    {
-      kind: "custom",
-      startBusinessDate: showRateDays.startDayKey,
-      endBusinessDateInclusive: addBusinessDays(showRateDays.endDayKeyExclusive, -1),
-    },
-    todayBusinessDate,
-  );
   const operationsShowRateReport = useAnalyticsReport({
     page: "pipeline",
     reportId: "pipeline.show_rate",
-    plan: showRatePlan,
+    plan,
     filters: {
       bookingProgramId: attributionFilters.bookingProgramId,
       attributionTeamId: attributionFilters.attributionTeamId,
       dmCloserId: attributionFilters.dmCloserId,
     },
     live: api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
-    liveArgs: !loaded || rebuilding ? "skip" : {
-      ...showRateDays,
-      ...attributionFilters,
-    },
-    todayArgs: !loaded || rebuilding ? "skip" : {
-      startDayKey:
-        showRateDays.startDayKey > todayBusinessDate ? showRateDays.startDayKey : todayBusinessDate,
-      endDayKeyExclusive: showRateDays.endDayKeyExclusive,
-      ...attributionFilters,
-    },
+    liveArgs: ready ? { ...range.dayKeys, ...attributionFilters } : "skip",
+    todayArgs: ready ? { ...range.todayDayKeys, ...attributionFilters } : "skip",
     merge: mergeSchedulingShowRate,
   });
   const backlogAndLoss = backlogAndLossReport.data;
   const operationsShowRate = operationsShowRateReport.data;
   // A split already includes the live backlog. Only a wholly historical
-  // warehouse range needs a separate live read for this current-state figure.
-  const needsLiveBacklog = backlogAndLossReport.source === "warehouse" && plan.kind === "warehouse";
+  // warehouse range needs a separate live read for this current-state figure;
+  // the today window of a range that ended before today is today alone.
+  const needsLiveBacklog = loaded && backlogAndLossReport.source === "warehouse" && plan.kind === "warehouse";
   const liveBacklog = useQuery(
     api.reporting.pipelineHealth.getPipelineBacklogAndLoss,
-    needsLiveBacklog ? getTodayRange(now) : "skip",
+    needsLiveBacklog ? range.todayWindow : "skip",
   );
   const reminderBacklog = needsLiveBacklog ? liveBacklog : backlogAndLoss;
   const freshness = freshnessSummary([backlogAndLossReport.freshness, operationsShowRateReport.freshness], now);
 
   // A new range or filter keeps the last numbers on screen, dimmed, with the
   // range phrase they were loaded for (DESIGN.md, Kept Data While Reloading).
-  const phrase = reportRangePhrase(dateRange);
+  const { phrase } = range;
   const keptBacklog = useKeptWhileLoading(backlogAndLoss, phrase);
   const keptShowRate = useKeptWhileLoading(operationsShowRate, phrase);
   const keptReminders = useKeptWhileLoading(reminderBacklog, phrase);
@@ -156,18 +115,10 @@ export function PipelineReportPageClient() {
     <div className={REPORT_PAGE}>
       <ReportBand
         title="Pipeline Health"
-        range={reportRangeWords(dateRange)}
+        range={range.words}
         freshness={backlogAndLoss !== undefined && operationsShowRate !== undefined ? freshness : null}
-        dayLine={reportDayLine("tenant", setting)}
-        actions={
-          <ReportDateControls
-            value={dateRange}
-            onChange={(next) => {
-              setDateRange(next);
-              captureOperationsFilterChange();
-            }}
-          />
-        }
+        dayLine={range.dayLine}
+        actions={<ReportRangePicker range={range} onChange={() => captureOperationsFilterChange()} />}
         figures={
           <PipelineFigures
             showRate={keptShowRate.data}
@@ -187,6 +138,7 @@ export function PipelineReportPageClient() {
           />
         }
       />
+      <ReportRangeMessage range={range} />
       <AnalyticsFreshnessAlert summary={freshness} />
       {rebuilding ? <BusinessDayRebuildingState /> : null}
 

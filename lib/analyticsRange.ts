@@ -161,16 +161,6 @@ export function browserDay(timeZone: string): BusinessDaySetting {
   return { timeZone, dayStartHour: 0 };
 }
 
-function pad(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-/** `YYYY-MM-DD` of an instant in the browser's own time zone. */
-export function localDateKey(ms: number): string {
-  const date = new Date(ms);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 /**
  * How a page whose ranges ClickHouse answers reads one (docs/agents/reporting.md):
  *
@@ -227,21 +217,6 @@ export function planAnalyticsRange(
     historyStartDate: startDate,
     historyEndDate: yesterday,
   };
-}
-
-/** A Reports page range: browser-local `[startDate, endDate)` in ms. */
-export type ReportDateWindow = { startDate: number; endDate: number };
-
-/** Plans a Reports page range, in the browser's days. */
-export function reportRangePlan(range: ReportDateWindow, nowMs: number): AnalyticsRangePlan {
-  return planAnalyticsRange(localDateKey(range.startDate), localDateKey(range.endDate - 1), localDateKey(nowMs));
-}
-
-/** The part of a Reports page range from the start of today, for its live reader. */
-export function reportWindowFromToday(range: ReportDateWindow, nowMs: number): ReportDateWindow {
-  const today = new Date(nowMs);
-  today.setHours(0, 0, 0, 0);
-  return { startDate: Math.max(range.startDate, today.getTime()), endDate: range.endDate };
 }
 
 /** An Overview, Operations or lead gen range, in business dates. */
