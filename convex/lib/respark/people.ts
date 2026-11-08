@@ -91,7 +91,7 @@ const CARD_MERGED_PEOPLE = 3;
 
 /**
  * What a batch card shows (plan §6.1). The time zone needs the booking's
- * stored payload, so only the panel reads it.
+ * stored payload; the batch query fills it in with its own read budget.
  */
 export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = createLiveReadState()) {
   const allIds = await mergedLeadIds(ctx, lead.tenantId, lead._id);

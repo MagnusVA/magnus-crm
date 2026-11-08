@@ -1,31 +1,14 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useAction } from "convex/react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,13 +19,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FieldGroup } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  DialogNote,
+  FormRow,
+  FormRows,
+  SubmitButton,
+} from "@/app/workspace/_components/action-dialog";
+import { RoleChoices } from "./team-dialog-parts";
 
 // ---------------------------------------------------------------------------
 // Zod schema — conditional validation via .superRefine()
@@ -77,15 +70,16 @@ type InviteUserFormValues = z.infer<typeof inviteUserSchema>;
 
 interface InviteUserDialogProps {
   onSuccess?: () => void;
-  /** Replaces the "Invite User" button that opens the dialog. */
+  /** Replaces the "Invite member" button that opens the dialog. */
   trigger?: ReactNode;
   /** Prefills the form, e.g. from a team member with no login yet. */
   defaultValues?: Partial<Pick<InviteUserFormValues, "email" | "firstName" | "lastName" | "role">>;
-  /** A line under the dialog's description. */
+  /** A ruled note under the header. */
   note?: ReactNode;
 }
 
 export function InviteUserDialog({ onSuccess, trigger, defaultValues, note }: InviteUserDialogProps) {
+  const ids = useId();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -103,7 +97,7 @@ export function InviteUserDialog({ onSuccess, trigger, defaultValues, note }: In
   });
 
   // Watch role to conditionally render the Calendly member field
-  const watchedRole = form.watch("role");
+  const watchedRole = useWatch({ control: form.control, name: "role" });
 
   // Queries — unmatched Calendly members for closer assignment
   const unmatchedMembers = useQuery(
@@ -147,6 +141,9 @@ export function InviteUserDialog({ onSuccess, trigger, defaultValues, note }: In
     }
   };
 
+  // From a member card the name is known, so the title names the person.
+  const knownName = [defaultValues?.firstName, defaultValues?.lastName].filter(Boolean).join(" ");
+
   return (
     <Dialog
       open={open}
@@ -161,191 +158,151 @@ export function InviteUserDialog({ onSuccess, trigger, defaultValues, note }: In
         {trigger ?? (
           <Button>
             <PlusIcon data-icon="inline-start" />
-            Invite User
+            Invite member
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Invite Team Member</DialogTitle>
-          <DialogDescription>
-            Add a new member to your team. Closers require a Calendly link;
-            lead generators do not receive CRM pipeline access.
-          </DialogDescription>
-          {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
-        </DialogHeader>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={knownName ? `Invite ${knownName} to the CRM` : "Invite someone to the CRM"}
+          description="Sends an email with a link to sign up."
+        />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-              {/* Email */}
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Email <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type="email"
-                        placeholder="user@example.com"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM} noValidate>
+          {note ? <DialogNote>{note}</DialogNote> : null}
+          <FormRows>
+            <Controller
+              control={form.control}
+              name="email"
+              render={({ field, fieldState }) => (
+                <FormRow label="Email" htmlFor={`${ids}-email`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-email`}
+                    type="email"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="name@company.com"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
+              )}
+            />
 
-              {/* First Name */}
-              <FormField
-                control={form.control}
-                name="firstName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      First Name <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="John"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <Controller
+              control={form.control}
+              name="firstName"
+              render={({ field, fieldState }) => (
+                <FormRow label="First name" htmlFor={`${ids}-first`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-first`}
+                    autoComplete="off"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
+              )}
+            />
 
-              {/* Last Name (optional) */}
-              <FormField
-                control={form.control}
-                name="lastName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Last Name</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Doe"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <Controller
+              control={form.control}
+              name="lastName"
+              render={({ field, fieldState }) => (
+                <FormRow label="Last name" htmlFor={`${ids}-last`} invalid={fieldState.invalid} error={fieldState.error}>
+                  <Input
+                    {...field}
+                    id={`${ids}-last`}
+                    autoComplete="off"
+                    placeholder="Optional"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
+              )}
+            />
 
-              {/* Role */}
-              <FormField
+            <Controller
+              control={form.control}
+              name="role"
+              render={({ field, fieldState }) => (
+                <FormRow label="Role" invalid={fieldState.invalid} error={fieldState.error}>
+                  <RoleChoices
+                    id={`${ids}-role`}
+                    value={field.value}
+                    onChange={(value) => {
+                      field.onChange(value);
+                      // Clear Calendly member when switching away from closer
+                      if (value !== "closer") {
+                        form.setValue("calendlyMemberId", undefined);
+                      }
+                    }}
+                    disabled={isSubmitting}
+                    invalid={fieldState.invalid}
+                  />
+                </FormRow>
+              )}
+            />
+
+            {/* Calendly Member — only visible when role is "closer" */}
+            {watchedRole === "closer" && (
+              <Controller
                 control={form.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Role <span className="text-destructive">*</span>
-                    </FormLabel>
+                name="calendlyMemberId"
+                render={({ field, fieldState }) => (
+                  <FormRow
+                    label="Calendly member"
+                    htmlFor={`${ids}-calendly`}
+                    invalid={fieldState.invalid}
+                    error={fieldState.error}
+                    description={
+                      unmatchedMembers?.length === 0
+                        ? "Every Calendly member is already linked to someone."
+                        : "Only members not linked to anyone are listed."
+                    }
+                  >
                     <Select
-                      value={field.value}
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Clear Calendly member when switching away from closer
-                        if (value !== "closer") {
-                          form.setValue("calendlyMemberId", undefined);
-                        }
-                      }}
-                      disabled={isSubmitting}
+                      value={field.value ?? ""}
+                      onValueChange={field.onChange}
+                      disabled={isSubmitting || !unmatchedMembers}
                     >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
+                      <SelectTrigger
+                        id={`${ids}-calendly`}
+                        aria-invalid={fieldState.invalid}
+                        className="w-full *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate"
+                      >
+                        <SelectValue placeholder={unmatchedMembers ? "Choose a member" : "Loading members…"} />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value="closer">Closer</SelectItem>
-                          <SelectItem value="lead_generator">
-                            Lead Generator
-                          </SelectItem>
-                          <SelectItem value="tenant_admin">Admin</SelectItem>
+                          {unmatchedMembers?.map((member) => (
+                            <SelectItem key={member._id} value={member._id}>
+                              {member.name ?? member.email} ({member.email})
+                            </SelectItem>
+                          ))}
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <FormMessage />
-                  </FormItem>
+                  </FormRow>
                 )}
               />
+            )}
+          </FormRows>
 
-              {/* Calendly Member — only visible when role is "closer" */}
-              {watchedRole === "closer" && (
-                <FormField
-                  control={form.control}
-                  name="calendlyMemberId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Calendly Member{" "}
-                        <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        value={field.value ?? ""}
-                        onValueChange={field.onChange}
-                        disabled={isSubmitting || !unmatchedMembers}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a Calendly member" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {unmatchedMembers?.map((member) => (
-                              <SelectItem key={member._id} value={member._id}>
-                                {member.name ?? member.email} ({member.email})
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Only unmatched Calendly members are shown
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-            </FieldGroup>
-
-            <DialogFooter className="mt-5">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setOpen(false);
-                  form.reset();
-                }}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Inviting...
-                  </>
-                ) : (
-                  "Invite"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          <ActionDialogFooter>
+            <CancelButton
+              onClick={() => {
+                setOpen(false);
+                form.reset();
+              }}
+              disabled={isSubmitting}
+            />
+            <SubmitButton pending={isSubmitting} pendingLabel="Sending…">
+              Send invite
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

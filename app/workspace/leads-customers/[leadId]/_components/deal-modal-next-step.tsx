@@ -77,6 +77,7 @@ export function DealModalNextStep({
           {permissions.canRecordPayment ? (
             <SideDealPaymentDialog
               opportunityId={opportunity._id}
+              leadName={leadName}
               variant={showSetNextStep ? "outline" : "default"}
             />
           ) : null}
@@ -112,7 +113,7 @@ export function DealModalNextStep({
               />
             ) : null}
             {permissions.canDeleteOpportunity ? (
-              <DeleteOpportunityDialog opportunityId={opportunity._id} onDeleted={onDeleted} />
+              <DeleteOpportunityDialog opportunityId={opportunity._id} onDeleted={onDeleted} leadName={leadName} />
             ) : null}
           </div>
         </div>

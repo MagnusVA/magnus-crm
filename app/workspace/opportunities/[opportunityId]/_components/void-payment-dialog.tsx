@@ -1,40 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
-import { AlertTriangleIcon } from "lucide-react";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { formatCash } from "@/lib/closer-pipeline";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRow,
+  FormRows,
+  RecordFact,
+  RecordFacts,
+  SubmitButton,
+  SubmitError,
+  WhatHappens,
+} from "@/app/workspace/_components/action-dialog";
+import { PAYMENT_TYPE_LABELS } from "@/app/workspace/_components/payment-dialog-form";
+import type { DealPayment } from "./opportunity-payments-list";
 
 const voidPaymentSchema = z.object({
   reason: z
@@ -46,11 +42,30 @@ const voidPaymentSchema = z.object({
 
 type VoidPaymentValues = z.infer<typeof voidPaymentSchema>;
 
+/** What Void does, in the order the server does it. */
+const STEPS = [
+  "Marks the payment disputed, so it leaves revenue reports and the deal’s paid total.",
+  "Closes the side deal as lost, with your reason.",
+  "Removes the enrollment it held. A person left with no payment is no longer a customer.",
+];
+
+/**
+ * An admin voids a side deal's payment from its row in the deal modal: the
+ * payment named in the title, what voiding does, a reason, then the danger
+ * button (`sideDeals.voidPayment`).
+ */
 export function VoidPaymentDialog({
   paymentId,
+  payment,
+  dateLabel,
 }: {
   paymentId: Id<"paymentRecords">;
+  /** The payment's facts, so the dialog names what it voids. */
+  payment?: Pick<DealPayment, "amountMinor" | "currency" | "programName" | "paymentType">;
+  /** The day it was recorded, as the row shows it ("Nov 3"). */
+  dateLabel?: string;
 }) {
+  const ids = useId();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -84,8 +99,15 @@ export function VoidPaymentDialog({
     }
   };
 
+  const amount = payment ? formatCash(payment.amountMinor, payment.currency) : null;
+  const title = amount
+    ? dateLabel
+      ? `Void the ${amount} payment from ${dateLabel}?`
+      : `Void the ${amount} payment?`
+    : "Void this side-deal payment?";
+
   return (
-    <AlertDialog
+    <Dialog
       open={open}
       onOpenChange={(value) => {
         if (!isSubmitting) {
@@ -97,7 +119,7 @@ export function VoidPaymentDialog({
         }
       }}
     >
-      <AlertDialogTrigger asChild>
+      <DialogTrigger asChild>
         <Button
           variant="ghost"
           size="xs"
@@ -106,77 +128,63 @@ export function VoidPaymentDialog({
         >
           Void
         </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
-              <AlertTriangleIcon className="size-4 text-danger-ink" aria-hidden="true" />
-            </div>
-            <div className="flex-1">
-              <AlertDialogTitle>Void this side-deal payment?</AlertDialogTitle>
-              <AlertDialogDescription>
-                The payment is marked disputed, its revenue comes off the
-                reports, and the side deal closes as lost.
-              </AlertDialogDescription>
-            </div>
-          </div>
-        </AlertDialogHeader>
+      </DialogTrigger>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader title={title} description="Voiding a side deal’s payment can’t be undone." tone="danger" />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-            <FormField
+        <form className={ACTION_FORM} onSubmit={form.handleSubmit(onSubmit)} noValidate>
+          <SubmitError>{submitError}</SubmitError>
+          {payment ? (
+            <RecordFacts>
+              <RecordFact label="Program">
+                <span translate="no">{payment.programName}</span>
+              </RecordFact>
+              <RecordFact label="Payment type">{PAYMENT_TYPE_LABELS[payment.paymentType]}</RecordFact>
+            </RecordFacts>
+          ) : null}
+          <WhatHappens steps={STEPS} />
+          <FormRows>
+            <Controller
               control={form.control}
               name="reason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Reason</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={3}
-                      className="resize-none"
-                      placeholder="Duplicate entry from yesterday…"
-                      autoComplete="off"
-                      disabled={isSubmitting}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <FormRow
+                  label="Reason"
+                  htmlFor={`${ids}-reason`}
+                  invalid={fieldState.invalid}
+                  error={fieldState.error}
+                >
+                  <Textarea
+                    {...field}
+                    id={`${ids}-reason`}
+                    rows={3}
+                    className="resize-none"
+                    placeholder="Duplicate entry from yesterday…"
+                    autoComplete="off"
+                    aria-invalid={fieldState.invalid}
+                    aria-required
+                    disabled={isSubmitting}
+                  />
+                </FormRow>
               )}
             />
-            </FieldGroup>
+          </FormRows>
 
-            {submitError ? (
-              <Alert variant="destructive" className="mt-4">
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <AlertDialogFooter className="mt-4">
-              <AlertDialogCancel disabled={isSubmitting}>
-                Cancel
-              </AlertDialogCancel>
-              <Button
-                type="submit"
-                variant="destructive"
-                className="text-danger-ink"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Voiding…
-                  </>
-                ) : (
-                  "Void payment"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </Form>
-      </AlertDialogContent>
-    </AlertDialog>
+          <ActionDialogFooter>
+            <CancelButton
+              onClick={() => {
+                setOpen(false);
+                form.reset();
+                setSubmitError(null);
+              }}
+              disabled={isSubmitting}
+            />
+            <SubmitButton pending={isSubmitting} pendingLabel="Voiding…" danger>
+              Void payment
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

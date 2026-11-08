@@ -5,32 +5,22 @@ import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useMutation } from "convex/react";
-import { AlertTriangleIcon, Link2OffIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
+  ACTION_DIALOG,
+  ACTION_FORM,
+  ActionDialogFooter,
+  ActionDialogHeader,
+  CancelButton,
+  FormRows,
+  SubmitButton,
+  WhatHappens,
+} from "@/app/workspace/_components/action-dialog";
+import { NoteRow } from "@/app/workspace/_components/follow-up-dialog-parts";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 
@@ -44,8 +34,7 @@ type DialogProps = {
 
 /**
  * "Cancel the link": `cancelLinkTask` closes the task and leaves the deal at
- * its stage. The confirm button sits outside `AlertDialogAction`, which would
- * close the dialog before the mutation runs.
+ * its stage.
  */
 export function LinkCancelDialog({
   followUpId,
@@ -77,44 +66,28 @@ export function LinkCancelDialog({
     }
   };
 
+  const close = (value: boolean) => {
+    if (isSubmitting) return; // don't dismiss mid-submit
+    onOpenChange(value);
+  };
+
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (isSubmitting) return; // don't dismiss mid-submit
-        onOpenChange(value);
-      }}
-    >
-      <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <Link2OffIcon className="size-4" aria-hidden />
-            </div>
-            <div className="flex-1">
-              <AlertDialogTitle>Cancel the link for {firstName}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This task closes and stops waiting for a booking. The deal stays at{" "}
-                {dealStageLabel}, with no next step until one is set from the deal.
-              </AlertDialogDescription>
-            </div>
-          </div>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isSubmitting}>Keep waiting</AlertDialogCancel>
-          <Button type="button" onClick={() => void confirm()} disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Spinner data-icon="inline-start" />
-                Canceling…
-              </>
-            ) : (
-              "Cancel the link"
-            )}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={`Cancel the link for ${firstName}?`}
+          description={`This task closes and stops waiting for a booking. The deal stays at ${dealStageLabel}, with no next step until one is set from the deal.`}
+        />
+        <ActionDialogFooter>
+          <CancelButton disabled={isSubmitting} onClick={() => close(false)}>
+            Keep waiting
+          </CancelButton>
+          <SubmitButton type="button" pending={isSubmitting} pendingLabel="Canceling…" onClick={() => void confirm()}>
+            Cancel the link
+          </SubmitButton>
+        </ActionDialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -169,78 +142,48 @@ export function LinkLostDialog({
     }
   };
 
+  const close = (value: boolean) => {
+    if (isSubmitting) return; // don't dismiss mid-submit
+    onOpenChange(value);
+    if (!value) form.reset();
+  };
+
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(value) => {
-        if (isSubmitting) return; // don't dismiss mid-submit
-        onOpenChange(value);
-        if (!value) form.reset();
-      }}
-    >
-      <AlertDialogContent className="max-w-md">
-        <AlertDialogHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-danger-ink">
-              <AlertTriangleIcon className="size-4" aria-hidden />
-            </div>
-            <div className="flex-1">
-              <AlertDialogTitle>
-                {leadName ? `Close ${leadName}’s deal as lost?` : "Close the deal as lost?"}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                No booking from {firstName}. The link and this task close, and the deal closes
-                as lost, with the reason when one is given.
-              </AlertDialogDescription>
-            </div>
-          </div>
-        </AlertDialogHeader>
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        <ActionDialogHeader
+          title={leadName ? `Close ${leadName}’s deal as lost?` : "Close the deal as lost?"}
+          description={`No booking from ${firstName}.`}
+        />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-              <FormField
-                control={form.control}
-                name="reason"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reason (optional)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={3}
-                        placeholder="Why is this deal over? (e.g., stopped replying after the link)"
-                        className="resize-none text-sm"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </FieldGroup>
+        <form onSubmit={form.handleSubmit(onSubmit)} className={ACTION_FORM} noValidate>
+          <WhatHappens
+            steps={[
+              "The link and this task close.",
+              "The deal closes as lost, with the reason when one is given.",
+            ]}
+          />
+          <FormRows>
+            <NoteRow
+              label="Reason (optional)"
+              placeholder="Why is this deal over? (e.g., stopped replying after the link)"
+              rows={3}
+              disabled={isSubmitting}
+              error={form.formState.errors.reason}
+              field={form.register("reason")}
+            />
+          </FormRows>
 
-            <AlertDialogFooter className="mt-4">
-              <AlertDialogCancel disabled={isSubmitting}>Keep waiting</AlertDialogCancel>
-              <Button
-                type="submit"
-                variant="destructive"
-                className="text-danger-ink"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Closing…
-                  </>
-                ) : (
-                  "Close as lost"
-                )}
-              </Button>
-            </AlertDialogFooter>
-          </form>
-        </Form>
-      </AlertDialogContent>
-    </AlertDialog>
+          <ActionDialogFooter>
+            <CancelButton disabled={isSubmitting} onClick={() => close(false)}>
+              Keep waiting
+            </CancelButton>
+            <SubmitButton pending={isSubmitting} pendingLabel="Closing…" danger>
+              Close as lost
+            </SubmitButton>
+          </ActionDialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

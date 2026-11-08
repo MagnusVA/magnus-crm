@@ -73,6 +73,44 @@ async function panelFacts(h: Harness, leadId: Id<"leads">, userId: Id<"users">) 
   });
 }
 
+/** A Calendly invitee.created booking as the webhook stores it, still inside raw payload retention. */
+async function booking(h: Harness, leadId: Id<"leads">, userId: Id<"users">, key: string, timezone: string,
+  bookedAt = NOW - 20 * DAY_MS) {
+  return await h.t.run(async (ctx) => {
+    const dealId = await ctx.db.insert("opportunities", { tenantId: h.tenantId, leadId,
+      stage: "closed", outcome: "lost", lostReason: "no_show", createdAt: bookedAt, updatedAt: bookedAt + DAY_MS });
+    const eventUri = `https://api.calendly.com/scheduled_events/${key}`;
+    const inviteeUri = `${eventUri}/invitees/${key}`;
+    const meetingId = await ctx.db.insert("meetings", { tenantId: h.tenantId, opportunityId: dealId,
+      assignedCloserId: userId, calendlyEventUri: eventUri, calendlyInviteeUri: inviteeUri,
+      scheduledAt: bookedAt + DAY_MS, durationMinutes: 30, status: "no_show", createdAt: bookedAt });
+    const payload = JSON.stringify({ event: "invitee.created", created_at: "2026-09-30T15:00:00.000000Z",
+      created_by: "https://api.calendly.com/users/owner", payload: {
+        uri: inviteeUri, email: `${key}@example.com`, name: "Pat Person", first_name: "Pat", last_name: "Person",
+        status: "active", timezone, rescheduled: false, old_invitee: null, new_invitee: null,
+        text_reminder_number: null, cancel_url: `https://calendly.com/cancellations/${key}`,
+        reschedule_url: `https://calendly.com/reschedulings/${key}`,
+        questions_and_answers: [{ question: "What do you want to grow?", answer: "My coaching business", position: 0 }],
+        tracking: { utm_source: "instagram", utm_medium: null, utm_campaign: null, utm_content: null, utm_term: null },
+        scheduled_event: { uri: eventUri, name: "Strategy call", status: "active",
+          start_time: "2026-10-01T15:00:00.000000Z", end_time: "2026-10-01T15:30:00.000000Z",
+          event_type: "https://api.calendly.com/event_types/strategy", location: { type: "zoom" },
+          event_memberships: [{ user: "https://api.calendly.com/users/closer" }] },
+      } });
+    const rawEventId = await ctx.db.insert("rawWebhookEvents", { tenantId: h.tenantId,
+      calendlyEventUri: inviteeUri, eventType: "invitee.created", processed: true,
+      occurredAt: bookedAt, receivedAt: bookedAt, payload });
+    await ctx.db.insert("webhookDeliveries", { tenantId: h.tenantId, key: `invitee.created:${key}`,
+      eventType: "invitee.created", inviteeUri, eventUri, rawEventId, occurredAt: bookedAt,
+      receivedAt: bookedAt, processedAt: bookedAt, generation: 1, status: "applied",
+      meetingId, opportunityId: dealId, leadId });
+    await ctx.db.insert("domainEvents", { tenantId: h.tenantId, leadId, entityType: "meeting",
+      entityId: meetingId, eventType: "meeting.created", occurredAt: bookedAt, source: "pipeline" });
+    await recomputeResparkState(ctx, (await ctx.db.get("leads", leadId))!);
+    return { dealId, meetingId };
+  });
+}
+
 describe("Respark queries", () => {
   it("gates every query by lead-gen:respark, including anonymous callers", async () => {
     vi.useFakeTimers();
@@ -145,7 +183,7 @@ describe("Respark queries", () => {
     const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
     expect(batch.items[0]).toMatchObject({ itemId: item._id, position: 0, bucket: 2, result: null, workedAt: null,
       person: { handle: "respark.panel", capturedAt: NOW - 40 * DAY_MS, capturedBy: "admin@example.com",
-        qualifiedAt: NOW - 11 * DAY_MS, timeZone: null, newestDeal: { lostReason: "no_show" } },
+        qualifiedAt: NOW - 11 * DAY_MS, timeZone: "Europe/Madrid", newestDeal: { lostReason: "no_show" } },
       blockedReason: null });
     expect(batch.items[0].person!.lastTouches.map((event) => event.eventType)).toEqual(["payment.recorded", "meeting.created", "lead.slack_qualified"]);
     // A hand-written loss reason can hold contact details; the card masks them.
@@ -162,6 +200,41 @@ describe("Respark queries", () => {
     expect(blocked).toBe("This person is marked do not contact.");
     await expect(h.admin.mutation(api.respark.batches.markResparked, { itemId: item._id })).rejects.toThrow(blocked!);
   });
+
+  it("shows the booking's time zone on the batch card, the same one the panel shows", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const { item, leadId } = await held(h);
+    await booking(h, leadId, item.userId, "card-zone", "America/Chicago");
+    const panel = (await h.admin.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id }))!;
+    expect(panel.timeZone).toBe("America/Chicago");
+    const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
+    expect(batch.items[0].person?.timeZone).toBe("America/Chicago");
+    expect(batch.capped).toBe(false);
+    // Once the raw payload is past retention, both say nothing rather than guess.
+    await h.t.run(async (ctx) => {
+      for (const raw of await ctx.db.query("rawWebhookEvents").take(10)) await ctx.db.delete("rawWebhookEvents", raw._id);
+    });
+    expect((await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!.items[0].person?.timeZone).toBeNull();
+  });
+
+  it("serves a maximum-size batch with a retained booking on every card within Convex transaction limits", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ transactionLimits: true, leadGenTeam: true });
+    await h.t.run((ctx) => ctx.db.patch("tenants", h.tenantId, { respark: { batchSize: 100, inactiveAfterDays: 30 } }));
+    const userId = await h.t.run(async (ctx) => (await ctx.db.query("users").take(1))[0]._id);
+    for (let index = 0; index < 100; index += 1) {
+      const leadId = await capture(h, `zone.${index}`, NOW - 60 * DAY_MS);
+      // Booked just past the 30-day inactive cutoff; the daily cleanup has not yet removed the payload.
+      await booking(h, leadId, userId, `zone-${index}`, index % 2 ? "America/New_York" : "Europe/London",
+        NOW - 30 * DAY_MS - DAY_MS / 2);
+    }
+    await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
+    expect(batch.items).toHaveLength(100);
+    expect(batch.items.every((item) => item.person?.timeZone)).toBe(true);
+    expect(batch.capped).toBe(false);
+  }, 60_000);
 
   it("counts the same five buckets as a claim, including exclusive and inclusive boundaries", async () => {
     vi.useFakeTimers();

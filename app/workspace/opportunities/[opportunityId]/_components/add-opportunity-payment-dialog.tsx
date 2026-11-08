@@ -1,65 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
-import { BanknoteIcon, UploadIcon } from "lucide-react";
+import { BanknoteIcon } from "lucide-react";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { useForm } from "react-hook-form";
+import { Controller, FormProvider, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { FieldGroup } from "@/components/ui/field";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getErrorMessage } from "@/lib/errors";
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const VALID_FILE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "application/pdf",
-];
-const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
-const PAYMENT_TYPES = ["monthly", "split", "pif", "deposit"] as const;
-const PAYMENT_TYPE_LABELS: Record<(typeof PAYMENT_TYPES)[number], string> = {
-  monthly: "Monthly",
-  split: "Split",
-  pif: "Paid in Full",
-  deposit: "Deposit",
-};
+import {
+  ACTION_DIALOG,
+  ActionDialogHeader,
+  FormRow,
+  RecordFact,
+} from "@/app/workspace/_components/action-dialog";
+import {
+  CURRENCIES,
+  MAX_PROOF_FILE_SIZE,
+  PAYMENT_TYPES,
+  PROOF_FILE_TYPES,
+  PaymentConfirmStep,
+  PaymentFormStep,
+  formatPaymentAmount,
+  useConfirmStep,
+} from "@/app/workspace/_components/payment-dialog-form";
 
 function isValidHttpUrl(value: string): boolean {
   try {
@@ -86,11 +58,11 @@ const paymentSchema = z.object({
     .instanceof(File)
     .optional()
     .refine(
-      (file) => !file || file.size <= MAX_FILE_SIZE,
+      (file) => !file || file.size <= MAX_PROOF_FILE_SIZE,
       "File size must be less than 10 MB",
     )
     .refine(
-      (file) => !file || VALID_FILE_TYPES.includes(file.type),
+      (file) => !file || PROOF_FILE_TYPES.includes(file.type),
       "Only images (JPEG, PNG, GIF) and PDFs are allowed",
     ),
   fathomLink: z
@@ -109,9 +81,15 @@ const paymentSchema = z.object({
 
 type PaymentValues = z.infer<typeof paymentSchema>;
 
+/**
+ * Another payment on a won deal, from the deal modal. The program is the
+ * deal's (read-only). The form validates, then a confirm step records it
+ * with `recordAdditionalPayment`.
+ */
 export function AddOpportunityPaymentDialog({
   opportunityId,
   programName,
+  leadName,
   variant = "outline",
 }: {
   opportunityId: Id<"opportunities">;
@@ -122,10 +100,14 @@ export function AddOpportunityPaymentDialog({
    * earliest payment's on a deal won without one.
    */
   programName: string | null;
+  /** Named in the title so the payment lands on the right person's deal. */
+  leadName?: string | null;
 }) {
+  const ids = useId();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useConfirmStep<PaymentValues>(open);
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const recordAdditionalPayment = useMutation(
     api.closer.additionalPayment.recordAdditionalPayment,
@@ -205,6 +187,10 @@ export function AddOpportunityPaymentDialog({
     }
   };
 
+  const amountLabel = confirming ? formatPaymentAmount(confirming.amount, confirming.currency) : "";
+  const fathomLink = confirming?.fathomLink?.trim();
+  const note = confirming?.note?.trim();
+
   return (
     <Dialog
       open={open}
@@ -225,236 +211,114 @@ export function AddOpportunityPaymentDialog({
         </Button>
       </DialogTrigger>
       {open ? (
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add a payment</DialogTitle>
-            <DialogDescription>
-              Records another payment on this won deal. It is credited to the
-              deal&apos;s closer and counts in revenue reports.
-            </DialogDescription>
-          </DialogHeader>
-
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <FieldGroup>
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Amount <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          inputMode="decimal"
-                          step="0.01"
-                          min="0"
-                          placeholder="299.99"
-                          autoComplete="off"
-                          disabled={isSubmitting}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="currency"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Currency <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        disabled={isSubmitting}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {CURRENCIES.map((currency) => (
-                              <SelectItem key={currency} value={currency}>
-                                {currency}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="flex flex-col gap-2">
-                  <span className="text-sm font-medium">Program</span>
-                  <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                    {programName ?? "—"}
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    A payment takes the program the deal was won under.
-                  </p>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="paymentType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Payment type{" "}
-                        <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        disabled={isSubmitting}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select payment type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {PAYMENT_TYPES.map((paymentType) => (
-                              <SelectItem key={paymentType} value={paymentType}>
-                                {PAYMENT_TYPE_LABELS[paymentType]}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Choose how the revenue should be classified.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="proofFile"
-                  render={({ field: { value, onChange, ...fieldProps } }) => (
-                    <FormItem>
-                      <FormLabel>Proof file</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="file"
-                          accept="image/jpeg,image/png,image/gif,application/pdf"
-                          disabled={isSubmitting}
-                          onChange={(event) => {
-                            onChange(event.target.files?.[0]);
-                          }}
-                          {...fieldProps}
-                        />
-                      </FormControl>
-                      {value ? (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <UploadIcon
-                            aria-hidden="true"
-                            className="size-3 shrink-0"
-                          />
-                          <span className="truncate">
-                            {value.name} ({(value.size / 1024).toFixed(1)} KB)
-                          </span>
-                        </div>
-                      ) : null}
-                      <FormDescription>
-                        Optional. Max 10 MB. Allowed: PNG, JPEG, GIF, PDF.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="fathomLink"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Fathom link</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="url"
-                          inputMode="url"
-                          placeholder="https://fathom.video/call/..."
-                          autoComplete="off"
-                          disabled={isSubmitting}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Optional call-recording link as evidence.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="note"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Note</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          rows={2}
-                          placeholder="Optional context for this payment."
-                          disabled={isSubmitting}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>Optional. Max 500 characters.</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </FieldGroup>
-
-              {submitError ? (
-                <Alert variant="destructive" className="mt-4">
-                  <AlertDescription>{submitError}</AlertDescription>
-                </Alert>
-              ) : null}
-
-              <DialogFooter className="mt-5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
+        <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+          {confirming ? (
+            <>
+              <ActionDialogHeader
+                title={leadName ? `Add ${amountLabel} to ${leadName}’s deal?` : `Add a ${amountLabel} payment to this deal?`}
+                description="Check the payment before you record it."
+              />
+              <PaymentConfirmStep
+                amount={confirming.amount}
+                currency={confirming.currency}
+                programName={programName}
+                paymentType={confirming.paymentType}
+                proofFile={confirming.proofFile}
+                extraFacts={
+                  <>
+                    {fathomLink ? (
+                      <RecordFact label="Fathom link">
+                        <span className="break-all">{fathomLink}</span>
+                      </RecordFact>
+                    ) : null}
+                    {note ? <RecordFact label="Note">{note}</RecordFact> : null}
+                  </>
+                }
+                steps={[
+                  "Adds the payment to Billing’s Needs review, credited to the deal’s closer.",
+                  "Adds it to the deal’s paid total and revenue reports. The deal stays won.",
+                ]}
+                submitError={submitError}
+                pending={isSubmitting}
+                onBack={() => {
+                  setSubmitError(null);
+                  setConfirming(null);
+                }}
+                onConfirm={() => void onSubmit(confirming)}
+              />
+            </>
+          ) : (
+            <>
+              <ActionDialogHeader
+                title={leadName ? `Add a payment to ${leadName}’s deal` : "Add a payment"}
+                description="Another payment on this won deal. It’s credited to the deal’s closer and counts in revenue reports."
+              />
+              <FormProvider {...form}>
+                <PaymentFormStep
+                  onSubmit={form.handleSubmit((values) => {
+                    setSubmitError(null);
+                    setConfirming(values);
+                  })}
+                  onCancel={() => {
                     setOpen(false);
                     form.reset();
                     setSubmitError(null);
                   }}
-                  disabled={isSubmitting}
+                  program={{
+                    kind: "fixed",
+                    name: programName,
+                    description: "A payment takes the program the deal was won under.",
+                  }}
                 >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Spinner data-icon="inline-start" />
-                      Recording…
-                    </>
-                  ) : (
-                    "Add payment"
-                  )}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+                  <Controller
+                    control={form.control}
+                    name="fathomLink"
+                    render={({ field, fieldState }) => (
+                      <FormRow
+                        label="Fathom link"
+                        htmlFor={`${ids}-fathom`}
+                        invalid={fieldState.invalid}
+                        error={fieldState.error}
+                        description="Optional. The call recording, as evidence."
+                      >
+                        <Input
+                          {...field}
+                          id={`${ids}-fathom`}
+                          type="url"
+                          inputMode="url"
+                          placeholder="https://fathom.video/call/…"
+                          autoComplete="off"
+                          spellCheck={false}
+                          aria-invalid={fieldState.invalid}
+                        />
+                      </FormRow>
+                    )}
+                  />
+                  <Controller
+                    control={form.control}
+                    name="note"
+                    render={({ field, fieldState }) => (
+                      <FormRow
+                        label="Note"
+                        htmlFor={`${ids}-note`}
+                        invalid={fieldState.invalid}
+                        error={fieldState.error}
+                        description="Optional. Up to 500 characters."
+                      >
+                        <Textarea
+                          {...field}
+                          id={`${ids}-note`}
+                          rows={2}
+                          placeholder="Context for this payment"
+                          aria-invalid={fieldState.invalid}
+                        />
+                      </FormRow>
+                    )}
+                  />
+                </PaymentFormStep>
+              </FormProvider>
+            </>
+          )}
         </DialogContent>
       ) : null}
     </Dialog>

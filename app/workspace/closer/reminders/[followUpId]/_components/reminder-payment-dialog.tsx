@@ -1,66 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { FieldGroup } from "@/components/ui/field";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Spinner } from "@/components/ui/spinner";
-import { AlertCircleIcon } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
-import { ProofFileInput } from "@/app/workspace/closer/meetings/_components/proof-file-input";
 import { getErrorMessage } from "@/lib/errors";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Max proof file size: 10 MB (the server enforces it too). */
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const VALID_FILE_TYPES = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
-
-const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
-const PAYMENT_TYPES = ["monthly", "split", "pif", "deposit"] as const;
-const PAYMENT_TYPE_LABELS: Record<(typeof PAYMENT_TYPES)[number], string> = {
-  monthly: "Monthly",
-  split: "Split",
-  pif: "Paid in Full",
-  deposit: "Deposit",
-};
+import { ACTION_DIALOG, ActionDialogHeader } from "@/app/workspace/_components/action-dialog";
+import {
+  CURRENCIES,
+  MAX_PROOF_FILE_SIZE,
+  PAYMENT_TYPES,
+  PROOF_FILE_TYPES,
+  PaymentConfirmStep,
+  PaymentFormStep,
+  formatPaymentAmount,
+  useConfirmStep,
+} from "@/app/workspace/_components/payment-dialog-form";
 
 // ---------------------------------------------------------------------------
 // Zod schema — single source of truth for form validation.
@@ -85,9 +47,9 @@ const paymentFormSchema = z.object({
   proofFile: z
     .instanceof(File)
     .optional()
-    .refine((file) => !file || file.size <= MAX_FILE_SIZE, "File size must be less than 10 MB")
+    .refine((file) => !file || file.size <= MAX_PROOF_FILE_SIZE, "File size must be less than 10 MB")
     .refine(
-      (file) => !file || VALID_FILE_TYPES.includes(file.type),
+      (file) => !file || PROOF_FILE_TYPES.includes(file.type),
       "Only images (JPEG, PNG, GIF) and PDFs are allowed",
     ),
 });
@@ -115,7 +77,7 @@ type Props = {
  * Won · log payment, from a task. The meeting page's payment dialog, wired
  * to `logReminderPayment`: the backend finds the call from the task, closes
  * the deal as won and completes the task. An admin's payment is credited to
- * the task's closer.
+ * the task's closer. The form validates, then a confirm step records.
  */
 export function ReminderPaymentDialog({
   followUpId,
@@ -128,6 +90,7 @@ export function ReminderPaymentDialog({
 }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useConfirmStep<PaymentFormValues>(open);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
     includeArchived: false,
@@ -241,6 +204,13 @@ export function ReminderPaymentDialog({
   const hasPrograms = (programs?.length ?? 0) > 0;
   const isSubmitDisabled = isSubmitting || isProgramListLoading || !hasPrograms;
 
+  const chosenProgramId = useWatch({ control: form.control, name: "programId" });
+  const firstName = leadName?.trim().split(/\s+/)[0] || "the lead";
+  const programName = confirming
+    ? (programs?.find((program) => program._id === confirming.programId)?.name ?? null)
+    : null;
+  const amountLabel = confirming ? formatPaymentAmount(confirming.amount, confirming.currency) : "";
+
   return (
     <Dialog
       open={open}
@@ -250,200 +220,71 @@ export function ReminderPaymentDialog({
         if (!value) resetForm();
       }}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{leadName ? `Log ${leadName}’s payment` : "Log payment"}</DialogTitle>
-          <DialogDescription>
-            {actingFor
-              ? `Logging it closes the deal as won, credits ${actingFor}, and closes this task.`
-              : "Logging it closes the deal as won and closes this task."}
-          </DialogDescription>
-        </DialogHeader>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <FieldGroup>
-              <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Amount <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        placeholder="299.99"
-                        min="0"
-                        className="[appearance:textfield] tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="currency"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Currency <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isSubmitting}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectGroup>
-                          {CURRENCIES.map((currency) => (
-                            <SelectItem key={currency} value={currency}>
-                              {currency}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="programId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Program <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <FormControl>
-                      <ProgramSelect
-                        value={field.value || undefined}
-                        onChange={field.onChange}
-                        disabled={isSubmitDisabled}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {bookedProgram && field.value === bookedProgram._id
-                        ? "The program this deal was booked for."
-                        : "The program this payment is for."}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="paymentType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Payment type <span className="text-destructive">*</span>
-                    </FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                      disabled={isSubmitting}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select payment type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectGroup>
-                          {PAYMENT_TYPES.map((paymentType) => (
-                            <SelectItem key={paymentType} value={paymentType}>
-                              {PAYMENT_TYPE_LABELS[paymentType]}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Choose how the revenue should be classified.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="proofFile"
-                render={({ field: { value, onChange, onBlur, name } }) => (
-                  <FormItem>
-                    <FormLabel>Proof file</FormLabel>
-                    <FormControl>
-                      <ProofFileInput
-                        value={value}
-                        onChange={onChange}
-                        onBlur={onBlur}
-                        name={name}
-                        accept={VALID_FILE_TYPES.join(",")}
-                        disabled={isSubmitting}
-                      />
-                    </FormControl>
-                    <FormDescription>Max 10 MB. Allowed: PNG, JPEG, GIF, PDF</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </FieldGroup>
-
-            {!isProgramListLoading && !hasPrograms && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircleIcon />
-                <AlertDescription>
-                  No active programs are available. Create one before logging a payment.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {submitError && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircleIcon />
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
-            )}
-
-            <DialogFooter className="mt-5">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
+      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+        {confirming ? (
+          <>
+            <ActionDialogHeader
+              title={leadName ? `Record ${leadName}’s ${amountLabel} payment?` : `Record a ${amountLabel} payment?`}
+              description="Check the payment before you record it."
+            />
+            <PaymentConfirmStep
+              amount={confirming.amount}
+              currency={confirming.currency}
+              programName={programName}
+              paymentType={confirming.paymentType}
+              proofFile={confirming.proofFile}
+              steps={[
+                actingFor
+                  ? `Adds the payment to Billing’s Needs review, credited to ${actingFor}.`
+                  : "Adds the payment to Billing’s Needs review, credited to the task’s closer.",
+                actingFor ? `Closes the deal as won, with ${actingFor} as its closer.` : "Closes the deal as won.",
+                "Completes this task.",
+                programName ? `Makes ${firstName} a customer of ${programName}.` : `Makes ${firstName} a customer.`,
+              ]}
+              submitError={submitError}
+              pending={isSubmitting}
+              onBack={() => {
+                setSubmitError(null);
+                setConfirming(null);
+              }}
+              onConfirm={() => void onSubmit(confirming)}
+            />
+          </>
+        ) : (
+          <>
+            <ActionDialogHeader
+              title={leadName ? `Record a payment for ${leadName}` : "Record a payment"}
+              description={
+                actingFor
+                  ? `Recording it closes the deal as won, credits ${actingFor}, and closes this task.`
+                  : "Recording it closes the deal as won and closes this task."
+              }
+            />
+            <FormProvider {...form}>
+              <PaymentFormStep
+                onSubmit={form.handleSubmit((values) => {
+                  setSubmitError(null);
+                  setConfirming(values);
+                })}
+                onCancel={() => {
                   onOpenChange(false);
                   resetForm();
                 }}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitDisabled}>
-                {isSubmitting ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Logging…
-                  </>
-                ) : (
-                  "Log payment and close as won"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+                program={{
+                  kind: "choose",
+                  disabled: isSubmitDisabled,
+                  // With no programs, the select says why in place of a description.
+                  description: !hasPrograms
+                    ? undefined
+                    : bookedProgram && chosenProgramId === bookedProgram._id
+                      ? "The program this deal was booked for."
+                      : "The program this payment is for.",
+                }}
+                submitDisabled={isSubmitDisabled}
+              />
+            </FormProvider>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
