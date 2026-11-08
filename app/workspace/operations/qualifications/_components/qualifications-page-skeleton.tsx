@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageBand } from "@/app/workspace/_components/page-band";
+import { OperationsHealthBanner } from "../../_components/operations-health-banner";
 
 // The Qualifications desk's first load, at the page's real layout and heights.
 
@@ -29,6 +30,7 @@ export function QualificationsPageSkeleton() {
           <Bone className="hidden h-3.5 w-48 @3xl:inline-block" />
         </div>
       </PageBand>
+      <OperationsHealthBanner />
       <Card className="min-w-0 gap-0 overflow-hidden py-0 @4xl:grid @4xl:h-[clamp(30rem,calc(100dvh-18rem),60rem)] @4xl:grid-cols-[minmax(16rem,22.5rem)_minmax(0,1fr)]">
         <div className="border-b @4xl:border-r @4xl:border-b-0">
           <div className="flex min-h-11 items-center border-b px-4">

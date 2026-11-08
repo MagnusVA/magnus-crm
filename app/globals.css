@@ -280,12 +280,14 @@
   animation-timing-function: ease-out;
 }
 
+/* `both` holds each end state: the transition runs 200ms, so without it the
+   old page snapped back to full opacity for the 50ms after its fade ended. */
 ::view-transition-old(.page-transition) {
-  animation: vt-fade-out 150ms ease-out;
+  animation: vt-fade-out 150ms ease-out both;
 }
 
 ::view-transition-new(.page-transition) {
-  animation: vt-fade-in 200ms ease-out;
+  animation: vt-fade-in 200ms ease-out both;
 }
 
 /* vt-fade-out is 150ms and vt-fade-in is 200ms — the old page fades

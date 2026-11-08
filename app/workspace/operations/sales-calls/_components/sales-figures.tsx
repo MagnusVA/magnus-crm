@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { TextPlaceholder } from "@/app/workspace/_components/text-placeholder";
 import { formatCash } from "@/lib/closer-pipeline";
 import { cn } from "@/lib/utils";
 import { dealsWonWords, formatCloseRate } from "./close-rate";
@@ -25,11 +25,16 @@ function Zone({ label, className, children }: { label: string; className?: strin
   );
 }
 
+/** Placeholders in the loaded lines' own type, so a zone keeps its height when the figures arrive. */
 function Pending() {
   return (
     <>
-      <Skeleton className="h-8 w-20 bg-board-raised" />
-      <Skeleton className="h-3.5 w-36 max-w-full bg-board-raised" />
+      <p className={FIGURE}>
+        <TextPlaceholder sample="000" />
+      </p>
+      <p className={PROOF}>
+        <TextPlaceholder sample="0 canceled · 0 no-show" />
+      </p>
     </>
   );
 }

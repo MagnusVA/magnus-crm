@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageBand } from "@/app/workspace/_components/page-band";
 
 // Stands in for the list at its real container steps: the band's title and
 // line, then the card's title row, column heads and 44px rows (two lines
@@ -11,12 +12,11 @@ export function BookingReviewsPageSkeleton() {
       aria-label="Loading booking reviews"
       className="@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3"
     >
-      <div className="overflow-hidden rounded-xl bg-board dark:ring-1 dark:ring-board-foreground/10">
-        <div className="flex flex-col gap-2 px-4 pt-3.5 pb-3.5 @lg:px-[18px] @lg:pt-4 @lg:pb-4">
-          <Skeleton className="h-7 w-52 bg-board-raised" />
-          <Skeleton className="h-3.5 w-[30rem] max-w-full bg-board-raised" />
-        </div>
-      </div>
+      {/* The band's words don't depend on data, so it shows as it will. */}
+      <PageBand
+        title="Booking Reviews"
+        description="Bookings whose email, phone or Instagram handle match more than one person."
+      />
       <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex min-h-11 items-center gap-2.5 border-b border-border px-4">
           <Skeleton className="h-4 w-28" />

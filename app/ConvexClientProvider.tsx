@@ -2,6 +2,7 @@
 
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-nextjs/components";
+import { ConvexQueryCacheProvider } from "convex-helpers/react/cache/provider";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import posthog from "@/lib/posthog-browser";
 import { toast } from "sonner";
@@ -86,11 +87,15 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     // every tab focus. A failed token request below shows the expiry toast.
     <AuthKitProvider onSessionExpired={false}>
       <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
-        <CalendlyConnectionGuard>
-          <SlackConnectionGuard>
-            {children}
-          </SlackConnectionGuard>
-        </CalendlyConnectionGuard>
+        {/* For the convex-helpers cached useQuery: a component that uses it
+            gets its last result at once when it mounts again within minutes. */}
+        <ConvexQueryCacheProvider>
+          <CalendlyConnectionGuard>
+            <SlackConnectionGuard>
+              {children}
+            </SlackConnectionGuard>
+          </CalendlyConnectionGuard>
+        </ConvexQueryCacheProvider>
       </ConvexProviderWithAuth>
     </AuthKitProvider>
   );
