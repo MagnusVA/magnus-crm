@@ -7,7 +7,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -38,25 +37,21 @@ export function WorkspaceShellSkeleton() {
   return (
     <>
       <Sidebar>
-        <SidebarHeader>
-          <div className="flex min-h-10 items-center px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1">
+        {/* Matches the real brand block: lime M, "Magnus" in the condensed face */}
+        <SidebarHeader className="px-3 pt-4 pb-3">
+          <div className="flex min-h-9 items-center gap-2 rounded-md px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
             <MagnusBrand
-              label="MAGNUS CRM"
-              size="sm"
-              textClassName="text-sidebar-foreground group-data-[collapsible=icon]:hidden"
+              label="Magnus"
+              size="xs"
+              markVariant="lime"
+              markClassName="size-6"
+              textClassName="font-condensed text-[22px] font-semibold tracking-[0.01em] text-sidebar-foreground group-data-[collapsible=icon]:hidden"
             />
-          </div>
-          <Separator className="mx-2" />
-          {/* User info skeleton — matches displayName + role label */}
-          <div className="flex flex-col gap-1 px-2 py-1.5">
-            <Skeleton className="h-4 w-24 rounded" />
-            <Skeleton className="h-3 w-16 rounded" />
           </div>
         </SidebarHeader>
         <SidebarContent>
-          {/* Sidebar nav skeleton — 4 items matches admin nav count */}
-          <SidebarGroup>
-            <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          {/* Sidebar nav skeleton — the real nav group has no label */}
+          <SidebarGroup className="pt-0">
             <SidebarGroupContent>
               <SidebarMenu>
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -68,16 +63,22 @@ export function WorkspaceShellSkeleton() {
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarFooter>
-          {/* Footer skeleton — matches Profile + Sign Out items */}
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <Skeleton className="h-8 w-full rounded-md" />
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <Skeleton className="h-8 w-full rounded-md" />
-            </SidebarMenuItem>
-          </SidebarMenu>
+        {/* Footer skeleton — matches the avatar, name, role and sign-out button */}
+        <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
+          <div className="flex items-center gap-1">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 px-1 py-1 group-data-[collapsible=icon]:hidden">
+              <Skeleton className="size-6 shrink-0 rounded-full" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex h-5 items-center">
+                  <Skeleton className="h-3.5 w-24 rounded" />
+                </div>
+                <div className="flex h-4 items-center">
+                  <Skeleton className="h-3 w-16 rounded" />
+                </div>
+              </div>
+            </div>
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+          </div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
