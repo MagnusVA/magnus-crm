@@ -23,7 +23,7 @@ export function SlackQualificationReportSkeleton() {
             <Skeleton className="h-7 w-52 bg-board-raised" />
             <Skeleton className="h-3.5 w-80 max-w-full bg-board-raised" />
           </div>
-          <Skeleton className="h-[34px] w-[36rem] max-w-full bg-board-raised" />
+          <Skeleton className="h-[34px] w-[29rem] max-w-full bg-board-raised" />
         </div>
         <div className="grid grid-cols-2 gap-px border-t border-board-line bg-board-line @3xl:grid-cols-3 @5xl:grid-cols-6">
           {Array.from({ length: 6 }, (_, index) => (

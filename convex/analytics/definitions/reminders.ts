@@ -49,7 +49,7 @@ export const remindersReports = [
     id: "reminders.funnel",
     page: "reminders",
     roles: ["tenant_master", "tenant_admin"],
-    day: "browser",
+    day: "business",
     parseFilters: async (ctx, raw) => ({
       programId: optionalIdFilter(ctx, "tenantPrograms", raw.programId),
       paymentType: optionalEnumFilter(raw.paymentType, PAYMENT_TYPES),

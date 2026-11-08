@@ -60,8 +60,8 @@ export interface ActivityEvent {
 }
 
 // A status a record moved to, by what it means for the team.
-const FAILED_STATUSES = new Set(["lost", "no_show", "churned", "expired", "disputed", "voided", "deactivated"]);
-const OWED_STATUSES = new Set(["paused", "pending", "qualified_pending", "reschedule_link_sent", "not_recorded"]);
+const FAILED_STATUSES = new Set(["lost", "no_show", "churned", "expired", "disputed", "voided", "deactivated", "blocked", "unpaid"]);
+const OWED_STATUSES = new Set(["paused", "pending", "qualified_pending", "reschedule_link_sent", "not_recorded", "past_due"]);
 const LIVE_STATUSES = new Set([
   "scheduled",
   "booked",
@@ -70,6 +70,7 @@ const LIVE_STATUSES = new Set([
   "follow_up",
   "follow_up_scheduled",
   "active",
+  "allowed",
   "won",
   "payment_received",
   "in_progress",

@@ -270,7 +270,7 @@ export const leadsReports = [
     id: "leads.conversion_metrics",
     page: "leads",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: noFilters,
     sql: conversionSql,
     finalize: async (ctx, input) =>
@@ -287,7 +287,7 @@ export const leadsReports = [
     id: "leads.form_kpis",
     page: "leads",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: noFilters,
     sql: formKpiSql,
     finalize: async (_ctx, input) => {
@@ -309,7 +309,7 @@ export const leadsReports = [
     id: "leads.answer_distribution",
     page: "leads",
     roles,
-    day: "browser",
+    day: "business",
     parseFilters: parseDistributionFilters,
     sql: distributionSql,
     finalize: async (_ctx, input) => {

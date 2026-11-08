@@ -1,33 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { addDays, startOfDay } from "date-fns";
 import { api } from "@/convex/_generated/api";
 import { mergeTeamActions, mergeTeamMetrics, mergeTeamOperations } from "@/convex/analytics/merge/team";
 import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
-import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { dashboardRangePlan } from "@/lib/analyticsRange";
-import { addBusinessDays, businessDateForInstant, businessDayStart } from "@/lib/businessDay";
-import { reportRangeDayKeys } from "@/lib/reportDateRange";
 import { cn } from "@/lib/utils";
 import {
   ReportAttributionFilters,
   type ReportAttributionFilterValue,
 } from "../../_components/report-attribution-filters";
-import {
-  ReportDateControls,
-  reportDayLine,
-  reportRangePhrase,
-  reportRangeWords,
-  type DateRange,
-} from "../../_components/report-date-controls";
 import { REPORT_PAGE, REPORT_PAIR, ReportBand } from "../../_components/report-ui";
 import { useReportAnalytics } from "../../_components/use-report-analytics";
+import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { CloserOperationsCard } from "./closer-operations-card";
 import { CloserPerformanceCard } from "./closer-performance-card";
 import { MeetingOutcomesCard } from "./meeting-outcomes-card";
@@ -38,21 +27,13 @@ import { TeamFigures } from "./team-figures";
 // meeting outcomes, then each closer's calls and payments. Each section
 // loads, empties and keeps its last numbers on its own.
 
-function getDefaultDateRange(): DateRange {
-  const now = new Date();
-  return {
-    startDate: startOfDay(now).getTime(),
-    endDate: startOfDay(addDays(now, 1)).getTime(),
-  };
-}
-
 export function TeamReportPageClient() {
   usePageTitle("Team Performance — Reports");
-  const { setting, loaded, rebuilding } = useBusinessDay();
+  const range = useReportRange();
+  const { ready, rebuilding, plan } = range;
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("team_performance");
 
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [operationsFilters, setOperationsFilters] =
     useState<ReportAttributionFilterValue>({});
 
@@ -73,30 +54,13 @@ export function TeamReportPageClient() {
     [captureFiltersChanged, operationsFilters],
   );
 
-  const dayKeys = reportRangeDayKeys(dateRange);
-  const queryRange = !loaded || rebuilding ? "skip" : {
-    startDate: businessDayStart(dayKeys.startDayKey, setting),
-    endDate: businessDayStart(dayKeys.endDayKeyExclusive, setting),
-  };
-
   // Today reads Convex live, and so does today's part of a longer range; the
   // days before today read ClickHouse once the page is switched
-  // (docs/agents/reporting.md).
+  // (docs/agents/reporting.md). Nothing reads until the tenant's business
+  // day is known and its buckets are built.
   const now = useNow();
-  const todayBusinessDate = businessDateForInstant(now, setting);
-  const todayStartDayKey = dayKeys.startDayKey > todayBusinessDate ? dayKeys.startDayKey : todayBusinessDate;
-  const todayArgs = queryRange === "skip" ? "skip" : {
-    startDate: businessDayStart(todayStartDayKey, setting),
-    endDate: queryRange.endDate,
-  };
-  const plan = dashboardRangePlan(
-    {
-      kind: "custom",
-      startBusinessDate: dayKeys.startDayKey,
-      endBusinessDateInclusive: addBusinessDays(dayKeys.endDayKeyExclusive, -1),
-    },
-    todayBusinessDate,
-  );
+  const queryRange = ready ? range.window : "skip";
+  const todayArgs = ready ? range.todayWindow : "skip";
   const metricsReport = useAnalyticsReport({
     page: "team",
     reportId: "team.metrics",
@@ -132,23 +96,16 @@ export function TeamReportPageClient() {
     reportId: "team.operations",
     plan,
     filters: operationsFilters,
-    todayArgs: !loaded || rebuilding ? "skip" : {
-      ...dayKeys,
-      startDayKey: todayStartDayKey,
-      ...operationsFilters,
-    },
+    todayArgs: ready ? { ...range.todayDayKeys, ...operationsFilters } : "skip",
     merge: mergeTeamOperations,
     live: api.reporting.teamPerformance.getTeamOperationsDimensions,
-    liveArgs: !loaded || rebuilding ? "skip" : {
-      ...dayKeys,
-      ...operationsFilters,
-    },
+    liveArgs: ready ? { ...range.dayKeys, ...operationsFilters } : "skip",
   });
 
   // A new range or filter keeps each section's last numbers on screen,
   // dimmed, until its own report arrives (DESIGN.md, Kept Data While
   // Reloading); the range phrase travels with them.
-  const phrase = reportRangePhrase(dateRange);
+  const { phrase } = range;
   const metrics = useKeptWhileLoading(metricsReport.data, phrase);
   const outcomeMix = useKeptWhileLoading(outcomeMixReport.data, phrase);
   const actions = useKeptWhileLoading(actionsReport.data, phrase);
@@ -175,18 +132,10 @@ export function TeamReportPageClient() {
       <div className={REPORT_PAGE}>
         <ReportBand
           title="Team Performance"
-          range={reportRangeWords(dateRange)}
+          range={range.words}
           freshness={allLoaded ? freshness : null}
-          dayLine={reportDayLine("tenant", setting)}
-          actions={
-            <ReportDateControls
-              value={dateRange}
-              onChange={(next) => {
-                setDateRange(next);
-                captureOperationsFilterChange();
-              }}
-            />
-          }
+          dayLine={range.dayLine}
+          actions={<ReportRangePicker range={range} onChange={() => captureOperationsFilterChange()} />}
           figures={
             rebuilding ? undefined : (
               <TeamFigures
@@ -211,6 +160,7 @@ export function TeamReportPageClient() {
             </>
           }
         />
+        <ReportRangeMessage range={range} />
 
         <AnalyticsFreshnessAlert summary={freshness} />
 

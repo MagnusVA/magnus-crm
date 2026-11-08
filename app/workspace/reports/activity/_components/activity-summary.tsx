@@ -20,15 +20,13 @@ import {
 
 type ActivitySummary = FunctionReturnType<typeof api.reporting.activityFeed.getActivitySummary>;
 
-const DAY_MS = 86_400_000;
 const ADMIN_ROLES = new Set(["tenant_admin", "tenant_master"]);
 
-function closerFigures(summary: ActivitySummary, range: { startDate: number; endDate: number }) {
+function closerFigures(summary: ActivitySummary, days: number) {
   const closers = summary.actorBreakdown
     .filter((actor) => actor.actorRole === "closer")
     .toSorted((left, right) => right.count - left.count || left.actorName.localeCompare(right.actorName));
   const total = closers.reduce((sum, actor) => sum + actor.count, 0);
-  const days = Math.max(1, Math.ceil((range.endDate - range.startDate) / DAY_MS));
   return {
     mostActive: closers[0] ?? null,
     closerCount: closers.length,
@@ -42,16 +40,17 @@ const count = (value: number) => value.toLocaleString();
 /** EVENTS · CLOSERS · ADMINS · AUTOMATIC · PER CLOSER / DAY, in the band. */
 export function ActivityFigures({
   summary,
-  range,
+  days,
   rangePhrase,
   reloading,
 }: {
   summary: ActivitySummary | undefined;
-  range: { startDate: number; endDate: number };
+  /** Business days in the range the summary was loaded for. */
+  days: number;
   rangePhrase: string;
   reloading: boolean;
 }) {
-  const closers = summary ? closerFigures(summary, range) : null;
+  const closers = summary ? closerFigures(summary, days) : null;
   const pipeline = summary?.bySource.pipeline ?? 0;
   const system = summary?.bySource.system ?? 0;
   const admins = summary ? summary.actorBreakdown.filter((actor) => ADMIN_ROLES.has(actor.actorRole)).length : 0;

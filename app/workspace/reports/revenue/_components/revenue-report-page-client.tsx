@@ -1,13 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { addDays, startOfDay } from "date-fns";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
 import {
   mergeBookedVsSold,
   mergeRevenueDetails,
@@ -20,21 +17,20 @@ import {
 } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
-import {
-  ReportDateControls,
-  reportDayLine,
-  reportRangePhrase,
-  reportRangeWords,
-  type DateRange,
-  type Granularity,
-} from "../../_components/report-date-controls";
 import { ReportProgramDimensionFilter } from "../../_components/report-program-dimension-filter";
 import {
   ReportPaymentTypeFilter,
   type PaymentType,
 } from "../../_components/report-payment-type-filter";
-import { REPORT_PAGE, REPORT_PAIR, ReportBand } from "../../_components/report-ui";
+import {
+  REPORT_PAGE,
+  REPORT_PAIR,
+  ReportBand,
+  ReportGranularitySelect,
+  type ReportGranularity,
+} from "../../_components/report-ui";
 import { useReportAnalytics } from "../../_components/use-report-analytics";
+import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { BookedVsSoldMatrix } from "./booked-vs-sold-matrix";
 import { CloserRevenueTable } from "./closer-revenue-table";
 import { DealSizeDistribution } from "./deal-size-distribution";
@@ -45,22 +41,13 @@ import { RevenueFigures } from "./revenue-figures";
 import { RevenueTrendChart } from "./revenue-trend-chart";
 import { TopDealsTable } from "./top-deals-table";
 
-function getDefaultDateRange(): DateRange {
-  const now = new Date();
-  return {
-    startDate: startOfDay(now).getTime(),
-    endDate: startOfDay(addDays(now, 1)).getTime(),
-  };
-}
-
 export function RevenueReportPageClient() {
   usePageTitle("Revenue");
-  const { setting } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("revenue");
 
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
-  const [granularity, setGranularity] = useState<Granularity>("month");
+  const range = useReportRange();
+  const [granularity, setGranularity] = useState<ReportGranularity>("month");
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
   const [paymentType, setPaymentType] = useState<PaymentType | undefined>();
 
@@ -90,8 +77,7 @@ export function RevenueReportPageClient() {
   // days before today read ClickHouse once the page is switched
   // (docs/agents/reporting.md).
   const now = useNow();
-  const plan = reportRangePlan(dateRange, now);
-  const todayWindow = reportWindowFromToday(dateRange, now);
+  const { plan, todayWindow, loaded } = range;
   const filters = { programId, paymentType };
   const readerFilters = {
     ...(programId ? { programId } : {}),
@@ -107,8 +93,8 @@ export function RevenueReportPageClient() {
     plan,
     filters,
     live: api.reporting.revenue.getRevenueMetrics,
-    liveArgs: { ...dateRange, ...readerFilters },
-    todayArgs: { ...todayWindow, ...readerFilters },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...readerFilters },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...readerFilters },
     merge: mergeRevenueMetrics,
   });
   const detailsReport = useAnalyticsReport({
@@ -117,8 +103,8 @@ export function RevenueReportPageClient() {
     plan,
     filters,
     live: api.reporting.revenue.getRevenueDetails,
-    liveArgs: { ...dateRange, ...readerFilters },
-    todayArgs: { ...todayWindow, ...readerFilters },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...readerFilters },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...readerFilters },
     merge: mergeRevenueDetails,
   });
   const trendReport = useAnalyticsReport({
@@ -127,8 +113,8 @@ export function RevenueReportPageClient() {
     plan,
     filters: { ...filters, granularity },
     live: api.reporting.revenueTrend.getRevenueTrend,
-    liveArgs: { ...dateRange, ...readerFilters, granularity },
-    todayArgs: { ...todayWindow, ...readerFilters, granularity },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...readerFilters, granularity },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...readerFilters, granularity },
     merge: mergeRevenueTrend,
   });
   const bookedVsSoldReport = useAnalyticsReport({
@@ -137,11 +123,11 @@ export function RevenueReportPageClient() {
     plan,
     filters,
     live: api.reporting.bookedVsSold.getBookedVsSoldMatrix,
-    liveArgs: { ...dateRange, ...matrixFilters },
-    todayArgs: { ...todayWindow, ...matrixFilters },
+    liveArgs: !loaded ? "skip" : { ...range.window, ...matrixFilters },
+    todayArgs: !loaded ? "skip" : { ...todayWindow, ...matrixFilters },
     merge: mergeBookedVsSold,
   });
-  const phrase = reportRangePhrase(dateRange);
+  const phrase = range.phrase;
   // Each section keeps its last data, dimmed, while a new range or filter
   // loads (DESIGN.md, Kept Data While Reloading).
   const metrics = useKeptWhileLoading(metricsReport.data, phrase);
@@ -159,20 +145,14 @@ export function RevenueReportPageClient() {
     <div className={REPORT_PAGE}>
       <ReportBand
         title="Revenue"
-        range={reportRangeWords(dateRange)}
+        range={range.words}
         freshness={metricsReport.data !== undefined ? freshness : null}
-        dayLine={reportDayLine("browser", setting)}
+        dayLine={range.dayLine}
         actions={
-          <ReportDateControls
-            value={dateRange}
-            onChange={(next) => {
-              setDateRange(next);
-              captureFilterChange();
-            }}
-            showGranularity
-            granularity={granularity}
-            onGranularityChange={setGranularity}
-          />
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <ReportRangePicker range={range} onChange={() => captureFilterChange()} />
+            <ReportGranularitySelect value={granularity} onChange={setGranularity} />
+          </div>
         }
         figures={<RevenueFigures metrics={metrics.data} rangePhrase={metrics.phrase} reloading={metrics.reloading} />}
         filters={
@@ -195,6 +175,7 @@ export function RevenueReportPageClient() {
           </>
         }
       />
+      <ReportRangeMessage range={range} />
       <AnalyticsFreshnessAlert summary={freshness} />
 
       <RevenueTrendChart data={trend.data?.trend} rangePhrase={trend.phrase} reloading={trend.reloading} />

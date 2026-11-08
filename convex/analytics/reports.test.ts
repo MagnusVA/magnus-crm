@@ -17,8 +17,9 @@ const metricsArgs = {
   range: { kind: "preset" as const, preset: "last_month" as const },
   timeZone: "America/Tegucigalpa",
 };
-// The key `request` builds for metricsArgs.
-const metricsKey = '{"f":{"paymentType":null,"programId":null},"h":0,"r":{"kind":"preset","preset":"last_month"},"tz":"America/Tegucigalpa"}';
+// The key `request` builds for metricsArgs. Revenue reads the tenant's
+// business day: these tenants keep the default, Tegucigalpa from 1:00 am.
+const metricsKey = '{"f":{"paymentType":null,"programId":null},"h":1,"r":{"kind":"preset","preset":"last_month"},"tz":"America/Tegucigalpa"}';
 const BUDGET = 30;
 
 type ClickHouseCall = { url: URL; sql: string };
@@ -99,7 +100,7 @@ async function insertResult(
       filtersJson: '{"paymentType":null,"programId":null}',
       range: metricsArgs.range,
       timeZone: metricsArgs.timeZone,
-      dayStartHour: 0,
+      dayStartHour: 1,
       status: "ready",
       lastRequestedAt: Date.now(),
       ...(payloadId ? { payloadId } : {}),
@@ -247,7 +248,7 @@ describe("analytics reports", () => {
     const now = Date.now();
     const lastMonth = await fixture.t.run(async () => {
       const { resolveAnalyticsRange } = await import("../../lib/analyticsRange");
-      return resolveAnalyticsRange(metricsArgs.range, { timeZone: metricsArgs.timeZone, dayStartHour: 0 }, now);
+      return resolveAnalyticsRange(metricsArgs.range, { timeZone: metricsArgs.timeZone, dayStartHour: 1 }, now);
     });
     await insertResult(fixture, {
       tenantId: fixture.tenantA,
@@ -358,7 +359,7 @@ describe("ranges through yesterday", () => {
     range: { kind: "preset" as const, preset: "this_week" as const, throughYesterday: true as const },
   };
   const thisWeekKey =
-    '{"f":{"paymentType":null,"programId":null},"h":0,"r":{"kind":"preset","preset":"this_week","throughYesterday":true},"tz":"America/Tegucigalpa"}';
+    '{"f":{"paymentType":null,"programId":null},"h":1,"r":{"kind":"preset","preset":"this_week","throughYesterday":true},"tz":"America/Tegucigalpa"}';
 
   it("answers the days before today and runs again when today moves on", async () => {
     // Wednesday 2026-10-28, 15:00 in Tegucigalpa.
@@ -373,7 +374,8 @@ describe("ranges through yesterday", () => {
     expect(wednesday.state).toBe("ready");
     expect(wednesday.answer).toMatchObject({ startDate: "2026-10-26", endDateInclusive: "2026-10-27" });
     const reportCall = calls.find((call) => call.sql.includes("analytics.payments"))!;
-    expect(reportCall.url.searchParams.get("param_to_ms")).toBe(String(Date.UTC(2026, 9, 28, 6)));
+    // Through Tuesday: up to Wednesday's business day start, 1:00 am in Tegucigalpa.
+    expect(reportCall.url.searchParams.get("param_to_ms")).toBe(String(Date.UTC(2026, 9, 28, 7)));
 
     // Thursday, before the next sync: the answer misses Wednesday.
     vi.setSystemTime(Date.UTC(2026, 9, 29, 21));

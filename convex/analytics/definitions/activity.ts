@@ -58,7 +58,7 @@ export const activityReports = [
     id: "activity.summary",
     page: "activity",
     roles: ["tenant_master", "tenant_admin"],
-    day: "browser",
+    day: "business",
     parseFilters: noFilters,
     sql: summarySql,
     finalize: async (ctx, input) => {
