@@ -161,7 +161,11 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { state, openMobile, setOpenMobile } = useSidebar()
+  // Read the width here, not from context. The provider hydrates before
+  // streamed content, so its value can already be "mobile" when a streamed
+  // Sidebar hydrates against the desktop markup the server sent.
+  const isMobile = useIsSidebarMobile()
 
   if (collapsible === "none") {
     return (
@@ -501,7 +505,8 @@ function SidebarMenuButton({
   tooltip?: string | React.ComponentProps<typeof TooltipContent>
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
   const Comp = asChild ? Slot.Root : "button"
-  const { isMobile, state } = useSidebar()
+  const { state } = useSidebar()
+  const isMobile = useIsSidebarMobile()
 
   const button = (
     <Comp
