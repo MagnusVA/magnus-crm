@@ -104,7 +104,7 @@ export function PaymentFormStep({
   const { control } = useFormContext<PaymentRowFields>();
 
   return (
-    <form className={ACTION_FORM} onSubmit={onSubmit} noValidate>
+    <form className={ACTION_FORM} onSubmit={onSubmit}>
       <FormRows>
         <Controller
           control={control}
