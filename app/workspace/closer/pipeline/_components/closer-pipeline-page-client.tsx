@@ -126,17 +126,20 @@ export function CloserPipelinePageClient() {
     window.history.replaceState(null, "", `${pathname}${pipelineSearch(monthInUrl, book, filters)}`);
   }, [pathname, monthInUrl, book, filters]);
 
-  const changeBook = useCallback((next: BookFilter) => {
-    setBook((previous) => {
-      if (previous.state !== next.state || previous.age !== next.age) {
+  // Analytics compare against the current state here, not in a state
+  // updater: React may call an updater twice.
+  const changeBook = useCallback(
+    (next: BookFilter) => {
+      if (book.state !== next.state || book.age !== next.age) {
         posthog.capture("pipeline_book_filter_changed", { state: next.state ?? "all", age: next.age });
       }
-      if (previous.programKey !== next.programKey) {
+      if (book.programKey !== next.programKey) {
         posthog.capture("pipeline_program_filter_changed", { any: next.programKey === null });
       }
-      return next;
-    });
-  }, []);
+      setBook(next);
+    },
+    [book],
+  );
 
   const changeMonth = useCallback(
     (key: MonthKey) => {
@@ -146,17 +149,18 @@ export function CloserPipelinePageClient() {
     [currentKey],
   );
 
-  const changeFilters = useCallback((next: LookupFilters) => {
-    setFilters((previous) => {
-      if (previous.tab !== next.tab) {
+  const changeFilters = useCallback(
+    (next: LookupFilters) => {
+      if (filters.tab !== next.tab) {
         posthog.capture("pipeline_tab_changed", { tab: next.tab });
       }
-      if (previous.programKey !== next.programKey) {
+      if (filters.programKey !== next.programKey) {
         posthog.capture("pipeline_program_filter_changed", { any: next.programKey === null });
       }
-      return next;
-    });
-  }, []);
+      setFilters(next);
+    },
+    [filters],
+  );
 
   const hasAnyDeal = useHasAnyDeal();
 

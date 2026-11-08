@@ -6,7 +6,7 @@ import {
 	useState,
 	useTransition,
 } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type {
 	EntityBrowserContextValue,
 	EntityLifecycleFilter,
@@ -24,7 +24,6 @@ function buildUrl(pathname: string, params: URLSearchParams) {
 }
 
 export function useEntityBrowserUrlState(): EntityBrowserContextValue {
-	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const [isPending, startTransition] = useTransition();
@@ -41,19 +40,21 @@ export function useEntityBrowserUrlState(): EntityBrowserContextValue {
 		setLifecycleState(urlLifecycle);
 	}
 
+	// The filters only live in the client, so the URL is written in place
+	// without a server round trip. Next keeps useSearchParams in sync.
 	const replaceParams = useCallback(
 		(updates: Record<string, string | null>) => {
-			const next = new URLSearchParams(searchParams.toString());
+			const next = new URLSearchParams(window.location.search);
 			for (const [key, value] of Object.entries(updates)) {
 				if (value === null || value.length === 0) next.delete(key);
 				else next.set(key, value);
 			}
 
 			startTransition(() => {
-				router.replace(buildUrl(pathname, next), { scroll: false });
+				window.history.replaceState(null, "", buildUrl(pathname, next));
 			});
 		},
-		[pathname, router, searchParams],
+		[pathname],
 	);
 
 	return useMemo(
