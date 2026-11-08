@@ -56,7 +56,7 @@ export function MergeConfirmDialog({
         if (!merging) onOpenChange(next);
       }}
     >
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg" showCloseButton={!merging}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto p-0 sm:max-w-lg" showCloseButton={!merging}>
         <DialogHeader className="border-b px-4 pt-4 pr-12 pb-3.5">
           <DialogTitle className="text-[17px] font-semibold text-balance">
             Merge <span translate="no">{sourceName}</span> into <span translate="no">{targetName}</span>?

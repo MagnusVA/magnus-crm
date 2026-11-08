@@ -127,6 +127,8 @@ function useRows(data: MergePreviewData): { fields: Row[]; counts: Row[] } {
     if (summary.totalPaidMinor > 0 && summary.paymentCurrency) {
       return { value: formatCash(summary.totalPaidMinor, summary.paymentCurrency), figure: true };
     }
+    // The search row keeps a currency only when every payment shares one.
+    if (summary.totalPaidMinor > 0) return { value: "Several currencies" };
     return { value: "None", muted: true };
   };
   const count = (value: number | undefined): Cell => (value === undefined ? { value: null } : { value: String(value), figure: true });
