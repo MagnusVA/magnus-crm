@@ -1,5 +1,3 @@
-"use client";
-
 import type { ReactNode } from "react";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { FreshnessWords, type FreshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";

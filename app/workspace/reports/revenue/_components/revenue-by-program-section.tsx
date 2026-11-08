@@ -2,126 +2,50 @@
 
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { formatAmountMinor } from "@/lib/format-currency";
-import { cn } from "@/lib/utils";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
+import { BarList, ReportCard, RowsSkeleton } from "../../_components/report-ui";
+import { countWords, dollars } from "./revenue-format";
 
-type RevenueMetrics = FunctionReturnType<
-  typeof api.reporting.revenue.getRevenueMetrics
->;
-type ProgramRow = RevenueMetrics["revenue"]["byProgram"][number];
+type ProgramRow = FunctionReturnType<typeof api.reporting.revenue.getRevenueMetrics>["revenue"]["byProgram"][number];
 
-interface RevenueByProgramSectionProps {
-  rows: ReadonlyArray<ProgramRow>;
-}
-
-function combinedTotal(row: ProgramRow): number {
-  return row.finalRevenueMinor + row.depositRevenueMinor;
-}
-
-function maxTotalOf(rows: ReadonlyArray<ProgramRow>): number {
-  return rows.reduce(
-    (maxSoFar, row) => Math.max(maxSoFar, combinedTotal(row)),
-    0,
-  );
-}
-
-interface ProgramListProps {
-  title: string;
-  description: string;
-  emptyMessage: string;
-  rows: ReadonlyArray<ProgramRow>;
-  accentClassName: string;
-}
-
-function ProgramList({
-  title,
-  description,
-  emptyMessage,
-  rows,
-  accentClassName,
-}: ProgramListProps) {
-  const topValue = maxTotalOf(rows);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            {emptyMessage}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {rows.map((row) => {
-              const total = combinedTotal(row);
-              const widthPercent =
-                topValue > 0 ? Math.max(4, (total / topValue) * 100) : 0;
-              return (
-                <li
-                  key={row.programId ?? row.programName}
-                  className="flex flex-col gap-1.5"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{row.programName}</span>
-                      <Badge variant="outline" className="tabular-nums">
-                        {row.paymentCount} payment
-                        {row.paymentCount === 1 ? "" : "s"}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3 text-sm tabular-nums">
-                      <span className="font-semibold">
-                        {formatAmountMinor(row.finalRevenueMinor, "USD")}
-                      </span>
-                      <span className="text-muted-foreground">
-                        +{formatAmountMinor(row.depositRevenueMinor, "USD")}{" "}
-                        dep.
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all",
-                        accentClassName,
-                      )}
-                      style={{ width: `${widthPercent}%` }}
-                      aria-hidden
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
+/** Final revenue per payment program, largest first, with its deposits in the meta line. */
 export function RevenueByProgramSection({
   rows,
-}: RevenueByProgramSectionProps) {
+  rangePhrase,
+  reloading,
+}: {
+  rows: ReadonlyArray<ProgramRow> | undefined;
+  rangePhrase: string;
+  reloading?: boolean;
+}) {
+  const ranked = rows
+    ? [...rows].sort(
+        (left, right) =>
+          right.finalRevenueMinor - left.finalRevenueMinor || right.depositRevenueMinor - left.depositRevenueMinor,
+      )
+    : undefined;
+
   return (
-    <div className="grid grid-cols-1 gap-6">
-      <ProgramList
-        title="Revenue by Payment Program"
-        description="Meeting, reminder, and legacy admin-outcome revenue per payment program"
-        emptyMessage="No payment-program revenue in this period"
-        rows={rows}
-        accentClassName="bg-primary"
-      />
-    </div>
+    <ReportCard title="Revenue by payment program" meta="Final revenue" reloading={reloading}>
+      {ranked === undefined ? (
+        <RowsSkeleton rows={4} rowHeight="h-[52px]" label="Loading revenue by payment program" />
+      ) : ranked.length === 0 ? (
+        <SectionEmpty title={`No payments ${rangePhrase}.`} />
+      ) : (
+        <BarList
+          label="Final revenue by payment program"
+          rows={ranked.map((row) => ({
+            key: row.programId ?? row.programName,
+            label: row.programName,
+            meta:
+              row.depositRevenueMinor > 0
+                ? `${countWords(row.paymentCount, "payment")} · ${dollars(row.depositRevenueMinor)} in deposits`
+                : countWords(row.paymentCount, "payment"),
+            value: row.finalRevenueMinor,
+            display: dollars(row.finalRevenueMinor),
+          }))}
+        />
+      )}
+    </ReportCard>
   );
 }

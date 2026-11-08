@@ -1,140 +1,55 @@
 "use client";
 
-import {
-  BanknoteIcon,
-  CalendarClockIcon,
-  LayersIcon,
-  PiggyBankIcon,
-  type LucideIcon,
-} from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { formatAmountMinor } from "@/lib/format-currency";
-import { cn } from "@/lib/utils";
+import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
+import { BarList, ReportCard, RowsSkeleton } from "../../_components/report-ui";
+import { AmountShare, wholeShare } from "./amount-share";
+import { dollars } from "./revenue-format";
 
-interface PaymentTypeBreakdown {
-  pif: number;
-  split: number;
-  monthly: number;
-  deposit: number;
-}
+type PaymentTypeBreakdown = { pif: number; split: number; monthly: number; deposit: number };
 
-interface RevenueByPaymentTypeSectionProps {
-  byPaymentType: PaymentTypeBreakdown;
-}
+const TYPE_LABELS: Record<keyof PaymentTypeBreakdown, string> = {
+  pif: "PIF (paid in full)",
+  split: "Split",
+  monthly: "Monthly",
+  deposit: "Deposit",
+};
 
-const TYPE_META: Array<{
-  key: keyof PaymentTypeBreakdown;
-  label: string;
-  description: string;
-  icon: LucideIcon;
-}> = [
-  {
-    key: "pif",
-    label: "PIF",
-    description: "Paid in full",
-    icon: BanknoteIcon,
-  },
-  {
-    key: "split",
-    label: "Split",
-    description: "Split payments",
-    icon: LayersIcon,
-  },
-  {
-    key: "monthly",
-    label: "Monthly",
-    description: "Monthly payments",
-    icon: CalendarClockIcon,
-  },
-  {
-    key: "deposit",
-    label: "Deposit",
-    description: "Deposits collected",
-    icon: PiggyBankIcon,
-  },
-];
-
+/** Every payment's amount by payment type, deposits included, largest first. */
 export function RevenueByPaymentTypeSection({
   byPaymentType,
-}: RevenueByPaymentTypeSectionProps) {
-  const leadingKey = TYPE_META.reduce<keyof PaymentTypeBreakdown | null>(
-    (leading, meta) => {
-      const current = byPaymentType[meta.key];
-      if (current === 0) {
-        return leading;
-      }
-      if (leading === null || current > byPaymentType[leading]) {
-        return meta.key;
-      }
-      return leading;
-    },
-    null,
-  );
-
-  const hasAny = TYPE_META.some((meta) => byPaymentType[meta.key] > 0);
+  rangePhrase,
+  reloading,
+}: {
+  byPaymentType: PaymentTypeBreakdown | undefined;
+  rangePhrase: string;
+  reloading?: boolean;
+}) {
+  const total = byPaymentType
+    ? byPaymentType.pif + byPaymentType.split + byPaymentType.monthly + byPaymentType.deposit
+    : 0;
+  const rows = byPaymentType
+    ? (Object.keys(TYPE_LABELS) as Array<keyof PaymentTypeBreakdown>)
+        .map((key) => ({ key, amountMinor: byPaymentType[key] }))
+        .sort((left, right) => right.amountMinor - left.amountMinor)
+    : undefined;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Revenue by Payment Type</CardTitle>
-        <CardDescription>
-          Totals per payment type across all selected slices and payment
-          programs.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {!hasAny ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            No payments in this period
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {TYPE_META.map((meta) => {
-              const amount = byPaymentType[meta.key];
-              const isLeading = meta.key === leadingKey;
-              const Icon = meta.icon;
-              return (
-                <div
-                  key={meta.key}
-                  className={cn(
-                    "flex flex-col gap-1 rounded-lg border bg-card p-4 transition-colors",
-                    isLeading
-                      ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20"
-                      : undefined,
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-muted-foreground">
-                      {meta.label}
-                    </span>
-                    <Icon
-                      className={cn(
-                        "size-4",
-                        isLeading
-                          ? "text-primary-ink"
-                          : "text-muted-foreground/70",
-                      )}
-                      aria-hidden
-                    />
-                  </div>
-                  <div className="text-2xl font-semibold tabular-nums">
-                    {formatAmountMinor(amount, "USD")}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {meta.description}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <ReportCard title="Revenue by payment type" meta="Deposits included" reloading={reloading}>
+      {rows === undefined ? (
+        <RowsSkeleton rows={4} label="Loading revenue by payment type" />
+      ) : total === 0 ? (
+        <SectionEmpty title={`No payments ${rangePhrase}.`} />
+      ) : (
+        <BarList
+          label="Payments by payment type"
+          rows={rows.map((row) => ({
+            key: row.key,
+            label: TYPE_LABELS[row.key],
+            value: row.amountMinor,
+            display: <AmountShare amount={dollars(row.amountMinor)} share={wholeShare(row.amountMinor, total)} />,
+          }))}
+        />
+      )}
+    </ReportCard>
   );
 }

@@ -5,41 +5,35 @@ export type ReminderReportData = FunctionReturnType<
   typeof api.reporting.remindersReporting.getReminderOutcomeFunnel
 >;
 
+export const REMINDERS_BAND_TITLE = "Reminder outcomes";
+
+/** Closers beside the chains from @5xl, each at its own height. */
+export const REMINDERS_PAIR = "grid items-start gap-3.5 short:gap-3 @5xl:grid-cols-[1.35fr_1fr]";
+
 export type ReminderOutcomeKey =
   ReminderReportData["outcomeBreakdown"][number]["outcome"];
 
-export const OUTCOME_META: Record<
-  ReminderOutcomeKey,
-  {
-    color: string;
-    description: string;
-    label: string;
-  }
-> = {
+/** Each outcome's name, and what it means for its `HelpTip`. */
+export const OUTCOME_META: Record<ReminderOutcomeKey, { label: string; description: string }> = {
   payment_received: {
-    label: "Payment Received",
-    description: "Closed with cash collected after reminder outreach.",
-    color: "var(--chart-4)",
+    label: "Payment received",
+    description: "Closed with cash collected after the reminder.",
   },
   lost: {
     label: "Lost",
-    description: "Reminder path ended with the opportunity marked lost.",
-    color: "var(--chart-5)",
+    description: "The deal was marked lost.",
   },
   no_response_rescheduled: {
-    label: "No Response → Rescheduled",
-    description: "No reply yet, but the chain continued with a fresh reminder.",
-    color: "var(--chart-1)",
+    label: "No reply, rescheduled",
+    description: "No reply yet; the closer set a fresh reminder.",
   },
   no_response_given_up: {
-    label: "No Response → Gave Up",
-    description: "Reminder sequence ended without additional outreach.",
-    color: "var(--chart-2)",
+    label: "No reply, gave up",
+    description: "No reply, and no more outreach.",
   },
   no_response_close_only: {
-    label: "No Response → Close Only",
-    description: "Reminder was completed without scheduling the next touch.",
-    color: "var(--chart-3)",
+    label: "No reply, closed",
+    description: "Completed without scheduling the next touch.",
   },
 };
 
@@ -49,7 +43,7 @@ export function formatCount(value: number): string {
 
 export function formatPercent(value: number | null): string {
   if (value === null) {
-    return "\u2014";
+    return "—";
   }
 
   return `${(value * 100).toFixed(1)}%`;

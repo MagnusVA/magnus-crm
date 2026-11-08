@@ -54,12 +54,12 @@ export function ReportPaymentTypeFilter({
 				className={cn(BAND_SELECT, "w-[164px] max-w-full")}
 				aria-label="Filter by payment type"
 			>
-				<SelectValue placeholder="Payment Type" />
+				<SelectValue placeholder="Payment type" />
 			</SelectTrigger>
 			<SelectContent>
 				<SelectGroup>
-					<SelectLabel>Payment Type</SelectLabel>
-					<SelectItem value={ALL_SENTINEL}>All Payment Types</SelectItem>
+					<SelectLabel>Payment type</SelectLabel>
+					<SelectItem value={ALL_SENTINEL}>All payment types</SelectItem>
 					{PAYMENT_TYPE_OPTIONS.map((opt) => (
 						<SelectItem key={opt.value} value={opt.value}>
 							{opt.label}

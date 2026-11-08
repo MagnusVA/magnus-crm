@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { addDays, startOfDay } from "date-fns";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { reportRangePlan, reportWindowFromToday } from "@/lib/analyticsRange";
@@ -13,10 +14,17 @@ import {
   mergeRevenueMetrics,
   mergeRevenueTrend,
 } from "@/convex/analytics/merge/revenue";
-import { AnalyticsFreshnessLine } from "@/app/workspace/_components/analytics/analytics-freshness";
+import {
+  AnalyticsFreshnessAlert,
+  freshnessSummary,
+} from "@/app/workspace/_components/analytics/analytics-freshness";
 import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-analytics-report";
+import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_components/use-kept-while-loading";
 import {
   ReportDateControls,
+  reportDayLine,
+  reportRangePhrase,
+  reportRangeWords,
   type DateRange,
   type Granularity,
 } from "../../_components/report-date-controls";
@@ -25,18 +33,17 @@ import {
   ReportPaymentTypeFilter,
   type PaymentType,
 } from "../../_components/report-payment-type-filter";
+import { REPORT_PAGE, REPORT_PAIR, ReportBand } from "../../_components/report-ui";
 import { useReportAnalytics } from "../../_components/use-report-analytics";
-import { RevenueReportSkeleton } from "./revenue-report-skeleton";
-import { RevenueByOriginChart } from "./revenue-by-origin-chart";
-import { RevenueTrendChart } from "./revenue-trend-chart";
+import { BookedVsSoldMatrix } from "./booked-vs-sold-matrix";
 import { CloserRevenueTable } from "./closer-revenue-table";
 import { DealSizeDistribution } from "./deal-size-distribution";
-import { TopDealsTable } from "./top-deals-table";
-import { RevenueKpiCards } from "./revenue-kpi-cards";
-import { RevenueByProgramSection } from "./revenue-by-program-section";
+import { RevenueByOriginCard } from "./revenue-by-origin-card";
 import { RevenueByPaymentTypeSection } from "./revenue-by-payment-type-section";
-import { BookedVsSoldMatrix } from "./booked-vs-sold-matrix";
-import { Skeleton } from "@/components/ui/skeleton";
+import { RevenueByProgramSection } from "./revenue-by-program-section";
+import { RevenueFigures } from "./revenue-figures";
+import { RevenueTrendChart } from "./revenue-trend-chart";
+import { TopDealsTable } from "./top-deals-table";
 
 function getDefaultDateRange(): DateRange {
   const now = new Date();
@@ -48,6 +55,7 @@ function getDefaultDateRange(): DateRange {
 
 export function RevenueReportPageClient() {
   usePageTitle("Revenue");
+  const { setting } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("revenue");
 
@@ -133,135 +141,98 @@ export function RevenueReportPageClient() {
     todayArgs: { ...todayWindow, ...matrixFilters },
     merge: mergeBookedVsSold,
   });
-  const metrics = metricsReport.data;
-  const details = detailsReport.data;
-  const trend = trendReport.data;
-  const bookedVsSold = bookedVsSoldReport.data;
+  const phrase = reportRangePhrase(dateRange);
+  // Each section keeps its last data, dimmed, while a new range or filter
+  // loads (DESIGN.md, Kept Data While Reloading).
+  const metrics = useKeptWhileLoading(metricsReport.data, phrase);
+  const details = useKeptWhileLoading(detailsReport.data, phrase);
+  const trend = useKeptWhileLoading(trendReport.data, phrase);
+  const bookedVsSold = useKeptWhileLoading(bookedVsSoldReport.data, phrase);
 
-  const freshness = [
-    metricsReport.freshness,
-    detailsReport.freshness,
-    trendReport.freshness,
-    bookedVsSoldReport.freshness,
-  ];
-  // A ClickHouse range can take a while to load; keep the controls and its
-  // status on screen instead of the full-page skeleton.
-  const allLoading =
-    metrics === undefined &&
-    details === undefined &&
-    trend === undefined &&
-    bookedVsSold === undefined &&
-    freshness.every((item) => item.source === "live");
-
-  if (allLoading) {
-    return <RevenueReportSkeleton />;
-  }
-
-  const byCloser =
-    metrics?.revenue.byCloser.map((closer) => ({
-      ...closer,
-      revenuePercent:
-        metrics.revenue.finalRevenueMinor > 0
-          ? (closer.revenueMinor / metrics.revenue.finalRevenueMinor) *
-            100
-          : 0,
-    })) ?? [];
+  const freshness = freshnessSummary(
+    [metricsReport.freshness, detailsReport.freshness, trendReport.freshness, bookedVsSoldReport.freshness],
+    now,
+  );
+  const revenue = metrics.data?.revenue;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Revenue</h1>
-        <p className="text-sm text-muted-foreground">
-          Revenue with payment-program and payment-type breakdowns.
-        </p>
-      </div>
-
-      <ReportDateControls
-        value={dateRange}
-        onChange={(next) => {
-          setDateRange(next);
-          captureFilterChange();
-        }}
-        showGranularity
-        granularity={granularity}
-        onGranularityChange={setGranularity}
-      />
-      <AnalyticsFreshnessLine items={freshness} />
-
-      <div className="flex flex-wrap items-center gap-3">
-        <ReportProgramDimensionFilter
-          dimension="payment_program"
-          value={programId}
-          onChange={(next) => {
-            setProgramId(next);
-            captureFilterChange({ programId: next });
-          }}
-        />
-        <ReportPaymentTypeFilter
-          value={paymentType}
-          onChange={(next) => {
-            setPaymentType(next);
-            captureFilterChange({ paymentType: next });
-          }}
-        />
-      </div>
-
-      <RevenueKpiCards metrics={metrics} />
-
-      {trend !== undefined ? (
-        <RevenueTrendChart data={trend.trend} />
-      ) : (
-        <Skeleton className="h-[300px] rounded-lg" />
-      )}
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(20rem,1fr)]">
-        {metrics !== undefined ? (
-          <RevenueByOriginChart byOrigin={metrics.revenue.byOrigin} />
-        ) : (
-          <Skeleton className="h-[260px] rounded-lg" />
-        )}
-
-        {metrics !== undefined ? (
-          <CloserRevenueTable
-            byCloser={byCloser}
-            totalRevenueMinor={metrics.revenue.finalRevenueMinor}
-            totalDeals={metrics.revenue.totalDeals}
-            avgDealMinor={metrics.revenue.avgDealMinor}
+    <div className={REPORT_PAGE}>
+      <ReportBand
+        title="Revenue"
+        range={reportRangeWords(dateRange)}
+        freshness={metricsReport.data !== undefined ? freshness : null}
+        dayLine={reportDayLine("browser", setting)}
+        actions={
+          <ReportDateControls
+            value={dateRange}
+            onChange={(next) => {
+              setDateRange(next);
+              captureFilterChange();
+            }}
+            showGranularity
+            granularity={granularity}
+            onGranularityChange={setGranularity}
           />
-        ) : (
-          <Skeleton className="h-64 rounded-lg" />
-        )}
+        }
+        figures={<RevenueFigures metrics={metrics.data} rangePhrase={metrics.phrase} reloading={metrics.reloading} />}
+        filters={
+          <>
+            <ReportProgramDimensionFilter
+              dimension="payment_program"
+              value={programId}
+              onChange={(next) => {
+                setProgramId(next);
+                captureFilterChange({ programId: next });
+              }}
+            />
+            <ReportPaymentTypeFilter
+              value={paymentType}
+              onChange={(next) => {
+                setPaymentType(next);
+                captureFilterChange({ paymentType: next });
+              }}
+            />
+          </>
+        }
+      />
+      <AnalyticsFreshnessAlert summary={freshness} />
+
+      <RevenueTrendChart data={trend.data?.trend} rangePhrase={trend.phrase} reloading={trend.reloading} />
+
+      <div className={REPORT_PAIR}>
+        <CloserRevenueTable
+          rows={revenue?.byCloser}
+          totals={revenue}
+          rangePhrase={metrics.phrase}
+          reloading={metrics.reloading}
+        />
+        <RevenueByOriginCard
+          byOrigin={revenue?.byOrigin}
+          totalMinor={revenue?.finalRevenueMinor ?? 0}
+          rangePhrase={metrics.phrase}
+          reloading={metrics.reloading}
+        />
       </div>
 
-      {metrics !== undefined ? (
-        <RevenueByProgramSection rows={metrics.revenue.byProgram} />
-      ) : (
-        <Skeleton className="h-64 rounded-lg" />
-      )}
+      <div className={REPORT_PAIR}>
+        <RevenueByProgramSection rows={revenue?.byProgram} rangePhrase={metrics.phrase} reloading={metrics.reloading} />
+        <RevenueByPaymentTypeSection
+          byPaymentType={metrics.data?.byPaymentType}
+          rangePhrase={metrics.phrase}
+          reloading={metrics.reloading}
+        />
+      </div>
 
-      {bookedVsSold !== undefined ? (
-        <BookedVsSoldMatrix matrix={bookedVsSold} />
-      ) : (
-        <Skeleton className="h-72 rounded-lg" />
-      )}
+      <div className={REPORT_PAIR}>
+        <BookedVsSoldMatrix matrix={bookedVsSold.data} rangePhrase={bookedVsSold.phrase} reloading={bookedVsSold.reloading} />
+        <DealSizeDistribution
+          distribution={details.data?.dealSizeDistribution}
+          rangePhrase={details.phrase}
+          reloading={details.reloading}
+        />
+      </div>
 
-      {metrics !== undefined ? (
-        <RevenueByPaymentTypeSection byPaymentType={metrics.byPaymentType} />
-      ) : (
-        <Skeleton className="h-48 rounded-lg" />
-      )}
-
-      {details !== undefined ? (
-        <DealSizeDistribution distribution={details.dealSizeDistribution} />
-      ) : (
-        <Skeleton className="h-64 rounded-lg" />
-      )}
-
-      {details !== undefined ? (
-        <TopDealsTable deals={details.topDeals} />
-      ) : (
-        <Skeleton className="h-48 rounded-lg" />
-      )}
+      <TopDealsTable deals={details.data?.topDeals} rangePhrase={details.phrase} reloading={details.reloading} />
     </div>
   );
 }
