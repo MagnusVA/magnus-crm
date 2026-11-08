@@ -3,7 +3,7 @@ import { requirePermission } from "@/lib/auth";
 import { EntityDetailSkeleton } from "./_components/entity-detail-skeleton";
 import { EntityDetailContent } from "./_components/entity-detail-content";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function LeadCustomerDetailPage({
 	params,

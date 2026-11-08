@@ -4,7 +4,7 @@ import { TeamBand } from "../_components/team-band";
 import { TEAM_ROOT_CLASS } from "../_components/team-layout";
 import { TeamSectionSkeleton } from "../_components/team-section-skeleton";
 
-export const unstable_instant = false;
+export const instant = false;
 
 /**
  * The Team hub's sections (Members, Review, Teams, Schedules, Goals) share one

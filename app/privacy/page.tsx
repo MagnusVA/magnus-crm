@@ -4,7 +4,7 @@ import { PublicShell } from "@/components/public-shell";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { CARD } from "@/app/workspace/team/_components/team-ui";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export const metadata: Metadata = {
   title: "Privacy Policy",

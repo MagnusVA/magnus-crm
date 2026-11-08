@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { AttributionPageClient } from "./_components/attribution-page-client";
 
-export const unstable_instant = false;
+export const instant = false;
 
 /**
  * Attribution keeps only its checks (pipeline recovery and unmatched UTMs).

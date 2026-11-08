@@ -4,7 +4,7 @@ This guide covers how pages, components, forms, styling, and analytics are built
 
 ## Pages
 
-`next.config.ts` sets `cacheComponents: true`, and workspace pages opt out of instant navigation with `export const unstable_instant = false`. A `page.tsx` is a thin async server component that runs a gate, then renders a `"use client"` `*-page-client.tsx`. Pages take one of two shapes:
+`next.config.ts` sets `cacheComponents: true`, and workspace pages opt out of instant navigation with `export const instant = false`. Next 16.3 renamed this export from `unstable_instant`, and Next ignores the old name. A `page.tsx` is a thin async server component that runs a gate, then renders a `"use client"` `*-page-client.tsx`. Pages take one of two shapes:
 
 ```tsx
 // List and dashboard pages stream behind a skeleton

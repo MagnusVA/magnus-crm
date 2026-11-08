@@ -6,7 +6,7 @@ import { BillingReviewPageClient } from "../_components/billing-review-page-clie
 import { BillingUnavailable } from "../_components/billing-unavailable";
 import { ContentReveal } from "@/components/page-transitions";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function BillingPaymentPage({
   params,

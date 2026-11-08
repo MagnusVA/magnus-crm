@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { SupportPageContent } from "./_components/support-page-content";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export const metadata: Metadata = {
   title: "Support",

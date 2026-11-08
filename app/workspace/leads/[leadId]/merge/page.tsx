@@ -2,7 +2,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
 import { MergePageClient } from "./_components/merge-page-client";
 
-export const unstable_instant = false;
+export const instant = false;
 
 export default async function MergePage({
 	params,
