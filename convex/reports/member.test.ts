@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "../_generated/api";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
+import { getErrorCode, getErrorMessage } from "../../lib/errors";
 
 const ORG = "org_member_profile";
 const admin = { subject: "member_admin", org_id: ORG };
@@ -141,6 +142,38 @@ describe("getMemberProfile", () => {
     await expect(f.t.withIdentity(loner).query(api.reports.member.getMemberProfile, {})).rejects.toThrow(
       "isn't linked to a team member",
     );
+  });
+});
+
+describe("getMemberProfile refusals", () => {
+  // Production replaces a plain Error's message with "Server Error", so the
+  // member page branches on these codes and shows these messages.
+  async function refusal(promise: Promise<unknown>) {
+    const error = await promise.then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    return { code: getErrorCode(error), message: getErrorMessage(error, "Server Error") };
+  }
+
+  it("refuses an unlinked closer and someone else's report with expected errors", async () => {
+    const f = await fixture();
+    expect(await refusal(f.t.withIdentity(loner).query(api.reports.member.getMemberProfile, {}))).toEqual({
+      code: "reports.member_not_linked",
+      message: "Your account isn't linked to a team member yet.",
+    });
+    expect(
+      await refusal(f.t.withIdentity(closer).query(api.reports.member.getMemberProfile, { memberId: f.sofia })),
+    ).toEqual({ code: "reports.not_own_report", message: "You can only open your own report." });
+  });
+
+  it("refuses an admin's link to a member that no longer exists with an expected error", async () => {
+    const f = await fixture();
+    // A merge or delete leaves old links pointing at a member that's gone.
+    await f.t.run(async (ctx) => ctx.db.delete("teamMembers", f.nobody));
+    expect(
+      await refusal(f.t.withIdentity(admin).query(api.reports.member.getMemberProfile, { memberId: f.nobody })),
+    ).toEqual({ code: "reports.invalid_member", message: "Invalid filter." });
   });
 });
 

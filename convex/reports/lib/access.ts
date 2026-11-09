@@ -3,6 +3,7 @@ import type { QueryCtx } from "../../_generated/server";
 import type { CrmRole } from "../../lib/roleMapping";
 import type { TenantUserResult } from "../../requireTenantUser";
 import type { AnalyticsFilterValue } from "../../analytics/definition";
+import { expectedError } from "../../lib/observability/errors";
 
 // Who may read a member report (docs/reviews/reports-decisions.html, D10).
 // Admins read anyone's, and the roster of everyone. Closers and lead
@@ -35,6 +36,19 @@ export async function viewerTeamMemberId(
 }
 
 /**
+ * The codes `resolveMemberFilter` refuses with. They're expected rejections,
+ * so production shows their messages, and pages branch on the code.
+ */
+export const MEMBER_FILTER_ERROR = {
+  /** A closer or lead generator whose login has no team member yet. */
+  notLinked: "reports.member_not_linked",
+  /** A closer or lead generator asking for someone else's report. */
+  notOwn: "reports.not_own_report",
+  /** A member id that isn't one of the tenant's (malformed, merged away, deleted, another tenant's). */
+  invalidMember: "reports.invalid_member",
+} as const;
+
+/**
  * The member a people or member report is about. Admins may pass any team
  * member of their tenant, or none for the roster. Anyone else gets their own
  * team member whatever they pass, and can't read the roster.
@@ -46,17 +60,18 @@ export async function resolveMemberFilter(
 ): Promise<Id<"teamMembers"> | null> {
   if (!isReportAdmin(viewer.role)) {
     const own = await viewerTeamMemberId(ctx, viewer);
-    if (!own) throw new Error("Your account isn't linked to a team member yet.");
+    if (!own) throw expectedError(MEMBER_FILTER_ERROR.notLinked, "Your account isn't linked to a team member yet.");
     if (raw !== undefined && raw !== null && raw !== "" && raw !== own) {
-      throw new Error("You can only open your own report.");
+      throw expectedError(MEMBER_FILTER_ERROR.notOwn, "You can only open your own report.");
     }
     return own;
   }
   if (raw === undefined || raw === null || raw === "") return null;
-  if (typeof raw !== "string") throw new Error("Invalid filter.");
+  const invalid = () => expectedError(MEMBER_FILTER_ERROR.invalidMember, "Invalid filter.");
+  if (typeof raw !== "string") throw invalid();
   const memberId = ctx.db.normalizeId("teamMembers", raw);
-  if (!memberId) throw new Error("Invalid filter.");
+  if (!memberId) throw invalid();
   const member = await ctx.db.get("teamMembers", memberId);
-  if (!member || member.tenantId !== viewer.tenantId) throw new Error("Invalid filter.");
+  if (!member || member.tenantId !== viewer.tenantId) throw invalid();
   return memberId;
 }

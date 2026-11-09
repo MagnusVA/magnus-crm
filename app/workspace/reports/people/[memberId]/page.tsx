@@ -5,7 +5,8 @@ import { PageBand } from "@/app/workspace/_components/page-band";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
-import { isExpectedConvexRejection } from "@/lib/errors";
+import { MEMBER_FILTER_ERROR } from "@/convex/reports/lib/access";
+import { getErrorCode, isExpectedConvexRejection } from "@/lib/errors";
 import ReportsLoading from "../../loading";
 import { REPORT_PAGE } from "../../_components/report-ui";
 import { MemberPageClient } from "./_components/member-page-client";
@@ -45,8 +46,9 @@ export default async function MemberReportPage({
     try {
       ownId = (await fetchQuery(api.reports.member.getMemberProfile, {}, token))?.teamMemberId ?? null;
     } catch (error) {
-      // The one refusal a non-admin gets here: their login has no team member yet.
-      if (!(error instanceof Error && /isn't linked to a team member/u.test(error.message))) throw error;
+      // The one refusal a non-admin gets here: their login has no team member
+      // yet. Branch on the code: production redacts plain errors' messages.
+      if (getErrorCode(error) !== MEMBER_FILTER_ERROR.notLinked) throw error;
     }
     if (!ownId) {
       return (
@@ -64,8 +66,13 @@ export default async function MemberReportPage({
     try {
       found = (await fetchQuery(api.reports.member.getMemberProfile, { memberId: memberId as Id<"teamMembers"> }, token)) !== null;
     } catch (error) {
-      // A malformed id or another tenant's member is a 404; anything else reaches the error boundary.
-      if (!isExpectedConvexRejection(error) && !(error instanceof Error && /Invalid filter/u.test(error.message))) throw error;
+      // A member that isn't the tenant's (merged away, deleted, another
+      // tenant's) or a malformed id is a 404; anything else reaches the error
+      // boundary.
+      const code = getErrorCode(error);
+      const missing =
+        code === MEMBER_FILTER_ERROR.invalidMember || (code === undefined && isExpectedConvexRejection(error));
+      if (!missing) throw error;
     }
     if (!found) notFound();
   }
