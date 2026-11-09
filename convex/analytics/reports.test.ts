@@ -765,6 +765,20 @@ describe("multi-part answers", () => {
     return { status: "pending" as const, run: { id, watermark: 1_000, startedAt: Date.now() } };
   }
 
+  /** What the Node action does: one part per transaction, then `complete`. */
+  async function saveParts(fixture: Fixture, resultId: Id<"analyticsResults">, runId: string, json: string) {
+    const ids: Id<"analyticsPayloads">[] = [];
+    for (const part of splitPayload(json)) {
+      const id = await fixture.t.mutation(internal.analytics.results.storePayloadPart, { resultId, runId, json: part });
+      if (id === null) return { saved: false, stored: ids };
+      ids.push(id);
+    }
+    const outcome = await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId, watermark: 1_000, range, payloadPartIds: ids,
+    });
+    return { ...outcome, stored: ids };
+  }
+
   it("splits between characters, never inside one", () => {
     const text = "a😀bé😀ñ";
     for (const max of [4, 5, 6, 7, 9]) {
@@ -782,12 +796,10 @@ describe("multi-part answers", () => {
     const resultId = await insertResult(fixture, { tenantId: fixture.tenantA, ...pendingRun("r1") });
     const json = bigAnswer(5_000_000);
 
-    const saved = await fixture.t.mutation(internal.analytics.results.complete, {
-      resultId, runId: "r1", watermark: 1_000, range, payloadParts: splitPayload(json),
-    });
+    const { saved } = await saveParts(fixture, resultId, "r1", json);
     const state = await fixture.adminA.query(api.analytics.reports.get, metricsArgs);
 
-    expect(saved).toEqual({ saved: true });
+    expect(saved).toBe(true);
     expect(state.state).toBe("ready");
     expect(state.payloadJson === json).toBe(true);
     const parts = await storedParts(fixture);
@@ -804,9 +816,7 @@ describe("multi-part answers", () => {
     const after = bigAnswer(11_800_000);
     const resultId = await insertWithParts(fixture, before, pendingRun("r2"));
 
-    await fixture.t.mutation(internal.analytics.results.complete, {
-      resultId, runId: "r2", watermark: 1_000, range, payloadParts: splitPayload(after),
-    });
+    expect((await saveParts(fixture, resultId, "r2", after)).saved).toBe(true);
     expect((await fixture.adminA.query(api.analytics.reports.get, metricsArgs)).payloadJson === after).toBe(true);
     await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
 
@@ -818,37 +828,63 @@ describe("multi-part answers", () => {
     const fixture = await createFixture();
     const resultId = await insertResult(fixture, { tenantId: fixture.tenantA, ...pendingRun("newer") });
 
-    const saved = await fixture.t.mutation(internal.analytics.results.complete, {
-      resultId, runId: "older", watermark: 1_000, range, payloadParts: splitPayload(bigAnswer(2_000_000)),
+    const outcome = await saveParts(fixture, resultId, "older", bigAnswer(2_000_000));
+    const stale = await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId: "older", watermark: 1_000, range, rowsJson: '{"payments":[]}',
     });
 
-    expect(saved).toEqual({ saved: false });
+    expect(outcome).toEqual({ saved: false, stored: [] });
+    expect(stale).toEqual({ saved: false });
     expect(await storedParts(fixture)).toEqual([]);
   });
 
-  it("keeps the previous answer when a refresh is too large", async () => {
+  it("refuses a part over 900 KB", async () => {
+    const fixture = await createFixture();
+    const resultId = await insertResult(fixture, { tenantId: fixture.tenantA, ...pendingRun("r3") });
+
+    await expect(fixture.t.mutation(internal.analytics.results.storePayloadPart, {
+      resultId, runId: "r3", json: "x".repeat(PAYLOAD_PART_BYTES + 1),
+    })).rejects.toThrow("over 900 KB");
+  });
+
+  it("keeps the previous answer readable when a refresh fails", async () => {
     const fixture = await createFixture();
     const old = bigAnswer(1_500_000);
     const resultId = await insertWithParts(fixture, old, pendingRun("r3"));
 
-    const saved = await fixture.t.mutation(internal.analytics.results.complete, {
-      resultId, runId: "r3", watermark: 1_000, range, payloadParts: ["x".repeat(PAYLOAD_PART_BYTES + 1)],
+    await fixture.t.mutation(internal.analytics.results.fail, {
+      resultId, runId: "r3", errorMessage: "This range is too large to show. Choose a shorter range.",
     });
     const state = await fixture.adminA.query(api.analytics.reports.get, metricsArgs);
 
-    expect(saved).toEqual({ saved: false });
     expect(state.state).toBe("failed");
     expect(state.errorMessage).toBe("This range is too large to show. Choose a shorter range.");
     expect(state.payloadJson === old).toBe(true);
+  });
+
+  it("deletes parts a crashed run stored when the key goes", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(watermarkOr(1_000, []));
+    await setWatermark(fixture, 1_000);
+    const resultId = await insertResult(fixture, {
+      tenantId: fixture.tenantA, ...pendingRun("crashed"), lastRequestedAt: Date.now() - 15 * DAY_MS,
+    });
+    // Stored, never saved: the run died before `complete`.
+    for (const part of splitPayload(bigAnswer(2_000_000))) {
+      await fixture.t.mutation(internal.analytics.results.storePayloadPart, { resultId, runId: "crashed", json: part });
+    }
+
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, { force: true });
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(await storedParts(fixture)).toEqual([]);
   });
 
   it("drops the extra parts when a one-part answer replaces a multi-part one", async () => {
     const fixture = await createFixture();
     const resultId = await insertWithParts(fixture, bigAnswer(3_000_000), pendingRun("r4"));
 
-    await fixture.t.mutation(internal.analytics.results.complete, {
-      resultId, runId: "r4", watermark: 1_000, range, payloadParts: ['{"small":true}'],
-    });
+    await saveParts(fixture, resultId, "r4", '{"small":true}');
     await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const row = await fixture.t.run(async (ctx) => ctx.db.get("analyticsResults", resultId));

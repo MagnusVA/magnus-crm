@@ -115,7 +115,10 @@ export const analyticsTables = {
   analyticsPayloads: defineTable({
     tenantId: v.id("tenants"),
     json: v.string(),
-  }),
+    // The row whose run wrote it, so parts a crashed run left behind are
+    // found and deleted with the key. Unset on answers saved before parts.
+    resultId: v.optional(v.id("analyticsResults")),
+  }).index("by_resultId", ["resultId"]),
 
   /**
    * One row. The 5-minute heartbeat patches `beatAt`, and Fivetran copies it,

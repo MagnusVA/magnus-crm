@@ -31,6 +31,14 @@ import { ANSWER_TOO_LARGE, MAX_ANSWER_BYTES, answerBytes, resolvedRangeValidator
 export const MAX_NODE_ROWS_CHARS = 24_000_000;
 
 const FAILED = "The reporting database couldn't answer this range. It tries again after the next refresh.";
+/**
+ * Pause between stored parts. One part per transaction, about 4 MB a second
+ * at most, keeps a 12 MB answer from spending the deployment's write budget
+ * (8 MiB a second on dev, shared with every user's writes) in one burst.
+ */
+const PART_WRITE_SPACING_MS = 200;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type BuildArgs = {
   reportId: string;
@@ -116,13 +124,35 @@ export const finalizeInNode = internalAction({
         maxRssMb: Math.round(process.resourceUsage().maxRSS / 1024),
       });
       if (bytes > MAX_ANSWER_BYTES) return { ok: false as const, errorMessage: ANSWER_TOO_LARGE };
-      const { saved }: { saved: boolean } = await ctx.runMutation(internal.analytics.results.complete, {
-        resultId: args.resultId,
-        runId: args.runId,
-        watermark: args.watermark,
-        range: args.range,
-        payloadParts: splitPayload(built.payloadJson),
-      });
+      const parts = splitPayload(built.payloadJson);
+      const stored: Id<"analyticsPayloads">[] = [];
+      let saved = false;
+      try {
+        for (const [index, json] of parts.entries()) {
+          if (index > 0) await sleep(PART_WRITE_SPACING_MS);
+          const id: Id<"analyticsPayloads"> | null = await ctx.runMutation(internal.analytics.results.storePayloadPart, {
+            resultId: args.resultId,
+            runId: args.runId,
+            json,
+          });
+          // A newer run replaced this one; it saves its own answer.
+          if (id === null) break;
+          stored.push(id);
+        }
+        if (stored.length === parts.length) {
+          ({ saved } = await ctx.runMutation(internal.analytics.results.complete, {
+            resultId: args.resultId,
+            runId: args.runId,
+            watermark: args.watermark,
+            range: args.range,
+            payloadPartIds: stored,
+          }));
+        }
+      } finally {
+        if (!saved && stored.length > 0) {
+          await ctx.runMutation(internal.analytics.results.deletePayloadParts, { ids: stored });
+        }
+      }
       return { ok: true as const, saved };
     } catch (error) {
       if (error instanceof RowsBudgetExceededError) return { ok: false as const, errorMessage: error.message };
