@@ -279,9 +279,12 @@ export const process = internalAction({
           c.apiKey,
           `/recordings/${data.recording_id}/summary`,
         );
+        // A recording Fathom didn't summarize returns { summary: null }.
         fields.summaryMarkdown =
-          z.object({ summary: summarySchema }).parse(await response.json())
-            .summary.markdown_formatted ?? undefined;
+          z
+            .object({ summary: summarySchema.nullable() })
+            .parse(await response.json()).summary?.markdown_formatted ??
+          undefined;
       }
       let lines = data.transcript ? parseTranscript(data.transcript) : [];
       const expired = fields.recordingStartAt + 90 * 86400_000 <= Date.now();
