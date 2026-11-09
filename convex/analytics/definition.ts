@@ -33,11 +33,32 @@ export type ReaderOutput<Reader> =
     : never;
 
 /**
+ * How a report builds its answer in a Node action instead of the `complete`
+ * mutation (docs/agents/reporting.md, "The Node build path"): for reports
+ * whose rows are too large to pass into a mutation, or whose build needs more
+ * than a mutation's CPU. The rows stay in the action; only the answer is
+ * saved. `context` reads the small Convex lookups `build` needs and returns
+ * JSON data (arrays and plain objects, never a `Map`): it crosses a function
+ * boundary in production, and `finalize` sends it through JSON the same way.
+ */
+export type NodeBuild<Filters, Output, Context> = {
+  /**
+   * IDs from the rows that `context` needs, such as closer IDs. Without
+   * `keys`, the context loads before the SQL and `sql` receives it.
+   */
+  keys?(rows: Record<string, SqlRow[]>): string[];
+  /** Reads Convex. Only small lookup tables; checks the tenant of every key. */
+  context(ctx: QueryCtx, input: ReportInput<Filters>, keys: readonly string[]): Promise<Context>;
+  /** Pure: no Convex reads. */
+  build(input: ReportInput<Filters> & { rows: Record<string, SqlRow[]>; context: Context }): Output;
+};
+
+/**
  * One panel's report. Today stays on the page's Convex reader (`live`); every
  * other range runs `sql` in ClickHouse and `finalize` in Convex, which returns
  * exactly what the reader returns, so no panel knows its source.
  */
-export type ReportDefinition<Filters extends AnalyticsFilters, Output> = {
+export type ReportDefinition<Filters extends AnalyticsFilters, Output, Context = never> = {
   /** `<page>.<panel>`, e.g. `revenue.metrics`. Part of every cache key. */
   id: string;
   /** The page whose switch moves this report; null for the external API's. */
@@ -60,14 +81,21 @@ export type ReportDefinition<Filters extends AnalyticsFilters, Output> = {
    * every view by `tenant_id = {tenant_id:String}`, and takes the range as
    * `{from_ms:Int64}`, `{to_ms:Int64}`, `{tz:String}` and
    * `{day_start_hour:UInt8}` (see `rangeParams`). `tenant_id` is added by the
-   * client; templates never set it.
+   * client; templates never set it. A Node-built report without `node.keys`
+   * also receives its context, loaded first.
    */
-  sql(input: ReportInput<Filters>): Record<string, SqlQuery>;
-  /** Turns the rows into the reader's return value. Runs in a mutation; read only. */
+  sql(input: ReportInput<Filters>, context?: Context): Record<string, SqlQuery>;
+  /**
+   * Turns the rows into the reader's return value. Runs in a mutation; read
+   * only. A Node-built report sets it to `nodeFinalize(node)`, which the
+   * convex-test parity tests and `previewFinalize` call.
+   */
   finalize(
     ctx: QueryCtx,
     input: ReportInput<Filters> & { rows: Record<string, SqlRow[]> },
   ): Promise<Output>;
+  /** Set for reports that build in a Node action (`analytics/runNode.ts`). */
+  node?: NodeBuild<Filters, Output, Context>;
   /** The Convex reader this replaces, for `pnpm analytics:parity`. */
   live: {
     /** CLI name, e.g. `reporting/revenue:getRevenueMetrics`. */
@@ -76,13 +104,28 @@ export type ReportDefinition<Filters extends AnalyticsFilters, Output> = {
   };
 };
 
-export type AnyReportDefinition = ReportDefinition<AnalyticsFilters, unknown>;
+export type AnyReportDefinition = ReportDefinition<AnalyticsFilters, unknown, unknown>;
 
 /** Ties a definition's output to the reader it replaces. */
-export function defineReport<Reader, Filters extends AnalyticsFilters = Record<string, never>>(
-  definition: ReportDefinition<Filters, ReaderOutput<Reader>>,
+export function defineReport<Reader, Filters extends AnalyticsFilters = Record<string, never>, Context = never>(
+  definition: ReportDefinition<Filters, ReaderOutput<Reader>, Context>,
 ): AnyReportDefinition {
   return definition as unknown as AnyReportDefinition;
+}
+
+/**
+ * `finalize` for a Node-built report: the same context and build as the Node
+ * action, with the context sent through JSON as it is in production, so a
+ * context that isn't plain JSON data fails the parity tests.
+ */
+export function nodeFinalize<Filters, Output, Context>(node: NodeBuild<Filters, Output, Context>) {
+  return async (
+    ctx: QueryCtx,
+    input: ReportInput<Filters> & { rows: Record<string, SqlRow[]> },
+  ): Promise<Output> => {
+    const context = await node.context(ctx, input, node.keys?.(input.rows) ?? []);
+    return node.build({ ...input, context: JSON.parse(JSON.stringify(context)) as Context });
+  };
 }
 
 /** The range parameters every template takes. */
