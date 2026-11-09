@@ -20,6 +20,7 @@ import {
   type DealStage,
   type OpportunityStatus,
 } from "../opportunities/stages";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -354,6 +355,7 @@ describe("stage changes through the public mutations", () => {
     });
 
     const { paymentId } = await closer.mutation(api.sideDeals.logPayment.logPayment, {
+      proofFileId: await storeProofFile(t),
       opportunityId,
       amount: 100,
       currency: "USD",

@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { EndMyDayRow } from "./end-my-day-row";
 import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import type { DealPosition } from "@/convex/opportunities/stages";
 import { businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
@@ -201,6 +202,7 @@ export function CallsBoardView({
             )}
           </TabsContent>
         ))}
+        <EndMyDayRow meetings={meetings} now={now} visible={tab === "today"} />
       </Tabs>
     </section>
   );

@@ -19,6 +19,9 @@ importers:
       '@convex-dev/migrations':
         specifier: ^0.3.6
         version: 0.3.6(convex-helpers@0.1.128(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5))(convex@1.46.0(react@19.3.0))
+      '@convex-dev/rate-limiter':
+        specifier: ^0.4.3
+        version: 0.4.3(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)
       '@convex-dev/workos-authkit':
         specifier: ^0.2.10
         version: 0.2.10(@standard-schema/spec@1.1.0)(@workos-inc/authkit-react@0.16.3(react@19.3.0))(@workos-inc/node@10.14.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)
@@ -58,9 +61,15 @@ importers:
       convex-helpers:
         specifier: ^0.1.128
         version: 0.1.128(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)
+      convex-mcp-gateway:
+        specifier: 2.1.1
+        version: 2.1.1(convex@1.46.0(react@19.3.0))
       date-fns:
         specifier: ^4.4.0
         version: 4.4.0
+      jose:
+        specifier: ^6.2.15
+        version: 6.2.15
       lucide-react:
         specifier: ^1.63.0
         version: 1.63.0(@types/react@19.3.0)(react@19.3.0)
@@ -366,6 +375,11 @@ packages:
       convex: ^1.43.0
       react: ^18.3.1 || ^19.0.0
 
+  '@convex-dev/batch-worker@0.3.5':
+    resolution: {integrity: sha512-kTxLGy1TXRN6WLcENcoRWWnvPshv1sIZp2EpPqGqCB4FxDI7m8tEHUr+jCLdhGtSZT1UHkWtb1w8YYuEzTxHWQ==}
+    peerDependencies:
+      convex: ^1.43.0
+
   '@convex-dev/eslint-plugin@5.0.0':
     resolution: {integrity: sha512-UFhZ7bJBo4mTfa829/mntoAwyC9aKwXe6dxCV7PianSdAfFIbdCwCjWPBmhqn1hNlpqhVU385C/vjL8CXfxA2Q==}
     peerDependencies:
@@ -376,6 +390,15 @@ packages:
     peerDependencies:
       convex: ^1.42.0
       convex-helpers: ^0.1.115
+
+  '@convex-dev/rate-limiter@0.4.3':
+    resolution: {integrity: sha512-IXIEGbZBANC5B23pGmIui7p49kSiltNWyJ7wX7nFmkR396X/Oj9ebgScgxSJMAW7DkhpUtt1NAnQHhjB0v6a/A==}
+    peerDependencies:
+      convex: ^1.43.0
+      react: ^18.2.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@convex-dev/workflow@0.4.9':
     resolution: {integrity: sha512-wqWluDVhwkZOq6TB4gWKePile0dlgfKT/rrvFKT9REYbjhb22Tn1oGsPhGJ1g6H/VNt54vpjtwvZ8trSrFGWJg==}
@@ -3687,6 +3710,11 @@ packages:
       zod:
         optional: true
 
+  convex-mcp-gateway@2.1.1:
+    resolution: {integrity: sha512-yJ5/lOkfBR5Khxm1sBIc2u2uy5qUDFfL9LLHcEfGkyff/yIJ4fKHIhwktxjQvU5K5KBTpmNK8GQkOF5HO+BPdg==}
+    peerDependencies:
+      convex: ^1.35.0
+
   convex-test@0.0.60:
     resolution: {integrity: sha512-qCAFx+CO6bmpXNc9s1jZvw8NJPS4yM074ib87PUY675FsiaRRW4ALotEB+RbVCYDRMYxh623KMnYZBlrMJIv1Q==}
     peerDependencies:
@@ -4596,6 +4624,9 @@ packages:
 
   jose@5.10.0:
     resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
+
+  jose@6.2.15:
+    resolution: {integrity: sha512-qdF6ewcZARtef63fJ9AKKZPgxw+t7USH6HLXYcD4CrdmSvDp79rpJSPFEKc90QBeGS63u1KQtN2MZQHC0yDIzA==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -6479,6 +6510,17 @@ snapshots:
       - typescript
       - zod
 
+  '@convex-dev/batch-worker@0.3.5(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)':
+    dependencies:
+      convex: 1.46.0(react@19.3.0)
+      convex-helpers: 0.1.128(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - react
+      - typescript
+      - zod
+
   '@convex-dev/eslint-plugin@5.0.0(convex@1.46.0(react@19.3.0))(eslint@9.39.5(jiti@2.7.0))':
     dependencies:
       '@typescript-eslint/types': 8.58.2
@@ -6492,6 +6534,18 @@ snapshots:
     dependencies:
       convex: 1.46.0(react@19.3.0)
       convex-helpers: 0.1.128(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)
+
+  '@convex-dev/rate-limiter@0.4.3(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)':
+    dependencies:
+      '@convex-dev/batch-worker': 0.3.5(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5)
+      convex: 1.46.0(react@19.3.0)
+    optionalDependencies:
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@standard-schema/spec'
+      - hono
+      - typescript
+      - zod
 
   '@convex-dev/workflow@0.4.9(@convex-dev/workpool@0.4.13(convex-helpers@0.1.128(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5))(convex@1.46.0(react@19.3.0))(react@19.3.0))(convex-helpers@0.1.128(@standard-schema/spec@1.1.0)(convex@1.46.0(react@19.3.0))(hono@4.12.9)(react@19.3.0)(typescript@7.0.2)(zod@4.6.5))(convex@1.46.0(react@19.3.0))':
     dependencies:
@@ -9341,6 +9395,10 @@ snapshots:
       typescript: 7.0.2
       zod: 4.6.5
 
+  convex-mcp-gateway@2.1.1(convex@1.46.0(react@19.3.0)):
+    dependencies:
+      convex: 1.46.0(react@19.3.0)
+
   convex-test@0.0.60(convex@1.46.0(react@19.3.0)):
     dependencies:
       convex: 1.46.0(react@19.3.0)
@@ -10357,6 +10415,8 @@ snapshots:
   jiti@2.7.0: {}
 
   jose@5.10.0: {}
+
+  jose@6.2.15: {}
 
   js-tokens@4.0.0: {}
 

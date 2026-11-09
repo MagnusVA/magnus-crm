@@ -46,8 +46,21 @@ export function getCanonicalIdentityWorkosUserId(
   return null;
 }
 
+/**
+ * Every stored form a user's WorkOS ID may take, most specific first: the
+ * identity's own `<issuer>|<id>`, the user-management form, then the raw ID.
+ *
+ * A token from another issuer, such as AuthKit's MCP tokens, yields
+ * `<authkit>|<id>`. Users stored in the user-management form would match
+ * neither that nor the raw ID, so the user-management form is always tried.
+ */
 export function getWorkosUserIdCandidates(workosUserId: string): string[] {
   const canonical = canonicalizeWorkosUserId(workosUserId);
   const raw = getRawWorkosUserId(workosUserId);
-  return canonical === raw ? [canonical] : [canonical, raw];
+  // Skipped when the client ID isn't configured, as in tests that never
+  // set it; a deployment always has it.
+  const clientId = env.WORKOS_CLIENT_ID;
+  const userManagement =
+    raw && clientId ? `https://api.workos.com/user_management/${clientId}|${raw}` : raw;
+  return [...new Set([canonical, userManagement, raw])].filter(Boolean);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
@@ -23,6 +23,9 @@ import {
   formatPaymentAmount,
   useConfirmStep,
 } from "@/app/workspace/_components/payment-dialog-form";
+import type { PaymentLinkValues } from "@/lib/paymentLink";
+import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import { useProofRequired } from "@/hooks/use-proof-required";
 
 // ---------------------------------------------------------------------------
 // Zod schema — single source of truth for form validation.
@@ -71,6 +74,8 @@ type Props = {
   defaultProgramId: Id<"tenantPrograms"> | null;
   /** On the admin twin, the closer the payment is credited to. */
   actingFor?: string | null;
+  /** Values from a payment link, filled in when the dialog opens. */
+  prefill?: PaymentLinkValues;
 };
 
 /**
@@ -87,9 +92,12 @@ export function ReminderPaymentDialog({
   leadName,
   defaultProgramId,
   actingFor,
+  prefill,
 }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Closers must attach proof; the payment mutations refuse a payment without it.
+  const proofRequired = useProofRequired();
   const [confirming, setConfirming] = useConfirmStep<PaymentFormValues>(open);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -132,6 +140,24 @@ export function ReminderPaymentDialog({
     form.setValue("programId", bookedProgram._id);
     if (bookedCurrency) form.setValue("currency", bookedCurrency);
   }, [bookedProgram, bookedCurrency, form]);
+
+  // A payment link's values (lib/paymentLink.ts) fill the form once each time
+  // it opens, after the programs load, so a link's program can be checked.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      prefilled.current = false;
+      return;
+    }
+    if (!prefill || prefilled.current || programs === undefined) return;
+    prefilled.current = true;
+    if (prefill.amount !== undefined) form.setValue("amount", String(prefill.amount));
+    const currency = CURRENCIES.find((code) => code === prefill.currency);
+    if (currency) form.setValue("currency", currency);
+    if (prefill.paymentType) form.setValue("paymentType", prefill.paymentType);
+    const program = programs.find((item) => item._id === prefill.programId);
+    if (program) form.setValue("programId", program._id);
+  }, [open, prefill, programs, form]);
 
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logReminderPayment = useMutation(api.closer.reminderOutcomes.logReminderPayment);
@@ -263,6 +289,10 @@ export function ReminderPaymentDialog({
             <FormProvider {...form}>
               <PaymentFormStep
                 onSubmit={form.handleSubmit((values) => {
+                  if (proofRequired && !values.proofFile) {
+                    form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+                    return;
+                  }
                   setSubmitError(null);
                   setConfirming(values);
                 })}
@@ -281,6 +311,7 @@ export function ReminderPaymentDialog({
                       : "The program this payment is for.",
                 }}
                 submitDisabled={isSubmitDisabled}
+                proofRequired={proofRequired}
               />
             </FormProvider>
           </>

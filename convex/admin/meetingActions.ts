@@ -1,6 +1,8 @@
 import { v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
-import { mutation } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { mutation, type MutationCtx } from "../_generated/server";
+import type { TenantUserResult } from "../requireTenantUser";
+import { rejectRequest } from "../lib/observability/errors";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   canMarkLost,
@@ -115,80 +117,95 @@ export const adminCreateFollowUp = mutation({
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
   },
+  returns: v.object({ schedulingLinkUrl: v.string(), followUpId: v.id("followUps") }),
   handler: async (ctx, args) => {
     const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
-    if (!opportunity || opportunity.tenantId !== tenantId) {
-      throw new Error("Opportunity not found");
-    }
+    const result = await adminCreateFollowUpCore(ctx, { tenantId, userId, role }, args);
+    return { followUpId: result.followUpId, schedulingLinkUrl: result.schedulingLinkUrl! };
+  },
+});
 
-    const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
+/** Shared admin path. A review may request a call-back while preserving attendance. */
+export async function adminCreateFollowUpCore(
+  ctx: MutationCtx,
+  actor: Pick<TenantUserResult, "tenantId" | "userId" | "role">,
+  args: {
+    opportunityId: Id<"opportunities">;
+    meetingId?: Id<"meetings">;
+    callBack?: { scheduledAt: number };
+  },
+): Promise<{ followUpId: Id<"followUps">; schedulingLinkUrl: string | null }> {
+  const { tenantId, userId, role } = actor;
+  const opportunity = await ctx.db.get("opportunities", args.opportunityId);
+  if (!opportunity || opportunity.tenantId !== tenantId) {
+    throw new Error("Opportunity not found");
+  }
+
+  const meeting = args.meetingId
+    ? await ctx.db.get("meetings", args.meetingId)
+    : null;
+  if (
+    args.meetingId &&
+    (!meeting ||
+      meeting.tenantId !== tenantId ||
+      meeting.opportunityId !== args.opportunityId)
+  ) {
+    throw new Error("Meeting does not belong to this opportunity");
+  }
+
+  // A second Generate finds the deal at Follow-up with this link open and
+  // is refused.
+  const start = await resolveFollowUpStart(
+    ctx,
+    opportunity,
+    meeting,
+    "Cannot create follow-up",
+  );
+
+  if (args.callBack) {
     if (
-      args.meetingId &&
-      (!meeting ||
-        meeting.tenantId !== tenantId ||
-        meeting.opportunityId !== args.opportunityId)
-    ) {
-      throw new Error("Meeting does not belong to this opportunity");
-    }
-
-    // A second Generate finds the deal at Follow-up with this link open and
-    // is refused.
-    const start = await resolveFollowUpStart(ctx, opportunity, meeting, "Cannot create follow-up");
-
-    // Resolve the assigned closer's Calendly URI
-    const closerId = opportunity.assignedCloserId;
-    if (!closerId) {
-      throw new Error("No closer assigned to this opportunity");
-    }
-    const closer = await ctx.db.get("users", closerId);
-    if (!closer || !closer.personalEventTypeUri) {
-      throw new Error(
-        "Assigned closer has no personal event type URI configured",
+      !meeting ||
+      meeting.status !== "no_show" ||
+      opportunity.outcome !== "lost" ||
+      opportunity.lostReason !== "no_show"
+    )
+      throw rejectRequest(
+        "second_opinion.reopen_invalid",
+        "Only a closed no-show deal can be reopened here.",
       );
-    }
-
     const now = Date.now();
-    if (meeting) {
-      assertCanRecordMeetingOutcome({
-        meeting,
-        opportunity,
-        userId,
-        role,
-        now,
-      });
-    }
-
+    if (
+      !Number.isFinite(args.callBack.scheduledAt) ||
+      args.callBack.scheduledAt <= now
+    )
+      throw rejectRequest(
+        "second_opinion.callback_invalid",
+        "Choose a future call-back time.",
+      );
     const followUpId = await ctx.db.insert("followUps", {
       tenantId,
-      opportunityId: args.opportunityId,
+      opportunityId: opportunity._id,
       leadId: opportunity.leadId,
-      closerId,
-      type: "scheduling_link",
-      reason: "admin_initiated",
+      closerId: meeting.assignedCloserId,
+      type: "manual_reminder",
+      reason: "no_show_follow_up",
       status: "pending",
-      ...(meeting ? { sourceMeetingId: meeting._id } : {}),
+      contactMethod: "call",
+      reminderScheduledAt: args.callBack.scheduledAt,
+      sourceMeetingId: meeting._id,
       createdAt: now,
       createdByUserId: userId,
       createdSource: "admin",
     });
-
-    // Build scheduling link URL with UTM params
-    const baseUrl = closer.personalEventTypeUri;
-    const url = new URL(baseUrl);
-    url.searchParams.set("utm_source", "ptdom");
-    url.searchParams.set("utm_medium", "follow_up");
-    url.searchParams.set("utm_campaign", args.opportunityId);
-    url.searchParams.set("utm_content", followUpId);
-    url.searchParams.set("utm_term", closerId);
-    const schedulingLinkUrl = url.toString();
-
-    await ctx.db.patch("followUps", followUpId, { schedulingLinkUrl });
-
+    await landFollowUp(ctx, opportunity._id, start, {
+      source: "admin",
+      actorUserId: userId,
+      occurredAt: now,
+    });
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "followUp",
@@ -196,27 +213,94 @@ export const adminCreateFollowUp = mutation({
       eventType: "followUp.created",
       source: "admin",
       actorUserId: userId,
-      metadata: { type: "scheduling_link", reason: "admin_initiated" },
+      metadata: {
+        type: "manual_reminder",
+        contactMethod: "call",
+        reason: "no_show_follow_up",
+      },
       occurredAt: now,
     });
+    // Review reopens the deal only. Attendance remains no-show.
+    return { followUpId, schedulingLinkUrl: null };
+  }
 
-    await landFollowUp(ctx, args.opportunityId, start, {
-      source: "admin",
-      actorUserId: userId,
-      occurredAt: now,
+  // Resolve the assigned closer's Calendly URI
+  const closerId = opportunity.assignedCloserId;
+  if (!closerId) {
+    throw new Error("No closer assigned to this opportunity");
+  }
+  const closer = await ctx.db.get("users", closerId);
+  if (!closer || !closer.personalEventTypeUri) {
+    throw new Error(
+      "Assigned closer has no personal event type URI configured",
+    );
+  }
+
+  const now = Date.now();
+  if (meeting) {
+    assertCanRecordMeetingOutcome({
+      meeting,
+      opportunity,
+      userId,
+      role,
+      now,
     });
-    if (meeting) {
-      await completeMeetingForOutcome(ctx, {
-        meetingId: meeting._id,
-        opportunityId: opportunity._id,
-        toMeetingStatus: "held",
-        recordedAt: now,
-      });
-    }
+  }
 
-    return { schedulingLinkUrl, followUpId };
-  },
-});
+  const followUpId = await ctx.db.insert("followUps", {
+    tenantId,
+    opportunityId: args.opportunityId,
+    leadId: opportunity.leadId,
+    closerId,
+    type: "scheduling_link",
+    reason: "admin_initiated",
+    status: "pending",
+    ...(meeting ? { sourceMeetingId: meeting._id } : {}),
+    createdAt: now,
+    createdByUserId: userId,
+    createdSource: "admin",
+  });
+
+  // Build scheduling link URL with UTM params
+  const baseUrl = closer.personalEventTypeUri;
+  const url = new URL(baseUrl);
+  url.searchParams.set("utm_source", "ptdom");
+  url.searchParams.set("utm_medium", "follow_up");
+  url.searchParams.set("utm_campaign", args.opportunityId);
+  url.searchParams.set("utm_content", followUpId);
+  url.searchParams.set("utm_term", closerId);
+  const schedulingLinkUrl = url.toString();
+
+  await ctx.db.patch("followUps", followUpId, { schedulingLinkUrl });
+
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "followUp",
+    entityId: followUpId,
+    eventType: "followUp.created",
+    source: "admin",
+    actorUserId: userId,
+    metadata: { type: "scheduling_link", reason: "admin_initiated" },
+    occurredAt: now,
+  });
+
+  await landFollowUp(ctx, args.opportunityId, start, {
+    source: "admin",
+    actorUserId: userId,
+    occurredAt: now,
+  });
+  if (meeting) {
+    await completeMeetingForOutcome(ctx, {
+      meetingId: meeting._id,
+      opportunityId: opportunity._id,
+      toMeetingStatus: "held",
+      recordedAt: now,
+    });
+  }
+
+  return { schedulingLinkUrl, followUpId };
+}
+
 
 // ---------------------------------------------------------------------------
 // adminCancelPendingFollowUp — Cancel a follow-up that never moved the deal

@@ -50,7 +50,20 @@ export const getCloserTasks = query({
   }),
   handler: async (ctx) => {
     const { tenantId, userId } = await requireTenantUser(ctx, ["closer"]);
+    return await readCloserTasks(ctx, tenantId, userId);
+  },
+});
 
+/**
+ * The read behind `getCloserTasks`, shared with the AI assistant's
+ * `magnus_today` and `magnus_tasks` so the agent and the Today page list the
+ * same tasks. The caller authorizes.
+ */
+export async function readCloserTasks(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  userId: Id<"users">,
+) {
     const readPending = (type: Doc<"followUps">["type"]) =>
       ctx.db
         .query("followUps")
@@ -80,8 +93,7 @@ export const getCloserTasks = query({
         reminderRows.length > MAX_TASKS_PER_KIND ||
         linkRows.length > MAX_TASKS_PER_KIND,
     };
-  },
-});
+}
 
 /** Reads each task's person, deal and event type once, then shapes a row. */
 async function taskEnricher(

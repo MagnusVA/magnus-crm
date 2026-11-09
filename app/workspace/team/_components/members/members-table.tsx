@@ -86,7 +86,10 @@ export function MemberRow({
         <MemberAvatar member={member} />
         <span className={cn("flex min-w-0 flex-col", dim && "opacity-60")}>
           <span className="truncate text-[14.5px] font-semibold">{member.name}</span>
-          <small className="truncate text-[13px] text-muted-foreground">{loginLine(member)}</small>
+          <small className="truncate text-[13px] text-muted-foreground">
+            {loginLine(member)}
+            {member.login?.aiAssistantBlocked ? " · AI assistant blocked" : null}
+          </small>
           <RoleChips chips={chips} className="mt-1 @3xl:hidden" />
         </span>
         <RoleChips chips={chips} className="hidden @3xl:flex" />

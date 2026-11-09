@@ -32,6 +32,8 @@ import {
   formatPaymentAmount,
   useConfirmStep,
 } from "@/app/workspace/_components/payment-dialog-form";
+import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import { useProofRequired } from "@/hooks/use-proof-required";
 
 function isValidHttpUrl(value: string): boolean {
   try {
@@ -107,6 +109,8 @@ export function AddOpportunityPaymentDialog({
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Closers must attach proof; the payment mutations refuse a payment without it.
+  const proofRequired = useProofRequired();
   const [confirming, setConfirming] = useConfirmStep<PaymentValues>(open);
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const recordAdditionalPayment = useMutation(
@@ -256,6 +260,10 @@ export function AddOpportunityPaymentDialog({
               <FormProvider {...form}>
                 <PaymentFormStep
                   onSubmit={form.handleSubmit((values) => {
+                    if (proofRequired && !values.proofFile) {
+                      form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
+                      return;
+                    }
                     setSubmitError(null);
                     setConfirming(values);
                   })}
@@ -269,6 +277,7 @@ export function AddOpportunityPaymentDialog({
                     name: programName,
                     description: "A payment takes the program the deal was won under.",
                   }}
+                  proofRequired={proofRequired}
                 >
                   <Controller
                     control={form.control}

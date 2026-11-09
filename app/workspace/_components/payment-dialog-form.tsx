@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEventHandler, type ReactNode } from "react";
-import { Controller, useFormContext } from "react-hook-form";
+import { Controller, useFormContext, useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -85,23 +85,31 @@ export function formatPaymentAmount(amount: string, currency: string) {
  * The form step: amount and currency on one row, program, payment type and
  * proof file, then any rows the dialog adds (`children`). Wrap it in
  * react-hook-form's `FormProvider`. Its button only validates; the confirm
- * step records.
+ * step records. `proofRequired` (closers, `useProofRequired`) drops
+ * "Optional" from the proof row; the dialog checks the file before it
+ * confirms, and the payment mutations enforce it.
  */
 export function PaymentFormStep({
   onSubmit,
   onCancel,
   program,
   submitDisabled,
+  proofRequired = false,
   children,
 }: {
   onSubmit: FormEventHandler<HTMLFormElement>;
   onCancel: () => void;
   program: PaymentProgramRow;
   submitDisabled?: boolean;
+  proofRequired?: boolean;
   children?: ReactNode;
 }) {
   const ids = useId();
   const { control } = useFormContext<PaymentRowFields>();
+  // The picker shows this, not the Controller's value. After Back remounts the
+  // rows, react-hook-form's Controller falls back to the file it mounted with
+  // once the value is cleared, so a removed file would stay on screen.
+  const proofFile = useWatch({ control, name: "proofFile" });
 
   return (
     <form className={ACTION_FORM} onSubmit={onSubmit}>
@@ -218,17 +226,21 @@ export function PaymentFormStep({
         <Controller
           control={control}
           name="proofFile"
-          render={({ field: { value, onChange, onBlur, name }, fieldState }) => (
+          render={({ field: { onChange, onBlur, name }, fieldState }) => (
             <FormRow
               label="Proof file"
               htmlFor={`${ids}-proof`}
               invalid={fieldState.invalid}
               error={fieldState.error}
-              description="Optional. PNG, JPEG, GIF or PDF, up to 10 MB."
+              description={
+                proofRequired
+                  ? "A receipt or screenshot of the payment. PNG, JPEG, GIF or PDF, up to 10 MB."
+                  : "Optional. PNG, JPEG, GIF or PDF, up to 10 MB."
+              }
             >
               <ProofFileInput
                 id={`${ids}-proof`}
-                value={value}
+                value={proofFile}
                 onChange={onChange}
                 onBlur={onBlur}
                 name={name}
