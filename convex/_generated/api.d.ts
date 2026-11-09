@@ -37,7 +37,6 @@ import type * as analytics_definitions_operations from "../analytics/definitions
 import type * as analytics_definitions_overview from "../analytics/definitions/overview.js";
 import type * as analytics_definitions_people from "../analytics/definitions/people.js";
 import type * as analytics_definitions_peopleRoles from "../analytics/definitions/peopleRoles.js";
-import type * as analytics_definitions_pipeline from "../analytics/definitions/pipeline.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_definitions_scorecard from "../analytics/definitions/scorecard.js";
 import type * as analytics_keys from "../analytics/keys.js";
@@ -49,7 +48,6 @@ import type * as analytics_merge_operations from "../analytics/merge/operations.
 import type * as analytics_merge_overview from "../analytics/merge/overview.js";
 import type * as analytics_merge_people from "../analytics/merge/people.js";
 import type * as analytics_merge_peopleRoles from "../analytics/merge/peopleRoles.js";
-import type * as analytics_merge_pipeline from "../analytics/merge/pipeline.js";
 import type * as analytics_merge_revenue from "../analytics/merge/revenue.js";
 import type * as analytics_merge_scorecard from "../analytics/merge/scorecard.js";
 import type * as analytics_parity from "../analytics/parity.js";
@@ -519,7 +517,6 @@ declare const fullApi: ApiFromModules<{
   "analytics/definitions/overview": typeof analytics_definitions_overview;
   "analytics/definitions/people": typeof analytics_definitions_people;
   "analytics/definitions/peopleRoles": typeof analytics_definitions_peopleRoles;
-  "analytics/definitions/pipeline": typeof analytics_definitions_pipeline;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/definitions/scorecard": typeof analytics_definitions_scorecard;
   "analytics/keys": typeof analytics_keys;
@@ -531,7 +528,6 @@ declare const fullApi: ApiFromModules<{
   "analytics/merge/overview": typeof analytics_merge_overview;
   "analytics/merge/people": typeof analytics_merge_people;
   "analytics/merge/peopleRoles": typeof analytics_merge_peopleRoles;
-  "analytics/merge/pipeline": typeof analytics_merge_pipeline;
   "analytics/merge/revenue": typeof analytics_merge_revenue;
   "analytics/merge/scorecard": typeof analytics_merge_scorecard;
   "analytics/parity": typeof analytics_parity;
