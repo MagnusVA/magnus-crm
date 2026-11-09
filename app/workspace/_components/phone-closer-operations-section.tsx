@@ -27,6 +27,11 @@ function resultsLine(counts: Counts, partial: boolean) {
   return `${formatWholeNumber(counts.resultsRecorded)} of ${formatWholeNumber(counts.pastCalls)} past calls have a result${partial ? " (partial)" : ""}`;
 }
 
+/** Calls due with no held or no-show result yet. */
+function notRecorded(counts: Counts) {
+  return counts.pastCalls - counts.resultsRecorded;
+}
+
 function slotsLine(counts: Counts) {
   return `${formatWholeNumber(counts.canceled)} canceled · ${formatWholeNumber(counts.moved)} moved`;
 }
@@ -43,8 +48,8 @@ function Figures({ counts, strong = false }: { counts: Counts; strong?: boolean 
       <td className={cn("px-2.5 text-right", figure, counts.noShows === 0 && !strong && "text-muted-foreground")}>
         {formatWholeNumber(counts.noShows)}
       </td>
-      <td className={cn("px-2.5 text-right", figure, counts.reviewRequired === 0 && !strong && "text-muted-foreground")}>
-        {formatWholeNumber(counts.reviewRequired)}
+      <td className={cn("px-2.5 text-right", figure, notRecorded(counts) === 0 && !strong && "text-muted-foreground")}>
+        {formatWholeNumber(notRecorded(counts))}
       </td>
       <td className={cn("px-2.5 text-right", figure)}>{formatShowRate(counts.showRate)}</td>
       <td className={cn("pr-4 pl-2.5 text-right", figure)}>{formatShowRate(counts.noShowRate)}</td>
@@ -59,7 +64,7 @@ function CountWords({ counts }: { counts: Counts }) {
     [formatWholeNumber(counts.noShows), "no-show"],
     [formatWholeNumber(counts.canceled), "canceled"],
     [formatWholeNumber(counts.moved), "moved"],
-    [formatWholeNumber(counts.reviewRequired), "to review"],
+    [formatWholeNumber(notRecorded(counts)), "not recorded"],
     [formatShowRate(counts.showRate), "show rate"],
     [formatShowRate(counts.noShowRate), "no-show rate"],
   ];
@@ -92,7 +97,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <th scope="col" className={head}>Booked</th>
             <th scope="col" className={head}>Held</th>
             <th scope="col" className={head}>No-show</th>
-            <th scope="col" className={head}>Review</th>
+            <th scope="col" className={head}>Not recorded</th>
             <th scope="col" className={head}>
               Show rate
             </th>

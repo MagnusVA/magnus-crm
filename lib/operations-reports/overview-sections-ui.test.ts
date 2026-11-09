@@ -23,7 +23,7 @@ import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origi
 import { ATTENDANCE_COUNTS_PARTIAL_HELP } from "@/app/workspace/_components/results-recorded";
 
 const closer = (id: string, name: string) => ({ id, name, imageSource: "none" as const, source: "crm_user" as const });
-const counts = { scheduled: 3, held: 2, noShows: 1, canceled: 0, moved: 0, reviewRequired: 0, resultsRecorded: 3, pastCalls: 3, showRate: 2 / 3, noShowRate: 1 / 3 };
+const counts = { scheduled: 3, held: 2, noShows: 1, canceled: 0, moved: 0, resultsRecorded: 3, pastCalls: 3, showRate: 2 / 3, noShowRate: 1 / 3 };
 
 function phoneClosers(attendanceCountsPartial: boolean) {
   return renderToStaticMarkup(

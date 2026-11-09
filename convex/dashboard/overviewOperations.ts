@@ -23,7 +23,6 @@ type OperationsTotals = {
   noShows: number;
   canceled: number;
   moved: number;
-  reviewRequired: number;
   notRecorded: number;
 };
 
@@ -34,7 +33,6 @@ function emptyOperationsTotals(): OperationsTotals {
     noShows: 0,
     canceled: 0,
     moved: 0,
-    reviewRequired: 0,
     notRecorded: 0,
   };
 }
@@ -43,11 +41,12 @@ function addOperationRow(
   totals: OperationsTotals,
   row: OperationsStatsRow & { notRecorded: number },
 ) {
-  totals.scheduled += row.count;
+  // A moved slot isn't a call (dictionary D9): it counts only as moved,
+  // apart from canceled, and stays out of `scheduled`.
+  if (row.meetingStatus !== "moved") totals.scheduled += row.count;
   totals.notRecorded += row.notRecorded;
   if (isHeldStatus(row.meetingStatus)) totals.held += row.count;
   if (row.meetingStatus === "no_show") totals.noShows += row.count;
-  // A moved slot counts apart from canceled; both stay in `scheduled`.
   if (row.meetingStatus === "canceled") totals.canceled += row.count;
   if (row.meetingStatus === "moved") totals.moved += row.count;
 }
@@ -176,7 +175,6 @@ export async function buildPhoneCloserOperationsOverviewSection(
       noShows: acc.noShows + totals.noShows,
       canceled: acc.canceled + totals.canceled,
       moved: acc.moved + totals.moved,
-      reviewRequired: acc.reviewRequired + totals.reviewRequired,
       notRecorded: acc.notRecorded + totals.notRecorded,
     }),
     emptyOperationsTotals(),
@@ -192,7 +190,6 @@ export async function buildPhoneCloserOperationsOverviewSection(
         noShows: operationTotals.noShows,
         canceled: operationTotals.canceled,
         moved: operationTotals.moved,
-        reviewRequired: operationTotals.reviewRequired,
         resultsRecorded: operationTotals.held + operationTotals.noShows,
         pastCalls: operationTotals.held + operationTotals.noShows + operationTotals.notRecorded,
         showRate: toRate(operationTotals.held, operationTotals.held + operationTotals.noShows),

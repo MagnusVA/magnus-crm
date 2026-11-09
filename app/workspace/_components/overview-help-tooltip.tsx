@@ -98,15 +98,14 @@ export const overviewTooltips = {
 		closer:
 			"CRM user assigned to take the sales call.",
 		bookedCalls:
-			"All meetings scheduled in the range for this closer, across every status, canceled and moved slots included.",
+			"Calls scheduled in the range for this closer, in every status, canceled included. A slot given up in a reschedule is Moved, not a call.",
 		held:
 			"Held meetings for this closer in the selected range.",
 		noShows:
 			"Meetings marked no-show for this closer in the selected range.",
 		canceled: termHelp("canceled"),
 		moved: termHelp("moved"),
-		reviewRequired:
-			"Meetings requiring operations review in the selected range.",
+		notRecorded: termHelp("notRecorded"),
 		showRate:
 			"Held calls ÷ (held + no-show). Canceled and not-recorded calls are left out.",
 		noShowRate:

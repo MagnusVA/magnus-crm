@@ -92,7 +92,6 @@ export type PhoneCloserOperations = {
     canceled: number;
     /** Slots given up in a reschedule (D9). */
     moved: number;
-    reviewRequired: number;
     resultsRecorded: number;
     pastCalls: number;
     showRate: number | null;
@@ -106,7 +105,6 @@ export type PhoneCloserOperations = {
     canceled: number;
     /** Slots given up in a reschedule (D9). */
     moved: number;
-    reviewRequired: number;
     resultsRecorded: number;
     pastCalls: number;
     showRate: number | null;
