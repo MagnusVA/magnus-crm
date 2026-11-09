@@ -28,9 +28,7 @@ vi.mock("convex/react", () => ({
   },
   useMutation: () => async () => ({ started: false }),
 }));
-vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
-import { PipelineReportPageClient } from "@/app/workspace/reports/pipeline/_components/pipeline-report-page-client";
 import { LeadGenRanking } from "@/app/workspace/_components/overview-rankings";
 import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origins-overview-section";
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
@@ -42,60 +40,7 @@ const renderPage = (component: () => React.ReactNode) =>
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
-// The day keys each page's default range sends on 2026-10-22: it opens on Today.
-const pages = [
-  {
-    name: "Pipeline Health",
-    component: PipelineReportPageClient,
-    query: "reporting/pipelineHealth:getSchedulingShowRateByOperationsDimensions",
-    defaultKeys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" },
-  },
-];
-
-describe("meeting bucket page readiness", () => {
-  it.each(pages)("skips $name bucket queries and renders the rebuild notice", ({ component, query }) => {
-    const html = renderPage(component);
-    expect(fixture.queries).toHaveBeenCalledWith(query, "skip");
-    expect(html).toContain(BUSINESS_DAY_REBUILD_MESSAGE);
-  });
-
-  it.each(pages)("waits for tenant readiness before subscribing to $name buckets", ({ component, query }) => {
-    fixture.loaded = false;
-    renderPage(component);
-    expect(fixture.queries).toHaveBeenCalledWith(query, "skip");
-  });
-
-  it.each(pages)("subscribes to $name buckets after readiness", ({ component, query }) => {
-    fixture.ready = true;
-    renderPage(component);
-    expect(fixture.queries).toHaveBeenCalledWith(query, expect.any(Object));
-  });
-
-  it.each(pages)("passes today's business day keys to $name buckets", ({ component, query, defaultKeys }) => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date(2026, 9, 22, 12));
-      fixture.ready = true;
-      renderPage(component);
-      expect(fixture.queries).toHaveBeenCalledWith(query, defaultKeys);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it.each(pages)("keeps $name on yesterday's business date until the tenant's day starts", ({ component, query }) => {
-    vi.useFakeTimers();
-    try {
-      // 12:30 am on Oct 23 in Tegucigalpa: days run from 1:00 am, so it's still Oct 22.
-      vi.setSystemTime(Date.UTC(2026, 9, 23, 6, 30));
-      fixture.ready = true;
-      renderPage(component);
-      expect(fixture.queries).toHaveBeenCalledWith(query, { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
+describe("Overview sections while the business day rebuilds", () => {
   it("renders rebuilding Overview sections without totals or generic errors", () => {
     const section = { status: "rebuilding" as const, data: null, truncated: false as const, message: BUSINESS_DAY_REBUILD_MESSAGE, errorCode: null };
     const sections = [

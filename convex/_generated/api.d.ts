@@ -387,6 +387,7 @@ import type * as reporting_writeHooks from "../reporting/writeHooks.js";
 import type * as reports_attribution from "../reports/attribution.js";
 import type * as reports_calls from "../reports/calls.js";
 import type * as reports_export from "../reports/export.js";
+import type * as reports_formFields from "../reports/formFields.js";
 import type * as reports_lib_access from "../reports/lib/access.js";
 import type * as reports_lib_callFacts from "../reports/lib/callFacts.js";
 import type * as reports_lib_creditFacts from "../reports/lib/creditFacts.js";
@@ -868,6 +869,7 @@ declare const fullApi: ApiFromModules<{
   "reports/attribution": typeof reports_attribution;
   "reports/calls": typeof reports_calls;
   "reports/export": typeof reports_export;
+  "reports/formFields": typeof reports_formFields;
   "reports/lib/access": typeof reports_lib_access;
   "reports/lib/callFacts": typeof reports_lib_callFacts;
   "reports/lib/creditFacts": typeof reports_lib_creditFacts;
