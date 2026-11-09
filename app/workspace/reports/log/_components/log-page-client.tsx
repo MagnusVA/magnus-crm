@@ -10,6 +10,7 @@ import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_compon
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { cn } from "@/lib/utils";
+import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu, useRowsExport } from "../../_components/report-export-menu";
 import { BAND_SELECT, REPORT_PAGE, ReportBand } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
@@ -77,17 +78,18 @@ export function LogPageClient() {
               endDate={range.dates.endBusinessDateInclusive}
               memberName={memberName}
               extra={[eventsExport]}
-              buildDocument={() =>
-                entries
-                  ? buildLogDocument(entries, {
+              buildDocument={() => {
+                const current = currentAnswers({ entries: kept });
+                return current
+                  ? buildLogDocument(current.entries, {
                       words: range.words,
                       dayLine: range.dayLine,
                       filters: filterWords || "Every member and record",
                       generatedAt: Date.now(),
                       complete: feed.status === "Exhausted",
                     })
-                  : null
-              }
+                  : null;
+              }}
             />
           </>
         }

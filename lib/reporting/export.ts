@@ -24,6 +24,30 @@ export function reportExportFileName(
   return `magnus_${page}_${startDate}_${endDate}${member}.${extension}`;
 }
 
+/**
+ * One answer as a page holds it: `data` is what's on screen, and `reloading`
+ * is true while that data is kept from an older range or filter (DESIGN.md,
+ * Kept Data While Reloading), including after the new arguments failed.
+ */
+export type ShownAnswer<T> = { data: T | undefined; reloading: boolean };
+
+/**
+ * The answers an export may be built from, or null unless every one is the
+ * current answer for the page's range and filters. A page keeps its last
+ * answer on screen while new arguments load, but the export is named for the
+ * new range and filters, so it must never be built from kept data.
+ */
+export function currentAnswers<const Answers extends Record<string, ShownAnswer<unknown>>>(
+  answers: Answers,
+): { [Key in keyof Answers]: Exclude<Answers[Key]["data"], undefined> } | null {
+  const values: Record<string, unknown> = {};
+  for (const [key, answer] of Object.entries(answers)) {
+    if (answer.reloading || answer.data === undefined) return null;
+    values[key] = answer.data;
+  }
+  return values as { [Key in keyof Answers]: Exclude<Answers[Key]["data"], undefined> };
+}
+
 /** A Definitions table from the dictionary, for the terms a page uses. */
 export function definitionsTable(keys: readonly ReportTermKey[]): ReportDocument["tables"][number] {
   return {

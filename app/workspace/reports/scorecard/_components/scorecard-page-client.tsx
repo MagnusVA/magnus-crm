@@ -22,6 +22,7 @@ import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_compon
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { REPORT_TERMS, termHelp } from "@/lib/reporting/definitions";
+import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu } from "../../_components/report-export-menu";
 import { ReportProgramFilter } from "../../_components/report-program-filter";
 import {
@@ -172,21 +173,24 @@ export function ScorecardPageClient() {
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
               extra={[paymentsExport]}
-              buildDocument={() =>
-                funnel.data && cash.data && follow.data && origins.data
+              buildDocument={() => {
+                // Only the current range's answers: kept ones belong to the
+                // range or program the page showed before.
+                const current = answers.reloading ? null : currentAnswers({ funnel, cash, follow, origins });
+                return current
                   ? buildScorecardDocument({
                       words: range.words,
                       dayLine: range.dayLine,
                       filters: programName ? `Program: ${programName}` : "All programs",
                       generatedAt: Date.now(),
-                      funnel: funnel.data,
-                      cash: cash.data,
-                      followThrough: follow.data,
-                      origins: origins.data,
+                      funnel: current.funnel,
+                      cash: current.cash,
+                      followThrough: current.follow,
+                      origins: current.origins,
                       answers: answers.data ?? null,
                     })
-                  : null
-              }
+                  : null;
+              }}
             />
           </>
         }

@@ -82,7 +82,10 @@ export function ReportExportMenu({
   startDate: string;
   endDate: string;
   memberName?: string;
-  /** The document the page shows, or null while it loads. */
+  /**
+   * The document the page shows, or null until every answer in it is for the
+   * current range and filters (never kept data from the last ones).
+   */
   buildDocument: () => ReportDocument | null;
   extra?: readonly ReportExportExtra[];
 }) {
@@ -102,7 +105,9 @@ export function ReportExportMenu({
 
   function documentOrThrow() {
     const document = buildDocument();
-    if (!document) throw new Error("The page is still loading. Try again in a moment.");
+    if (!document) {
+      throw new Error("The numbers for this range and these filters are still loading. Export once they've loaded.");
+    }
     return document;
   }
 

@@ -12,6 +12,7 @@ import { useAnalyticsReport } from "@/app/workspace/_components/analytics/use-an
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { cn } from "@/lib/utils";
+import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu } from "../../_components/report-export-menu";
 import { REPORT_PAGE } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
@@ -135,19 +136,20 @@ export function PeoplePageClient() {
               page="people"
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
-              buildDocument={() =>
-                reports && members
+              buildDocument={() => {
+                const current = currentAnswers({ reports: kept });
+                return current && members
                   ? buildPeopleDocument({
                       tab,
-                      reports,
+                      reports: current.reports,
                       members: members.members,
                       currency,
                       period: range.words,
                       boundary: range.dayLine,
                       generatedAt: Date.now(),
                     })
-                  : null
-              }
+                  : null;
+              }}
             />
           </>
         }

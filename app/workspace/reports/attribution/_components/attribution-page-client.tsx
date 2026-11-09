@@ -14,6 +14,7 @@ import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_compon
 import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { REPORT_TERMS, termHelp } from "@/lib/reporting/definitions";
+import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu } from "../../_components/report-export-menu";
 import { FigureZone, OtherFigure, REPORT_PAGE, REPORT_PAIR, ReportBand, ReportFigures } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
@@ -91,17 +92,18 @@ export function AttributionPageClient() {
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
               extra={[creditsExport]}
-              buildDocument={() =>
-                lanes.data && paths.data
+              buildDocument={() => {
+                const current = currentAnswers({ lanes, paths });
+                return current
                   ? buildAttributionDocument({
                       words: range.words,
                       dayLine: range.dayLine,
                       generatedAt: Date.now(),
-                      lanes: lanes.data,
-                      paths: paths.data,
+                      lanes: current.lanes,
+                      paths: current.paths,
                     })
-                  : null
-              }
+                  : null;
+              }}
             />
           </>
         }

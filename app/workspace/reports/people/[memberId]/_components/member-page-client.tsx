@@ -16,6 +16,7 @@ import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { useNow } from "@/hooks/use-now";
 import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { currentAnswers, type ShownAnswer } from "@/lib/reporting/export";
 import { ReportExportMenu } from "../../../_components/report-export-menu";
 import { REPORT_PAGE, REPORT_PAIR, ReportCard, ReportNote } from "../../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../../_components/use-report-range";
@@ -160,6 +161,20 @@ export function MemberPageClient({ memberId, viewerRole }: { memberId: Id<"teamM
   );
   const [requestedCurrency, setRequestedCurrency] = useState<string | null>(null);
   const currency = pickCurrency(currencies, requestedCurrency);
+
+  // The export is named for the range picked now, so it waits until every
+  // answer it shows, the team's medians included, is for that range.
+  const exportable =
+    profile !== undefined &&
+    currentAnswers(
+      Object.fromEntries(
+        roles.flatMap((role) => {
+          const own = role === "closer" ? keptCloser : keptRole[role];
+          const team = role === "closer" ? keptCloserTeam : keptRoleTeam[role];
+          return isAdmin ? [[role, own], [`${role}_team`, team]] : [[role, own]];
+        }),
+      ) as Record<string, ShownAnswer<unknown>>,
+    ) !== null;
   const links = recordLinks(viewerRole);
 
   // Every role's section, shaped once for the page and the export.
@@ -275,7 +290,7 @@ export function MemberPageClient({ memberId, viewerRole }: { memberId: Id<"teamM
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
               buildDocument={() =>
-                profile && allLoaded
+                profile && exportable
                   ? buildMemberDocument({
                       profile,
                       currency,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReportDocument } from "../operations-reports/document";
-import { definitionsTable, renderSummaryCsv, reportExportFileName } from "./export";
+import { currentAnswers, definitionsTable, renderSummaryCsv, reportExportFileName } from "./export";
 
 const document: ReportDocument = {
   title: "Scorecard",
@@ -54,5 +54,23 @@ describe("definitionsTable", () => {
     expect(definitionsTable(["showRate"]).rows).toEqual([
       expect.objectContaining({ term: "Show rate", formula: "held ÷ (held + no-show)" }),
     ]);
+  });
+});
+
+describe("currentAnswers", () => {
+  it("returns every answer when each is current for the page's range and filters", () => {
+    expect(currentAnswers({ lanes: { data: { cash: 5 }, reloading: false }, paths: { data: [], reloading: false } })).toEqual({
+      lanes: { cash: 5 },
+      paths: [],
+    });
+  });
+
+  it("refuses while any answer on screen is kept from an older range or filter", () => {
+    // The export is named for the new range, so the old numbers can't go in it.
+    expect(currentAnswers({ lanes: { data: { cash: 5 }, reloading: false }, paths: { data: [], reloading: true } })).toBeNull();
+  });
+
+  it("refuses until every answer has loaded", () => {
+    expect(currentAnswers({ lanes: { data: { cash: 5 }, reloading: false }, paths: { data: undefined, reloading: false } })).toBeNull();
   });
 });

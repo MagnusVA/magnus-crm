@@ -12,6 +12,7 @@ import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { termHelp } from "@/lib/reporting/definitions";
 import { cn } from "@/lib/utils";
+import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu, useRowsExport } from "../../_components/report-export-menu";
 import { ReportProgramFilter } from "../../_components/report-program-filter";
 import { BAND_SELECT, FigureZone, REPORT_PAGE, REPORT_PAIR, ReportBand, ReportFigures } from "../../_components/report-ui";
@@ -109,17 +110,18 @@ export function CallsPageClient() {
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
               extra={[rowsExport]}
-              buildDocument={() =>
-                summary
+              buildDocument={() => {
+                const current = currentAnswers({ summary: kept });
+                return current
                   ? buildCallsDocument({
-                      summary,
+                      summary: current.summary,
                       period: range.words,
                       boundary: range.dayLine,
                       filters: filterWords.length > 0 ? filterWords.join(" · ") : "Every program, closer and call type",
                       generatedAt: Date.now(),
                     })
-                  : null
-              }
+                  : null;
+              }}
             />
           </>
         }
