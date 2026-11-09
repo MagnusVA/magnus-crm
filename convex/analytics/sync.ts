@@ -6,6 +6,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { log } from "../lib/observability/log";
 import { hmacSha256Hex, timingSafeEqualString } from "../lib/webCrypto";
 import { isClickHouseConfigured } from "./clickhouse";
+import { findReportDefinition } from "./registry";
 import {
   answerCoversPeriod,
   deleteResult,
@@ -162,6 +163,12 @@ export const startBatchRun = internalMutation({
   handler: async (ctx, { resultId, watermark }) => {
     const row = await ctx.db.get("analyticsResults", resultId);
     if (!row) return null;
+    // A key for a report that's no longer registered (a page that was
+    // replaced) can't run; drop it rather than fail it after every sync.
+    if (!findReportDefinition(row.reportId)) {
+      await deleteResult(ctx, row);
+      return null;
+    }
     const now = Date.now();
     if (rangeHasNoDays(row, now)) return null;
     if (runIsInFlight(row, now) && row.run!.watermark >= watermark) return null;

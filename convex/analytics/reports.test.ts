@@ -341,6 +341,19 @@ describe("analytics reports", () => {
     expect(rows.sync?.lastBatchAt).toBeDefined();
   });
 
+  it("drops a key whose report is no longer registered instead of running it", async () => {
+    const fixture = await createFixture();
+    const calls = stubClickHouse(watermarkOr(2_000, []));
+    await setWatermark(fixture, 1_000);
+    const gone = await insertResult(fixture, { tenantId: fixture.tenantA, reportId: "team.closer_performance", argsKey: "gone" });
+
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, {});
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(await fixture.t.run((ctx) => ctx.db.get("analyticsResults", gone))).toBeNull();
+    expect(calls.filter((call) => !call.sql.includes("analytics.watermark"))).toEqual([]);
+  });
+
   it("skips the batch when the sync added nothing", async () => {
     const fixture = await createFixture();
     const calls = stubClickHouse(watermarkOr(1_000, []));
