@@ -203,7 +203,7 @@ async function tenantDoc<Table extends "opportunities" | "leads" | "users" | "te
 export const liveRows = internalQuery({ args: { kind: kindValidator, range: scorecardRangeValidator, now: v.number(), filters: v.optional(filtersValidator) }, returns: v.array(rowValidator),
   handler: async (ctx, { kind, range, now, filters = {} }): Promise<ReportRecord[]> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const reader = liveReader();
+    const reader = liveReader(tooLarge);
     const result: ReportRecord[] = [];
     if (kind === "calls") {
       const meetings = await reader.rows(ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", q =>

@@ -175,8 +175,9 @@ export function ScorecardPageClient() {
               extra={[paymentsExport]}
               buildDocument={() => {
                 // Only the current range's answers: kept ones belong to the
-                // range or program the page showed before.
-                const current = answers.reloading ? null : currentAnswers({ funnel, cash, follow, origins });
+                // range or program the page showed before. The answers table
+                // is optional, so kept answers leave it out.
+                const current = currentAnswers({ funnel, cash, follow, origins });
                 return current
                   ? buildScorecardDocument({
                       words: range.words,
@@ -187,7 +188,7 @@ export function ScorecardPageClient() {
                       cash: current.cash,
                       followThrough: current.follow,
                       origins: current.origins,
-                      answers: answers.data ?? null,
+                      answers: answers.reloading ? null : (answers.data ?? null),
                     })
                   : null;
               }}

@@ -45,11 +45,13 @@ export function buildLifecycle(people: readonly Doc<"leads">[], range: ResolvedA
   return result;
 }
 
-// Share a byte budget across source scans and joins, and reject partial answers.
-export function liveReader() {
+// Share a byte budget across source scans and joins, and reject partial
+// answers. `tooLarge` is what a caller whose user sees the refusal throws:
+// production hides a plain Error's message.
+export function liveReader(tooLarge: () => Error = () => new Error("Choose a shorter range")) {
   const state = createLiveReadState();
   const checked = <T>(result: { rows: T[]; capped: boolean }) => {
-    if (result.capped) throw new Error("Choose a shorter range");
+    if (result.capped) throw tooLarge();
     return result.rows;
   };
   return {

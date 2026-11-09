@@ -83,8 +83,9 @@ describe("Calls facts and builder", () => {
       expect(
         callState({ ...meeting, status: "canceled" }, evidence, end),
       ).toMatchObject({ due: false, status: "canceled" });
+      // A moved slot is a canceled meeting that another one replaced.
       expect(
-        callState(meeting, { ...evidence, moved: true }, end),
+        callState({ ...meeting, status: "canceled" }, { ...evidence, moved: true }, end),
       ).toMatchObject({ due: false, status: "moved" });
     });
   });

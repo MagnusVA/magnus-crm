@@ -70,6 +70,17 @@ describe("Rows CSV", () => {
       expect(getErrorMessage(error, "fallback")).toBe("Choose a shorter range");
     }
   });
+  it("refuses a live part past the reader's cap with the same coded error", async () => {
+    const f = await scorecardFixture();
+    const { _id, _creationTime, ...payment } = f.payments.find(p => p._id === f.depositId)!;
+    void _id; void _creationTime;
+    await f.t.run(async ctx => { for (let index = 0; index < 2_501; index += 1) await ctx.db.insert("paymentRecords", payment); });
+    let error: unknown;
+    try { await f.t.withIdentity(identity).query(internal.reports.rowsExport.liveRows, { kind: "payments", range: whole, now: whole.toMs }); }
+    catch (caught) { error = caught; }
+    expect(getErrorCode(error)).toBe("rows_export_too_large");
+    expect(getErrorMessage(error, "fallback")).toBe("Choose a shorter range");
+  });
   it("enforces admin access before fetching any warehouse data", async () => {
     const f = await scorecardFixture(); const calls = warehouse([]);
     await expect(f.t.action(api.reports.rowsExport.exportRows, { kind: "calls", range: dates })).rejects.toThrow("Not authenticated");

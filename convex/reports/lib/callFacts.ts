@@ -65,7 +65,6 @@ export function callState(
   now: number,
 ) {
   const due =
-    !evidence.moved &&
     meeting.status !== "canceled" &&
     (meeting.status === "held" ||
       meeting.status === "no_show" ||
