@@ -158,12 +158,16 @@ export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCa
     leadName: string;
     createdAt: number;
     callClassification: Doc<"meetings">["callClassification"];
+    /** The booking this one replaces: a rebook, which Booked Calls never counts again. */
+    replaces?: MeetingKey;
     resolution: "mapped" | "unmapped" | "none";
     teamId?: Id<"attributionTeams">;
     dmCloserId?: Id<"dmClosers">;
   }> = [
     { key: "firstNorthA", deal: "A", leadName: "Alpha Prospect", createdAt: utc(day, 15), callClassification: "new", resolution: "mapped", teamId: north, dmCloserId: northA },
-    { key: "rebookNorthB", deal: "A", leadName: "Alpha Prospect", createdAt: utc(day, 16), callClassification: "follow_up", resolution: "mapped", teamId: north, dmCloserId: northB },
+    // A first call until one is held (D5), so the rebook is "new"; it isn't a
+    // new booking, since it replaces the first one.
+    { key: "rebookNorthB", deal: "A", leadName: "Alpha Prospect", createdAt: utc(day, 16), callClassification: "new", replaces: "firstNorthA", resolution: "mapped", teamId: north, dmCloserId: northB },
     { key: "firstNorthA2", deal: "B", leadName: "Bravo Prospect", createdAt: utc(day, 17), callClassification: "new", resolution: "mapped", teamId: north, dmCloserId: northA2 },
     { key: "teamOnlySouth", deal: "C", leadName: "Charlie Prospect", createdAt: utc(day, 18), callClassification: "new", resolution: "mapped", teamId: south },
     { key: "noUtm", deal: "D", leadName: "Delta Prospect", createdAt: utc(day, 19), callClassification: "new", resolution: "none" },
@@ -213,6 +217,7 @@ export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCa
       durationMinutes: 30,
       status: "scheduled",
       ...(booking.callClassification ? { callClassification: booking.callClassification } : {}),
+      ...(booking.replaces ? { rescheduledFromMeetingId: meetings[booking.replaces] } : {}),
       leadName: booking.leadName,
       createdAt: booking.createdAt,
       attributionResolution: booking.resolution,
