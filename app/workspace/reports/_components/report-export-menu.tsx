@@ -43,6 +43,28 @@ function download(bytes: Uint8Array | ArrayBuffer, fileName: string, type: strin
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+/**
+ * "Calls · CSV", "Payments · CSV" or "Credits · CSV": every record behind the
+ * page for the range, from `reports/rowsExport:exportRows` (ClickHouse for the
+ * settled days, Convex for the rest). Pass it to `ReportExportMenu`'s `extra`.
+ */
+export function useRowsExport(
+  kind: "calls" | "payments" | "credits",
+  page: string,
+  startDate: string,
+  endDate: string,
+): ReportExportExtra {
+  const exportRows = useAction(api.reports.rowsExport.exportRows);
+  const label = { calls: "Calls · CSV", payments: "Payments · CSV", credits: "Credits · CSV" }[kind];
+  return {
+    label,
+    run: async () => {
+      const bytes = await exportRows({ kind, range: { startDate, endDateInclusive: endDate } });
+      download(bytes, reportExportFileName(`${page}-${kind}`, startDate, endDate, "csv"), "text/csv;charset=utf-8");
+    },
+  };
+}
+
 export function ReportExportMenu({
   page,
   startDate,

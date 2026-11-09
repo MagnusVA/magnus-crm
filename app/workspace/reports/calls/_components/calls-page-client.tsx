@@ -12,7 +12,7 @@ import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { termHelp } from "@/lib/reporting/definitions";
 import { cn } from "@/lib/utils";
-import { ReportExportMenu } from "../../_components/report-export-menu";
+import { ReportExportMenu, useRowsExport } from "../../_components/report-export-menu";
 import { ReportProgramFilter } from "../../_components/report-program-filter";
 import { BAND_SELECT, FigureZone, REPORT_PAGE, REPORT_PAIR, ReportBand, ReportFigures } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
@@ -44,6 +44,7 @@ export function CallsPageClient() {
   usePageTitle("Calls — Reports");
   useReportViewed("calls");
   const range = useReportRange();
+  const rowsExport = useRowsExport("calls", "calls", range.dates.startBusinessDate, range.dates.endBusinessDateInclusive);
   const now = useNow();
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
   const [closerId, setCloserId] = useState<Id<"users"> | undefined>();
@@ -103,6 +104,7 @@ export function CallsPageClient() {
               page="calls"
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
+              extra={[rowsExport]}
               buildDocument={() =>
                 summary
                   ? buildCallsDocument({
