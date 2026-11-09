@@ -65,8 +65,11 @@ export function callState(
   now: number,
 ) {
   const due =
+    !evidence.moved &&
     meeting.status !== "canceled" &&
-    meeting.scheduledAt + meeting.durationMinutes * 60_000 <= now;
+    (meeting.status === "held" ||
+      meeting.status === "no_show" ||
+      meeting.scheduledAt + meeting.durationMinutes * 60_000 <= now);
   const status: CallStatus = evidence.moved
     ? "moved"
     : meeting.status === "scheduled"

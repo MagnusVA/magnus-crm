@@ -83,7 +83,25 @@ describe("Calls facts and builder", () => {
       expect(
         callState({ ...meeting, status: "canceled" }, evidence, end),
       ).toMatchObject({ due: false, status: "canceled" });
+      expect(
+        callState(meeting, { ...evidence, moved: true }, end),
+      ).toMatchObject({ due: false, status: "moved" });
     });
+  });
+  it.each(["held", "no_show"] as const)("counts an early %s result as due in Calls and the member report", async (status) => {
+    const f = await callsReportFixture();
+    const scheduledAt = await f.t.run(async (ctx) => {
+      const meeting = (await ctx.db.get("meetings", f.hostChanged))!;
+      await ctx.db.patch("meetings", meeting._id, { status });
+      return meeting.scheduledAt;
+    });
+    const args = { startDate: scheduledAt, endDate: scheduledAt + 1, asOf: scheduledAt + 60_000 };
+    const reader = f.t.withIdentity(identity);
+    const calls = await reader.query(api.reports.calls.getCallsSummary, args);
+    expect(calls.counts).toMatchObject({ due: 1, held: status === "held" ? 1 : 0, noShow: status === "no_show" ? 1 : 0, notRecorded: 0 });
+    expect((calls.counts.held + calls.counts.noShow) / calls.counts.due).toBe(1);
+    const member = await reader.query(api.reports.people.getPeopleClosers, { ...args, memberId: f.memberA });
+    expect(member.rows[0]).toMatchObject({ due: 1, held: calls.counts.held, noShow: calls.counts.noShow, notRecorded: 0 });
   });
   it("advances the live due boundary when the page clock changes", async () => {
     const f = await callsReportFixture();
