@@ -56,7 +56,7 @@ function FallbackNote({ phrase }: { phrase: string }) {
 function BarsView({ rows, byRevenue, currency }: { rows: ProgramDatum[]; byRevenue: boolean; currency: string }) {
   const max = Math.max(...rows.map((row) => row.measure), 0);
   return (
-    <ul className="flex flex-col" aria-label={byRevenue ? `Revenue in ${currency} by program` : "Calls by program"}>
+    <ul className="flex flex-col" aria-label={byRevenue ? `Final cash in ${currency} by program` : "Calls by program"}>
       {rows.map((row) => (
         <li
           key={row.key}
@@ -98,7 +98,7 @@ function PieView({ rows, byRevenue, currency }: { rows: ProgramDatum[]; byRevenu
           </Pie>
         </PieChart>
       </ChartContainer>
-      <ul className="flex w-full min-w-0 flex-col" aria-label={byRevenue ? `Share of revenue in ${currency}` : "Share of calls"}>
+      <ul className="flex w-full min-w-0 flex-col" aria-label={byRevenue ? `Share of final cash in ${currency}` : "Share of calls"}>
         {rows.map((row) => (
           <li key={row.key} className="flex items-center gap-2.5 border-b px-4 py-2 last:border-b-0">
             <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
@@ -125,7 +125,7 @@ function TableView({ rows, currency }: { rows: ProgramDatum[]; currency: string 
           <th scope="col" className={cn(COLUMN_HEAD, "hidden text-right @lg/programs:table-cell")}>Held</th>
           <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>Close rate</th>
           <th scope="col" className={cn(COLUMN_HEAD, "hidden text-right @lg/programs:table-cell")}>Payment sales</th>
-          <th scope="col" className={cn(COLUMN_HEAD, "pr-4 text-right")}>Revenue</th>
+          <th scope="col" className={cn(COLUMN_HEAD, "pr-4 text-right")}>Final cash</th>
         </tr>
       </thead>
       <tbody>

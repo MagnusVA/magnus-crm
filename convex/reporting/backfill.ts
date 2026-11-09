@@ -14,7 +14,6 @@ import {
 } from "./aggregates";
 import { log } from "../lib/observability/log";
 
-const CLASSIFICATION_PAGE_SIZE = 100;
 const AGGREGATE_PAGE_SIZE = 200;
 const ORIGIN_BACKFILL_PAGE_SIZE = 100;
 const SLACK_QUALIFICATION_AGGREGATE_PAGE_SIZE = 200;
@@ -35,57 +34,6 @@ function logBackfillBatch(
 		...counts,
 	});
 }
-
-export const backfillMeetingClassification = internalMutation({
-	args: { cursor: v.optional(v.string()) },
-	handler: async (ctx, { cursor }) => {
-		const result = await ctx.db.query("meetings").paginate({
-			numItems: CLASSIFICATION_PAGE_SIZE,
-			cursor: cursor ?? null,
-		});
-
-		let updated = 0;
-		for (const meeting of result.page) {
-			if (meeting.callClassification !== undefined) {
-				continue;
-			}
-
-			const firstMeeting = await ctx.db
-				.query("meetings")
-				.withIndex("by_opportunityId_and_scheduledAt", (q) =>
-					q.eq("opportunityId", meeting.opportunityId),
-				)
-				.first();
-
-			await ctx.db.patch("meetings", meeting._id, {
-				callClassification:
-					firstMeeting === null || firstMeeting._id === meeting._id
-						? "new"
-						: "follow_up",
-			});
-			updated += 1;
-		}
-
-		logBackfillBatch("meeting_classification", result.isDone, {
-			processed: result.page.length,
-			updated,
-		});
-
-		if (!result.isDone) {
-			await ctx.scheduler.runAfter(
-				0,
-				internal.reporting.backfill.backfillMeetingClassification,
-				{ cursor: result.continueCursor },
-			);
-		}
-
-		return {
-			hasMore: !result.isDone,
-			processed: result.page.length,
-			updated,
-		};
-	},
-});
 
 export const backfillMeetingsAggregate = internalMutation({
 	args: { cursor: v.optional(v.string()) },

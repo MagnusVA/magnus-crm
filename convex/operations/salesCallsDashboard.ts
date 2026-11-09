@@ -126,8 +126,9 @@ const salesCallsMeetingRowValidator = v.object({
 type MeetingTotals = {
   booked: number;
   canceled: number;
-  // Slots given up in a reschedule, apart from canceled (D9). They stay in
-  // `booked`, as they were, and never reach held or no-show.
+  // Slots given up in a reschedule, apart from canceled (D9). They aren't
+  // calls: `booked` leaves them out, as "Calls scheduled" does in the
+  // dictionary, and they never reach held or no-show.
   moved: number;
   noShows: number;
   showed: number;
@@ -144,7 +145,7 @@ function emptyMeetingTotals(): MeetingTotals {
 }
 
 function addStatsRow(totals: MeetingTotals, row: MeetingStatsCount & { notRecorded: number }) {
-  totals.booked += row.count;
+  if (row.meetingStatus !== "moved") totals.booked += row.count;
   totals.notRecorded += row.notRecorded;
   if (isHeldStatus(row.meetingStatus)) totals.showed += row.count;
   if (row.meetingStatus === "canceled") totals.canceled += row.count;

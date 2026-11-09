@@ -382,7 +382,8 @@ function addMeetingStatusMetrics(
   notRecorded: number,
 ) {
   addPageMetric(pageMetrics, section, rowKey, "notRecorded", notRecorded);
-  addPageMetric(pageMetrics, section, rowKey, "booked", count);
+  // A moved slot isn't a call; it counts only as moved (dictionary D9).
+  if (status !== "moved") addPageMetric(pageMetrics, section, rowKey, "booked", count);
   if (isHeldStatus(status)) addPageMetric(pageMetrics, section, rowKey, "showed", count);
   if (status === "canceled") addPageMetric(pageMetrics, section, rowKey, "canceled", count);
   if (status === "moved") addPageMetric(pageMetrics, section, rowKey, "moved", count);

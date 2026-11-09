@@ -12,7 +12,7 @@ const DEFINITIONS: ReadonlyArray<{ term: string; definition: string }> = [
   {
     term: "Calls",
     definition:
-      "Meetings scheduled in the range, in every status: upcoming, held, canceled, moved, no-show and not recorded.",
+      "Calls scheduled in the range, in every status: upcoming, held, canceled, no-show and not recorded. A slot given up in a reschedule is Moved, not a call.",
   },
   { term: REPORT_TERMS.canceled.label, definition: REPORT_TERMS.canceled.definition },
   { term: REPORT_TERMS.moved.label, definition: REPORT_TERMS.moved.definition },

@@ -1375,8 +1375,11 @@ export default defineSchema({
       v.literal("no_show"),
     ),
     // === v0.6: Call Classification ===
-    // Set when a meeting is created or backfilled for historical records.
-    // "new" = first booking on an opportunity, "follow_up" = subsequent booking.
+    // "follow_up" when a held meeting on the same deal is scheduled before
+    // this one, else "new": a first call until one is held, so a moved first
+    // call and a rebook after a no-show are first calls (convex/lib/callType.ts).
+    // Set at booking and re-checked when a result is recorded
+    // (convex/lib/dealCallTypes.ts); unset on rows the backfill hasn't reached.
     callClassification: v.optional(
       v.union(
         v.literal("new"),

@@ -67,7 +67,7 @@ const COLUMNS: Column[] = [
   },
   {
     key: "revenue",
-    head: "Revenue",
+    head: "Final cash",
    
     value: (row, currency) => formatCash(performanceMoneyForCurrency(row, currency).paymentRevenueMinor, currency),
     quietAtZero: (row, currency) => performanceMoneyForCurrency(row, currency).paymentRevenueMinor === 0,
