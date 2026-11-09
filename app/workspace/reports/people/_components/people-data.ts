@@ -167,6 +167,23 @@ export type UnlinkedRow = { key: string; role: MemberRole; name: string; closer:
 const ROLE_ORDER: readonly MemberRole[] = ["closer", "setter", "dm_closer", "lead_gen"];
 
 /**
+ * The Everyone tab's "Partial." sentence, or null when all four reports read
+ * every record. Everyone merges the four, so one capped reader is enough.
+ */
+export function everyonePartialNote(reports: RoleReports): string | null {
+  const capped =
+    reports.closers.partial ||
+    reports.closers.paymentsPartial ||
+    reports.closers.cohortPartial ||
+    reports.setters.isTruncated ||
+    reports.dmClosers.isTruncated ||
+    reports.leadGen.isTruncated;
+  return capped
+    ? "Too many records in this range to read every one, so credited cash is a lower bound. Narrow the range for exact figures."
+    : null;
+}
+
+/**
  * One row per team member, joining the role reports on `teamMemberId`. A
  * member's roles come from their linked records and from the reports, so a
  * former setter still shows as one. Records with no member, and phone closer
@@ -400,6 +417,9 @@ export function buildPeopleDocument(input: DocumentFrame & {
 }): ReportDocument {
   const { reports, currency, tab } = input;
   const { everyone, unlinked } = buildEveryone(input.members, reports);
+  // The role tabs' exports carry no partial note yet; Everyone's goes on the
+  // filters line, as the Calls export does.
+  const partial = tab === "everyone" ? everyonePartialNote(reports) : null;
   const tables: ReportTable[] = [];
   if (tab === "everyone") {
     tables.push(everyoneTable(everyone, currency));
@@ -431,7 +451,11 @@ export function buildPeopleDocument(input: DocumentFrame & {
     period: input.period,
     generatedAt: input.generatedAt,
     boundary: input.boundary,
-    filters: `${tab === "everyone" ? "Everyone" : ROLE_PARAM[tab]} · money in ${currency}`,
+    filters: [
+      tab === "everyone" ? "Everyone" : ROLE_PARAM[tab],
+      `money in ${currency}`,
+      ...(partial ? [`Partial. ${partial}`] : []),
+    ].join(" · "),
     summary: [
       { label: "Team members", value: formatCount(everyone.length) },
       { label: "Phone closers", value: formatCount(reports.closers.rows.length) },

@@ -8,6 +8,7 @@ import {
   buildMemberDocument,
   buildPeopleDocument,
   closerMemberFigures,
+  everyonePartialNote,
   parseRosterTab,
   roleCash,
   roleMemberFigures,
@@ -223,6 +224,22 @@ describe("People exports", () => {
     expect(setters.tables[0].rows.map((row) => row.name)).toEqual(["Ana", "Carlos", "Not linked to a member"]);
     const phone = buildPeopleDocument({ tab: "closer", reports, members: profiles, currency: "USD", period: "p", boundary: "b", generatedAt: 0 });
     expect(phone.tables[0].rows[0]).toMatchObject({ name: "Ana", cash: 500_000, finalCash: 300_000, currency: "USD", toRecord: "30 min" });
+  });
+
+  it("flags Everyone as partial when any of the four reports hit its cap, on the page and in the export", () => {
+    const frame = { members: profiles, currency: "USD", period: "p", boundary: "b", generatedAt: 0 };
+    expect(everyonePartialNote(reports)).toBeNull();
+    expect(buildPeopleDocument({ tab: "everyone", reports, ...frame }).filters).toBe("Everyone · money in USD");
+    const capped = [
+      { ...reports, closers: { ...reports.closers, paymentsPartial: true } },
+      { ...reports, closers: { ...reports.closers, cohortPartial: true } },
+      { ...reports, leadGen: { ...reports.leadGen, isTruncated: true } },
+    ];
+    for (const each of capped) {
+      const note = everyonePartialNote(each);
+      expect(note).toMatch(/lower bound/u);
+      expect(buildPeopleDocument({ tab: "everyone", reports: each, ...frame }).filters).toBe(`Everyone · money in USD · Partial. ${note}`);
+    }
   });
 
   it("exports a member report with the team median in each figure", () => {

@@ -14,6 +14,7 @@ import {
   buildEveryone,
   closerMetrics,
   dmMetrics,
+  everyonePartialNote,
   headline,
   leadGenMetrics,
   orderRoleRows,
@@ -331,6 +332,7 @@ export function EveryoneTable({
 }) {
   const { everyone, unlinked } = buildEveryone(members, reports);
   if (everyone.length === 0 && unlinked.length === 0) return <SectionEmpty title={`No team members ${phrase}.`} />;
+  const partial = everyonePartialNote(reports);
   const columns: Array<TableColumn<EveryoneRow>> = [
     {
       key: "roles",
@@ -360,6 +362,7 @@ export function EveryoneTable({
   ];
   return (
     <>
+      {partial ? <ReportNote lead="Partial.">{partial}</ReportNote> : null}
       <ReportNote lead="Credited cash">
         is shown per role, in full for each person who holds a credit, so it never adds up to the period&apos;s cash and isn&apos;t a
         total earned.
