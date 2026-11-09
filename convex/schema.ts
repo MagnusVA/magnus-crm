@@ -1448,7 +1448,8 @@ export default defineSchema({
     // === End Feature B: No-Show Tracking ===
 
     // === Feature B: Reschedule Chain ===
-    // Links this meeting back to the no-show meeting it reschedules.
+    // The meeting this one replaces: a slot given up in a Calendly reschedule
+    // (canceled, so "moved") or a call missed before a no-show rebook.
     rescheduledFromMeetingId: v.optional(v.id("meetings")),
     // === End Feature B: Reschedule Chain ===
     operationsStatsSyncedAt: v.optional(v.number()),
@@ -1457,6 +1458,8 @@ export default defineSchema({
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    // A replaced meeting's successor: whether a canceled slot was moved.
+    .index("by_rescheduledFromMeetingId", ["rescheduledFromMeetingId"])
     .index("by_tenantId_and_calendlyInviteeUri", ["tenantId", "calendlyInviteeUri"])
     .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"])
     .index("by_tenantId_and_status_and_scheduledAt", [

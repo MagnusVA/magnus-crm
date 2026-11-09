@@ -41,6 +41,12 @@ export const analyticsPageValidator = v.union(
   v.literal("lead_gen"),
   v.literal("overview"),
   v.literal("my_activity"),
+  // The rebuilt Reports (docs/reviews/reports-overhaul.html). The page ids
+  // above stay while the tenant row may still list them.
+  v.literal("scorecard"),
+  v.literal("calls"),
+  v.literal("people"),
+  v.literal("attribution"),
 );
 
 export const apiKeyScopeValidator = v.literal("metrics:read");

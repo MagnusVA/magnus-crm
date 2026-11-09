@@ -194,6 +194,7 @@ import type * as lib_attribution_validators from "../lib/attribution/validators.
 import type * as lib_bookingSetup_coverage from "../lib/bookingSetup/coverage.js";
 import type * as lib_bookingSetup_coverageData from "../lib/bookingSetup/coverageData.js";
 import type * as lib_businessDayRebuildState from "../lib/businessDayRebuildState.js";
+import type * as lib_callType from "../lib/callType.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_dealNextStep from "../lib/dealNextStep.js";
 import type * as lib_domainEventLinks from "../lib/domainEventLinks.js";
@@ -657,6 +658,7 @@ declare const fullApi: ApiFromModules<{
   "lib/bookingSetup/coverage": typeof lib_bookingSetup_coverage;
   "lib/bookingSetup/coverageData": typeof lib_bookingSetup_coverageData;
   "lib/businessDayRebuildState": typeof lib_businessDayRebuildState;
+  "lib/callType": typeof lib_callType;
   "lib/constants": typeof lib_constants;
   "lib/dealNextStep": typeof lib_dealNextStep;
   "lib/domainEventLinks": typeof lib_domainEventLinks;
