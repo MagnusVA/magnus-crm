@@ -1,7 +1,8 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { env, httpAction, internalMutation, internalQuery } from "../_generated/server";
+import { env, httpAction, internalMutation, internalQuery, query } from "../_generated/server";
+import { requireTenantUser } from "../requireTenantUser";
 import { log } from "../lib/observability/log";
 import { hmacSha256Hex, timingSafeEqualString } from "../lib/webCrypto";
 import { isClickHouseConfigured } from "./clickhouse";
@@ -18,6 +19,22 @@ import {
 
 /** A sync older than this raises `analytics.sync_stale` and the delayed banner. */
 export const STALE_SYNC_MS = 8 * HOUR_MS;
+
+/**
+ * The newest write ClickHouse holds, for Reports' range plan
+ * (`settledThroughDate`): until it passes the start of today, the page reads
+ * yesterday live too. It returns only the watermark, so the heartbeat's
+ * five-minute patch re-runs this one-row read and changes nothing on screen.
+ */
+export const getSyncWatermark = query({
+  args: {},
+  returns: v.object({ watermark: v.union(v.number(), v.null()) }),
+  handler: async (ctx) => {
+    await requireTenantUser(ctx, ["tenant_master", "tenant_admin", "closer", "lead_generator"]);
+    const row = await readSyncRow(ctx);
+    return { watermark: row?.watermark ?? null };
+  },
+});
 const STALE_REPORT_INTERVAL_MS = 6 * HOUR_MS;
 const CLEANUP_BATCH = 200;
 const SIGNATURE_HEADER = "x-fivetran-signature-256";

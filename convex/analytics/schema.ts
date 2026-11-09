@@ -117,8 +117,8 @@ export const analyticsTables = {
 
   /**
    * One row. The 5-minute heartbeat patches `beatAt`, and Fivetran copies it,
-   * so ClickHouse's copy is the newest write a sync included (§8.2). No page
-   * or query reads this table.
+   * so ClickHouse's copy is the newest write a sync included (§8.2). Pages
+   * read only its watermark, through `sync:getSyncWatermark`.
    */
   analyticsSync: defineTable({
     beatAt: v.number(),
