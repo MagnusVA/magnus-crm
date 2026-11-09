@@ -76,6 +76,24 @@ describe("Rows CSV", () => {
     // A closer credit row on the deal (here a later reassignment) never adds a closer.
     expect(rows.some(r => r.creditedName === "Later credit")).toBe(false);
   });
+  it("pages through events with the Log's member and record filters", async () => {
+    const f = await scorecardFixture();
+    await f.t.run(async (ctx) => {
+      const event = (entityId: string, fields: Record<string, unknown>) => ctx.db.insert("domainEvents", {
+        tenantId: f.tenantId, entityType: "meeting", entityId, eventType: "meeting.held", occurredAt: whole.fromMs + 1, source: "closer", ...fields,
+      });
+      await event("own", { actorUserId: f.closerId });
+      await event("tagged", { teamMemberId: f.memberId, source: "system" });
+      await event("other", { actorUserId: f.adminId });
+      await event("ownLead", { actorUserId: f.closerId, entityType: "lead" });
+    });
+    const page = await f.t.withIdentity(identity).query(internal.reports.rowsExport.liveEventPage, {
+      range: whole, cursor: null, filters: { teamMemberId: f.memberId, actorUserId: f.closerId, entityType: "meeting" },
+    });
+    expect(page.rows.map(r => r.entityId).sort()).toEqual(["own", "tagged"]);
+    expect(page.rows.find(r => r.entityId === "own")).toMatchObject({ actorName: "Assigned closer", label: expect.any(String) });
+    expect(Object.keys(page.rows[0])).not.toContain("metadata");
+  });
   it("applies the page's filters", async () => {
     const f = await scorecardFixture();
     const calls = await f.t.withIdentity(identity).query(internal.reports.rowsExport.liveRows, {
@@ -97,7 +115,7 @@ describe("Rows CSV", () => {
     expect(rows.some(r => r.attendance === "not recorded")).toBe(true);
   });
   it("parameterizes every tenant view in all three export templates", () => {
-    for (const kind of ["payments", "calls", "credits"] as RowsKind[]) {
+    for (const kind of ["payments", "calls", "credits", "events"] as RowsKind[]) {
       const query = rowsExportSql(kind, whole, 123456789);
       const views = query.sql.match(/\banalytics\.\w+/g) ?? [];
       const filters = query.sql.match(/\btenant_id\s*=\s*\{tenant_id:String\}/g) ?? [];

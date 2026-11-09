@@ -9,6 +9,7 @@ import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { isMovedSlot } from "../lib/callType";
 import { REPORT_ADMIN_ROLES } from "./lib/access";
+import { getEventLabel } from "../reporting/lib/eventLabels";
 import { liveReader, scorecardRangeValidator, type LiveReader } from "./lib/scorecardFacts";
 import { resolveAnalyticsRange, type ResolvedAnalyticsRange } from "../../lib/analyticsRange";
 import { businessDateForInstant, businessDayStart } from "../../lib/businessDay";
@@ -16,17 +17,28 @@ import { renderCsv } from "../../lib/operations-reports/csv";
 import type { ReportColumn, ReportRecord } from "../../lib/operations-reports/document";
 import { meetingAttendanceDisplay } from "../../lib/status-config";
 
-export type RowsKind = "payments" | "calls" | "credits";
+export type RowsKind = "payments" | "calls" | "credits" | "events";
 export const MAX_EXPORT_ROWS = 200_000;
-const kindValidator = v.union(v.literal("payments"), v.literal("calls"), v.literal("credits"));
+const kindValidator = v.union(v.literal("payments"), v.literal("calls"), v.literal("credits"), v.literal("events"));
 const rowValidator = v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()));
 const datesValidator = v.object({ startDate: v.string(), endDateInclusive: v.string() });
 /** The page's filters, so a rows export holds the records the page shows. */
-export type RowsFilters = { programId?: Id<"tenantPrograms">; closerId?: Id<"users">; callType?: "new" | "follow_up" };
+export type RowsFilters = {
+  programId?: Id<"tenantPrograms">;
+  closerId?: Id<"users">;
+  callType?: "new" | "follow_up";
+  /** Log: the member, the login whose actions count as theirs, and the record type. */
+  teamMemberId?: Id<"teamMembers">;
+  actorUserId?: Id<"users">;
+  entityType?: string;
+};
 const filtersValidator = v.object({
   programId: v.optional(v.id("tenantPrograms")),
   closerId: v.optional(v.id("users")),
   callType: v.optional(v.union(v.literal("new"), v.literal("follow_up"))),
+  teamMemberId: v.optional(v.id("teamMembers")),
+  actorUserId: v.optional(v.id("users")),
+  entityType: v.optional(v.string()),
 });
 const tooLarge = () => new Error("Choose a shorter range");
 const columns = (pairs: [string, string][]): ReportColumn[] => pairs.map(([key, label]) => ({ key, label }));
@@ -40,6 +52,10 @@ export const ROW_COLUMNS: Record<RowsKind, ReportColumn[]> = {
   credits: columns([["paymentId", "Payment id"], ["recordedAt", "Recorded at (ISO)"], ["timeZone", "Tenant time zone"],
     ["dealId", "Deal id"], ["personName", "Person name"], ["program", "Program"], ["type", "Type"], ["status", "Status"],
     ["currency", "Currency"], ["amount", "Amount"], ["teamMemberId", "Credited person id"], ["creditedName", "Credited person"], ["role", "Role"]]),
+  // Metadata stays out: it can hold free text, and the log shows it on screen.
+  events: columns([["eventId", "Event id"], ["occurredAt", "Occurred at (ISO)"], ["timeZone", "Tenant time zone"],
+    ["label", "What happened"], ["eventType", "Event type"], ["entityType", "Record type"], ["entityId", "Record id"],
+    ["actorName", "Done by"], ["memberName", "Team member"], ["source", "Source"], ["fromStatus", "From"], ["toStatus", "To"], ["reason", "Reason"]]),
 };
 export function assembleRowsCsv(kind: RowsKind, history: ReportRecord[], live: ReportRecord[]): ArrayBuffer {
   if (history.length + live.length > MAX_EXPORT_ROWS) throw tooLarge();
@@ -86,6 +102,23 @@ LEFT ANY JOIN (SELECT id, display_name FROM analytics.team_members WHERE tenant_
 WHERE ifNull(p.status, '') != 'disputed'
 )
 ORDER BY recorded_at_ms, payment_id, team_member_id, role`;
+  } else if (kind === "events") {
+    // A member's events are their login's own actions plus events tagged
+    // with them, as the Log's member filter reads them (reports/log.ts).
+    const member = filters.teamMemberId
+      ? filters.actorUserId
+        ? "\n  AND ((actor_user_id = {actor_user_id:String} AND ifNull(team_member_id, {team_member_id:String}) = {team_member_id:String}) OR team_member_id = {team_member_id:String})"
+        : "\n  AND team_member_id = {team_member_id:String}"
+      : filters.actorUserId
+        ? "\n  AND actor_user_id = {actor_user_id:String}"
+        : "";
+    sql = `SELECT e.id AS event_id, e.occurred_at_ms, e.event_type, e.entity_type, e.entity_id, u.full_name AS actor_name,
+  tm.display_name AS member_name, e.source, e.from_status, e.to_status, e.reason
+FROM (SELECT * FROM analytics.events WHERE tenant_id = {tenant_id:String}
+  AND occurred_at_ms >= {from_ms:Int64} AND occurred_at_ms < {to_ms:Int64}${member}${filters.entityType ? "\n  AND entity_type = {entity_type:String}" : ""}) AS e
+LEFT ANY JOIN (SELECT id, full_name FROM analytics.users WHERE tenant_id = {tenant_id:String}) AS u ON u.id = e.actor_user_id
+LEFT ANY JOIN (SELECT id, display_name FROM analytics.team_members WHERE tenant_id = {tenant_id:String}) AS tm ON tm.id = e.team_member_id
+ORDER BY e.occurred_at_ms, e.id`;
   } else {
     sql = `SELECT m.id AS meeting_id, m.scheduled_at_ms, m.created_at_ms, m.opportunity_id AS deal_id,
   coalesce(nullIf(l.full_name, ''), m.lead_name, '') AS person_name,
@@ -118,12 +151,23 @@ ORDER BY m.scheduled_at_ms, m.id`;
       ...(filters.programId ? { program_id: filters.programId } : {}),
       ...(kind === "calls" && filters.callType ? { call_type: filters.callType } : {}),
       ...(kind === "calls" && filters.closerId ? { closer_id: filters.closerId } : {}),
+      ...(kind === "events" && filters.teamMemberId ? { team_member_id: filters.teamMemberId } : {}),
+      ...(kind === "events" && filters.actorUserId ? { actor_user_id: filters.actorUserId } : {}),
+      ...(kind === "events" && filters.entityType ? { entity_type: filters.entityType } : {}),
     } };
 }
 export function exportRowsFromSql(kind: RowsKind, rows: SqlRow[], timeZone: string): ReportRecord[] {
   if (rows.length > MAX_EXPORT_ROWS) throw tooLarge();
   const iso = (value: unknown) => value === null || value === undefined ? "" : new Date(Number(value)).toISOString();
   const text = (value: unknown) => value === null || value === undefined ? "" : String(value);
+  if (kind === "events") {
+    return rows.map((row): ReportRecord => ({
+      eventId: text(row.event_id), occurredAt: iso(row.occurred_at_ms), timeZone, label: getEventLabel(text(row.event_type)).verb,
+      eventType: text(row.event_type), entityType: text(row.entity_type), entityId: text(row.entity_id),
+      actorName: text(row.actor_name), memberName: text(row.member_name), source: text(row.source),
+      fromStatus: text(row.from_status), toStatus: text(row.to_status), reason: text(row.reason),
+    }));
+  }
   return rows.map((row): ReportRecord => kind === "calls" ? {
     meetingId: text(row.meeting_id), scheduledAt: iso(row.scheduled_at_ms), createdAt: iso(row.created_at_ms), timeZone,
     dealId: text(row.deal_id), personName: text(row.person_name), closerName: text(row.closer_name), callType: text(row.call_type),
@@ -214,6 +258,55 @@ export const liveRows = internalQuery({ args: { kind: kindValidator, range: scor
     return result;
   },
 });
+/**
+ * One page of the live part of an events export. A day holds a few thousand
+ * events, more than one bounded read, so the action pages through them.
+ */
+export const liveEventPage = internalQuery({
+  args: { range: scorecardRangeValidator, filters: v.optional(filtersValidator), cursor: v.union(v.string(), v.null()) },
+  returns: v.object({ rows: v.array(rowValidator), continueCursor: v.string(), isDone: v.boolean() }),
+  handler: async (ctx, { range, filters = {}, cursor }) => {
+    const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+    const page = await ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_occurredAt", (q) => q.eq("tenantId", tenantId).gte("occurredAt", range.fromMs).lt("occurredAt", range.toMs))
+      .paginate({ cursor, numItems: 500 });
+    const names = new Map<string, string>();
+    const userName = async (id: Id<"users"> | undefined) => {
+      if (!id) return "";
+      if (!names.has(id)) {
+        const user = await ctx.db.get("users", id);
+        names.set(id, user?.tenantId === tenantId ? (user.fullName ?? user.email) : "");
+      }
+      return names.get(id)!;
+    };
+    const memberName = async (id: Id<"teamMembers"> | undefined) => {
+      if (!id) return "";
+      if (!names.has(id)) {
+        const member = await ctx.db.get("teamMembers", id);
+        names.set(id, member?.tenantId === tenantId ? member.displayName : "");
+      }
+      return names.get(id)!;
+    };
+    const rows: ReportRecord[] = [];
+    for (const event of page.page) {
+      if (filters.entityType && event.entityType !== filters.entityType) continue;
+      if (filters.teamMemberId) {
+        const ownAction = filters.actorUserId !== undefined && event.actorUserId === filters.actorUserId &&
+          (event.teamMemberId === undefined || event.teamMemberId === filters.teamMemberId);
+        if (!ownAction && event.teamMemberId !== filters.teamMemberId) continue;
+      } else if (filters.actorUserId && event.actorUserId !== filters.actorUserId) continue;
+      rows.push({
+        eventId: event._id, occurredAt: new Date(event.occurredAt).toISOString(), timeZone: range.timeZone,
+        label: getEventLabel(event.eventType).verb, eventType: event.eventType, entityType: event.entityType, entityId: event.entityId,
+        actorName: await userName(event.actorUserId), memberName: await memberName(event.teamMemberId),
+        source: event.source, fromStatus: event.fromStatus ?? "", toStatus: event.toStatus ?? "", reason: event.reason ?? "",
+      });
+    }
+    return { rows, continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
 export const exportRows = action({ args: { kind: kindValidator, range: datesValidator, filters: v.optional(filtersValidator) }, returns: v.bytes(),
   handler: async (ctx, { kind, range, filters = {} }): Promise<ArrayBuffer> => {
     const viewer = await requireTenantUserFromAction(ctx, [...REPORT_ADMIN_ROLES]);
@@ -233,8 +326,23 @@ export const exportRows = action({ args: { kind: kindValidator, range: datesVali
       const rows = await queryTenantClickHouse(viewer.tenantId, rowsExportSql(kind, { ...context.range, toMs: warehouseTo }, now, filters));
       history = exportRowsFromSql(kind, rows, context.range.timeZone);
     }
-    const live: ReportRecord[] = warehouseTo < context.range.toMs ? await ctx.runQuery(internal.reports.rowsExport.liveRows,
-      { kind, range: { ...context.range, fromMs: warehouseTo }, now, filters }) : [];
+    let live: ReportRecord[] = [];
+    if (warehouseTo < context.range.toMs) {
+      const liveRange = { ...context.range, fromMs: warehouseTo };
+      if (kind === "events") {
+        let cursor: string | null = null;
+        for (;;) {
+          const page: { rows: ReportRecord[]; continueCursor: string; isDone: boolean } = await ctx.runQuery(
+            internal.reports.rowsExport.liveEventPage, { range: liveRange, filters, cursor });
+          live.push(...page.rows);
+          if (history.length + live.length > MAX_EXPORT_ROWS) throw tooLarge();
+          if (page.isDone) break;
+          cursor = page.continueCursor;
+        }
+      } else {
+        live = await ctx.runQuery(internal.reports.rowsExport.liveRows, { kind, range: liveRange, now, filters });
+      }
+    }
     return assembleRowsCsv(kind, history, live);
   },
 });
