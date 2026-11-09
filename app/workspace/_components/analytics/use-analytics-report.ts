@@ -29,6 +29,8 @@ export type AnalyticsFreshness =
       refreshing: boolean;
       /** ClickHouse answers the days before today, and today is read live. */
       liveToday: boolean;
+      /** Yesterday is read live too, until the first sync after today's start lands. */
+      liveYesterday: boolean;
       errorMessage: string | null;
       retry: () => void;
     };
@@ -208,6 +210,7 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
       asOf: answerFits ? (answer?.watermark ?? null) : null,
       refreshing: shownState === "pending" && payloadJson !== null,
       liveToday: split,
+      liveYesterday: split && plan.kind === "split" && plan.liveFromYesterday === true,
       errorMessage: state?.errorMessage ?? null,
       retry: send,
     },

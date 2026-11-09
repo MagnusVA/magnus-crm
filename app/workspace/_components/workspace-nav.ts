@@ -1,7 +1,6 @@
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import {
   ActivityIcon,
-  AlarmClockCheckIcon,
   BarChart3Icon,
   CalendarCheckIcon,
   CalendarClockIcon,
@@ -9,9 +8,9 @@ import {
   CalendarRangeIcon,
   CalendarXIcon,
   ClipboardCheckIcon,
-  ClockIcon,
   ContactIcon,
   DollarSignIcon,
+  GaugeIcon,
   GitMergeIcon,
   InboxIcon,
   KanbanIcon,
@@ -19,14 +18,16 @@ import {
   LayoutGridIcon,
   LinkIcon,
   MegaphoneIcon,
-  MessageSquareTextIcon,
   MessagesSquareIcon,
   PhoneCallIcon,
+  PhoneIcon,
   RefreshCwIcon,
+  ScrollTextIcon,
   SettingsIcon,
   TargetIcon,
-  TrendingUpIcon,
   UsersIcon,
+  UsersRoundIcon,
+  WaypointsIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +40,8 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   exact?: boolean;
+  /** Lit for any path under this prefix instead of `href`. */
+  activePrefix?: string;
   children?: NavItem[];
 };
 
@@ -129,30 +132,40 @@ const billingNavItem: NavItem = {
   icon: DollarSignIcon,
 };
 
+/**
+ * A closer's or lead generator's own member report (reports:view-own). The
+ * page redirects to /workspace/reports/people/<their team member>, so the
+ * item stays lit on any member report: the only one they can open.
+ */
+export const myReportNavItem: NavItem = {
+  href: "/workspace/reports/people/me",
+  activePrefix: "/workspace/reports/people",
+  label: "My report",
+  icon: BarChart3Icon,
+};
+
 const closerNavItems: NavItem[] = [
   { href: "/workspace/closer", label: "Today", icon: CalendarClockIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
   leadsCustomersNavItem,
+  myReportNavItem,
 ];
 
 const leadGeneratorNavItems: NavItem[] = [
   { href: "/workspace/lead-gen/capture", label: "Capture", icon: TargetIcon, exact: true },
   { href: "/workspace/lead-gen/my-activity", label: "My Activity", icon: ActivityIcon },
   { href: "/workspace/lead-gen/respark", label: "Respark", icon: RefreshCwIcon },
+  myReportNavItem,
 ];
 
+// The admins' Reports section (reports:view).
 export const reportNavItems: NavItem[] = [
-  { href: "/workspace/reports/team", label: "Team Performance", icon: BarChart3Icon },
-  { href: "/workspace/reports/revenue", label: "Revenue", icon: DollarSignIcon },
-  { href: "/workspace/reports/pipeline", label: "Pipeline Health", icon: ActivityIcon },
-  { href: "/workspace/reports/leads", label: "Leads & Conversions", icon: TrendingUpIcon },
-  { href: "/workspace/reports/activity", label: "Activity Feed", icon: ClockIcon },
-  { href: "/workspace/reports/reminders", label: "Reminders", icon: AlarmClockCheckIcon },
-  {
-    href: "/workspace/reports/slack-qualifications",
-    label: "Slack Qualifications",
-    icon: MessageSquareTextIcon,
-  },
+  { href: "/workspace/reports/scorecard", label: "Scorecard", icon: GaugeIcon },
+  { href: "/workspace/reports/calls", label: "Calls", icon: PhoneIcon },
+  { href: "/workspace/reports/people", label: "People", icon: UsersRoundIcon },
+  { href: "/workspace/reports/attribution", label: "Attribution", icon: WaypointsIcon },
+  { href: "/workspace/reports/pipeline", label: "Pipeline", icon: ActivityIcon },
+  { href: "/workspace/reports/log", label: "Log", icon: ScrollTextIcon },
 ];
 
 export function navForRole(

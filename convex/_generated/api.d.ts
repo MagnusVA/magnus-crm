@@ -405,6 +405,7 @@ import type * as reports_lib_creditFacts from "../reports/lib/creditFacts.js";
 import type * as reports_lib_scorecardFacts from "../reports/lib/scorecardFacts.js";
 import type * as reports_lib_validators from "../reports/lib/validators.js";
 import type * as reports_log from "../reports/log.js";
+import type * as reports_me from "../reports/me.js";
 import type * as reports_people from "../reports/people.js";
 import type * as reports_peopleRoles from "../reports/peopleRoles.js";
 import type * as reports_pipeline from "../reports/pipeline.js";
@@ -896,6 +897,7 @@ declare const fullApi: ApiFromModules<{
   "reports/lib/scorecardFacts": typeof reports_lib_scorecardFacts;
   "reports/lib/validators": typeof reports_lib_validators;
   "reports/log": typeof reports_log;
+  "reports/me": typeof reports_me;
   "reports/people": typeof reports_people;
   "reports/peopleRoles": typeof reports_peopleRoles;
   "reports/pipeline": typeof reports_pipeline;

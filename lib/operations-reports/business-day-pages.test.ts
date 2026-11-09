@@ -30,9 +30,7 @@ vi.mock("convex/react", () => ({
 }));
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
-import { TeamReportPageClient } from "@/app/workspace/reports/team/_components/team-report-page-client";
 import { PipelineReportPageClient } from "@/app/workspace/reports/pipeline/_components/pipeline-report-page-client";
-import { RevenueReportPageClient } from "@/app/workspace/reports/revenue/_components/revenue-report-page-client";
 import { LeadGenRanking } from "@/app/workspace/_components/overview-rankings";
 import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origins-overview-section";
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
@@ -44,14 +42,8 @@ const renderPage = (component: () => React.ReactNode) =>
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
-// The day keys each page's default range sends on 2026-10-22: both open on Today.
+// The day keys each page's default range sends on 2026-10-22: it opens on Today.
 const pages = [
-  {
-    name: "Team Performance",
-    component: TeamReportPageClient,
-    query: "reporting/teamPerformance:getTeamOperationsDimensions",
-    defaultKeys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" },
-  },
   {
     name: "Pipeline Health",
     component: PipelineReportPageClient,
@@ -91,47 +83,6 @@ describe("meeting bucket page readiness", () => {
     }
   });
 
-  it.each([
-    { loaded: false, ready: true },
-    { loaded: true, ready: false },
-  ])("skips every Team query with loaded=$loaded and ready=$ready", ({ loaded, ready }) => {
-    fixture.loaded = loaded;
-    fixture.ready = ready;
-    renderPage(TeamReportPageClient);
-    const reportQueries = fixture.queries.mock.calls.filter(([name]) => name.startsWith("reporting/"));
-    expect(reportQueries).toHaveLength(4);
-    for (const [, args] of reportQueries) expect(args).toBe("skip");
-  });
-
-  it.each([
-    { setting: undefined, start: "2026-10-22T07:00:00Z", end: "2026-10-23T07:00:00Z" },
-    { setting: { timeZone: "America/Tegucigalpa", dayStartHour: 4 }, start: "2026-10-22T10:00:00Z", end: "2026-10-23T10:00:00Z" },
-  ])("aligns all four Team queries with the tenant business days: $setting", ({ setting, start, end }) => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date(2026, 9, 22, 12));
-      fixture.ready = true;
-      fixture.businessDay = setting;
-      renderPage(TeamReportPageClient);
-      for (const query of [
-        "reporting/teamPerformance:getTeamPerformanceMetrics",
-        "reporting/teamOutcomes:getTeamOutcomeMix",
-        "reporting/teamActions:getActionsPerCloserPerDay",
-      ]) {
-        expect(fixture.queries).toHaveBeenCalledWith(query, {
-          startDate: Date.parse(start),
-          endDate: Date.parse(end),
-        });
-      }
-      expect(fixture.queries).toHaveBeenCalledWith("reporting/teamPerformance:getTeamOperationsDimensions", {
-        startDayKey: "2026-10-22",
-        endDayKeyExclusive: "2026-10-23",
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it.each(pages)("keeps $name on yesterday's business date until the tenant's day starts", ({ component, query }) => {
     vi.useFakeTimers();
     try {
@@ -143,28 +94,6 @@ describe("meeting bucket page readiness", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("reads a browser-day report (Revenue) on the tenant's business day", () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(Date.UTC(2026, 9, 22, 18));
-      fixture.ready = true;
-      renderPage(RevenueReportPageClient);
-      expect(fixture.queries).toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", {
-        startDate: Date.parse("2026-10-22T07:00:00Z"),
-        endDate: Date.parse("2026-10-23T07:00:00Z"),
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps a timestamp report (Revenue) reading while meeting buckets rebuild", () => {
-    fixture.ready = false;
-    renderPage(RevenueReportPageClient);
-    expect(fixture.queries).toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", expect.any(Object));
-    expect(fixture.queries).not.toHaveBeenCalledWith("reporting/revenue:getRevenueMetrics", "skip");
   });
 
   it("renders rebuilding Overview sections without totals or generic errors", () => {

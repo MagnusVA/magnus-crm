@@ -327,7 +327,7 @@ function WorkspaceShellClientInner({
                   }
                   const isActive = item.exact
                     ? pathname === item.href
-                    : pathname.startsWith(item.href);
+                    : pathname.startsWith(item.activePrefix ?? item.href);
                   // The closer's Today carries the count of calls still owed an outcome.
                   const badgeCount =
                     item.href === "/workspace/closer"
@@ -361,7 +361,7 @@ function WorkspaceShellClientInner({
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {/* Reports section — admin only (UI visibility; layout.tsx enforces auth) */}
+          {/* Reports section — admin only (UI visibility; each page enforces reports:view) */}
           {isAdmin && (
             <SidebarGroup>
               <SidebarGroupLabel className="font-condensed text-[11px] font-semibold tracking-[0.14em] uppercase text-sidebar-foreground/60">Reports</SidebarGroupLabel>

@@ -22,7 +22,8 @@ type WarehouseFreshness = Extract<AnalyticsFreshness, { source: "warehouse" }>;
 
 /**
  * Where the page's numbers come from, in one of two forms: a line ("Live",
- * "Data as of 2:31 PM", "Today live · earlier days as of 2:31 PM"), or an
+ * "Data as of 2:31 PM", "Today live · earlier days as of 2:31 PM", or
+ * "Today and yesterday live · …" overnight), or an
  * alert for the reporting database's loading, queued and failed states.
  * A delayed refresh adds an alert to its line.
  */
@@ -52,10 +53,12 @@ export function freshnessSummary(items: readonly AnalyticsFreshness[], now: numb
   const asOf = Math.min(...warehouse.map((item) => item.asOf ?? Number.POSITIVE_INFINITY));
   const refreshing = warehouse.some((item) => item.refreshing);
   const liveToday = warehouse.some((item) => item.liveToday);
+  // Overnight, until the morning sync lands, yesterday is read live as well.
+  const liveDays = warehouse.some((item) => item.liveYesterday) ? "Today and yesterday" : "Today";
   const label = liveToday
     ? Number.isFinite(asOf)
-      ? `Today live · earlier days as of ${formatAsOf(asOf, now)}`
-      : "Today live · earlier days from the last sync"
+      ? `${liveDays} live · earlier days as of ${formatAsOf(asOf, now)}`
+      : `${liveDays} live · earlier days from the last sync`
     : Number.isFinite(asOf)
       ? `Data as of ${formatAsOf(asOf, now)}`
       : "Data from the last sync";
@@ -134,7 +137,8 @@ export function FreshnessWords({ summary, className }: { summary: Extract<Freshn
 /**
  * One line for a page's panels: "Live" on Today, "Data as of 2:31 PM" for a
  * range that ended before today, "Today live · earlier days as of 2:31 PM"
- * for one that includes today, and the loading, waiting, delayed and failed
+ * for one that includes today ("Today and yesterday live · …" overnight,
+ * until the morning sync lands), and the loading, waiting, delayed and failed
  * states of the reporting database. Pass every panel's freshness; the page
  * shows one line.
  */
