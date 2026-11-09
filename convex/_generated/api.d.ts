@@ -386,6 +386,7 @@ import type * as reporting_verification from "../reporting/verification.js";
 import type * as reporting_writeHooks from "../reporting/writeHooks.js";
 import type * as reports_export from "../reports/export.js";
 import type * as reports_lib_access from "../reports/lib/access.js";
+import type * as reports_me from "../reports/me.js";
 import type * as requireIdentity from "../requireIdentity.js";
 import type * as requireSystemAdmin from "../requireSystemAdmin.js";
 import type * as requireTenantUser from "../requireTenantUser.js";
@@ -853,6 +854,7 @@ declare const fullApi: ApiFromModules<{
   "reporting/writeHooks": typeof reporting_writeHooks;
   "reports/export": typeof reports_export;
   "reports/lib/access": typeof reports_lib_access;
+  "reports/me": typeof reports_me;
   requireIdentity: typeof requireIdentity;
   requireSystemAdmin: typeof requireSystemAdmin;
   requireTenantUser: typeof requireTenantUser;
