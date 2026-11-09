@@ -181,7 +181,7 @@ export function ScorecardPageClient() {
                   ? buildScorecardDocument({
                       words: range.words,
                       dayLine: range.dayLine,
-                      filters: programName ? `Program: ${programName}` : "All programs",
+                      programName,
                       generatedAt: Date.now(),
                       funnel: current.funnel,
                       cash: current.cash,
@@ -256,7 +256,12 @@ export function ScorecardPageClient() {
       <AnalyticsFreshnessAlert summary={freshness} />
 
       <div className={REPORT_PAIR}>
-        <FunnelCard funnel={funnel.data} reloading={funnel.reloading} phrase={funnel.phrase} />
+        <FunnelCard
+          funnel={funnel.data}
+          reloading={funnel.reloading}
+          phrase={funnel.phrase}
+          programSelected={programId !== undefined}
+        />
         <CashCard
           entry={cashEntry}
           loaded={cash.data !== undefined}

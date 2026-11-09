@@ -27,6 +27,7 @@ import { memberReportHref } from "../../log/_components/use-team-members";
 import { formatCount, formatMoney, formatShare, inCurrency } from "./report-money";
 import {
   COHORT_STEPS,
+  FUNNEL_PROGRAM_NOTE,
   FUNNEL_STAGES,
   PAYMENT_TYPES,
   cashPerWonDeal,
@@ -97,7 +98,19 @@ function FactRow({ label, help, value, meta }: { label: string; help?: string; v
 
 type FunnelView = "range" | "cohort";
 
-export function FunnelCard({ funnel, reloading, phrase }: { funnel: FunnelOutput | undefined; reloading: boolean; phrase: string }) {
+export function FunnelCard({
+  funnel,
+  reloading,
+  phrase,
+  programSelected,
+}: {
+  funnel: FunnelOutput | undefined;
+  reloading: boolean;
+  phrase: string;
+  /** A program is picked: the people counts still cover every program. */
+  programSelected: boolean;
+}) {
+  const programNote = programSelected ? <ReportNote>{FUNNEL_PROGRAM_NOTE}</ReportNote> : null;
   const [view, setView] = useState<FunnelView>("range");
   const empty =
     funnel !== undefined &&
@@ -129,6 +142,7 @@ export function FunnelCard({ funnel, reloading, phrase }: { funnel: FunnelOutput
           <ReportNote lead="In this range.">
             Each step counts the people who entered it {phrase}, so the steps can be different people.
           </ReportNote>
+          {programNote}
           <BarList
             label="People entering each stage"
             labelColumn="11rem"
@@ -145,6 +159,7 @@ export function FunnelCard({ funnel, reloading, phrase }: { funnel: FunnelOutput
           <ReportNote lead="Cohort.">
             The people who entered In conversation {phrase}, and how many of them have reached each stage by now.
           </ReportNote>
+          {programNote}
           {funnel.cohort.entered === 0 ? (
             <SectionEmpty title={`No one entered In conversation ${phrase}.`} />
           ) : (

@@ -136,10 +136,19 @@ export function scorecardCurrencyWeights(
 
 const percentOrNull = (numerator: number, denominator: number) => (denominator > 0 ? numerator / denominator : null);
 
+/**
+ * Said on the funnel card and in the export when a program is picked: a
+ * person has no program until they book, so the funnel's people counts
+ * (stages and cohort) can't be filtered by one.
+ */
+export const FUNNEL_PROGRAM_NOTE =
+  "People are counted across every program; the Program filter applies to bookings, calls, deals and cash.";
+
 export type ScorecardDocumentInput = {
   words: string;
   dayLine: string;
-  filters: string;
+  /** The picked program's name, or null for all programs. */
+  programName: string | null;
   generatedAt: number;
   funnel: FunnelOutput;
   cash: CashOutput;
@@ -342,7 +351,7 @@ export function buildScorecardDocument(input: ScorecardDocumentInput): ReportDoc
     period: input.words,
     generatedAt: input.generatedAt,
     boundary: input.dayLine,
-    filters: input.filters,
+    filters: input.programName ? `Program: ${input.programName} · ${FUNNEL_PROGRAM_NOTE}` : "All programs",
     summary,
     tables,
   };

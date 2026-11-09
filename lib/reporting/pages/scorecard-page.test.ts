@@ -8,6 +8,7 @@ import {
   shownCurrency,
 } from "@/app/workspace/reports/scorecard/_components/report-money";
 import {
+  FUNNEL_PROGRAM_NOTE,
   buildScorecardDocument,
   cashPerWonDeal,
   groupByWeek,
@@ -175,7 +176,7 @@ describe("buildScorecardDocument", () => {
   const document = buildScorecardDocument({
     words: "This week · Nov 3 – Nov 9",
     dayLine: "Days run 1:00 am to 1:00 am, America/Tegucigalpa time",
-    filters: "All programs",
+    programName: null,
     generatedAt: Date.parse("2025-11-09T18:00:00Z"),
     funnel,
     cash,
@@ -234,11 +235,27 @@ describe("buildScorecardDocument", () => {
     expect(where.rows).toContainEqual({ channel: "No first touch", dealsWon: 0, currency: null, cash: null });
   });
 
+  it("says the funnel's people counts ignore a picked program", () => {
+    expect(document.filters).toBe("All programs");
+    const oneProgram = buildScorecardDocument({
+      words: "",
+      dayLine: "",
+      programName: "Coaching",
+      generatedAt: 0,
+      funnel,
+      cash,
+      followThrough,
+      origins,
+      answers: null,
+    });
+    expect(oneProgram.filters).toBe(`Program: Coaching · ${FUNNEL_PROGRAM_NOTE}`);
+  });
+
   it("leaves the answers table out until a question's answers are loaded", () => {
     const without = buildScorecardDocument({
       words: "",
       dayLine: "",
-      filters: "",
+      programName: null,
       generatedAt: 0,
       funnel,
       cash,
