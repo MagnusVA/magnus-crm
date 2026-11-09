@@ -669,11 +669,13 @@ describe("Fathom API workflows", () => {
     expect(calls[1]).toMatch(/\/recordings\/42\/summary$/);
     expect(calls[2]).toMatch(/\/recordings\/42\/transcript$/);
   });
-  it("stores a recording that Fathom didn't summarize", async () => {
+  it("stores a recording that Fathom didn't summarize or transcribe", async () => {
     const f = await fixture();
+    const calls: string[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
+        calls.push(url);
         vi.setSystemTime(Date.now() + 3000);
         if (url.includes("/meetings?"))
           return Response.json({
@@ -681,7 +683,8 @@ describe("Fathom API workflows", () => {
             next_cursor: null,
           });
         if (url.endsWith("/summary")) return Response.json({ summary: null });
-        if (url.endsWith("/transcript")) return Response.json({ transcript: [] });
+        if (url.endsWith("/transcript"))
+          return Response.json({ transcript: null });
         throw new Error("Unexpected stub request");
       }),
     );
@@ -715,7 +718,9 @@ describe("Fathom API workflows", () => {
     const processed = await f.t.run((ctx) =>
       ctx.db.get("fathomWebhookEvents", event[0]._id),
     );
-    expect(processed?.status).not.toBe("failed");
+    expect(processed?.status).toBe("processed");
+    expect(calls[1]).toMatch(/\/recordings\/42\/summary$/);
+    expect(calls[2]).toMatch(/\/recordings\/42\/transcript$/);
   });
   it("serializes API request reservations and honors a 429 Retry-After", async () => {
     const f = await fixture(),

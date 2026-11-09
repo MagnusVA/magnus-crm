@@ -282,7 +282,7 @@ export const process = internalAction({
         // A recording Fathom didn't summarize returns { summary: null }.
         fields.summaryMarkdown =
           z
-            .object({ summary: summarySchema.nullable() })
+            .object({ summary: summarySchema.nullish() })
             .parse(await response.json()).summary?.markdown_formatted ??
           undefined;
       }
@@ -299,7 +299,8 @@ export const process = internalAction({
         const result = z
           .object({ transcript: z.unknown() })
           .parse(await response.json());
-        lines = parseTranscript(result.transcript);
+        // Fathom returns [] for a silent recording; treat null the same way.
+        lines = parseTranscript(result.transcript ?? []);
       }
       if (!already && !expired && lines.length)
         transcriptStorageId = await ctx.storage.store(
