@@ -220,9 +220,9 @@ export const REPORT_TERMS = {
     label: "Tasks on time",
     category: "people",
     grain: "task",
-    definition: "Of the tasks due in the range, the share completed by their due time.",
-    formula: "completed by due ÷ tasks due in range",
-    anchor: "followUps due time",
+    definition: "Of the reminders due in the range, the share completed by the end of the business day they were due.",
+    formula: "completed by the end of the due day ÷ reminders due in range",
+    anchor: "followUps.reminderScheduledAt (manual reminders)",
   },
   speedToQualify: {
     label: "Speed to qualify",
