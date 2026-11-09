@@ -281,7 +281,29 @@ export async function loadCloserUsers(
   tenantId: Id<"tenants">,
   facts: CallFacts,
   payments: Doc<"paymentRecords">[],
+  source: "live" | "warehouse" = "live",
 ) {
+  if (source === "warehouse") {
+    const roster = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(501);
+    if (roster.length > 500)
+      throw new Error("The closer roster exceeds the report limit.");
+    const byId = new Map(roster.map((u) => [u._id, u]));
+    const seen = new Set([
+      ...facts.facts.map((f) => f.closerId),
+      ...payments.flatMap((p) =>
+        p.attributedCloserId ? [p.attributedCloserId] : [],
+      ),
+    ]);
+    const missing = [...seen].filter((id) => !byId.has(id));
+    const users = await Promise.all(
+      missing.map((id) => ctx.db.get("users", id)),
+    );
+    for (const u of users) if (u?.tenantId === tenantId) byId.set(u._id, u);
+    return { users: [...byId.values()], partial: false };
+  }
   const roster = await readLiveQueryRows(
     ctx.db
       .query("users")

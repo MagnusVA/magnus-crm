@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import aggregate from "@convex-dev/aggregate/test";
+import { meetingsByStatus } from "../reporting/aggregates";
 import { api } from "../_generated/api";
 import {
   callsReportFixture,
@@ -14,6 +16,76 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("Pipeline now", () => {
+  it("counts more than 500 owed calls exactly and checks recent durations", async () => {
+    const f = await callsReportFixture();
+    aggregate.register(f.t, "meetingsByStatus");
+    await f.t.run(async (ctx) => {
+      const base = (await ctx.db.get("meetings", f.owed))!;
+      const { _id, _creationTime, ...doc } = base;
+      void _id;
+      void _creationTime;
+      for (let index = 0; index < 600; index++)
+        await ctx.db.insert("meetings", {
+          ...doc,
+          scheduledAt: from - DAY + index * 60_000,
+          assignedCloserId: [f.ana, f.beto, f.inactive, f.former][index % 4],
+          callClassification:
+            index % 3 === 0 ? undefined : index % 3 === 1 ? "new" : "follow_up",
+        });
+      for (const [minutesAgo, durationMinutes] of [
+        [180, 180],
+        [120, 60],
+        [120, 180],
+        [30, 30],
+        [29, 30],
+      ]) {
+        await ctx.db.insert("meetings", {
+          ...doc,
+          scheduledAt: now - minutesAgo * 60_000,
+          durationMinutes,
+        });
+      }
+    });
+    const ids = await f.t.run(async (ctx) =>
+      (await ctx.db.query("meetings").take(1000)).map((m) => m._id),
+    );
+    for (let start = 0; start < ids.length; start += 100)
+      await f.t.run(async (ctx) => {
+        for (const id of ids.slice(start, start + 100))
+          await meetingsByStatus.insert(
+            ctx,
+            (await ctx.db.get("meetings", id))!,
+          );
+      });
+    const answer = await f.t
+      .withIdentity(identity)
+      .query(api.reports.pipeline.getPipelineNow, {});
+    // 600 seeded old calls, one existing old call, and three recent due calls.
+    expect(answer.owed.total).toBe(604);
+    expect(answer.owed.calls).toHaveLength(100);
+    expect(answer.owed.partial).toBe(true);
+  });
+  it("does not present a capped scan as an exact total when the aggregate is inconsistent", async () => {
+    const f = await callsReportFixture();
+    aggregate.register(f.t, "meetingsByStatus");
+    await f.t.run(async (ctx) => {
+      const base = (await ctx.db.get("meetings", f.owed))!;
+      const { _id, _creationTime, ...doc } = base;
+      void _id;
+      void _creationTime;
+      // Simulate an unbackfilled aggregate. The source rows are present.
+      for (let index = 0; index < 501; index++)
+        await ctx.db.insert("meetings", {
+          ...doc,
+          scheduledAt: from - DAY + index * 60_000,
+        });
+    });
+    const answer = await f.t
+      .withIdentity(identity)
+      .query(api.reports.pipeline.getPipelineNow, {});
+    expect(answer.owed.total).toBeNull();
+    expect(answer.owed.partial).toBe(true);
+  });
   it("reads all-time owed calls and present open deals, tasks and ages", async () => {
     const f = await callsReportFixture();
     const oldOwed = await f.t.run(async (ctx) => {

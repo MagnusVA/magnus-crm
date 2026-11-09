@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import {
   OPEN_PIPELINE_STAGES,
   readPipelineDistributionByStage,
   type OpenPipelineStage,
 } from "../reporting/pipelineHealth";
+import { meetingsByStatus } from "../reporting/aggregates";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
 import { REPORT_ADMIN_ROLES } from "./lib/access";
@@ -35,7 +36,7 @@ export type PipelineNow = {
   noNextStep: { count: number; partial: boolean };
   overdueTasks: { count: number; partial: boolean };
   owed: {
-    total: number;
+    total: number | null;
     calls: Array<{
       meetingId: Id<"meetings">;
       opportunityId: Id<"opportunities">;
@@ -80,7 +81,7 @@ export const pipelineNowValidator = v.object({
   noNextStep: v.object({ count: v.number(), partial: v.boolean() }),
   overdueTasks: v.object({ count: v.number(), partial: v.boolean() }),
   owed: v.object({
-    total: v.number(),
+    total: nullableNumber,
     calls: v.array(
       v.object({
         meetingId: v.id("meetings"),
@@ -126,6 +127,96 @@ export const pipelineNowValidator = v.object({
     partial: v.boolean(),
   }),
 });
+
+async function readOwedTotal(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  now: number,
+  source: { rows: Doc<"meetings">[]; capped: boolean },
+): Promise<number | null> {
+  const isDue = (meeting: Doc<"meetings">) =>
+    meeting.scheduledAt + meeting.durationMinutes * 60_000 <= now;
+  if (!source.capped) return source.rows.filter(isDue).length;
+  const last = source.rows.at(-1);
+  if (!last) return null;
+  const cutoff = now - 3 * 3_600_000;
+  const recent = await readLiveQueryRows(
+    ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_status_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("status", "scheduled")
+          .gte("scheduledAt", cutoff)
+          .lte("scheduledAt", now),
+      ),
+    PIPELINE_CAP,
+  );
+  const users = await readLiveQueryRows(
+    ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+    500,
+  );
+  if (recent.capped || users.capped) return null;
+  // Include inactive and former closers: ownership keys use users, not roles.
+  const keys = users.rows.flatMap((user) =>
+    (["new", "follow_up"] as const).map(
+      (classification) => [user._id, classification, "scheduled"] as const,
+    ),
+  );
+  // Reserve the transaction's remaining index ranges for the other panels.
+  if (keys.length * 5 > 1500) return null;
+  const timeKey = (
+    key: (typeof keys)[number],
+    at: number,
+  ): [Id<"users">, "new" | "follow_up", "scheduled", number] => [...key, at];
+  const before = (
+    key: (typeof keys)[number],
+    at: number,
+    inclusive: boolean,
+  ) => ({
+    lower: { key: timeKey(key, Number.NEGATIVE_INFINITY), inclusive: true },
+    upper: { key: timeKey(key, at), inclusive },
+  });
+  // Like Team, this uses the backfilled, strictly maintained meetings aggregate.
+  // Check its sampled prefix and recent window before trusting the old count;
+  // an incomplete backfill must not turn the headline into a plausible zero.
+  const counts = await meetingsByStatus.countBatch(
+    ctx,
+    keys.flatMap((key) => [
+      { namespace: tenantId, bounds: before(key, cutoff, false) },
+      { namespace: tenantId, bounds: before(key, last.scheduledAt, false) },
+      { namespace: tenantId, bounds: before(key, last.scheduledAt, true) },
+      {
+        namespace: tenantId,
+        bounds: {
+          lower: { key: timeKey(key, cutoff), inclusive: true },
+          upper: { key: timeKey(key, now), inclusive: true },
+        },
+      },
+      { namespace: tenantId, bounds: { prefix: [key[0], key[1]] } },
+    ]),
+  );
+  const sums = [0, 0, 0, 0, 0];
+  counts.forEach((count, index) => {
+    sums[index % 5] += count;
+  });
+  const allMeetings = await meetingsByStatus.count(ctx, {
+    namespace: tenantId,
+  });
+  const [oldCount, beforeSample, throughSample, recentCount, knownUserEntries] =
+    sums;
+  if (
+    knownUserEntries !== allMeetings ||
+    beforeSample !==
+      source.rows.filter((m) => m.scheduledAt < last.scheduledAt).length ||
+    throughSample < source.rows.length ||
+    recentCount !== recent.rows.length
+  )
+    return null;
+  return oldCount + recent.rows.filter(isDue).length;
+}
 
 export const getPipelineNow = query({
   returns: pipelineNowValidator,
@@ -222,7 +313,8 @@ export const getPipelineNow = query({
     const due = scheduled.rows.filter(
       (m) => m.scheduledAt + m.durationMinutes * 60_000 <= now,
     );
-    // Counts need only the bounded meeting scan; enrich just the visible list.
+    const owedTotal = await readOwedTotal(ctx, tenantId, now, scheduled);
+    // The headline uses aggregate counts; enrich only the oldest visible calls.
     const owedFacts = await loadCallFacts(
       ctx,
       tenantId,
@@ -272,7 +364,7 @@ export const getPipelineNow = query({
         partial: pending.capped,
       },
       owed: {
-        total: due.length,
+        total: owedTotal,
         calls: owedFacts.facts.map((f) => ({
           meetingId: f.meeting._id,
           opportunityId: f.meeting.opportunityId,
@@ -286,7 +378,11 @@ export const getPipelineNow = query({
               DAY,
           ),
         })),
-        partial: scheduled.capped || owedFacts.partial || due.length > 100,
+        partial:
+          owedTotal === null ||
+          scheduled.capped ||
+          owedFacts.partial ||
+          due.length > 100,
       },
       bookingReviews: {
         count: reviews.rows.length,

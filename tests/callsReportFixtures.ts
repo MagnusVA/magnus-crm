@@ -284,6 +284,8 @@ export async function callsReportFixture() {
       (p) => p.status !== "disputed",
     );
     const deals = await ctx.db.query("opportunities").take(100);
+    const configs = await ctx.db.query("eventTypeConfigs").take(100);
+    const people = await ctx.db.query("leads").take(100);
     return {
       meetings: meetings
         .sort(
@@ -294,8 +296,19 @@ export async function callsReportFixture() {
           const credit = credits
             .filter((c) => c.meetingId === m._id && c.role === "closer")
             .sort((a, b) => b.attributedAt - a.attributedAt)[0];
+          const deal = deals.find((d) => d._id === m.opportunityId);
           return {
             ...rowFromDoc("meetings", m),
+            report_deal_outcome: deal?.outcome ?? null,
+            report_event_type_config_id: deal?.eventTypeConfigId ?? null,
+            report_is_extended: Number(
+              configs.find((c) => c._id === deal?.eventTypeConfigId)
+                ?.isExtended ?? false,
+            ),
+            report_lead_name:
+              m.leadName ??
+              people.find((p) => p._id === deal?.leadId)?.fullName ??
+              "Unknown person",
             report_closer_id:
               credit && "userId" in credit.source
                 ? credit.source.userId
@@ -338,4 +351,51 @@ export async function callsReportFixture() {
     };
   });
   return { t, ...fixture, rows };
+}
+
+/** A month larger than the live dimension caps, with warehouse snapshots. */
+export async function warehouseMonthFixture() {
+  const fixture = await callsReportFixture();
+  const rows = await fixture.t.run(async (ctx) => {
+    const baseMeeting = (await ctx.db.get("meetings", fixture.hostChanged))!;
+    const baseDeal = (await ctx.db.get("opportunities", fixture.won))!;
+    const { _id: dealId, _creationTime: dealCreated, ...deal } = baseDeal;
+    const {
+      _id: meetingId,
+      _creationTime: meetingCreated,
+      ...meeting
+    } = baseMeeting;
+    void dealId;
+    void dealCreated;
+    void meetingId;
+    void meetingCreated;
+    const rows = [];
+    for (let index = 0; index < 1001; index++) {
+      const opportunityId = await ctx.db.insert("opportunities", {
+        ...deal,
+        outcome: "open",
+        stage: "booked",
+      });
+      const id = await ctx.db.insert("meetings", {
+        ...meeting,
+        opportunityId,
+        scheduledAt: from + DAY + index * 60_000,
+        leadName: undefined,
+      });
+      const doc = (await ctx.db.get("meetings", id))!;
+      rows.push({
+        ...rowFromDoc("meetings", doc),
+        id: doc._id,
+        report_closer_id: fixture.ana,
+        report_moved: 0,
+        report_rebooked: 0,
+        report_deal_outcome: index % 2 ? "lost" : "won",
+        report_event_type_config_id: deal.eventTypeConfigId,
+        report_is_extended: index % 2 ? 0 : 1,
+        report_lead_name: `Warehouse person ${index}`,
+      });
+    }
+    return rows;
+  });
+  return { ...fixture, warehouseRows: rows };
 }

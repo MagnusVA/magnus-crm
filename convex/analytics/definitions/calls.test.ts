@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../../_generated/api";
+import { internal, api } from "../../_generated/api";
 import {
   callsReportFixture,
+  warehouseMonthFixture,
   from,
   identity,
   now,
@@ -28,6 +29,42 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("Calls warehouse parity", () => {
+  it("finalizes a full month without live dimension caps or dimension reads", async () => {
+    const f = await warehouseMonthFixture();
+    const payload = await f.t.query(
+      internal.analytics.results.previewFinalize,
+      {
+        tenantId: f.tenantId,
+        reportId: "calls.summary",
+        range,
+        filtersJson: JSON.stringify({
+          programId: null,
+          closerId: null,
+          callType: null,
+        }),
+        rowsJson: JSON.stringify({ meetings: f.warehouseRows }),
+      },
+    );
+    expect(JSON.parse(payload)).toMatchObject({
+      partial: false,
+      counts: { held: 1001 },
+      mode: { standard: { held: 501 }, priority: { held: 500 } },
+    });
+    await f.t.run(async (ctx) => {
+      const get = vi.spyOn(ctx.db, "get");
+      const { warehouseCallFacts } = await import("./calls");
+      const facts = await warehouseCallFacts(ctx, f.tenantId, f.warehouseRows);
+      expect(facts.partial).toBe(false);
+      expect(facts.facts.at(-1)).toMatchObject({
+        leadName: "Warehouse person 1000",
+        dealOutcome: "won",
+        standard: true,
+        closerName: "Ana",
+      });
+      expect(get.mock.calls.every(([table]) => table === "users")).toBe(true);
+      expect(get).toHaveBeenCalledTimes(1);
+    });
+  });
   it("uses SQL evidence and the same builder, including historical closer filtering", async () => {
     const f = await callsReportFixture();
     for (const closerId of [null, f.ana, f.beto]) {
