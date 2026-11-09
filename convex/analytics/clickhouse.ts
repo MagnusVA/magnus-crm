@@ -95,9 +95,24 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Characters of response text a Node-built report may read across its
+ * queries (`analytics/runNode.ts`). Checked on each response before parsing.
+ */
+export type RowsBudget = { remainingChars: number };
+
+/** A report's rows passed its budget. */
+export class RowsBudgetExceededError extends Error {
+  constructor() {
+    super("This range is too large to show. Choose a shorter range.");
+    this.name = "RowsBudgetExceededError";
+  }
+}
+
 async function post(
   query: SqlQuery,
   settings: Record<string, string>,
+  budget?: RowsBudget,
 ): Promise<SqlRow[]> {
   const config = clickHouseConfig();
   const url = new URL(config.url);
@@ -164,7 +179,15 @@ async function post(
         }
         throw new ClickHouseQueryError(text || `HTTP ${response.status}`, response.status);
       }
-      const body = (await response.json()) as { data?: unknown };
+      let body: { data?: unknown };
+      if (budget) {
+        const text = await response.text();
+        if (text.length > budget.remainingChars) throw new RowsBudgetExceededError();
+        budget.remainingChars -= text.length;
+        body = JSON.parse(text) as { data?: unknown };
+      } else {
+        body = (await response.json()) as { data?: unknown };
+      }
       if (!Array.isArray(body.data)) {
         throw new ClickHouseQueryError("The reporting database returned no rows array.", response.status);
       }
@@ -183,6 +206,7 @@ async function post(
 export async function queryTenantClickHouse(
   tenantId: string,
   query: SqlQuery,
+  budget?: RowsBudget,
 ): Promise<SqlRow[]> {
   if (query.params && "tenant_id" in query.params) {
     throw new Error("tenant_id is set by queryTenantClickHouse, not by the template.");
@@ -190,6 +214,7 @@ export async function queryTenantClickHouse(
   return await post(
     { sql: query.sql, params: { ...query.params, tenant_id: tenantId } },
     { SQL_tenant_id: tenantId },
+    budget,
   );
 }
 

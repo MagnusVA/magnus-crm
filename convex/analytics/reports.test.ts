@@ -5,7 +5,7 @@ import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
-import { DAY_MS } from "./results";
+import { DAY_MS, PAYLOAD_PART_BYTES, splitPayload } from "./results";
 import { listReportDefinitions } from "./registry";
 import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
@@ -45,8 +45,8 @@ function watermarkOr(watermark: number, rows: unknown[]) {
       : { body: { data: rows } };
 }
 
-async function createFixture() {
-  const t = convexTest({ schema, modules: convexTestModules });
+async function createFixture(options: { transactionLimits?: boolean } = {}) {
+  const t = convexTest({ schema, modules: convexTestModules, ...(options.transactionLimits ? { transactionLimits: true } : {}) });
   workpool.register(t, "analyticsWorkpool");
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
@@ -521,6 +521,7 @@ describe("analytics budget and batch", () => {
     await insertResult(fixture, { tenantId: fixture.tenantA, payload: "{}", lastRequestedAt: Date.now() - 15 * DAY_MS });
 
     await fixture.t.action(internal.analytics.run.runPostSyncBatch, { force: true });
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const left = await fixture.t.run(async (ctx) => ({
       results: (await ctx.db.query("analyticsResults").take(10)).length,
@@ -719,5 +720,190 @@ describe("Fivetran webhook", () => {
     const sync = await fixture.t.run(async (ctx) => ctx.db.query("analyticsSync").first());
     expect(sync?.lastSyncEndedAt).toBe(Date.parse(newer.created));
     expect(sync?.lastSyncId).toBe("sync-new");
+  });
+});
+
+// Answers over 900 KB are stored in parts (People's lead gen is about 5 MB
+// for a year). Readers see one string; old parts go in bounded transactions.
+describe("multi-part answers", () => {
+  const range = { startDate: "2000-01-01", endDateInclusive: "2000-01-31", fromMs: 0, toMs: 1, timeZone: "UTC", dayStartHour: 0 };
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  /** JSON of about `bytes` UTF-8 bytes, with accented names and an emoji throughout. */
+  function bigAnswer(bytes: number) {
+    const item = '{"name":"José Ñúñez 🎯","dealIds":["k17abcdefghijklmnopqrstuvwxyz012"]},';
+    const count = Math.floor(bytes / new TextEncoder().encode(item).byteLength);
+    return `[${item.repeat(count)}{"end":true}]`;
+  }
+
+  async function storedParts(fixture: Fixture) {
+    return await fixture.t.run(async (ctx) => (await ctx.db.query("analyticsPayloads").collect()).map((part) => part.json));
+  }
+
+  async function insertWithParts(fixture: Fixture, json: string, overrides: Partial<Doc<"analyticsResults">> = {}) {
+    return await fixture.t.run(async (ctx) => {
+      const ids: Id<"analyticsPayloads">[] = [];
+      for (const part of splitPayload(json)) ids.push(await ctx.db.insert("analyticsPayloads", { tenantId: fixture.tenantA, json: part }));
+      return await ctx.db.insert("analyticsResults", {
+        tenantId: fixture.tenantA,
+        reportId: "revenue.metrics",
+        argsKey: metricsKey,
+        filtersJson: '{"paymentType":null,"programId":null}',
+        range: metricsArgs.range,
+        timeZone: metricsArgs.timeZone,
+        dayStartHour: 1,
+        status: "ready",
+        lastRequestedAt: Date.now(),
+        payloadId: ids[0],
+        ...(ids.length > 1 ? { payloadPartIds: ids.slice(1) } : {}),
+        ...overrides,
+      });
+    });
+  }
+
+  function pendingRun(id: string) {
+    return { status: "pending" as const, run: { id, watermark: 1_000, startedAt: Date.now() } };
+  }
+
+  it("splits between characters, never inside one", () => {
+    const text = "a😀bé😀ñ";
+    for (const max of [4, 5, 6, 7, 9]) {
+      const parts = splitPayload(text, max);
+      expect(parts.join("")).toBe(text);
+      for (const part of parts) {
+        expect(new TextEncoder().encode(part).byteLength).toBeLessThanOrEqual(max);
+        expect(part).not.toMatch(LONE_SURROGATE);
+      }
+    }
+  });
+
+  it("saves a 5 MB answer in parts under 900 KB and reads it back byte for byte", async () => {
+    const fixture = await createFixture();
+    const resultId = await insertResult(fixture, { tenantId: fixture.tenantA, ...pendingRun("r1") });
+    const json = bigAnswer(5_000_000);
+
+    const saved = await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId: "r1", watermark: 1_000, range, payloadParts: splitPayload(json),
+    });
+    const state = await fixture.adminA.query(api.analytics.reports.get, metricsArgs);
+
+    expect(saved).toEqual({ saved: true });
+    expect(state.state).toBe("ready");
+    expect(state.payloadJson === json).toBe(true);
+    const parts = await storedParts(fixture);
+    expect(parts.length).toBeGreaterThanOrEqual(6);
+    for (const part of parts) {
+      expect(new TextEncoder().encode(part).byteLength).toBeLessThanOrEqual(PAYLOAD_PART_BYTES);
+      expect(part).not.toMatch(LONE_SURROGATE);
+    }
+  });
+
+  it("replaces a 12 MB answer with another within Convex's transaction limits", async () => {
+    const fixture = await createFixture({ transactionLimits: true });
+    const before = bigAnswer(11_900_000);
+    const after = bigAnswer(11_800_000);
+    const resultId = await insertWithParts(fixture, before, pendingRun("r2"));
+
+    await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId: "r2", watermark: 1_000, range, payloadParts: splitPayload(after),
+    });
+    expect((await fixture.adminA.query(api.analytics.reports.get, metricsArgs)).payloadJson === after).toBe(true);
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await storedParts(fixture)).join("") === after).toBe(true);
+    expect((await fixture.adminA.query(api.analytics.reports.get, metricsArgs)).payloadJson === after).toBe(true);
+  });
+
+  it("writes no part for a run a newer one replaced", async () => {
+    const fixture = await createFixture();
+    const resultId = await insertResult(fixture, { tenantId: fixture.tenantA, ...pendingRun("newer") });
+
+    const saved = await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId: "older", watermark: 1_000, range, payloadParts: splitPayload(bigAnswer(2_000_000)),
+    });
+
+    expect(saved).toEqual({ saved: false });
+    expect(await storedParts(fixture)).toEqual([]);
+  });
+
+  it("keeps the previous answer when a refresh is too large", async () => {
+    const fixture = await createFixture();
+    const old = bigAnswer(1_500_000);
+    const resultId = await insertWithParts(fixture, old, pendingRun("r3"));
+
+    const saved = await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId: "r3", watermark: 1_000, range, payloadParts: ["x".repeat(PAYLOAD_PART_BYTES + 1)],
+    });
+    const state = await fixture.adminA.query(api.analytics.reports.get, metricsArgs);
+
+    expect(saved).toEqual({ saved: false });
+    expect(state.state).toBe("failed");
+    expect(state.errorMessage).toBe("This range is too large to show. Choose a shorter range.");
+    expect(state.payloadJson === old).toBe(true);
+  });
+
+  it("drops the extra parts when a one-part answer replaces a multi-part one", async () => {
+    const fixture = await createFixture();
+    const resultId = await insertWithParts(fixture, bigAnswer(3_000_000), pendingRun("r4"));
+
+    await fixture.t.mutation(internal.analytics.results.complete, {
+      resultId, runId: "r4", watermark: 1_000, range, payloadParts: ['{"small":true}'],
+    });
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const row = await fixture.t.run(async (ctx) => ctx.db.get("analyticsResults", resultId));
+    expect(row?.payloadPartIds).toBeUndefined();
+    expect(await storedParts(fixture)).toEqual(['{"small":true}']);
+  });
+
+  it("deletes expired multi-part answers over several transactions", async () => {
+    const fixture = await createFixture({ transactionLimits: true });
+    stubClickHouse(watermarkOr(1_000, []));
+    await setWatermark(fixture, 1_000);
+    // Four 5 MB answers: more than one transaction may read.
+    for (let index = 0; index < 4; index += 1) {
+      await insertWithParts(fixture, bigAnswer(5_000_000), {
+        argsKey: `${metricsKey}#${index}`,
+        lastRequestedAt: Date.now() - 15 * DAY_MS,
+      });
+    }
+
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, { force: true });
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const left = await fixture.t.run(async (ctx) => ({
+      results: (await ctx.db.query("analyticsResults").take(10)).length,
+      payloads: (await ctx.db.query("analyticsPayloads").take(10)).length,
+      lastBatchAt: (await ctx.db.query("analyticsSync").first())?.lastBatchAt,
+    }));
+    expect(left.results).toBe(0);
+    expect(left.payloads).toBe(0);
+    expect(left.lastBatchAt).toBeTypeOf("number");
+  });
+
+  it("deletes every part of a key whose report no longer exists", async () => {
+    const fixture = await createFixture();
+    stubClickHouse(watermarkOr(1_000, []));
+    await setWatermark(fixture, 1_000);
+    await insertWithParts(fixture, bigAnswer(2_000_000), { reportId: "gone.report" });
+
+    await fixture.t.action(internal.analytics.run.runPostSyncBatch, { force: true });
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(await storedParts(fixture)).toEqual([]);
+  });
+
+  it("deletes only multi-part keys before a revert", async () => {
+    const fixture = await createFixture();
+    await insertWithParts(fixture, bigAnswer(2_000_000), { argsKey: `${metricsKey}#big` });
+    const small = await insertResult(fixture, { tenantId: fixture.tenantA, payload: '{"small":true}' });
+
+    const outcome = await fixture.t.mutation(internal.analytics.results.deleteMultipartResults, {});
+    await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(outcome).toEqual({ deleted: 1, remaining: false });
+    const left = await fixture.t.run(async (ctx) => (await ctx.db.query("analyticsResults").collect()).map((row) => row._id));
+    expect(left).toEqual([small]);
+    expect(await storedParts(fixture)).toEqual(['{"small":true}']);
   });
 });

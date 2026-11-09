@@ -57,6 +57,7 @@ import type * as analytics_reports from "../analytics/reports.js";
 import type * as analytics_results from "../analytics/results.js";
 import type * as analytics_rows from "../analytics/rows.js";
 import type * as analytics_run from "../analytics/run.js";
+import type * as analytics_runNode from "../analytics/runNode.js";
 import type * as analytics_switch from "../analytics/switch.js";
 import type * as analytics_sync from "../analytics/sync.js";
 import type * as attribution_dmClosers from "../attribution/dmClosers.js";
@@ -537,6 +538,7 @@ declare const fullApi: ApiFromModules<{
   "analytics/results": typeof analytics_results;
   "analytics/rows": typeof analytics_rows;
   "analytics/run": typeof analytics_run;
+  "analytics/runNode": typeof analytics_runNode;
   "analytics/switch": typeof analytics_switch;
   "analytics/sync": typeof analytics_sync;
   "attribution/dmClosers": typeof attribution_dmClosers;

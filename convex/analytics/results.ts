@@ -27,10 +27,74 @@ export const FAILURE_RETRY_MS = 5 * 60 * 1000;
 export const RECENT_KEY_WINDOW_MS = 7 * DAY_MS;
 /** Keys nobody opened for this long are deleted. */
 export const KEY_TTL_MS = 14 * DAY_MS;
-/** UTF-8 bytes of an answer: under Convex's 1 MB document limit. */
-export const MAX_PAYLOAD_BYTES = 900_000;
-/** Rows a report may hand to `finalize`. Templates aggregate in SQL. */
+/** UTF-8 bytes in one stored part of an answer: under Convex's 1 MiB document limit. */
+export const PAYLOAD_PART_BYTES = 900_000;
+/**
+ * UTF-8 bytes of a whole answer, across its parts. Under the 16 MiB a query
+ * may return and a transaction may read or write (both measured on the dev
+ * deployment in November 2026). People's lead gen answer is the largest:
+ * about 5 MB for a year.
+ */
+export const MAX_ANSWER_BYTES = 12_000_000;
+/**
+ * Rows a report may hand to `finalize` in the `complete` mutation. Reports
+ * with more build in a Node action instead (`definition.node`).
+ */
 export const MAX_ROWS_JSON_CHARS = 4_000_000;
+/** Parts one `deletePayloadParts` run deletes, so it reads well under 16 MiB. */
+const PARTS_PER_DELETE = 6;
+export const ANSWER_TOO_LARGE = "This range is too large to show. Choose a shorter range.";
+
+export function answerBytes(json: string) {
+  return new TextEncoder().encode(json).byteLength;
+}
+
+/**
+ * Splits an answer into parts of at most `maxBytes` UTF-8 bytes, never
+ * inside a character, so joining the parts gives back the same string.
+ */
+export function splitPayload(json: string, maxBytes = PAYLOAD_PART_BYTES): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let bytes = 0;
+  for (let index = 0; index < json.length; ) {
+    const code = json.codePointAt(index)!;
+    const width = code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+    if (bytes + width > maxBytes) {
+      parts.push(json.slice(start, index));
+      start = index;
+      bytes = 0;
+    }
+    bytes += width;
+    index += code > 0xffff ? 2 : 1;
+  }
+  parts.push(json.slice(start));
+  return parts;
+}
+
+/** Whether every part fits a document and the whole answer fits the cap. */
+function partsFit(parts: readonly string[]) {
+  let total = 0;
+  for (const part of parts) {
+    const bytes = answerBytes(part);
+    if (bytes > PAYLOAD_PART_BYTES) return false;
+    total += bytes;
+  }
+  return total <= MAX_ANSWER_BYTES;
+}
+
+/** An answer's parts, in order: `payloadId` first, then `payloadPartIds`. */
+function payloadIdsOf(row: Doc<"analyticsResults">): Id<"analyticsPayloads">[] {
+  return row.payloadId ? [row.payloadId, ...(row.payloadPartIds ?? [])] : [];
+}
+
+/**
+ * Deletes parts no row points to any more, a few per transaction: a delete
+ * reads the document, and an answer can be 12 MB.
+ */
+async function scheduleDeleteParts(ctx: MutationCtx, ids: Id<"analyticsPayloads">[]) {
+  if (ids.length > 0) await ctx.scheduler.runAfter(0, internal.analytics.results.deletePayloadParts, { ids });
+}
 
 export const resolvedRangeValidator = v.object({
   startDate: v.string(),
@@ -53,19 +117,19 @@ export async function resultState(
   row: Doc<"analyticsResults"> | null,
 ): Promise<AnalyticsResultState> {
   if (!row) return { state: "missing", payloadJson: null, answer: null, errorMessage: null };
-  const payload = row.payloadId ? await ctx.db.get("analyticsPayloads", row.payloadId) : null;
+  const parts = await Promise.all(payloadIdsOf(row).map((id) => ctx.db.get("analyticsPayloads", id)));
   return {
     state: row.status,
-    payloadJson: payload?.json ?? null,
+    payloadJson: parts.length > 0 && parts.every((part) => part !== null) ? parts.map((part) => part!.json).join("") : null,
     answer: row.answer ?? null,
     errorMessage: row.status === "failed" ? (row.errorMessage ?? null) : null,
   };
 }
 
-/** Deletes a key and its answer. */
+/** Deletes a key now and its answer's parts in later transactions. */
 export async function deleteResult(ctx: MutationCtx, row: Doc<"analyticsResults">) {
-  if (row.payloadId) await ctx.db.delete("analyticsPayloads", row.payloadId);
   await ctx.db.delete("analyticsResults", row._id);
+  await scheduleDeleteParts(ctx, payloadIdsOf(row));
 }
 
 export async function findResult(
@@ -310,41 +374,58 @@ async function finalizePayload(
   return JSON.stringify(output);
 }
 
-/** Finalizes and saves a run's answer. Ignores a run a newer one replaced. */
+/**
+ * Saves a run's answer, in parts of at most 900 KB. Takes either the rows,
+ * which it finalizes here, or a Node-built answer already split into parts
+ * (`analytics/runNode.ts`). Ignores a run a newer one replaced, before
+ * writing anything. The old parts are deleted afterwards, unreferenced.
+ */
 export const complete = internalMutation({
   args: {
     resultId: v.id("analyticsResults"),
     runId: v.string(),
     watermark: v.number(),
     range: resolvedRangeValidator,
-    rowsJson: v.string(),
+    rowsJson: v.optional(v.string()),
+    payloadParts: v.optional(v.array(v.string())),
   },
   returns: v.object({ saved: v.boolean() }),
   handler: async (ctx, args) => {
+    if ((args.rowsJson === undefined) === (args.payloadParts === undefined)) {
+      throw new Error("complete takes rowsJson or payloadParts.");
+    }
     const row = await ctx.db.get("analyticsResults", args.resultId);
     if (!row || row.run?.id !== args.runId) return { saved: false };
-    const payloadJson = await finalizePayload(ctx, {
-      reportId: row.reportId,
-      tenantId: row.tenantId,
-      filtersJson: row.filtersJson,
-      range: args.range,
-      rowsJson: args.rowsJson,
-    });
+    const parts =
+      args.payloadParts ??
+      splitPayload(
+        await finalizePayload(ctx, {
+          reportId: row.reportId,
+          tenantId: row.tenantId,
+          filtersJson: row.filtersJson,
+          range: args.range,
+          rowsJson: args.rowsJson!,
+        }),
+      );
     const now = Date.now();
-    if (new TextEncoder().encode(payloadJson).byteLength > MAX_PAYLOAD_BYTES) {
+    if (parts.length === 0 || !partsFit(parts)) {
       await ctx.db.patch("analyticsResults", row._id, {
         status: "failed",
         run: undefined,
-        errorMessage: "This range is too large to show. Choose a shorter range.",
+        errorMessage: ANSWER_TOO_LARGE,
         failedAt: now,
       });
       return { saved: false };
     }
-    const payloadId = await ctx.db.insert("analyticsPayloads", { tenantId: row.tenantId, json: payloadJson });
-    if (row.payloadId) await ctx.db.delete("analyticsPayloads", row.payloadId);
+    const ids: Id<"analyticsPayloads">[] = [];
+    for (const json of parts) {
+      ids.push(await ctx.db.insert("analyticsPayloads", { tenantId: row.tenantId, json }));
+    }
+    await scheduleDeleteParts(ctx, payloadIdsOf(row));
     await ctx.db.patch("analyticsResults", row._id, {
       status: "ready",
-      payloadId,
+      payloadId: ids[0],
+      payloadPartIds: ids.length > 1 ? ids.slice(1) : undefined,
       answer: {
         watermark: args.watermark,
         startDate: args.range.startDate,
@@ -380,7 +461,10 @@ export const fail = internalMutation({
   },
 });
 
-/** The same finalize step as `complete`, without saving. For parity runs. */
+/**
+ * The same finalize step as `complete`, without saving, and with the same
+ * answer cap, so parity fails where storage would. For parity runs and tests.
+ */
 export const previewFinalize = internalQuery({
   args: {
     reportId: v.string(),
@@ -390,5 +474,71 @@ export const previewFinalize = internalQuery({
     rowsJson: v.string(),
   },
   returns: v.string(),
-  handler: async (ctx, args) => await finalizePayload(ctx, args),
+  handler: async (ctx, args) => {
+    const payloadJson = await finalizePayload(ctx, args);
+    if (answerBytes(payloadJson) > MAX_ANSWER_BYTES) throw new Error(ANSWER_TOO_LARGE);
+    return payloadJson;
+  },
+});
+
+/**
+ * A Node-built report's context (`definition.node.context`), as JSON, for
+ * `analytics/runNode.ts`. Reads only small lookup tables of the run's tenant.
+ */
+export const reportContext = internalQuery({
+  args: {
+    reportId: v.string(),
+    tenantId: v.id("tenants"),
+    filtersJson: v.string(),
+    range: resolvedRangeValidator,
+    keys: v.array(v.string()),
+  },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const definition = getReportDefinition(args.reportId);
+    if (!definition.node) throw new Error(`${args.reportId} doesn't build in Node.`);
+    const context = await definition.node.context(
+      ctx,
+      { tenantId: args.tenantId, filters: JSON.parse(args.filtersJson), range: args.range },
+      args.keys,
+    );
+    return JSON.stringify(context);
+  },
+});
+
+/** Deletes answer parts no row points to, a few at a time. Skips parts already gone. */
+export const deletePayloadParts = internalMutation({
+  args: { ids: v.array(v.id("analyticsPayloads")) },
+  returns: v.null(),
+  handler: async (ctx, { ids }) => {
+    for (const id of ids.slice(0, PARTS_PER_DELETE)) {
+      if (await ctx.db.get("analyticsPayloads", id)) await ctx.db.delete("analyticsPayloads", id);
+    }
+    await scheduleDeleteParts(ctx, ids.slice(PARTS_PER_DELETE));
+    return null;
+  },
+});
+
+/**
+ * Before reverting to code that stores one part per answer: deletes every
+ * key whose answer has several parts, up to 100 per call. Run it until
+ * `remaining` is 0: `npx convex run --prod analytics/results:deleteMultipartResults`.
+ */
+export const deleteMultipartResults = internalMutation({
+  args: {},
+  returns: v.object({ deleted: v.number(), remaining: v.boolean() }),
+  handler: async (ctx) => {
+    let deleted = 0;
+    let remaining = false;
+    for await (const row of ctx.db.query("analyticsResults")) {
+      if (row.payloadPartIds === undefined) continue;
+      if (deleted === 100) {
+        remaining = true;
+        break;
+      }
+      await deleteResult(ctx, row);
+      deleted += 1;
+    }
+    return { deleted, remaining };
+  },
 });

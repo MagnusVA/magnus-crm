@@ -72,8 +72,10 @@ export const analyticsTables = {
       v.literal("failed"),
     ),
     // The newest good answer. Kept in its own table so the budget, the batch
-    // and cleanup read small rows.
+    // and cleanup read small rows. An answer over 900 KB continues in
+    // `payloadPartIds`, in order; joined, the parts are the answer's JSON.
     payloadId: v.optional(v.id("analyticsPayloads")),
+    payloadPartIds: v.optional(v.array(v.id("analyticsPayloads"))),
     answer: v.optional(
       v.object({
         watermark: v.number(),
@@ -109,7 +111,7 @@ export const analyticsTables = {
     .index("by_lastRequestedAt", ["lastRequestedAt"])
     .index("by_tenantId_and_missedAt", ["tenantId", "missedAt"]),
 
-  /** An answer's JSON, under 900 KB, owned by one `analyticsResults` row. */
+  /** One part of an answer's JSON, under 900 KB, owned by one `analyticsResults` row. */
   analyticsPayloads: defineTable({
     tenantId: v.id("tenants"),
     json: v.string(),
