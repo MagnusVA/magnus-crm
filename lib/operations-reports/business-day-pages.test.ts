@@ -34,10 +34,6 @@ import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origi
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-// Pages render inside the app layout's TooltipProvider.
-const renderPage = (component: () => React.ReactNode) =>
-  renderToStaticMarkup(createElement(TooltipProvider, null, createElement(component)));
-
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
 describe("Overview sections while the business day rebuilds", () => {
