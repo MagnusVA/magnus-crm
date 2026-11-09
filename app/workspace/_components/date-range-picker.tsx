@@ -3,11 +3,20 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import type { DateRange } from "react-day-picker";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, ChevronDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { DashboardPreset, DashboardRange, ReportRangePreset } from "@/lib/analyticsRange";
 import { cn } from "@/lib/utils";
 import {
   businessDateToCalendarDate,
@@ -25,21 +34,38 @@ const Calendar = dynamic(
   { ssr: false, loading: () => <div aria-hidden="true" className="h-[294px] w-[212px] md:w-[424px]" /> },
 );
 
-export type DashboardRangePreset = "today" | "this_week" | "this_month";
+export type DashboardRangePreset = DashboardPreset;
 
-export type DashboardRangeInput =
-  | { kind: "preset"; preset: DashboardRangePreset }
-  | {
-      kind: "custom";
-      startBusinessDate: string;
-      endBusinessDateInclusive: string;
-    };
+/**
+ * The picker's range. Overview, Operations and lead gen keep the default
+ * three presets; Reports widen it to `ReportRangePreset`.
+ */
+export type DashboardRangeInput<Preset extends ReportRangePreset = DashboardRangePreset> = DashboardRange<Preset>;
 
-const PRESETS: ReadonlyArray<{ value: DashboardRangePreset; label: string }> = [
-  { value: "today", label: "Today" },
-  { value: "this_week", label: "This week" },
-  { value: "this_month", label: "This month" },
-];
+/** Every preset's name on the picker and in a range's words. */
+export const RANGE_PRESET_LABELS: Record<ReportRangePreset, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  this_week: "This week",
+  last_week: "Last week",
+  this_month: "This month",
+  last_month: "Last month",
+  last_90_days: "Last 90 days",
+  year_to_date: "Year to date",
+};
+
+export type RangePresetOption<Preset extends ReportRangePreset> = { value: Preset; label: string };
+
+const presetOptions = <Preset extends ReportRangePreset>(values: readonly Preset[]): RangePresetOption<Preset>[] =>
+  values.map((value) => ({ value, label: RANGE_PRESET_LABELS[value] }));
+
+/** The dashboards' presets: Today, This week and This month. */
+export const DASHBOARD_RANGE_PRESETS = presetOptions<DashboardRangePreset>(["today", "this_week", "this_month"]);
+
+/** The presets in the picker's toggle and in its More menu, for a picker with more than three. */
+export function rangePresetOptions<Preset extends ReportRangePreset>(toggle: readonly Preset[], more: readonly Preset[] = []) {
+  return { presets: presetOptions(toggle), morePresets: presetOptions(more) };
+}
 
 const monthDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const monthDayYear = new Intl.DateTimeFormat("en-US", {
@@ -49,10 +75,20 @@ const monthDayYear = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
+const PRESET_PHRASES: Record<ReportRangePreset, string> = {
+  today: "today",
+  yesterday: "yesterday",
+  this_week: "this week",
+  last_week: "last week",
+  this_month: "this month",
+  last_month: "last month",
+  last_90_days: "in the last 90 days",
+  year_to_date: "this year",
+};
+
 /** How empty states name the range: "today", "this week", or "in this range". */
-export function rangePhrase(range: DashboardRangeInput) {
-  if (range.kind === "custom") return "in this range";
-  return range.preset === "today" ? "today" : range.preset === "this_week" ? "this week" : "this month";
+export function rangePhrase(range: DashboardRangeInput<ReportRangePreset>) {
+  return range.kind === "custom" ? "in this range" : PRESET_PHRASES[range.preset];
 }
 
 /** "Oct 3 – Oct 17", with years only when a date is outside this year. */
@@ -66,19 +102,27 @@ export function formatBusinessDateSpan(start: string, endInclusive: string, toda
 /**
  * The dashboards' date range: Today, This week and This month as one
  * segmented toggle, and a Custom range button that opens a two-month
- * calendar. `tone="board"` sets it on a navy page band; `"paper"` on the
- * page ground. Business-day rules and validation stay the caller's.
+ * calendar. Reports pass their own `presets`, and `morePresets` for a More
+ * menu beside the toggle. `tone="board"` sets it on a navy page band;
+ * `"paper"` on the page ground. Business-day rules and validation stay the
+ * caller's.
  */
-export function DateRangePicker({
+export function DateRangePicker<Preset extends ReportRangePreset = DashboardRangePreset>({
   value,
   onChange,
+  presets = DASHBOARD_RANGE_PRESETS as RangePresetOption<Preset>[],
+  morePresets = [],
   validationOptions,
   todayBusinessDate,
   tone = "paper",
   className,
 }: {
-  value: DashboardRangeInput;
-  onChange: (value: DashboardRangeInput) => void;
+  value: DashboardRangeInput<Preset>;
+  onChange: (value: DashboardRangeInput<Preset>) => void;
+  /** The toggle's presets. Defaults to Today, This week and This month. */
+  presets?: readonly RangePresetOption<Preset>[];
+  /** Presets in a More menu after the toggle. None by default. */
+  morePresets?: readonly RangePresetOption<Preset>[];
   validationOptions?: DashboardRangeValidationOptions;
   /** Today's business date, to drop this year from the custom range's label. */
   todayBusinessDate?: string;
@@ -104,6 +148,15 @@ export function DateRangePicker({
   );
   const draftError = validateCustomDashboardRange(draftBusinessRange, validationOptions);
   const onBoard = tone === "board";
+  const chosenMore = value.kind === "preset" ? morePresets.find((entry) => entry.value === value.preset) : undefined;
+  // The More and Custom range buttons: outlined, and filled while their range is shown.
+  const outlineButtonClass = cn(
+    "h-[34px] rounded-[7px] px-3 text-[13px]",
+    onBoard
+      ? // The band scopes `dark`, so the outline variant's dark fills are overridden here too.
+        "border-board-foreground/15 bg-board-raised text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10 aria-pressed:border-board-foreground aria-pressed:bg-board-foreground aria-pressed:text-board dark:aria-pressed:bg-board-foreground dark:aria-pressed:hover:bg-board-foreground/90"
+      : "aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background dark:aria-pressed:bg-foreground",
+  );
   const customLabel =
     value.kind === "custom"
       ? formatBusinessDateSpan(
@@ -120,7 +173,7 @@ export function DateRangePicker({
         size="sm"
         value={value.kind === "preset" ? value.preset : ""}
         onValueChange={(next) => {
-          const preset = PRESETS.find((entry) => entry.value === next)?.value;
+          const preset = presets.find((entry) => entry.value === next)?.value;
           if (preset) onChange({ kind: "preset", preset });
         }}
         aria-label="Date range"
@@ -129,7 +182,7 @@ export function DateRangePicker({
           onBoard ? "border-board-foreground/15 bg-board-raised" : "bg-muted",
         )}
       >
-        {PRESETS.map((preset) => (
+        {presets.map((preset) => (
           <ToggleGroupItem
             key={preset.value}
             value={preset.value}
@@ -144,6 +197,35 @@ export function DateRangePicker({
           </ToggleGroupItem>
         ))}
       </ToggleGroup>
+
+      {morePresets.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" aria-pressed={chosenMore !== undefined} className={outlineButtonClass}>
+              <span className={chosenMore ? "font-condensed text-[14px] font-semibold tracking-[0.02em]" : undefined}>
+                {chosenMore?.label ?? "More"}
+              </span>
+              <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel>More ranges</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={chosenMore?.value ?? ""}
+              onValueChange={(next) => {
+                const preset = morePresets.find((entry) => entry.value === next)?.value;
+                if (preset) onChange({ kind: "preset", preset });
+              }}
+            >
+              {morePresets.map((preset) => (
+                <DropdownMenuRadioItem key={preset.value} value={preset.value}>
+                  {preset.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
 
       <Popover
         open={open}
@@ -163,13 +245,7 @@ export function DateRangePicker({
             aria-pressed={value.kind === "custom"}
             onPointerEnter={loadCalendar}
             onFocus={loadCalendar}
-            className={cn(
-              "h-[34px] rounded-[7px] px-3 text-[13px]",
-              onBoard
-                ? // The band scopes `dark`, so the outline variant's dark fills are overridden here too.
-                  "border-board-foreground/15 bg-board-raised text-board-foreground hover:bg-board-foreground/10 hover:text-board-foreground dark:border-board-foreground/15 dark:bg-board-raised dark:hover:bg-board-foreground/10 aria-pressed:border-board-foreground aria-pressed:bg-board-foreground aria-pressed:text-board dark:aria-pressed:bg-board-foreground dark:aria-pressed:hover:bg-board-foreground/90"
-                : "aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background dark:aria-pressed:bg-foreground",
-            )}
+            className={outlineButtonClass}
           >
             <CalendarIcon data-icon="inline-start" aria-hidden="true" />
             <span className={value.kind === "custom" ? "font-condensed text-[14px] font-semibold tracking-[0.02em]" : undefined}>

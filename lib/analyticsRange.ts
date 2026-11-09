@@ -183,6 +183,8 @@ export type AnalyticsRangePlan =
       historyEndDate: string;
       /** The first day the live reader answers: today, or yesterday overnight. */
       liveStartDate: string;
+      /** Yesterday is read live too, until the first sync after today's start lands. */
+      liveFromYesterday?: true;
     };
 
 /**
@@ -237,13 +239,61 @@ export function planAnalyticsRange(
     historyStartDate: startDate,
     historyEndDate: settledThrough,
     liveStartDate: addBusinessDays(settledThrough, 1),
+    ...(settledThrough < yesterday ? { liveFromYesterday: true as const } : {}),
   };
 }
 
-/** An Overview, Operations or lead gen range, in business dates. */
-export type DashboardRange =
-  | { kind: "preset"; preset: "today" | "this_week" | "this_month" }
+/** The presets Overview, Operations and lead gen offer. */
+export type DashboardPreset = "today" | "this_week" | "this_month";
+
+/**
+ * The presets the Reports picker offers: the dashboards' three and five more.
+ * Yesterday, Last month and Last 90 days are analytics presets too, so they
+ * share cached answers; Last week and Year to date plan as dates.
+ */
+export const REPORT_RANGE_PRESETS = [
+  "today",
+  "this_week",
+  "this_month",
+  "last_month",
+  "yesterday",
+  "last_week",
+  "last_90_days",
+  "year_to_date",
+] as const satisfies readonly (DashboardPreset | AnalyticsPreset | "last_week" | "year_to_date")[];
+
+export type ReportRangePreset = (typeof REPORT_RANGE_PRESETS)[number];
+
+/**
+ * A range in business dates. Overview, Operations and lead gen use the
+ * default, the three dashboard presets; Reports pass `ReportRangePreset`.
+ */
+export type DashboardRange<Preset extends ReportRangePreset = DashboardPreset> =
+  | { kind: "preset"; preset: Preset }
   | { kind: "custom"; startBusinessDate: string; endBusinessDateInclusive: string };
+
+/** Any dashboard or Reports range: what the helpers below accept. */
+type AnyDashboardRange = DashboardRange<ReportRangePreset>;
+
+/** A dashboard or Reports preset's first and last business date. */
+function dashboardPresetDates(
+  preset: ReportRangePreset,
+  today: string,
+): { startDate: string; endDateInclusive: string } {
+  switch (preset) {
+    case "today":
+      return { startDate: today, endDateInclusive: today };
+    case "last_week": {
+      // Monday to Sunday of the week before this one.
+      const thisMonday = businessPeriodDate(today, "week");
+      return { startDate: addBusinessDays(thisMonday, -7), endDateInclusive: addBusinessDays(thisMonday, -1) };
+    }
+    case "year_to_date":
+      return { startDate: `${today.slice(0, 4)}-01-01`, endDateInclusive: today };
+    default:
+      return presetDates(preset, today);
+  }
+}
 
 /**
  * Plans an Overview, Operations or lead gen range, in the tenant's business
@@ -252,7 +302,7 @@ export type DashboardRange =
  * on a ClickHouse run.
  */
 export function dashboardRangePlan(
-  range: DashboardRange,
+  range: AnyDashboardRange,
   todayBusinessDate: string,
   /** Reports pass `settledThroughDate(...)`; other pages read through yesterday. */
   settledThrough?: string,
@@ -262,7 +312,7 @@ export function dashboardRangePlan(
     return planAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate, settledThrough);
   }
   if (range.preset === "today") return { kind: "live" };
-  const dates = presetDates(range.preset, todayBusinessDate);
+  const dates = dashboardPresetDates(range.preset, todayBusinessDate);
   return planAnalyticsRange(dates.startDate, dates.endDateInclusive, todayBusinessDate, settledThrough);
 }
 
@@ -271,7 +321,7 @@ export function dashboardRangePlan(
  * plan's `liveStartDate` (today, or yesterday overnight) to the range's end.
  */
 export function dashboardLiveRange(
-  range: DashboardRange,
+  range: AnyDashboardRange,
   todayBusinessDate: string,
   liveStartDate: string = todayBusinessDate,
 ): DashboardRange {
@@ -289,7 +339,7 @@ export function dashboardLiveRange(
  * clock, and Convex doesn't run it again when the day changes, so after
  * midnight the preset could still answer for yesterday.
  */
-export function dashboardRangeFromToday(range: DashboardRange, todayBusinessDate: string): DashboardRange {
+export function dashboardRangeFromToday(range: AnyDashboardRange, todayBusinessDate: string): DashboardRange {
   const end = range.kind === "custom" ? range.endBusinessDateInclusive : todayBusinessDate;
   return {
     kind: "custom",
@@ -308,13 +358,10 @@ export function dashboardRangeFromToday(range: DashboardRange, todayBusinessDate
  * dates change when today does, and the query runs again for the new day.
  */
 export function resolveDashboardRange(
-  range: DashboardRange,
+  range: AnyDashboardRange,
   todayBusinessDate: string,
 ): Extract<DashboardRange, { kind: "custom" }> {
   if (range.kind === "custom") return range;
-  const { startDate, endDateInclusive } =
-    range.preset === "today"
-      ? { startDate: todayBusinessDate, endDateInclusive: todayBusinessDate }
-      : presetDates(range.preset, todayBusinessDate);
+  const { startDate, endDateInclusive } = dashboardPresetDates(range.preset, todayBusinessDate);
   return { kind: "custom", startBusinessDate: startDate, endBusinessDateInclusive: endDateInclusive };
 }
