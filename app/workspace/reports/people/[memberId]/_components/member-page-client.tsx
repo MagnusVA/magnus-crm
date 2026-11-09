@@ -28,7 +28,7 @@ import {
 } from "../../_components/people-data";
 import { formatMoney, formatWhen, humanize, pickCurrency, rangeQuery } from "../../_components/report-format";
 import { BandRoleChip, CurrencySelect, ReportBandWithRow, ROLE_LABEL } from "../../_components/report-parts";
-import { useKept, useReportViewed } from "../../_components/use-report-page";
+import { useKept, useReportViewed } from "../../../_components/use-report-page";
 import {
   CallsList,
   CLOSER_DAY_SERIES,

@@ -4,9 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import posthog from "@/lib/posthog-browser";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 
-// Small hooks the Calls and People pages share. The shared analytics hook
-// (`use-report-analytics.ts`) names only the old report pages, so these pages
-// send the same `report_viewed` event from here instead of editing it.
+// Small hooks every Reports page shares: kept data while reloading, and the
+// `report_viewed` / `report_filters_changed` PostHog events.
 
 /**
  * A section's data kept on screen while new arguments load (DESIGN.md, Kept
@@ -28,7 +27,7 @@ export function useKept<T>(value: T | undefined, key: string, phrase: string) {
   };
 }
 
-export type RebuiltReport = "calls" | "people" | "member";
+export type RebuiltReport = "scorecard" | "calls" | "people" | "member" | "attribution" | "pipeline" | "log";
 
 /** Sends `report_viewed` once per mounted page. */
 export function useReportViewed(report: RebuiltReport) {

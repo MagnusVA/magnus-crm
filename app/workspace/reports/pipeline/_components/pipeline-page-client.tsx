@@ -1,5 +1,6 @@
 "use client";
 
+import { useReportViewed } from "../../_components/use-report-page";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { FreshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
@@ -30,6 +31,7 @@ const LIVE: FreshnessSummary = { kind: "line", label: "Live", live: true, delaye
 
 export function PipelinePageClient() {
   usePageTitle("Pipeline");
+  useReportViewed("pipeline");
   const now = useNow();
   const { setting } = useBusinessDay();
   const live = useQuery(api.reports.pipeline.getPipelineNow, { asOf: now });

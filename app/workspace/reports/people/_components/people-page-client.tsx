@@ -19,7 +19,7 @@ import { buildEveryone, buildPeopleDocument, parseRosterTab, PEOPLE_TERMS, roste
 import { formatCount, pickCurrency, rangeQuery } from "./report-format";
 import { CurrencySelect, DefinitionsCard, ReportBandWithRow } from "./report-parts";
 import { ClosersTable, EveryoneTable, RoleTable, RosterCard } from "./roster-tables";
-import { captureReportFilters, useKept, useReportViewed } from "./use-report-page";
+import { captureReportFilters, useKept, useReportViewed } from "../../_components/use-report-page";
 
 // People: every team member, a tab per role and Everyone side by side
 // (docs/reviews/reports-overhaul.html §10). The tab lives in `?role=` so the

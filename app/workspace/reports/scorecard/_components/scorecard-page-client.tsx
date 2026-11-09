@@ -1,5 +1,6 @@
 "use client";
 
+import { useReportViewed } from "../../_components/use-report-page";
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -61,6 +62,7 @@ import { buildScorecardDocument, scorecardCurrencyWeights } from "./scorecard-sh
 
 export function ScorecardPageClient() {
   usePageTitle("Scorecard");
+  useReportViewed("scorecard");
   const now = useNow();
   const range = useReportRange();
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();

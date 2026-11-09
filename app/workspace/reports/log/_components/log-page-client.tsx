@@ -1,5 +1,6 @@
 "use client";
 
+import { useReportViewed } from "../../_components/use-report-page";
 import { useState } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -26,6 +27,7 @@ const LIVE: FreshnessSummary = { kind: "line", label: "Live", live: true, delaye
 
 export function LogPageClient() {
   usePageTitle("Log");
+  useReportViewed("log");
   const range = useReportRange();
   const team = useTeamMembers();
   const [teamMemberId, setTeamMemberId] = useState<Id<"teamMembers"> | undefined>();

@@ -1,5 +1,6 @@
 "use client";
 
+import { useReportViewed } from "../../_components/use-report-page";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -37,6 +38,7 @@ import { DealChainSheet } from "./deal-chain-sheet";
 
 export function AttributionPageClient() {
   usePageTitle("Attribution");
+  useReportViewed("attribution");
   const now = useNow();
   const range = useReportRange();
   const [requestedCurrency, setRequestedCurrency] = useState<string | null>(null);

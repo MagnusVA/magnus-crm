@@ -18,7 +18,7 @@ import { BAND_SELECT, FigureZone, REPORT_PAGE, REPORT_PAIR, ReportBand, ReportFi
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { formatCount, formatRate, plural } from "../../people/_components/report-format";
 import { DefinitionsCard } from "../../people/_components/report-parts";
-import { captureReportFilters, useKept, useReportViewed } from "../../people/_components/use-report-page";
+import { captureReportFilters, useKept, useReportViewed } from "../../_components/use-report-page";
 import {
   ByDayCard,
   HabitsCard,
