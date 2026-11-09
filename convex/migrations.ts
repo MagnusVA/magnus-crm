@@ -14,6 +14,11 @@ import {
   isDismissible,
 } from "./pipeline/dismissal";
 import { requestMeetingProjection } from "./operations/meetingStats";
+import {
+  assertMeetingCallType,
+  backfillMeetingCallType,
+  reverseCallTypeChange,
+} from "./reporting/callTypeBackfill";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import {
@@ -457,6 +462,26 @@ export const assertBlockedBacklogDismissed = migrations.define({
     const raw = await ctx.db.get("rawWebhookEvents", row.rawEventId);
     if (raw && (!raw.processed || raw.processingReason !== DISMISSED_REASON)) throw new Error(`Delivery ${row._id} raw event is not resolved`);
   },
+});
+// The call-type backfill (convex/reporting/callTypeBackfill.ts): a meeting is
+// a first call until a held call on its deal comes before it. Run the dry run
+// first, then the backfill, then the assert; the reverse puts back every type
+// the ledger recorded. Each change patches a meeting through the lifecycle
+// helper, which also rebuilds the deal's meeting refs, so batches stay small.
+export const backfillCallTypes = migrations.define({
+  table: "meetings",
+  batchSize: 25,
+  migrateOne: backfillMeetingCallType,
+});
+export const assertCallTypes = migrations.define({
+  table: "meetings",
+  batchSize: 64,
+  migrateOne: assertMeetingCallType,
+});
+export const reverseCallTypeBackfill = migrations.define({
+  table: "callTypeBackfillChanges",
+  batchSize: 25,
+  migrateOne: reverseCallTypeChange,
 });
 export const rebuildMeetingProjections = migrations.define({
   table: "meetings", batchSize: 32,

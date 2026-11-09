@@ -2210,4 +2210,18 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_status_and_createdAt", ["status", "createdAt"]),
   // === End Public Support Requests ===
+
+  // Every call type the call-type backfill changed, written before the change
+  // (convex/reporting/callTypeBackfill.ts). The old types can't be recomputed,
+  // so this is what makes the reverse exact. Written only by the backfill and
+  // its reverse; dropped once the reports overhaul has run for two weeks.
+  callTypeBackfillChanges: defineTable({
+    tenantId: v.id("tenants"),
+    meetingId: v.id("meetings"),
+    from: v.union(v.literal("new"), v.literal("follow_up"), v.literal("unset")),
+    to: v.union(v.literal("new"), v.literal("follow_up")),
+    changedAt: v.number(),
+    revertedAt: v.optional(v.number()),
+    revertSkipped: v.optional(v.union(v.literal("meeting_deleted"), v.literal("changed_since"))),
+  }).index("by_meetingId", ["meetingId"]),
 });
