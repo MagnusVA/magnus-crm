@@ -106,6 +106,7 @@ it("re-queues only the moved slots, and writes nothing on a dry run", async () =
     continueCursor: null,
     scanned: 3,
     moved: 2,
+    skippedNoDeal: 0,
     byMonth: { "2026-10": 1, "2026-11": 1 },
   });
   await h.t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -132,6 +133,57 @@ it("re-queues only the moved slots, and writes nothing on a dry run", async () =
     tenantId: h.tenantId,
   });
   expect(check).toEqual({ isDone: true, nextFromDayKey: null, days: 3, moved: 2, canceled: 1 });
+});
+
+it.each(["missing", "other_tenant"] as const)("skips a moved slot whose deal is %s in dry runs and requeues", async (kind) => {
+  const h = await setup();
+  await h.t.run(async ctx => {
+    const { _id, _creationTime, ...deal } = (await ctx.db.get("opportunities", h.opportunityId))!;
+    void _id; void _creationTime;
+    const tenantId = await ctx.db.insert("tenants", { companyName: "Other", contactEmail: "other@example.invalid",
+      workosOrgId: "other", status: "active", inviteExpiresAt: 0, createdBy: "test" });
+    const opportunityId = await ctx.db.insert("opportunities", { ...deal, tenantId });
+    if (kind === "missing") await ctx.db.delete("opportunities", opportunityId);
+    // Legacy orphaned source rows have no projection yet.
+    const meetingId = await ctx.db.insert("meetings", { tenantId: h.tenantId, opportunityId, assignedCloserId: h.closerId,
+      calendlyEventUri: "orphan", calendlyInviteeUri: "orphan-invitee", scheduledAt: NOW, durationMinutes: 30,
+      status: "canceled", createdAt: NOW });
+    await ctx.db.insert("meetings", { tenantId: h.tenantId, opportunityId: h.opportunityId, assignedCloserId: h.closerId,
+      calendlyEventUri: "successor", calendlyInviteeUri: "successor-invitee", scheduledAt: NOW + DAY, durationMinutes: 30,
+      status: "scheduled", createdAt: NOW, rescheduledFromMeetingId: meetingId });
+  });
+  const expected = { isDone: true, continueCursor: null, scanned: 1, moved: 0, skippedNoDeal: 1, byMonth: {} };
+  const dryRun = await h.t.mutation(internal.operations.movedSlotProjections.requeueMovedSlotProjections, { tenantId: h.tenantId, dryRun: true });
+  expect(dryRun).toEqual(expected);
+  const run = await h.t.mutation(internal.operations.movedSlotProjections.requeueMovedSlotProjections, { tenantId: h.tenantId });
+  expect(run).toEqual(dryRun);
+  expect(await h.t.run(ctx => ctx.db.query("meetingProjections").take(10))).toEqual([]);
+  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  await expect(h.t.mutation(internal.operations.movedSlotProjections.assertMovedSlotProjections, { tenantId: h.tenantId }))
+    .resolves.toMatchObject({ isDone: true, moved: 0, canceled: 0 });
+});
+
+it("carries skipped deal totals into the scheduled page and completion log", async () => {
+  const h = await setup();
+  await h.t.run(async ctx => {
+    const base = { tenantId: h.tenantId, opportunityId: h.opportunityId, assignedCloserId: h.closerId,
+      calendlyEventUri: "event", calendlyInviteeUri: "invitee", scheduledAt: NOW, durationMinutes: 30, createdAt: NOW };
+    for (let i = 0; i < 101; i++) {
+      const id = await ctx.db.insert("meetings", { ...base, status: "canceled", scheduledAt: NOW + i });
+      if (i === 0 || i === 100) await ctx.db.insert("meetings", { ...base, status: "scheduled", rescheduledFromMeetingId: id });
+    }
+    await ctx.db.delete("opportunities", h.opportunityId);
+  });
+  const info = vi.spyOn(console, "info");
+  try {
+    const first = await h.t.mutation(internal.operations.movedSlotProjections.requeueMovedSlotProjections, { tenantId: h.tenantId, dryRun: true });
+    expect(first).toMatchObject({ isDone: false, scanned: 100, moved: 0, skippedNoDeal: 1, byMonth: {} });
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const completed = info.mock.calls.map(call => String(call[0])).find(line => line.includes("operations.moved_slots.requeue.completed"));
+    expect(completed).toBeDefined();
+    expect(JSON.parse(completed!.slice(completed!.indexOf("{")))).toMatchObject({ scanned: 101, moved: 0, skippedNoDeal: 2, byMonth: "{}" });
+    expect(await h.t.run(ctx => ctx.db.query("meetingProjections").take(10))).toEqual([]);
+  } finally { info.mockRestore(); }
 });
 
 it("passes over every window after the re-queue and fails on a planted mismatch", async () => {

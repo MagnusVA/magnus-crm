@@ -47,13 +47,14 @@ export const requeueMovedSlotProjections = internalMutation({
     dryRun: v.optional(v.boolean()),
     cursor: v.optional(v.union(v.string(), v.null())),
     /** Totals from the earlier pages of this run. */
-    totals: v.optional(v.object({ scanned: v.number(), moved: v.number(), byMonth: monthCountsValidator })),
+    totals: v.optional(v.object({ scanned: v.number(), moved: v.number(), skippedNoDeal: v.optional(v.number()), byMonth: monthCountsValidator })),
   },
   returns: v.object({
     isDone: v.boolean(),
     continueCursor: v.union(v.string(), v.null()),
     scanned: v.number(),
     moved: v.number(),
+    skippedNoDeal: v.number(),
     byMonth: monthCountsValidator,
   }),
   handler: async (ctx, args) => {
@@ -68,11 +69,18 @@ export const requeueMovedSlotProjections = internalMutation({
     const totals = {
       scanned: args.totals?.scanned ?? 0,
       moved: args.totals?.moved ?? 0,
+      skippedNoDeal: args.totals?.skippedNoDeal ?? 0,
       byMonth: { ...args.totals?.byMonth },
     };
     for (const meeting of page.page) {
       totals.scanned += 1;
       if (!(await successorMeeting(ctx, meeting))) continue;
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
+      // Match the assert's source set; these relationships cannot project.
+      if (!opportunity || opportunity.tenantId !== args.tenantId) {
+        totals.skippedNoDeal += 1;
+        continue;
+      }
       totals.moved += 1;
       addToMonth(totals.byMonth, businessDateForInstant(meeting.scheduledAt, setting));
       if (!dryRun) await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
@@ -80,7 +88,7 @@ export const requeueMovedSlotProjections = internalMutation({
     const continueCursor = page.isDone ? null : page.continueCursor;
     log.info(
       page.isDone ? "operations.moved_slots.requeue.completed" : "operations.moved_slots.requeue.batch",
-      { tenantId: args.tenantId, dryRun, scanned: totals.scanned, moved: totals.moved, byMonth: JSON.stringify(totals.byMonth) },
+      { tenantId: args.tenantId, dryRun, scanned: totals.scanned, moved: totals.moved, skippedNoDeal: totals.skippedNoDeal, byMonth: JSON.stringify(totals.byMonth) },
     );
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.operations.movedSlotProjections.requeueMovedSlotProjections, {
