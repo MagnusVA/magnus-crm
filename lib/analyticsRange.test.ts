@@ -5,6 +5,7 @@ import {
   dashboardRangePlan,
   EmptyAnalyticsRangeError,
   planAnalyticsRange,
+  settledThroughDate,
   resolveAnalyticsRange,
   resolveDashboardRange,
 } from "./analyticsRange";
@@ -103,6 +104,7 @@ describe("planAnalyticsRange", () => {
       history: { kind: "preset", preset: "this_month", throughYesterday: true },
       historyStartDate: "2026-10-01",
       historyEndDate: "2026-10-26",
+      liveStartDate: "2026-10-27",
     });
     expect(planAnalyticsRange("2026-10-26", "2026-10-27", today)).toMatchObject({
       kind: "split",
@@ -115,7 +117,49 @@ describe("planAnalyticsRange", () => {
       history: { kind: "custom", startDate: "2026-10-20", endDateInclusive: "2026-10-26" },
       historyStartDate: "2026-10-20",
       historyEndDate: "2026-10-26",
+      liveStartDate: "2026-10-27",
     });
+  });
+
+  it("reads yesterday live too until a sync after the day's start has landed (D1)", () => {
+    const settled = "2026-10-25"; // the evening sync missed late Oct 26
+    // This month: ClickHouse through Oct 25, Convex for Oct 26 and today.
+    expect(planAnalyticsRange("2026-10-01", "2026-10-27", today, settled)).toEqual({
+      kind: "split",
+      range: { kind: "preset", preset: "this_month" },
+      history: { kind: "custom", startDate: "2026-10-01", endDateInclusive: "2026-10-25" },
+      historyStartDate: "2026-10-01",
+      historyEndDate: "2026-10-25",
+      liveStartDate: "2026-10-26",
+    });
+    // A range that ended yesterday is split too, its last day read live.
+    expect(planAnalyticsRange("2026-10-20", "2026-10-26", today, settled)).toMatchObject({
+      kind: "split",
+      historyEndDate: "2026-10-25",
+      liveStartDate: "2026-10-26",
+    });
+    // A range from yesterday on is all live.
+    expect(planAnalyticsRange("2026-10-26", "2026-10-27", today, settled)).toEqual({ kind: "live" });
+    // Ranges that ended before the settled day are unaffected.
+    expect(planAnalyticsRange("2026-09-01", "2026-09-30", today, settled)).toEqual({
+      kind: "warehouse",
+      range: { kind: "preset", preset: "last_month" },
+    });
+  });
+});
+
+describe("settledThroughDate", () => {
+  const today = "2026-10-27";
+  const todayStart = Date.parse("2026-10-27T07:00:00Z");
+
+  it("is yesterday once the watermark passes the start of today", () => {
+    expect(settledThroughDate(today, todayStart + 1, todayStart)).toBe("2026-10-26");
+    expect(settledThroughDate(today, todayStart, todayStart)).toBe("2026-10-26");
+  });
+
+  it("is the day before yesterday until then, or with no sync at all", () => {
+    expect(settledThroughDate(today, todayStart - 1, todayStart)).toBe("2026-10-25");
+    expect(settledThroughDate(today, null, todayStart)).toBe("2026-10-25");
   });
 });
 
@@ -133,6 +177,7 @@ describe("dashboardRangePlan", () => {
       history: { kind: "preset", preset: "this_week", throughYesterday: true },
       historyStartDate: "2026-10-26",
       historyEndDate: "2026-10-26",
+      liveStartDate: "2026-10-27",
     });
     // Dates that match a preset share the preset's cached answer.
     expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-27" }, "2026-10-27")).toMatchObject({
@@ -150,6 +195,7 @@ describe("dashboardRangePlan", () => {
       history: { kind: "custom", startDate: "2026-10-01", endDateInclusive: "2026-10-26" },
       historyStartDate: "2026-10-01",
       historyEndDate: "2026-10-26",
+      liveStartDate: "2026-10-27",
     });
   });
 

@@ -181,6 +181,8 @@ export type AnalyticsRangePlan =
       history: AnalyticsRange;
       historyStartDate: string;
       historyEndDate: string;
+      /** The first day the live reader answers: today, or yesterday overnight. */
+      liveStartDate: string;
     };
 
 /**
@@ -197,25 +199,44 @@ function rangeForDates(startDate: string, endDateInclusive: string, today: strin
   return { kind: "custom", startDate, endDateInclusive };
 }
 
-/** Plans a range of inclusive dates, in the page's day definition. */
+/**
+ * The last day ClickHouse holds whole (docs/reviews/reports-decisions.html,
+ * D1). Yesterday, once a sync whose watermark is past the start of today has
+ * landed; until then the day before, since the evening sync missed whatever
+ * was logged between it and the business day's end. A page that passes this
+ * to its plan reads yesterday live too in those hours, so a call recorded
+ * late last night is never missing in the morning.
+ */
+export function settledThroughDate(today: string, watermarkMs: number | null, todayStartMs: number): string {
+  if (watermarkMs !== null && watermarkMs >= todayStartMs) return addBusinessDays(today, -1);
+  return addBusinessDays(today, -2);
+}
+
+/**
+ * Plans a range of inclusive dates, in the page's day definition.
+ * `settledThrough` is the last day ClickHouse answers (default yesterday);
+ * every later day is read live.
+ */
 export function planAnalyticsRange(
   startDate: string,
   endDateInclusive: string,
   today: string,
+  settledThrough: string = addBusinessDays(today, -1),
 ): AnalyticsRangePlan {
-  if (startDate >= today) return { kind: "live" };
+  if (startDate > settledThrough) return { kind: "live" };
   const whole = rangeForDates(startDate, endDateInclusive, today);
-  if (endDateInclusive < today) return { kind: "warehouse", range: whole };
+  if (endDateInclusive <= settledThrough) return { kind: "warehouse", range: whole };
   const yesterday = addBusinessDays(today, -1);
   return {
     kind: "split",
     range: whole,
     history:
-      whole.kind === "preset"
+      whole.kind === "preset" && settledThrough === yesterday
         ? { ...whole, throughYesterday: true }
-        : { kind: "custom", startDate, endDateInclusive: yesterday },
+        : { kind: "custom", startDate, endDateInclusive: settledThrough },
     historyStartDate: startDate,
-    historyEndDate: yesterday,
+    historyEndDate: settledThrough,
+    liveStartDate: addBusinessDays(settledThrough, 1),
   };
 }
 
@@ -230,14 +251,36 @@ export type DashboardRange =
  * one day is a small read for the page's Convex reader, and it skips waiting
  * on a ClickHouse run.
  */
-export function dashboardRangePlan(range: DashboardRange, todayBusinessDate: string): AnalyticsRangePlan {
+export function dashboardRangePlan(
+  range: DashboardRange,
+  todayBusinessDate: string,
+  /** Reports pass `settledThroughDate(...)`; other pages read through yesterday. */
+  settledThrough?: string,
+): AnalyticsRangePlan {
   if (range.kind === "custom") {
     if (range.startBusinessDate === range.endBusinessDateInclusive) return { kind: "live" };
-    return planAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate);
+    return planAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate, settledThrough);
   }
   if (range.preset === "today") return { kind: "live" };
   const dates = presetDates(range.preset, todayBusinessDate);
-  return planAnalyticsRange(dates.startDate, dates.endDateInclusive, todayBusinessDate);
+  return planAnalyticsRange(dates.startDate, dates.endDateInclusive, todayBusinessDate, settledThrough);
+}
+
+/**
+ * The part of a dashboard range that a split's live reader answers: from the
+ * plan's `liveStartDate` (today, or yesterday overnight) to the range's end.
+ */
+export function dashboardLiveRange(
+  range: DashboardRange,
+  todayBusinessDate: string,
+  liveStartDate: string = todayBusinessDate,
+): DashboardRange {
+  const end = resolveDashboardRange(range, todayBusinessDate).endBusinessDateInclusive;
+  return {
+    kind: "custom",
+    startBusinessDate: liveStartDate,
+    endBusinessDateInclusive: end > liveStartDate ? end : liveStartDate,
+  };
 }
 
 /**
