@@ -178,7 +178,12 @@ describe("Sales Calls historical UI", () => {
     );
     expect(html).toContain("Calls");
     expect(html).toContain("4 of 6 past calls have a result");
-    expect(html).toContain("Cash collected");
+    // Cash without deposits is Final cash (D7), never "Cash collected".
+    expect(html).toContain("Final cash");
+    expect(html).not.toContain("Cash collected");
+    // Canceled and moved slots are counted apart (D9), with the dictionary's words.
+    expect(html).toContain("0 canceled · 0 moved · 1 no-show");
+    expect(html).toContain("A slot given up because the call was rescheduled.");
     expect(html).toContain("Average sale");
     expect(html).toContain("Programs");
     expect(html).toContain("Phone closers");

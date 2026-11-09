@@ -43,6 +43,12 @@ const COLUMNS: Column[] = [
     quietAtZero: (row) => row.canceled === 0,
   },
   {
+    key: "moved",
+    head: "Moved",
+    value: (row) => formatCount(row.moved ?? 0),
+    quietAtZero: (row) => (row.moved ?? 0) === 0,
+  },
+  {
     key: "noShows",
     head: "No-show",
    

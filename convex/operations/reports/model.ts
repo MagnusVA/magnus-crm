@@ -226,7 +226,8 @@ export type ReportSourceRow =
       notRecorded: number;
       assignedCloserId: string;
       bookingProgramId: string | null;
-      meetingStatus: Doc<"meetings">["status"];
+      // The projection's status: a moved slot is `moved`, not `canceled`.
+      meetingStatus: Doc<"operationsMeetingStatsV2">["meetingStatus"];
       count: number;
     }
   | {

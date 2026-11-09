@@ -9,6 +9,7 @@ import {
   type getSchedulingShowRateByOperationsDimensions,
 } from "../../reporting/pipelineHealth";
 import type { SqlRow } from "../clickhouse";
+import { contributionStatusSql } from "./operations";
 import {
   defineReport,
   noFilters,
@@ -142,7 +143,7 @@ WHERE tenant_id = {tenant_id:String}
 /**
  * The operationsMeetingStatsV2 rows the reader counts, rebuilt from the
  * meetings: a meeting's contribution is its business day, closer, booked
- * program, its deal's sold program and its status. A credited meeting is its
+ * program, its deal's sold program and its status, a moved slot as `moved`. A credited meeting is its
  * own row, as the reader's projection read is. Only a scheduled call's day,
  * closer and sold program reach a number (withAttendanceCounts), so every
  * other status is summed per booked program at the range's first such day,
@@ -171,7 +172,7 @@ SELECT
 FROM (
   SELECT
     m.id AS row_meeting_id,
-    m.status AS row_status,
+    ${contributionStatusSql("m")} AS row_status,
     m.booking_program_id AS row_booking_program_id,
     m.assigned_closer_id AS row_closer_id,
     d.sold_program_id AS row_sold_program_id,
@@ -215,7 +216,7 @@ function meetingStatsCounts(rows: SqlRow[] | undefined): MeetingStatsCount[] {
       assignedCloserId: String(row.assigned_closer_id) as Id<"users">,
       ...(bookingProgramId ? { bookingProgramId } : {}),
       ...(soldProgramId ? { soldProgramId } : {}),
-      meetingStatus: String(row.meeting_status) as Doc<"meetings">["status"],
+      meetingStatus: String(row.meeting_status) as MeetingStatsCount["meetingStatus"],
       count: num(row.count),
       ...(meetingId ? { meetingId } : {}),
     };

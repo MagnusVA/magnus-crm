@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addBusinessDays, businessDateForInstant, businessDayStart, DEFAULT_BUSINESS_DAY } from "../../../lib/businessDay";
 import { bookingHarness, qualifiedLifecycle } from "../../../tests/bookingHarness";
-import { expectSameAnswer } from "../../../tests/analyticsParity";
+import { expectSameAnswer, projectedMeetingStatus } from "../../../tests/analyticsParity";
 import { api } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
@@ -167,7 +167,8 @@ async function showRateRows(
       if (row.role === "dm_closer" && row.meetingId) credited.add(row.meetingId);
     }
     const buckets = new Map<string, Record<string, unknown> & { count: number }>();
-    for (const meeting of await ctx.db.query("meetings").take(100)) {
+    const meetings = await ctx.db.query("meetings").take(100);
+    for (const meeting of meetings) {
       if (meeting.scheduledAt < businessRange.fromMs || meeting.scheduledAt >= businessRange.toMs) continue;
       if (filters.bookingProgramId && meeting.bookingProgramId !== filters.bookingProgramId) continue;
       if (filters.credited && !credited.has(meeting._id)) continue;
@@ -175,7 +176,7 @@ async function showRateRows(
       const dayKey = businessDateForInstant(meeting.scheduledAt, DEFAULT_BUSINESS_DAY);
       const scheduled = meeting.status === "scheduled";
       const row = {
-        meeting_status: meeting.status,
+        meeting_status: projectedMeetingStatus(meeting, meetings),
         booking_program_id: meeting.bookingProgramId ?? null,
         day_key: dayKey,
         assigned_closer_id: meeting.assignedCloserId,

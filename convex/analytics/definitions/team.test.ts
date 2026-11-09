@@ -8,7 +8,7 @@ import {
   DEFAULT_BUSINESS_DAY,
 } from "../../../lib/businessDay";
 import { resolveAnalyticsRange, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
-import { expectSameAnswer, rowFromDoc } from "../../../tests/analyticsParity";
+import { expectSameAnswer, projectedMeetingStatus, rowFromDoc } from "../../../tests/analyticsParity";
 import { bookingHarness, qualifiedLifecycle } from "../../../tests/bookingHarness";
 import { recordBookingAttribution } from "../../lib/attribution/dealAttributions";
 import { insertMeetingAggregate } from "../../reporting/writeHooks";
@@ -311,7 +311,7 @@ function meetingBucketRows(fixture: Fixture, range: ResolvedAnalyticsRange, filt
       assigned_closer_id: meeting.assignedCloserId,
       booking_program_id: meeting.bookingProgramId ?? null,
       sold_program_id: deal.soldProgramId ?? null,
-      meeting_status: meeting.status,
+      meeting_status: projectedMeetingStatus(meeting, fixture.meetings),
     };
     const key = JSON.stringify(row);
     const group = groups.get(key) ?? { ...row, count: 0 };

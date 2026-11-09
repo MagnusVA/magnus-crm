@@ -204,6 +204,8 @@ it.each(attendanceStorageModes)("keeps the pipeline show rate for every team, DM
     scheduled,
     shown,
     canceled,
+    // No canceled call here was replaced, so nothing is moved.
+    moved: 0,
     noShows,
     resultsRecorded: shown + noShows,
     pastCalls: scheduled - canceled,
@@ -263,6 +265,7 @@ it.each(attendanceStorageModes)("keeps the team operations dimensions for every 
     scheduled,
     completed,
     canceled,
+    moved: 0,
     noShows,
     notRecorded: scheduled - canceled - completed - noShows,
     resultsRecorded: completed + noShows,

@@ -1,26 +1,31 @@
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
+import { REPORT_TERMS } from "@/lib/reporting/definitions";
 import { CLOSE_RATE_HELP, PROGRAM_CLOSE_RATE_HELP, TEAM_CLOSE_RATE_HELP } from "./close-rate";
 
 // What each figure on the page counts, in words, so no definition hides
 // behind a help icon (PRODUCT.md, Numbers you can trust).
 
+// Canceled, Moved and Final cash read the reporting dictionary, so they mean
+// what they mean on every other page.
 const DEFINITIONS: ReadonlyArray<{ term: string; definition: string }> = [
   {
     term: "Calls",
-    definition: "Meetings scheduled in the range, in every status: upcoming, held, canceled, no-show and not recorded.",
+    definition:
+      "Meetings scheduled in the range, in every status: upcoming, held, canceled, moved, no-show and not recorded.",
   },
+  { term: REPORT_TERMS.canceled.label, definition: REPORT_TERMS.canceled.definition },
+  { term: REPORT_TERMS.moved.label, definition: REPORT_TERMS.moved.definition },
   { term: "Show rate", definition: SHOW_RATE_HELP },
   {
-    term: "Cash collected",
-    definition:
-      "Final payments recorded in the range, each currency on its own. Deposits and disputed payments are left out, matching the Revenue report.",
+    term: REPORT_TERMS.finalCash.label,
+    definition: `${REPORT_TERMS.finalCash.definition} Payments recorded in the range, each currency on its own; disputed payments are left out.`,
   },
   { term: "Close rate", definition: TEAM_CLOSE_RATE_HELP },
-  { term: "Average sale", definition: "Cash collected ÷ the number of final payments, in each currency. A dash when there were none." },
+  { term: "Average sale", definition: "Final cash ÷ the number of final payments, in each currency. A dash when there were none." },
   {
     term: "Phone closers",
-    definition: `Every active closer is listed, even with no calls; removed closers keep their history. A closer's close rate: ${CLOSE_RATE_HELP} The Total sums the rows, so its revenue leaves out payments credited to no closer and can be lower than Cash collected.`,
+    definition: `Every active closer is listed, even with no calls; removed closers keep their history. A closer's close rate: ${CLOSE_RATE_HELP} The Total sums the rows, so its revenue leaves out payments credited to no closer and can be lower than Final cash.`,
   },
   {
     term: "Programs",

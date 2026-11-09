@@ -46,6 +46,8 @@ export function mergeSchedulingShowRate(
     scheduled: history.scheduled + today.scheduled,
     shown,
     canceled: history.canceled + today.canceled,
+    // An answer cached before the counter existed lacks it.
+    moved: (history.moved ?? 0) + (today.moved ?? 0),
     noShows,
     resultsRecorded: history.resultsRecorded + today.resultsRecorded,
     pastCalls: history.pastCalls + today.pastCalls,

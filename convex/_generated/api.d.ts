@@ -196,6 +196,7 @@ import type * as lib_bookingSetup_coverageData from "../lib/bookingSetup/coverag
 import type * as lib_businessDayRebuildState from "../lib/businessDayRebuildState.js";
 import type * as lib_callType from "../lib/callType.js";
 import type * as lib_constants from "../lib/constants.js";
+import type * as lib_dealCallTypes from "../lib/dealCallTypes.js";
 import type * as lib_dealNextStep from "../lib/dealNextStep.js";
 import type * as lib_domainEventLinks from "../lib/domainEventLinks.js";
 import type * as lib_domainEvents from "../lib/domainEvents.js";
@@ -292,6 +293,7 @@ import type * as operations_meetingProjectionChecks from "../operations/meetingP
 import type * as operations_meetingProjectionSchema from "../operations/meetingProjectionSchema.js";
 import type * as operations_meetingStats from "../operations/meetingStats.js";
 import type * as operations_missedMeetings from "../operations/missedMeetings.js";
+import type * as operations_movedSlotProjections from "../operations/movedSlotProjections.js";
 import type * as operations_phoneSales from "../operations/phoneSales.js";
 import type * as operations_projections from "../operations/projections.js";
 import type * as operations_qualificationCredit from "../operations/qualificationCredit.js";
@@ -663,6 +665,7 @@ declare const fullApi: ApiFromModules<{
   "lib/businessDayRebuildState": typeof lib_businessDayRebuildState;
   "lib/callType": typeof lib_callType;
   "lib/constants": typeof lib_constants;
+  "lib/dealCallTypes": typeof lib_dealCallTypes;
   "lib/dealNextStep": typeof lib_dealNextStep;
   "lib/domainEventLinks": typeof lib_domainEventLinks;
   "lib/domainEvents": typeof lib_domainEvents;
@@ -759,6 +762,7 @@ declare const fullApi: ApiFromModules<{
   "operations/meetingProjectionSchema": typeof operations_meetingProjectionSchema;
   "operations/meetingStats": typeof operations_meetingStats;
   "operations/missedMeetings": typeof operations_missedMeetings;
+  "operations/movedSlotProjections": typeof operations_movedSlotProjections;
   "operations/phoneSales": typeof operations_phoneSales;
   "operations/projections": typeof operations_projections;
   "operations/qualificationCredit": typeof operations_qualificationCredit;

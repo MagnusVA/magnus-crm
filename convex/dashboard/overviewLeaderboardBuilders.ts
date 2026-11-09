@@ -21,6 +21,7 @@ import {
 } from "../workSchedules/rangeHours";
 import { hasScheduleRows } from "../workSchedules/datedRows";
 import { compareNullableEfficiency } from "./efficiencySort";
+import { isReplacement } from "../lib/callType";
 import {
   bookingCreditsInWindow,
   type BookingCredit,
@@ -111,7 +112,7 @@ function countBookedSlackOpportunities(
 }
 
 /**
- * A team's first bookings that no dm_closer row names, grouped by the UTMs
+ * A team's new bookings that no dm_closer row names, grouped by the UTMs
  * they arrived with, so the page can say where they came from (an ads
  * campaign, an unmapped medium). Blank UTMs read as null.
  */
@@ -148,9 +149,11 @@ export function addTeamOnlySource(
 }
 
 // Booked Calls credit (docs/plans/phase-3-attribution.md §6.1, D9). The
-// population is first bookings: every meeting but a follow_up. A DM closer
-// record counts the first bookings its dm_closer row names; a team counts the
-// first bookings its dm_team row names, whether or not they name a DM closer.
+// population is new bookings: every meeting that doesn't replace another (a
+// Calendly reschedule or a no-show rebook), whatever its call type. A DM
+// closer record counts the new bookings its dm_closer row names; a team counts
+// the new bookings its dm_team row names, whether or not they name a DM
+// closer.
 function countBookedMeetings(
   meetings: Doc<"meetings">[],
   credits: ReadonlyMap<Id<"meetings">, BookingCredit>,
@@ -160,7 +163,7 @@ function countBookedMeetings(
   let teamOnlyBooked = 0;
   const teamOnlySources: TeamOnlySourcesByTeam = new Map();
   for (const meeting of meetings) {
-    if (meeting.callClassification === "follow_up") continue;
+    if (isReplacement(meeting)) continue;
     const credit = credits.get(meeting._id);
     if (!credit) continue;
     if (credit.dmCloserId) {
@@ -474,12 +477,12 @@ export async function buildQualifierRowsFromActivity(
 export type DmCloserEfficiencyResult = {
   rows: TopDmCloserRow[];
   truncated: boolean;
-  // First bookings in range per team, from their dm_team rows: the DM-closer
-  // bookings and the team-only ones (D9). A first booking whose team row names
+  // New bookings in range per team, from their dm_team rows: the DM-closer
+  // bookings and the team-only ones (D9). A new booking whose team row names
   // a team outside the registry still counts here; callers show registry
   // teams only.
   bookedByTeam: Map<Id<"attributionTeams">, number>;
-  // First bookings with a dm_team row and no dm_closer row. They count toward
+  // New bookings with a dm_team row and no dm_closer row. They count toward
   // their team and the goal, never toward a DM closer or the DM closer total.
   teamOnlyBooked: number;
   // The team-only bookings above, per team, by their UTMs.
@@ -537,7 +540,7 @@ export async function buildDmCloserEfficiencyRows(
 }
 
 /**
- * The DM closer rows from the range's first-booking counts. The Convex path
+ * The DM closer rows from the range's new-booking counts. The Convex path
  * counts the bookings it reads; the Booked Calls ClickHouse report
  * (convex/analytics/definitions/operations.ts) counts them in SQL.
  */

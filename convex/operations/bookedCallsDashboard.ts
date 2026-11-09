@@ -24,6 +24,7 @@ import {
   type BookingCredit,
 } from "../lib/attribution/dealAttributions";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
+import { isReplacement } from "../lib/callType";
 import {
   LIVE_QUERY_BYTE_BUDGET,
   readLiveDocuments,
@@ -136,12 +137,13 @@ type BookedCall = {
 /** All bookings, one DM closer's, or the team-only ones (no DM closer). */
 type BookedCallFilter = { dmCloserId?: Id<"dmClosers">; teamOnly?: boolean };
 
-// The details list is the dashboard's bookings: first bookings (anything but
-// a follow_up) whose createdAt falls in the window and whose booking rows
-// name a DM closer or a team. Team-only bookings, which name a team and no
-// DM closer, are listed too, so the page can show where they came from.
-function isFirstBooking(meeting: Doc<"meetings">) {
-  return meeting.callClassification !== "follow_up";
+// The details list is the dashboard's bookings: new bookings (any meeting
+// that doesn't replace another, whatever its call type) whose createdAt falls
+// in the window and whose booking rows name a DM closer or a team. Team-only
+// bookings, which name a team and no DM closer, are listed too, so the page
+// can show where they came from.
+function isNewBooking(meeting: Doc<"meetings">) {
+  return !isReplacement(meeting);
 }
 
 function bookedCall(
@@ -347,7 +349,7 @@ export const getBookedCallsDashboard = query({
 
     // Same machinery as the Overview's Top DM Closers section: one bounded
     // meetings read (by_tenantId_and_createdAt over the business-day UTC
-    // window) for the first bookings, and the dm_team and dm_closer rows over
+    // window) for the new bookings, and the dm_team and dm_closer rows over
     // the same window for their credit. Scheduled hours come from
     // loadDmCloserScheduledHoursForRange inside.
     //
@@ -392,7 +394,7 @@ export const getBookedCallsDashboard = query({
 
 /**
  * The Booked Calls dashboard from the DM closer rows and the range's
- * first-booking counts. The Convex reader counts the bookings it reads; the
+ * new-booking counts. The Convex reader counts the bookings it reads; the
  * ClickHouse report (convex/analytics/definitions/operations.ts) counts them
  * in SQL and builds the rows with buildDmCloserRowsFromCounts.
  */
@@ -556,7 +558,7 @@ export async function buildBookedCallsDashboard(
   );
 
   // Per-team goal: dailyQuota x the days in range someone on the team works
-  // (bookingGoalDayCounts). A team's progress is the first bookings its
+  // (bookingGoalDayCounts). A team's progress is the new bookings its
   // dm_team row names, with or without a DM closer (D9).
   const shownTeams = teams.filter(
     (team) => team.isActive || (bookedByTeam.get(team._id) ?? 0) > 0,
@@ -634,7 +636,7 @@ export async function buildBookedCallsDashboard(
 
 /**
  * Paginated bookings for the collapsible details list: the DM closer table's
- * population (first bookings by createdAt window whose rows name a DM
+ * population (new bookings by createdAt window whose rows name a DM
  * closer), newest booking first. Pass the dashboard's `window` as start/end
  * so both surfaces agree.
  */
@@ -680,18 +682,18 @@ export const listBookedCallsDetails = query({
         maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
       });
 
-    // Follow-ups and bookings with no DM closer or team row are excluded post-read
+    // Replacements and bookings with no DM closer or team row are excluded post-read
     // within the page (there is no createdAt index carrying those
     // dimensions), so pages can come back shorter than numItems; the cursor
     // stays correct. A page holds at most two meetings, so their rows are
     // read by meeting.
-    const firstBookings = result.page.filter(isFirstBooking);
+    const newBookings = result.page.filter(isNewBooking);
     const credits = await Promise.all(
-      firstBookings.map((meeting) =>
+      newBookings.map((meeting) =>
         bookingCreditForMeeting(ctx, tenantId, meeting._id),
       ),
     );
-    const bookedCalls = firstBookings
+    const bookedCalls = newBookings
       .map((meeting, index) =>
         bookedCall(meeting, credits[index], args),
       )
@@ -760,17 +762,17 @@ export const searchBookedCallsDetails = query({
       ),
     );
 
-    const firstBookings = meetingsPerOpportunity
+    const newBookings = meetingsPerOpportunity
       .flat()
       .filter((meeting) => meeting.tenantId === tenantId)
       .filter((meeting) => meeting.createdAt >= start && meeting.createdAt < end)
-      .filter(isFirstBooking);
+      .filter(isNewBooking);
     const credits = await bookingCreditsForDeals(
       ctx,
       tenantId,
-      uniqueIds(firstBookings.map((meeting) => meeting.opportunityId)),
+      uniqueIds(newBookings.map((meeting) => meeting.opportunityId)),
     );
-    const bookedCalls = firstBookings
+    const bookedCalls = newBookings
       .map((meeting) =>
         bookedCall(meeting, credits.get(meeting._id), args),
       )

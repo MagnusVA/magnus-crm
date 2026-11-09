@@ -52,7 +52,8 @@ function mergeTeamOnly(past: TeamOnly | undefined, current: TeamOnly | undefined
 function addFields<Row, Key extends keyof Row>(past: Row, current: Row, keys: readonly Key[]): Row {
   const result = { ...current };
   for (const key of keys) {
-    result[key] = ((past[key] as number) + (current[key] as number)) as Row[Key];
+    // An answer cached before a counter existed (`moved`) lacks it.
+    result[key] = (((past[key] as number | undefined) ?? 0) + ((current[key] as number | undefined) ?? 0)) as Row[Key];
   }
   return result;
 }
@@ -101,6 +102,7 @@ export function mergeSalesCallsDashboard(history: SalesCalls, today: SalesCalls)
   const meetingKeys = [
     "showed",
     "canceled",
+    "moved",
     "noShows",
     "resultsRecorded",
     "pastCalls",

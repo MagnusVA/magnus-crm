@@ -12,8 +12,37 @@ import {
 import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
 import { reportingPool } from "../pipeline/workpools";
 import { meetingContribution } from "./meetingProjectionSchema";
+import { isMovedSlot } from "../lib/callType";
 
 type Contribution = Infer<typeof meetingContribution>;
+export type ContributionStatus = Contribution["meetingStatus"];
+
+/** The meeting that replaced this one, if any: a reschedule or a no-show rebook. */
+export async function successorMeeting(
+  ctx: QueryCtx,
+  meeting: Pick<Doc<"meetings">, "_id" | "tenantId">,
+) {
+  const successor = await ctx.db
+    .query("meetings")
+    .withIndex("by_rescheduledFromMeetingId", (q) =>
+      q.eq("rescheduledFromMeetingId", meeting._id),
+    )
+    .first();
+  return successor?.tenantId === meeting.tenantId ? successor : null;
+}
+
+/**
+ * The status a meeting counts under: its own, except that a canceled meeting
+ * another meeting replaced is a moved slot. A no-show that was rebooked stays
+ * a no-show.
+ */
+export async function contributionStatus(
+  ctx: QueryCtx,
+  meeting: Doc<"meetings">,
+): Promise<ContributionStatus> {
+  if (meeting.status !== "canceled") return meeting.status;
+  return isMovedSlot(meeting, await successorMeeting(ctx, meeting)) ? "moved" : "canceled";
+}
 export function meetingDayKey(timestamp: number, setting?: BusinessDaySetting) {
   return businessDateForInstant(timestamp, setting);
 }
@@ -125,6 +154,21 @@ export async function requestMeetingProjection(
   );
 }
 
+/**
+ * Call before deleting a meeting: its own projection, and the projection of
+ * the meeting it replaced, which stops being a moved slot once it has no
+ * successor.
+ */
+export async function requestMeetingDeleteProjections(
+  ctx: MutationCtx,
+  meeting: Pick<Doc<"meetings">, "_id" | "tenantId" | "rescheduledFromMeetingId">,
+) {
+  await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
+  if (meeting.rescheduledFromMeetingId) {
+    await requestMeetingProjection(ctx, meeting.tenantId, meeting.rescheduledFromMeetingId);
+  }
+}
+
 /** Same source enqueue path used by rebuildMeetingProjections, scoped to one tenant. */
 export async function enqueueTenantMeetingProjectionPage(ctx: MutationCtx, tenantId: Id<"tenants">, cursor: string | null) {
   const page = await ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", q => q.eq("tenantId", tenantId)).paginate({ cursor, numItems: 200 });
@@ -161,7 +205,7 @@ export const project = internalMutation({
         assignedCloserId: meeting.assignedCloserId,
         bookingProgramId: meeting.bookingProgramId,
         soldProgramId: opportunity.soldProgramId,
-        meetingStatus: meeting.status,
+        meetingStatus: await contributionStatus(ctx, meeting),
       };
       if (
         meeting.soldProgramId !== opportunity.soldProgramId ||

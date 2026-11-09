@@ -13,7 +13,7 @@ import {
   businessDayStart,
   DEFAULT_BUSINESS_DAY,
 } from "../../../lib/businessDay";
-import { expectSameAnswer } from "../../../tests/analyticsParity";
+import { expectSameAnswer, projectedMeetingStatus } from "../../../tests/analyticsParity";
 import { BOOKED_CALLS_ADMIN, seedBookedCallsFixture } from "../../../tests/bookedCallsFixture";
 import { bookingHarness, qualifiedLifecycle, testLeadGenTeam } from "../../../tests/bookingHarness";
 
@@ -489,7 +489,8 @@ function bookingCreditRows(
   const groups = new Map<string, { key: (string | null)[]; booked: number }>();
   for (const meeting of meetings) {
     if (meeting.createdAt < window.fromMs || meeting.createdAt >= window.toMs) continue;
-    if (meeting.callClassification === "follow_up") continue;
+    // A replacement (a reschedule or a no-show rebook) isn't a new booking.
+    if (meeting.rescheduledFromMeetingId !== undefined) continue;
     const team = latest.get(`${meeting._id}:dm_team`);
     const closer = latest.get(`${meeting._id}:dm_closer`);
     if (!team && !closer) continue;
@@ -523,7 +524,7 @@ function meetingBucketRows(
       meeting.assignedCloserId,
       meeting.bookingProgramId ?? null,
       deal.soldProgramId ?? null,
-      meeting.status,
+      projectedMeetingStatus(meeting, meetings),
     ];
     const bucket = buckets.get(JSON.stringify(key)) ?? { key, count: 0 };
     bucket.count += 1;

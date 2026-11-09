@@ -71,10 +71,28 @@ function liveArgs(input: ReportInput<NoFilters>) {
 const businessDateSql = (column: string) =>
   `toDate(toTimeZone(fromUnixTimestamp64Milli(${column}), {tz:String}) - toIntervalHour({day_start_hour:UInt8}))`;
 
+/**
+ * The status a meeting counts under in the projection (`contributionStatus`
+ * in operations/meetingStats.ts): its own, except that a canceled meeting
+ * another meeting replaced is `moved`. `alias` is the meetings view's alias in
+ * the query.
+ */
+export const contributionStatusSql = (alias: string) => `if(
+    ${alias}.status = 'canceled' AND ${alias}.id IN (
+      SELECT rescheduled_from_meeting_id
+      FROM analytics.meetings
+      WHERE tenant_id = {tenant_id:String}
+        AND rescheduled_from_meeting_id IS NOT NULL
+    ),
+    'moved',
+    ${alias}.status
+  )`;
+
 // operationsMeetingStatsV2, rebuilt: one bucket per business day of
 // `scheduledAt`, assigned closer, booked program, the deal's sold program and
-// meeting status (operations/meetingStats.ts `project`). A meeting whose deal
-// is missing has no contribution, hence the inner join.
+// meeting status, a moved slot as `moved` (operations/meetingStats.ts
+// `project`). A meeting whose deal is missing has no contribution, hence the
+// inner join.
 //
 // The builder reads a bucket's day only to tell calls that ended from calls
 // still to come (withAttendanceCounts): every scheduled call before
@@ -87,7 +105,7 @@ SELECT
   m.assigned_closer_id AS assigned_closer_id,
   m.booking_program_id AS booking_program_id,
   d.sold_program_id AS sold_program_id,
-  m.status AS meeting_status,
+  ${contributionStatusSql("m")} AS meeting_status,
   count() AS count
 FROM analytics.meetings AS m
 INNER JOIN (
@@ -129,8 +147,9 @@ export function meetingBuckets(rows: SqlRow[] | undefined): MeetingStatsCount[] 
   }));
 }
 
-// countBookedMeetings, grouped by credit: first bookings (anything but a
-// follow_up) made in the range, with the team and DM closer their booking's
+// countBookedMeetings, grouped by credit: new bookings (meetings that don't
+// replace another, whatever their call type) made in the range, with the team
+// and DM closer their booking's
 // dm_team and dm_closer rows name (bookingCreditOf, the latest row of each
 // role winning). Rows come from the same window as the meetings, as
 // bookingCreditsInWindow reads them.
@@ -165,7 +184,7 @@ INNER JOIN credits AS c ON c.meeting_id = m.id
 WHERE m.tenant_id = {tenant_id:String}
   AND m.created_at_ms >= {from_ms:Int64}
   AND m.created_at_ms < {to_ms:Int64}
-  AND ifNull(m.call_classification, '') != 'follow_up'
+  AND m.rescheduled_from_meeting_id IS NULL
 GROUP BY team_id, dm_closer_id, utm_source, utm_medium, utm_campaign
 ORDER BY team_id, dm_closer_id, utm_source, utm_medium, utm_campaign`;
 
