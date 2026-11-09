@@ -8,6 +8,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { isMovedSlot } from "../lib/callType";
+import { expectedError } from "../lib/observability/errors";
 import { REPORT_ADMIN_ROLES } from "./lib/access";
 import { getEventLabel } from "../reporting/lib/eventLabels";
 import { liveReader, scorecardRangeValidator, type LiveReader } from "./lib/scorecardFacts";
@@ -40,7 +41,7 @@ const filtersValidator = v.object({
   actorUserId: v.optional(v.id("users")),
   entityType: v.optional(v.string()),
 });
-const tooLarge = () => new Error("Choose a shorter range");
+const tooLarge = () => expectedError("rows_export_too_large", "Choose a shorter range");
 const columns = (pairs: [string, string][]): ReportColumn[] => pairs.map(([key, label]) => ({ key, label }));
 export const ROW_COLUMNS: Record<RowsKind, ReportColumn[]> = {
   payments: columns([["paymentId", "Payment id"], ["recordedAt", "Recorded at (ISO)"], ["timeZone", "Tenant time zone"],

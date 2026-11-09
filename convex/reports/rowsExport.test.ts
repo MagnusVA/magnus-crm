@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { scorecardFixture, whole, history, today, identity } from "../../tests/scorecardFixtures";
 import { assembleRowsCsv, exportRowsFromSql, MAX_EXPORT_ROWS, ROW_COLUMNS, rowsExportSql, type RowsKind } from "./rowsExport";
+import { getErrorCode, getErrorMessage } from "../../lib/errors";
 
 const dates = { startDate: whole.startDate, endDateInclusive: whole.endDateInclusive };
 const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
@@ -56,7 +57,18 @@ describe("Rows CSV", () => {
   it("rejects the 200,001st warehouse row with a safe error", async () => {
     const f = await scorecardFixture(); warehouse(Array.from({ length: MAX_EXPORT_ROWS + 1 }, () => ({})));
     await expect(f.t.withIdentity(identity).action(api.reports.rowsExport.exportRows, { kind: "payments", range: dates })).rejects.toThrow("Choose a shorter range");
-    expect(() => assembleRowsCsv("credits", Array(MAX_EXPORT_ROWS).fill({}), [{}])).toThrow("Choose a shorter range");
+    await expect(f.t.withIdentity(identity).action(api.reports.rowsExport.exportRows, { kind: "payments", range: dates })).rejects.toMatchObject({
+      data: { code: "rows_export_too_large", message: "Choose a shorter range" },
+    });
+    for (const work of [
+      () => assembleRowsCsv("credits", Array(MAX_EXPORT_ROWS).fill({}), [{}]),
+      () => assembleRowsCsv("credits", [{ creditedName: "x".repeat(15 * 1024 * 1024) }], []),
+    ]) {
+      let error: unknown;
+      try { work(); } catch (caught) { error = caught; }
+      expect(getErrorCode(error)).toBe("rows_export_too_large");
+      expect(getErrorMessage(error, "fallback")).toBe("Choose a shorter range");
+    }
   });
   it("enforces admin access before fetching any warehouse data", async () => {
     const f = await scorecardFixture(); const calls = warehouse([]);
