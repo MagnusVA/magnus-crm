@@ -1,16 +1,15 @@
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import {
   buildPeopleClosers,
-  loadCloserUsers,
   type getPeopleClosers,
 } from "../../reports/people";
 import {
   MEMBER_REPORT_ROLES,
   resolveMemberFilter,
 } from "../../reports/lib/access";
-import { defineReport, rangeParams, type ReportInput } from "../definition";
+import { defineReport, nodeFinalize, rangeParams, type NodeBuild, type ReaderOutput, type ReportInput } from "../definition";
 import { docsFromRows } from "../rows";
-import { callFactsSql, warehouseCallFacts } from "./calls";
+import { callCloserKeys, callFactsSql, buildWarehouseCallFacts, loadCallUsers } from "./calls";
 
 export type PeopleCloserFilters = { memberId: Id<"teamMembers"> | null };
 // The cohort is anchored to the first held call over all time. Filtering the
@@ -45,9 +44,34 @@ function liveArgs(input: ReportInput<PeopleCloserFilters>) {
     ...(input.filters.memberId ? { memberId: input.filters.memberId } : {}),
   };
 }
+export const CLOSER_QUERY_NAMES = ["meetings", "payments", "callPayments", "cohort", "firstPayments"] as const;
+type CloserContext = { users: Doc<"users">[] };
+const closerNode: NodeBuild<PeopleCloserFilters, ReaderOutput<typeof getPeopleClosers>, CloserContext> = {
+  keys: rows => [...new Set([...callCloserKeys(rows), ...docsFromRows<"paymentRecords">(rows.payments)
+    .flatMap(payment => payment.attributedCloserId ? [payment.attributedCloserId] : [])])],
+  context: async (ctx, input, keys) => {
+    const roster = await ctx.db.query("users").withIndex("by_tenantId", q => q.eq("tenantId", input.tenantId)).take(501);
+    if (roster.length > 500) throw new Error("The closer roster exceeds the report limit.");
+    const byId = new Map(roster.map(user => [user._id, user]));
+    for (const user of await loadCallUsers(ctx, input.tenantId, keys.filter(key => !byId.has(key as Id<"users">)))) byId.set(user._id, user);
+    return { users: [...byId.values()] };
+  },
+  build: input => {
+    const facts = buildWarehouseCallFacts(input.tenantId, input.rows.meetings ?? [], input.context.users);
+    return buildPeopleClosers({
+      ...facts, users: input.context.users,
+      payments: docsFromRows<"paymentRecords">(input.rows.payments).filter(p => p.tenantId === input.tenantId),
+      callPayments: docsFromRows<"paymentRecords">(input.rows.callPayments).filter(p => p.tenantId === input.tenantId),
+      cohort: (input.rows.cohort ?? []).map(r => ({ meetingId: String(r.meeting_id) as Id<"meetings">, won: r.outcome === "won" })),
+      firstPaymentIds: (input.rows.firstPayments ?? []).map(r => String(r.payment_id) as Id<"paymentRecords">),
+      cohortPartial: facts.partial, paymentsPartial: false,
+    }, input.filters.memberId, input.range);
+  },
+};
 export const peopleClosers = defineReport<
   typeof getPeopleClosers,
-  PeopleCloserFilters
+  PeopleCloserFilters,
+  CloserContext
 >({
   id: "people.closers",
   page: "people",
@@ -77,45 +101,8 @@ export const peopleClosers = defineReport<
       firstPayments: { sql: firstPaymentSql, params },
     };
   },
-  finalize: async (ctx, input) => {
-    const facts = await warehouseCallFacts(
-      ctx,
-      input.tenantId,
-      input.rows.meetings ?? [],
-    );
-    const payments = docsFromRows<"paymentRecords">(input.rows.payments).filter(
-      (p) => p.tenantId === input.tenantId,
-    );
-    const roster = await loadCloserUsers(
-      ctx,
-      input.tenantId,
-      facts,
-      payments,
-      "warehouse",
-    );
-    return buildPeopleClosers(
-      {
-        ...facts,
-        partial: facts.partial || roster.partial,
-        users: roster.users,
-        payments,
-        callPayments: docsFromRows<"paymentRecords">(
-          input.rows.callPayments,
-        ).filter((p) => p.tenantId === input.tenantId),
-        cohort: (input.rows.cohort ?? []).map((r) => ({
-          meetingId: String(r.meeting_id) as Id<"meetings">,
-          won: r.outcome === "won",
-        })),
-        firstPaymentIds: (input.rows.firstPayments ?? []).map(
-          (r) => String(r.payment_id) as Id<"paymentRecords">,
-        ),
-        cohortPartial: facts.partial,
-        paymentsPartial: false,
-      },
-      input.filters.memberId,
-      input.range,
-    );
-  },
+  node: closerNode,
+  finalize: nodeFinalize(closerNode),
   live: { name: "reports/people:getPeopleClosers", args: liveArgs },
 });
 export const peopleCloserReports = [peopleClosers];

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Id } from "../../_generated/dataModel";
 import { api, internal } from "../../_generated/api";
 import {
   callsReportFixture,
@@ -9,7 +10,10 @@ import {
   range,
   to,
 } from "../../../tests/callsReportFixtures";
-import { expectSameAnswer } from "../../../tests/analyticsParity";
+import { expectSameAnswer, projectWarehouseRows, expectProjectionValues } from "../../../tests/analyticsParity";
+
+import { CALL_COLUMNS } from "./calls";
+import { peopleClosers, CLOSER_QUERY_NAMES } from "./people";
 
 vi.mock("../registry", async () => {
   const { peopleCloserReports } = await import("./people");
@@ -24,6 +28,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 describe("People closers warehouse parity", () => {
+  it("exports its query names and Node build", () => {
+    expect(peopleClosers.node).toBeDefined();
+    expect(Object.keys(peopleClosers.sql({ tenantId: "tenant" as Id<"tenants">, filters: {}, range }))).toEqual(CLOSER_QUERY_NAMES);
+  });
   it("uses warehouse dimensions for a month and the cohort SQL outcome for wins", async () => {
     const f = await warehouseMonthFixture();
     // Cohort outcome intentionally differs from both current Convex state and
@@ -36,7 +44,7 @@ describe("People closers warehouse parity", () => {
         range,
         filtersJson: JSON.stringify({ memberId: f.memberA }),
         rowsJson: JSON.stringify({
-          meetings: f.warehouseRows,
+          meetings: projectWarehouseRows({ meetings: f.warehouseRows }, { meetings: CALL_COLUMNS }).meetings,
           payments: [],
           callPayments: [],
           firstPayments: [],
@@ -65,6 +73,7 @@ describe("People closers warehouse parity", () => {
   });
   it("matches the roster and each member's days and calls", async () => {
     const f = await callsReportFixture();
+    expectProjectionValues(f.rows, { meetings: CALL_COLUMNS });
     for (const memberId of [null, f.memberA, f.memberB]) {
       await expectSameAnswer({
         t: f.t,
@@ -79,7 +88,7 @@ describe("People closers warehouse parity", () => {
         },
         filters: { memberId },
         range,
-        rows: f.rows,
+        rows: projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS, payments: null, callPayments: null, firstPayments: null, cohort: null }),
       });
     }
   });

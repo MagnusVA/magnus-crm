@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../_generated/api";
-import { scorecardReports } from "./scorecard";
+import { scorecardReports, FUNNEL_DEAL_COLUMNS, FUNNEL_MEETING_COLUMNS, FUNNEL_QUERY_NAMES } from "./scorecard";
 import { buildLifecycle } from "../../reports/scorecard";
-import { expectSameAnswer, rowFromDoc } from "../../../tests/analyticsParity";
+import { expectSameAnswer, rowFromDoc, projectWarehouseRows, expectProjectionValues } from "../../../tests/analyticsParity";
 import { scorecardFixture, whole, identity } from "../../../tests/scorecardFixtures";
 import type { Id } from "../../_generated/dataModel";
 
@@ -28,8 +28,13 @@ describe("Scorecard source parity", () => {
       lifecycle: [lifecycle], responses: f.responses.map(d => rowFromDoc("meetingFormResponses", d)),
       held: [{ opportunity_id: f.dealA }, { opportunity_id: f.dealB }],
     };
+    expectProjectionValues(rows, { deals: FUNNEL_DEAL_COLUMNS, meetings: FUNNEL_MEETING_COLUMNS });
     const base = { t: f.t, tenantId: f.tenantId, identity, range: whole, rows, filters: { programId: null }, liveArgs: { range: whole } };
-    await expectSameAnswer({ ...base, reportId: "scorecard.funnel", live: api.reports.scorecard.funnel });
+    await expectSameAnswer({ ...base, rows: projectWarehouseRows(rows, { payments: null, deals: FUNNEL_DEAL_COLUMNS, meetings: FUNNEL_MEETING_COLUMNS, lifecycle: null }), reportId: "scorecard.funnel", live: api.reports.scorecard.funnel });
+    await expectSameAnswer({ ...base,
+      rows: projectWarehouseRows(rows, { payments: null, deals: FUNNEL_DEAL_COLUMNS, meetings: FUNNEL_MEETING_COLUMNS, lifecycle: null }),
+      filters: { programId: f.programId }, liveArgs: { range: whole, programId: f.programId },
+      reportId: "scorecard.funnel", live: api.reports.scorecard.funnel });
     await expectSameAnswer({ ...base, reportId: "scorecard.cash", live: api.reports.scorecard.cash });
     await expectSameAnswer({ ...base, reportId: "scorecard.follow_through", live: api.reports.scorecard.followThrough });
     await expectSameAnswer({ ...base, reportId: "scorecard.origins", live: api.reports.scorecard.origins });
@@ -48,6 +53,14 @@ describe("Scorecard source parity", () => {
   });
 });
 describe("Scorecard SQL contract", () => {
+  it("exports the funnel queries and projections and builds in Node", () => {
+    const definition = scorecardReports.find(report => report.id === "scorecard.funnel")!;
+    const queries = definition.sql({ tenantId: "tenant" as Id<"tenants">, filters: {}, range: whole });
+    expect(Object.keys(queries)).toEqual(FUNNEL_QUERY_NAMES);
+    expect(definition.node).toBeDefined();
+    expect(queries.deals.sql).toContain(`SELECT ${FUNNEL_DEAL_COLUMNS.join(", ")} FROM analytics.deals`);
+    expect(queries.meetings.sql).toContain(`SELECT ${FUNNEL_MEETING_COLUMNS.join(", ")} FROM analytics.meetings`);
+  });
   for (const definition of scorecardReports) it(`${definition.id} filters every view and parameterizes all caller values`, () => {
     const queries = definition.sql({ tenantId: "TENANT_SENTINEL" as Id<"tenants">,
       filters: { programId: "FILTER_SENTINEL", fieldKey: "FILTER_SENTINEL" }, range: { ...whole, fromMs: 1788242400123, toMs: 1790834400456 } });

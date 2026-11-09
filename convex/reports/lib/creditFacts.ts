@@ -25,7 +25,7 @@ export type CreditDimensions = {
   dmClosers: Doc<"dmClosers">[]; workers: Doc<"leadGenWorkers">[]; teams: Doc<"attributionTeams">[];
 };
 export type CaptureStat = {
-  workerId: Id<"leadGenWorkers">; leadId: Id<"leads"> | null; dayKey: string; captures: number;
+  workerId: Id<"leadGenWorkers">; leadId: Id<"leads"> | null; dayKey: string; captures: number; leadIds?: Id<"leads">[];
 };
 export type CreditFacts = {
   payments: Doc<"paymentRecords">[]; attributions: Doc<"dealAttributions">[];

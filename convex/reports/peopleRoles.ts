@@ -209,6 +209,7 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
       const person = row(identity);
       person.captures += stat.captures;
       if (stat.leadId) person.personIds.push(stat.leadId);
+      for (const id of stat.leadIds ?? []) person.personIds.push(id);
       if (own(identity)) dayByKey(stat.dayKey).captures += stat.captures;
     }
     for (const capture of facts.captures) {

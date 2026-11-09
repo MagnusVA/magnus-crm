@@ -9,8 +9,8 @@ import {
   range,
   to,
 } from "../../../tests/callsReportFixtures";
-import { expectSameAnswer } from "../../../tests/analyticsParity";
-import { callFactsSql, callsReports } from "./calls";
+import { expectSameAnswer, projectWarehouseRows, expectProjectionValues } from "../../../tests/analyticsParity";
+import { callFactsSql, callsReports, CALL_COLUMNS, CALL_QUERY_NAMES } from "./calls";
 import { docFromRow } from "../rows";
 import { peopleCloserReports } from "./people";
 import type { Id } from "../../_generated/dataModel";
@@ -43,7 +43,7 @@ describe("Calls warehouse parity", () => {
           closerId: null,
           callType: null,
         }),
-        rowsJson: JSON.stringify({ meetings: f.warehouseRows }),
+        rowsJson: JSON.stringify({ meetings: projectWarehouseRows({ meetings: f.warehouseRows }, { meetings: CALL_COLUMNS }).meetings }),
       },
     );
     expect(JSON.parse(payload)).toMatchObject({
@@ -68,6 +68,7 @@ describe("Calls warehouse parity", () => {
   });
   it("uses SQL evidence and the same builder, including historical closer filtering", async () => {
     const f = await callsReportFixture();
+    expectProjectionValues(f.rows, { meetings: CALL_COLUMNS });
     for (const closerId of [null, f.ana, f.beto]) {
       await expectSameAnswer({
         t: f.t,
@@ -82,10 +83,35 @@ describe("Calls warehouse parity", () => {
         },
         filters: { programId: null, closerId, callType: null },
         range,
-        rows: f.rows,
+        rows: projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS }),
       });
     }
   });
+  it("preserves program and call-type filters after projection", async () => {
+    const f = await callsReportFixture();
+    const programId = f.programId;
+    expect(programId).toBeTruthy();
+    for (const callType of ["new", "follow_up"] as const) {
+      const answer = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId,
+        reportId: "calls.summary", live: api.reports.calls.getCallsSummary,
+        liveArgs: { startDate: from, endDate: to, programId, callType },
+        filters: { programId, closerId: null, callType }, range,
+        rows: projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS }) });
+      expect(answer.counts.held).toBeGreaterThan(0);
+    }
+  });
+  it("normalizes closer keys and excludes another tenant's user from context", async () => {
+    const f = await callsReportFixture();
+    await f.t.run(async ctx => {
+      const tenantId = await ctx.db.insert("tenants", { companyName: "Other", contactEmail: "other@example.invalid",
+        workosOrgId: "other", status: "active", inviteExpiresAt: to, createdBy: "test" });
+      const foreignId = await ctx.db.insert("users", { tenantId, workosUserId: "foreign", email: "other@example.invalid", role: "closer", isActive: true });
+      const users = await callsReports[0].node!.context(ctx,
+        { tenantId: f.tenantId, range, filters: {} }, [f.ana, foreignId, "invalid"]);
+      expect((users as { _id: string }[]).map(user => user._id)).toEqual([f.ana]);
+    });
+  });
+
 });
 describe("new report SQL rules", () => {
   for (const definition of [...callsReports, ...peopleCloserReports]) {
@@ -123,6 +149,13 @@ describe("new report SQL rules", () => {
 });
 
 describe("warehouse call rows", () => {
+  it("exports the exact query and meeting projections", () => {
+    const definition = callsReports[0];
+    expect(definition.node).toBeDefined();
+    expect(Object.keys(definition.sql({ tenantId: "tenant" as Id<"tenants">, filters: {}, range }))).toEqual(CALL_QUERY_NAMES);
+    expect(callFactsSql).not.toMatch(/SELECT\s+(?:m\.)?\*/);
+    for (const column of CALL_COLUMNS) expect(callFactsSql).toContain(column);
+  });
   // Production ClickHouse returned `m.id`, `m.status` and
   // `m.rescheduled_from_meeting_id` when a joined subquery reused those names.
   it("never joins a column that shares a meeting column's name", () => {

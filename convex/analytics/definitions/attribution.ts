@@ -1,7 +1,7 @@
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { buildAttributionLanes, buildAttributionPaths, type getLanes, type getPaths } from "../../reports/attribution";
 import { REPORT_ADMIN_ROLES } from "../../reports/lib/access";
-import { emptyCreditFacts, loadCreditDimensions, type CreditFacts } from "../../reports/lib/creditFacts";
+import { emptyCreditFacts, loadCreditDimensions, type CreditFacts, type CaptureStat } from "../../reports/lib/creditFacts";
 import type { SqlRow } from "../clickhouse";
 import { defineReport, noFilters, rangeParams, num, str } from "../definition";
 import type { Id } from "../../_generated/dataModel";
@@ -21,7 +21,14 @@ export function creditFactsFromRows(rows: Record<string, SqlRow[]>): CreditFacts
     qualifications: docsFromRows<"slackQualificationEvents">(rows.qualifications), captures: docsFromRows<"leadGenSubmissions">(rows.captures),
     prospects: docsFromRows<"leadGenProspects">(rows.prospects), resparks: docsFromRows<"resparkBatchItems">(rows.resparks),
     people: docsFromRows<"leads">(rows.people),
-    ...(rows.captureStats ? { captureStats: rows.captureStats.map(row => ({
+    ...(rows.captureWorkers ? { captureStats: rows.captureWorkers.flatMap(row => {
+      const days = row.days as [string, number | string][];
+      const leadIds = (row.lead_ids as string[]).filter(id => str(id) !== null) as Id<"leads">[];
+      return days.map(([dayKey, captures], index): CaptureStat => ({
+        workerId: String(row.worker_id) as Id<"leadGenWorkers">, leadId: null, dayKey, captures: num(captures),
+        ...(index === 0 ? { leadIds } : {}),
+      }));
+    }) } : rows.captureStats ? { captureStats: rows.captureStats.map(row => ({
       workerId: String(row.worker_id) as Id<"leadGenWorkers">, leadId: str(row.lead_id) as Id<"leads"> | null,
       dayKey: String(row.day_key), captures: num(row.captures),
     })) } : {}) };

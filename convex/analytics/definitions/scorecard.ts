@@ -5,9 +5,9 @@ import { REPORT_ADMIN_ROLES } from "../../reports/lib/access";
 import { emptyLifecycle, type AnswerFacts, type ScorecardFacts } from "../../reports/lib/scorecardFacts";
 import {
   answerLabel, buildAnswers, buildCash, buildFollowThrough, buildFunnel, buildOrigins, normalizeFieldKey,
-  type answers, type cash, type followThrough, type funnel, type origins,
+  type FunnelOutput, type answers, type cash, type followThrough, type funnel, type origins,
 } from "../../reports/scorecard";
-import { defineReport, num, optionalIdFilter, rangeParams, type AnalyticsFilters, type ReportInput } from "../definition";
+import { defineReport, nodeFinalize, num, type NodeBuild, optionalIdFilter, rangeParams, type AnalyticsFilters, type ReportInput } from "../definition";
 import { docsFromRows } from "../rows";
 import type { SqlQuery, SqlRow } from "../clickhouse";
 
@@ -38,8 +38,21 @@ const factsFromRows = (rows: Record<string, SqlRow[]>): ScorecardFacts => ({
 });
 const stageTime = (stage: string) => `JSONExtract(ifNull(lifecycle_stage_entered_at_json, '{}'), '${stage}', 'Nullable(Float64)')`;
 const entryInRange = (stage: string) => `${stageTime(stage)} >= {from_ms:Int64} AND ${stageTime(stage)} < {to_ms:Int64}`;
+export const FUNNEL_DEAL_COLUMNS = ["id", "payment_received_at_ms", "first_booking_program_id"] as const;
+export const FUNNEL_MEETING_COLUMNS = ["id", "booking_program_id", "created_at_ms", "rescheduled_from_meeting_id", "status", "scheduled_at_ms"] as const;
+export const FUNNEL_QUERY_NAMES = ["payments", "deals", "meetings", "lifecycle"] as const;
 function funnelSql(input: ReportInput<Filters>) {
-  return { ...factsSql(input, true), lifecycle: {
+  const params = rangeParams(input.range);
+  return {
+    payments: { sql: rangePayments, params },
+    deals: { sql: `SELECT ${FUNNEL_DEAL_COLUMNS.join(", ")} FROM analytics.deals
+WHERE tenant_id = {tenant_id:String}
+  AND id IN (SELECT opportunity_id FROM (${rangePayments}))`, params },
+    meetings: { sql: `SELECT ${FUNNEL_MEETING_COLUMNS.join(", ")} FROM analytics.meetings
+WHERE tenant_id = {tenant_id:String}
+  AND ((created_at_ms >= {from_ms:Int64} AND created_at_ms < {to_ms:Int64})
+    OR (scheduled_at_ms >= {from_ms:Int64} AND scheduled_at_ms < {to_ms:Int64}))`, params },
+    lifecycle: {
     // People are high volume. Return only stage/cohort counts to Convex.
     sql: `SELECT
   ${LIFECYCLE_STAGES.map(stage => `countIf(${entryInRange(stage)}) AS ${stage}`).join(",\n  ")},
@@ -84,15 +97,19 @@ WHERE tenant_id = {tenant_id:String} AND status = 'held'
 }
 const liveArgs = (input: ReportInput<Filters>) => ({ range: input.range, ...(input.filters.programId ? { programId: input.filters.programId } : {}) });
 const common = { page: "scorecard", roles: REPORT_ADMIN_ROLES, day: "business", parseFilters } as const;
+const funnelNode: NodeBuild<Filters, FunnelOutput, Record<string, never>> = {
+  context: async () => ({}),
+  build: input => {
+    const lifecycle = emptyLifecycle(); const row = input.rows.lifecycle?.[0] ?? {};
+    for (const stage of LIFECYCLE_STAGES) lifecycle.stages[stage] = num(row[stage]);
+    lifecycle.cohort.entered = num(row.entered);
+    for (const stage of ["qualified", "booked", "showed", "customer"] as const) lifecycle.cohort[stage] = num(row[`cohort_${stage}`]);
+    return buildFunnel(factsFromRows(input.rows), input.range, input.filters, lifecycle);
+  },
+};
 export const scorecardReports = [
-  defineReport<typeof funnel, Filters>({ ...common, id: "scorecard.funnel", sql: funnelSql,
-    finalize: async (_ctx, input) => {
-      const lifecycle = emptyLifecycle(); const row = input.rows.lifecycle?.[0] ?? {};
-      for (const stage of LIFECYCLE_STAGES) lifecycle.stages[stage] = num(row[stage]);
-      lifecycle.cohort.entered = num(row.entered);
-      for (const stage of ["qualified", "booked", "showed", "customer"] as const) lifecycle.cohort[stage] = num(row[`cohort_${stage}`]);
-      return buildFunnel(factsFromRows(input.rows), input.range, input.filters, lifecycle);
-    }, live: { name: "reports/scorecard:funnel", args: liveArgs },
+  defineReport<typeof funnel, Filters, Record<string, never>>({ ...common, id: "scorecard.funnel", sql: funnelSql,
+    node: funnelNode, finalize: nodeFinalize(funnelNode), live: { name: "reports/scorecard:funnel", args: liveArgs },
   }),
   defineReport<typeof cash, Filters>({ ...common, id: "scorecard.cash", sql: factsSql,
     finalize: async (ctx, input) => {
