@@ -373,6 +373,9 @@ describe("member access and SQL contracts", () => {
       await expect(f.t.withIdentity({ subject: "unlinked", org_id: "org_c" }).query(report.live, { startDate: from, endDate: to })).rejects.toThrow("isn't linked");
     }
     await expect(f.t.withIdentity(identity).query(api.reports.attribution.getDealChain, { opportunityId: foreign.opportunityId })).rejects.toThrow("Deal not found");
+    expect(await f.t.withIdentity(identity).query(api.reports.attribution.getDealNames, { opportunityIds: [f.dealId, foreign.opportunityId, f.dealId] }))
+      .toEqual([{ opportunityId: f.dealId, name: "Person" }]);
+    await expect(f.t.withIdentity({ subject: "a", org_id: "org_c" }).query(api.reports.attribution.getDealNames, { opportunityIds: [f.dealId] })).rejects.toThrow("Insufficient permissions");
     await f.t.run(async ctx => {
       for (const definition of peopleRoleReports) await expect(definition.parseFilters(ctx, { memberId: foreign.memberId }, {
         tenantId: f.tenantId, userId: f.admin, role: "tenant_admin", workosUserId: "admin",

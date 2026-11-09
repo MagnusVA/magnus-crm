@@ -4,6 +4,7 @@ import type { AttributionLanes, AttributionPaths } from "@/convex/reports/attrib
 import {
   NOT_LINKED,
   buildAttributionDocument,
+  dealLabels,
   formatCoverage,
   laneViews,
   pathLabel,
@@ -143,6 +144,13 @@ describe("who is responsible and the paths", () => {
 
   it("names a deal by the end of its id", () => {
     expect(shortDealId("k17abcdef123456")).toBe("Deal …123456");
+  });
+
+  it("names deals by their person, telling apart two deals of one name", () => {
+    const ids = ["k1aaaaaa111111", "k1bbbbbb222222", "k1cccccc333333", "k1dddddd444444"];
+    const names = new Map([[ids[0], "Ana Ruiz"], [ids[1], "Bo Lee"], [ids[2], "Ana Ruiz"]]);
+    expect([...dealLabels(ids, names).values()]).toEqual(["Ana Ruiz · …111111", "Bo Lee", "Ana Ruiz · …333333", "Deal …444444"]);
+    expect([...dealLabels(ids.slice(0, 2), undefined).values()]).toEqual(["Deal …111111", "Deal …222222"]);
   });
 });
 

@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronDownIcon } from "lucide-react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { DetailCardFooter, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
@@ -26,8 +28,8 @@ import {
   ROLE_LABELS,
   ROLE_ORDER,
   formatCoverage,
+  dealLabels,
   pathLabel,
-  shortDealId,
   type CreditRole,
   type LaneView,
   type PathRow,
@@ -59,19 +61,24 @@ function PersonName({ person }: { person: { name: string; teamMemberId: Id<"team
   );
 }
 
-/** Deal buttons that open the deal's chain. */
+/** Deal buttons, named by each deal's person, that open the deal's chain. */
 function DealButtons({ dealIds, onOpenDeal }: { dealIds: readonly string[]; onOpenDeal: (id: Id<"opportunities">) => void }) {
+  const names = useQuery(api.reports.attribution.getDealNames, { opportunityIds: dealIds as Id<"opportunities">[] });
+  const labels = useMemo(
+    () => dealLabels(dealIds, names ? new Map(names.map((entry) => [entry.opportunityId as string, entry.name])) : undefined),
+    [dealIds, names],
+  );
   return (
-    <ul className="flex flex-wrap gap-1.5 border-b bg-muted/30 px-4 py-2.5" aria-label="Deals">
+    <ul className="flex flex-wrap gap-1.5 border-b bg-muted/30 px-4 py-2.5" aria-label="Deals" aria-busy={names === undefined}>
       {dealIds.map((id) => (
-        <li key={id}>
+        <li key={id} className="max-w-full">
           <Button
             variant="outline"
             size="sm"
-            className="h-7 px-2 font-condensed text-[13px] tabular-nums"
+            className="h-7 max-w-full px-2 text-[13px]"
             onClick={() => onOpenDeal(id as Id<"opportunities">)}
           >
-            {shortDealId(id)}
+            <span className="truncate">{labels.get(id)}</span>
           </Button>
         </li>
       ))}

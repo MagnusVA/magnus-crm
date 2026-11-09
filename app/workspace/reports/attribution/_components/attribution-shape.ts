@@ -135,6 +135,24 @@ export function shortDealId(id: string) {
   return `Deal …${id.slice(-6)}`;
 }
 
+/**
+ * Each deal's button label: its person's name, with the end of the deal's id
+ * after it when two deals in the list share a name. A deal without a name
+ * (still loading, or not found) keeps its short id.
+ */
+export function dealLabels(dealIds: readonly string[], names: ReadonlyMap<string, string> | undefined) {
+  const counts = new Map<string, number>();
+  for (const id of dealIds) {
+    const name = names?.get(id);
+    if (name !== undefined) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return new Map(dealIds.map((id) => {
+    const name = names?.get(id);
+    if (name === undefined) return [id, shortDealId(id)];
+    return [id, (counts.get(name) ?? 0) > 1 ? `${name} · …${id.slice(-6)}` : name];
+  }));
+}
+
 /** The currency the page opens on: the one with the most payments. */
 export function attributionCurrencyWeights(data: AttributionLanes | undefined) {
   return (data?.totals ?? []).map((total) => ({ currency: total.currency, weight: total.payments }));

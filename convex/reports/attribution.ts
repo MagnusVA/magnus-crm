@@ -163,6 +163,30 @@ export function buildDealChain(dimensions: CreditDimensions, facts: CreditFacts,
   };
 }
 
+/** The most deals one call names. A page lists far fewer, since only paid deals appear. */
+export const MAX_DEAL_NAMES = 500;
+
+/**
+ * The person each deal belongs to, for the deal buttons on Attribution.
+ * Deals of another tenant, or deleted ones, are left out.
+ */
+export const getDealNames = query({
+  args: { opportunityIds: v.array(v.id("opportunities")) },
+  returns: v.array(v.object({ opportunityId: v.id("opportunities"), name: v.string() })),
+  handler: async (ctx, { opportunityIds }) => {
+    const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+    const ids = [...new Set(opportunityIds)].slice(0, MAX_DEAL_NAMES);
+    const names = await Promise.all(ids.map(async (opportunityId) => {
+      const deal = await ctx.db.get("opportunities", opportunityId);
+      if (!deal || deal.tenantId !== tenantId) return null;
+      const person = await ctx.db.get("leads", deal.leadId);
+      const name = person?.tenantId === tenantId ? person.fullName?.trim() : undefined;
+      return { opportunityId, name: name || "Unknown person" };
+    }));
+    return names.filter((entry) => entry !== null);
+  },
+});
+
 export const getDealChain = query({
   args: { opportunityId: v.id("opportunities") }, returns: dealChainValidator,
   handler: async (ctx, { opportunityId }): Promise<DealChain> => {
