@@ -175,6 +175,22 @@ describe("getMemberProfile refusals", () => {
       await refusal(f.t.withIdentity(admin).query(api.reports.member.getMemberProfile, { memberId: f.nobody })),
     ).toEqual({ code: "reports.invalid_member", message: "Invalid filter." });
   });
+
+  it("keeps the refusal's code and words when a warehouse report is asked for", async () => {
+    const f = await fixture();
+    // The report engine wraps a bad filter as `analytics.invalid_request`;
+    // a member refusal must come through as itself, not as its JSON.
+    const args = {
+      reportId: "people.closers",
+      filters: { memberId: f.sofia },
+      range: { kind: "preset" as const, preset: "last_month" as const },
+      timeZone: "America/Tegucigalpa",
+    };
+    expect(await refusal(f.t.withIdentity(closer).query(api.analytics.reports.get, args))).toEqual({
+      code: "reports.not_own_report",
+      message: "You can only open your own report.",
+    });
+  });
 });
 
 describe("listReportMembers", () => {

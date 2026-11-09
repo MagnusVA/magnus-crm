@@ -2,7 +2,7 @@ import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../_generated/server";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import type { TenantUserResult } from "../requireTenantUser";
-import { expectedError } from "../lib/observability/errors";
+import { expectedError, isExpectedError } from "../lib/observability/errors";
 import {
   addBusinessDays,
   calendarDate,
@@ -115,6 +115,9 @@ export async function resolveReportRequest(
   try {
     filters = await definition.parseFilters(ctx, args.filters, viewer);
   } catch (error) {
+    // A filter's own refusal (a member report the viewer can't open) keeps
+    // its code; a ConvexError's `message` is raw JSON, not words.
+    if (isExpectedError(error)) throw error;
     throw invalid(error instanceof Error ? error.message : "Invalid filter.");
   }
 
