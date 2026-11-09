@@ -26,12 +26,14 @@ export type CallsReportFilters = {
 };
 
 // Pre-filter every input by tenant, then reduce credits and successors to one
-// row per meeting so a reschedule chain never multiplies attendance.
+// row per meeting so a reschedule chain never multiplies attendance. Joined
+// columns never share a meeting column's name: ClickHouse would return the
+// meeting's as `m.id`, `m.status`, and the row would lose them.
 export const callFactsSql = `
 SELECT m.*,
   coalesce(nullIf(c.closer_id, ''), m.assigned_closer_id) AS report_closer_id,
   if(m.status = 'canceled' AND s.successor_count > 0, 1, 0) AS report_moved,
-  if(p.status = 'no_show', 1, 0) AS report_rebooked,
+  if(p.previous_status = 'no_show', 1, 0) AS report_rebooked,
   nullIf(d.outcome, '') AS report_deal_outcome,
   nullIf(d.event_type_config_id, '') AS report_event_type_config_id,
   ifNull(e.is_extended, 0) AS report_is_extended,
@@ -49,24 +51,24 @@ LEFT ANY JOIN (
   GROUP BY meeting_id
 ) AS c ON c.meeting_id = m.id
 LEFT ANY JOIN (
-  SELECT rescheduled_from_meeting_id, count() AS successor_count
+  SELECT rescheduled_from_meeting_id AS replaced_id, count() AS successor_count
   FROM analytics.meetings
   WHERE tenant_id = {tenant_id:String} AND rescheduled_from_meeting_id IS NOT NULL
-  GROUP BY rescheduled_from_meeting_id
-) AS s ON s.rescheduled_from_meeting_id = m.id
+  GROUP BY replaced_id
+) AS s ON s.replaced_id = m.id
 LEFT ANY JOIN (
-  SELECT id, status FROM analytics.meetings WHERE tenant_id = {tenant_id:String}
-) AS p ON p.id = m.rescheduled_from_meeting_id
+  SELECT id AS previous_id, status AS previous_status FROM analytics.meetings WHERE tenant_id = {tenant_id:String}
+) AS p ON p.previous_id = m.rescheduled_from_meeting_id
 LEFT ANY JOIN (
-  SELECT id, outcome, event_type_config_id, lead_id
+  SELECT id AS deal_id, outcome, event_type_config_id, lead_id
   FROM analytics.deals WHERE tenant_id = {tenant_id:String}
-) AS d ON d.id = m.opportunity_id
+) AS d ON d.deal_id = m.opportunity_id
 LEFT ANY JOIN (
-  SELECT id, is_extended FROM analytics.event_types WHERE tenant_id = {tenant_id:String}
-) AS e ON e.id = d.event_type_config_id
+  SELECT id AS event_type_id, is_extended FROM analytics.event_types WHERE tenant_id = {tenant_id:String}
+) AS e ON e.event_type_id = d.event_type_config_id
 LEFT ANY JOIN (
-  SELECT id, full_name FROM analytics.people WHERE tenant_id = {tenant_id:String}
-) AS person ON person.id = d.lead_id
+  SELECT id AS person_id, full_name FROM analytics.people WHERE tenant_id = {tenant_id:String}
+) AS person ON person.person_id = d.lead_id
 ORDER BY m.scheduled_at_ms, m.creation_time_ms, m.id`;
 
 export type WarehouseCallEvidence = CallEvidence & {

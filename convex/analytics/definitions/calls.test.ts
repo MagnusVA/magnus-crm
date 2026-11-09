@@ -10,7 +10,8 @@ import {
   to,
 } from "../../../tests/callsReportFixtures";
 import { expectSameAnswer } from "../../../tests/analyticsParity";
-import { callsReports } from "./calls";
+import { callFactsSql, callsReports } from "./calls";
+import { docFromRow } from "../rows";
 import { peopleCloserReports } from "./people";
 import type { Id } from "../../_generated/dataModel";
 
@@ -119,4 +120,21 @@ describe("new report SQL rules", () => {
       }
     });
   }
+});
+
+describe("warehouse call rows", () => {
+  // Production ClickHouse returned `m.id`, `m.status` and
+  // `m.rescheduled_from_meeting_id` when a joined subquery reused those names.
+  it("never joins a column that shares a meeting column's name", () => {
+    for (const subquery of callFactsSql.split("LEFT ANY JOIN").slice(1)) {
+      const select = /SELECT\s+([\s\S]*?)\s+FROM/.exec(subquery)![1];
+      for (const column of select.split(",").map((part) => part.trim())) {
+        expect(column, column).not.toMatch(/^(id|status|rescheduled_from_meeting_id)$/);
+      }
+    }
+  });
+  it("refuses a row whose column a join renamed", () => {
+    expect(() => docFromRow({ "m.id": "k1", status: "held" })).toThrow("m.id");
+    expect(docFromRow({ id: "k1", creation_time_ms: 5, scheduled_at_ms: 9 })).toEqual({ _id: "k1", _creationTime: 5, scheduledAt: 9 });
+  });
 });
