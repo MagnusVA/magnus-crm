@@ -12,6 +12,7 @@ import { peopleRoleReports } from "./definitions/peopleRoles";
 import { pipelineReports } from "./definitions/pipeline";
 import { remindersReports } from "./definitions/reminders";
 import { revenueReports } from "./definitions/revenue";
+import { scorecardReports } from "./definitions/scorecard";
 import { slackQualificationReports } from "./definitions/slackQualifications";
 import { teamReports } from "./definitions/team";
 
@@ -30,6 +31,7 @@ const definitions: readonly AnyReportDefinition[] = [
   ...pipelineReports,
   ...remindersReports,
   ...revenueReports,
+  ...scorecardReports,
   ...slackQualificationReports,
   ...teamReports,
 ];

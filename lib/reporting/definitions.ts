@@ -171,9 +171,10 @@ export const REPORT_TERMS = {
     label: "Cash per won deal",
     category: "cash",
     grain: "deal",
-    definition: "Final cash from the deals won in the range, divided by those deals.",
-    formula: "final cash on deals won in range ÷ deals won, per currency",
-    anchor: "opportunities.paymentReceivedAt",
+    definition:
+      "Final cash collected in the range on deals that are won, divided by the deals won in the range. Installments on deals won earlier count, so a range of mostly installments reads high.",
+    formula: "final cash in range on won deals ÷ deals won in range, per currency",
+    anchor: "paymentRecords.recordedAt; deals won by paymentReceivedAt",
   },
   creditedCash: {
     label: "Credited cash",
