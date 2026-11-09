@@ -110,7 +110,7 @@ export async function readRangeMeetings(
   );
 }
 
-/** SQL supplies historical evidence; both paths read the same current labels. */
+/** Bounded live reads for historical credit and current call dimensions. */
 export async function loadCallFacts(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,

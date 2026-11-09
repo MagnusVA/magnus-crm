@@ -86,8 +86,13 @@ export const peopleClosers = defineReport<
     const payments = docsFromRows<"paymentRecords">(input.rows.payments).filter(
       (p) => p.tenantId === input.tenantId,
     );
-    const roster = await loadCloserUsers(ctx, input.tenantId, facts, payments);
-    const byMeeting = new Map(facts.facts.map((f) => [f.meeting._id, f]));
+    const roster = await loadCloserUsers(
+      ctx,
+      input.tenantId,
+      facts,
+      payments,
+      "warehouse",
+    );
     return buildPeopleClosers(
       {
         ...facts,
@@ -99,9 +104,7 @@ export const peopleClosers = defineReport<
         ).filter((p) => p.tenantId === input.tenantId),
         cohort: (input.rows.cohort ?? []).map((r) => ({
           meetingId: String(r.meeting_id) as Id<"meetings">,
-          won:
-            byMeeting.get(String(r.meeting_id) as Id<"meetings">)
-              ?.dealOutcome === "won",
+          won: r.outcome === "won",
         })),
         firstPaymentIds: (input.rows.firstPayments ?? []).map(
           (r) => String(r.payment_id) as Id<"paymentRecords">,

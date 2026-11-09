@@ -123,7 +123,7 @@ describe("Calls facts and builder", () => {
       api.reports.pipeline.getPipelineNow,
       { asOf: end },
     );
-    expect(pipelineAfter.owed.total).toBe(pipelineBefore.owed.total + 1);
+    expect(pipelineAfter.owed.total).toBe(pipelineBefore.owed.total! + 1);
   });
   it("returns the oldest 200 owed calls and keeps their full count", async () => {
     const f = await callsReportFixture();
