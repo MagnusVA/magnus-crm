@@ -14,8 +14,8 @@ import { COLUMN_HEAD, FIGURE_15, ReportCard, ReportNote, RowsSkeleton } from "..
 import { formatCount, formatShare } from "./report-money";
 
 // What predicts a sale (§08): for each answer to one booking-form question,
-// how many people gave it, and how many of their deals held a call and were
-// won. ClickHouse answers the whole range as of the last sync, since the
+// how many people gave it, and how many of those people held a call and
+// bought. ClickHouse answers the whole range as of the last sync, since the
 // people and their deals can't be split at today (merge `null`).
 
 type Catalog = FunctionReturnType<typeof api.reports.formFields.getFieldCatalog>;
@@ -115,7 +115,7 @@ export function AnswersCard({
           ) : (
             <table className="w-full border-collapse">
               <caption className="sr-only">
-                People, held calls and won deals by answer to {answers.label}
+                People, and how many of them held a call and bought, by answer to {answers.label}
               </caption>
               <thead>
                 <tr className="border-b">

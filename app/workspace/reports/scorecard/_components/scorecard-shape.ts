@@ -320,9 +320,9 @@ export function buildScorecardDocument(input: ScorecardDocumentInput): ReportDoc
       columns: [
         { key: "answer", label: "Answer" },
         { key: "people", label: "People", format: "number" },
-        { key: "held", label: "Deals with a held call", format: "number" },
+        { key: "held", label: "People with a held call", format: "number" },
         { key: "heldShare", label: "Held share", format: "percent" },
-        { key: "won", label: "Deals won", format: "number" },
+        { key: "won", label: "People who bought", format: "number" },
         { key: "wonShare", label: "Won share", format: "percent" },
       ],
       rows: answers.answers.map((row) => ({

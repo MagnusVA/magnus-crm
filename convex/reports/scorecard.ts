@@ -45,9 +45,25 @@ export function cashAmounts(payments: readonly Doc<"paymentRecords">[]): CashAmo
 function selectedPayments(facts: ScorecardFacts, range: ResolvedAnalyticsRange, filters: ScorecardFilters) {
   return facts.payments.filter(p => p.status !== "disputed" && inRange(p.recordedAt, range) && (!filters.programId || p.programId === filters.programId));
 }
+/** Each deal's first payment: the one at `paymentReceivedAt`; an equal-time tie goes to creation time, then id. */
+function firstPaymentsByDeal(facts: ScorecardFacts) {
+  const deals = new Map(facts.deals.map(d => [d._id, d]));
+  const firstPayments = new Map<string, Doc<"paymentRecords">>();
+  for (const p of facts.payments) {
+    if (p.status === "disputed" || !p.opportunityId || deals.get(p.opportunityId)?.paymentReceivedAt !== p.recordedAt) continue;
+    const previous = firstPayments.get(p.opportunityId);
+    if (!previous || p._creationTime < previous._creationTime ||
+      (p._creationTime === previous._creationTime && p._id.localeCompare(previous._id) < 0)) firstPayments.set(p.opportunityId, p);
+  }
+  return firstPayments;
+}
+// With a program chosen, a deal counts for the program it was booked for, as
+// its bookings and calls do. A deal that was never booked (a side deal) has
+// no booked program, so it counts for the program its first payment sold.
 function winners(facts: ScorecardFacts, range: ResolvedAnalyticsRange, filters: ScorecardFilters) {
+  const firstPayments = filters.programId ? firstPaymentsByDeal(facts) : null;
   return [...new Map(facts.deals.filter(d => inRange(d.paymentReceivedAt, range) &&
-    (!filters.programId || d.firstBookingProgramId === filters.programId)).map(d => [d._id, d])).values()];
+    (!filters.programId || (d.firstBookingProgramId ?? firstPayments?.get(d._id)?.programId) === filters.programId)).map(d => [d._id, d])).values()];
 }
 export function buildFunnel(facts: ScorecardFacts, range: ResolvedAnalyticsRange, filters: ScorecardFilters, lifecycle: LifecycleCounts = emptyLifecycle()): FunnelOutput {
   const payments = selectedPayments(facts, range, filters);
@@ -76,13 +92,7 @@ export function buildFunnel(facts: ScorecardFacts, range: ResolvedAnalyticsRange
 export function buildCash(facts: ScorecardFacts, range: ResolvedAnalyticsRange, filters: ScorecardFilters, programNames: ReadonlyMap<string, string> = new Map()): CashOutput {
   const payments = selectedPayments(facts, range, filters);
   const deals = new Map(facts.deals.map(d => [d._id, d]));
-  const firstPayments = new Map<string, Doc<"paymentRecords">>();
-  for (const p of facts.payments) {
-    if (p.status === "disputed" || !p.opportunityId || deals.get(p.opportunityId)?.paymentReceivedAt !== p.recordedAt) continue;
-    const previous = firstPayments.get(p.opportunityId);
-    if (!previous || p._creationTime < previous._creationTime ||
-      (p._creationTime === previous._creationTime && p._id.localeCompare(previous._id) < 0)) firstPayments.set(p.opportunityId, p);
-  }
+  const firstPayments = firstPaymentsByDeal(facts);
   const result: CashOutput = { currencies: [] };
   for (const amounts of cashAmounts(payments)) {
     const rows = payments.filter(p => p.currency === amounts.currency);
@@ -164,9 +174,10 @@ export function buildAnswers(facts: AnswerFacts, fieldKey: string, label = field
   }
   const held = new Set(facts.heldDealIds);
   return { fieldKey, label, answers: [...groups.entries()].map(([answer, people]) => {
+    // Held and won count people, like `people`: someone with two won deals is one person who bought.
     const deals = facts.deals.filter(d => people.has(d.leadId));
-    return { answer, people: people.size, held: new Set(deals.filter(d => held.has(d._id)).map(d => d._id)).size,
-      won: new Set(deals.filter(d => d.outcome === "won").map(d => d._id)).size };
+    return { answer, people: people.size, held: new Set(deals.filter(d => held.has(d._id)).map(d => d.leadId)).size,
+      won: new Set(deals.filter(d => d.outcome === "won").map(d => d.leadId)).size };
   }).sort((a, b) => b.people - a.people || a.answer.localeCompare(b.answer)) };
 }
 export function normalizeFieldKey(fieldKey: string) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
+import type { Doc, Id } from "../_generated/dataModel";
 import { scorecardFixture, whole, history, today, identity, HOUR } from "../../tests/scorecardFixtures";
 import { buildAnswers, buildCash, buildFollowThrough, buildFunnel, buildLifecycle, buildOrigins } from "./scorecard";
 import { privateAnswer } from "./lib/scorecardFacts";
@@ -51,12 +52,30 @@ describe("Scorecard builders", () => {
     ] });
     expect(buildOrigins(f, today, {}).origins[0]).toEqual({ channel: "lead_gen", dealsWon: 0, cash: [{ currency: "USD", cashMinor: 90000, finalMinor: 90000 }] });
   });
-  it("normalizes answers, counts people once and counts their distinct current deals", async () => {
+  it("counts a side deal under the program it was sold as, and a booked deal under the program it was booked for", async () => {
+    const f = await scorecardFixture();
+    const other = "other_program" as Id<"tenantPrograms">;
+    const withDealB = (fields: Partial<Doc<"opportunities">>) => ({ ...f, deals: f.deals.map(d => d._id === f.dealB ? { ...d, ...fields } : d) });
+    // Never booked: no booked program, so the first payment's program decides.
+    const side = withDealB({ firstBookingProgramId: undefined });
+    expect(buildFunnel(side, whole, { programId: f.programId }).activity.dealsWon).toBe(3);
+    expect(buildFunnel(side, whole, { programId: other }).activity.dealsWon).toBe(0);
+    expect(buildOrigins(side, whole, { programId: f.programId }).origins.reduce((sum, o) => sum + o.dealsWon, 0)).toBe(3);
+    // Booked for another program and sold as this one: the booked program decides.
+    const sold = withDealB({ firstBookingProgramId: other });
+    expect(buildFunnel(sold, whole, { programId: f.programId }).activity.dealsWon).toBe(2);
+    expect(buildFunnel(sold, whole, { programId: other }).activity.dealsWon).toBe(1);
+  });
+  it("normalizes answers and counts people once: for the answer, a held call and a sale", async () => {
     const f = await scorecardFixture();
     const facts = { responses: f.responses, deals: f.deals, heldDealIds: [f.dealA, f.dealB], contactLabels: [] };
     expect(buildAnswers(facts, "budget").answers).toEqual([
       { answer: "High", people: 1, held: 1, won: 1 }, { answer: "Low", people: 1, held: 1, won: 1 },
     ]);
+    // A second won deal with a held call for the same person is still one person.
+    const second = { ...f.deals.find(d => d._id === f.dealA)!, _id: "second_deal" as Id<"opportunities"> };
+    expect(buildAnswers({ ...facts, deals: [...f.deals, second], heldDealIds: [f.dealA, f.dealB, second._id] }, "budget").answers[0])
+      .toEqual({ answer: "High", people: 1, held: 1, won: 1 });
     for (const answer of ["a@example.com", " +1 (555) 123-4567", "@handle", "https://instagram.com/name"]) {
       expect(privateAnswer(answer, "Budget", [])).toBe("Hidden contact detail");
     }
