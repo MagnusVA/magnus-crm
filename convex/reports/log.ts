@@ -3,7 +3,7 @@ import {
   type PaginationOptions,
   type PaginationResult,
 } from "convex/server";
-import { stream } from "convex-helpers/server/stream";
+import { mergedStream, stream } from "convex-helpers/server/stream";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -92,7 +92,7 @@ async function readLog(
               .gte("occurredAt", args.startDate)
               .lt("occurredAt", args.endDate),
           );
-  const page = await source
+  const filtered = source
     .order("desc")
     .filterWith(
       async (event) =>
@@ -101,7 +101,36 @@ async function readLog(
         (!args.teamMemberId ||
           event.teamMemberId === args.teamMemberId ||
           (event.teamMemberId === undefined && args.actorUserId !== undefined)),
-    )
+    );
+  // A member with a login: their own actions (above), plus events tagged
+  // with the member that someone else or the system recorded, such as a
+  // Slack qualification or a portal note. Merged by time, without the
+  // login's events twice.
+  const merged =
+    args.actorUserId && args.teamMemberId
+      ? mergedStream(
+          [
+            filtered,
+            database
+              .query("domainEvents")
+              .withIndex("by_tenantId_and_teamMemberId_and_occurredAt", (q) =>
+                q
+                  .eq("tenantId", tenantId)
+                  .eq("teamMemberId", args.teamMemberId!)
+                  .gte("occurredAt", args.startDate)
+                  .lt("occurredAt", args.endDate),
+              )
+              .order("desc")
+              .filterWith(
+                async (event) =>
+                  event.actorUserId !== args.actorUserId &&
+                  (!args.entityType || event.entityType === args.entityType),
+              ),
+          ],
+          ["occurredAt", "_creationTime"],
+        )
+      : filtered;
+  const page = await merged
     .paginate({
       ...args.paginationOpts,
       numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),

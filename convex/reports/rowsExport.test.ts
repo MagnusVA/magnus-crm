@@ -65,12 +65,27 @@ describe("Rows CSV", () => {
       { kind: "credits", range: dates })).rejects.toThrow("Insufficient permissions");
     expect(calls).toHaveLength(0);
   });
-  it("exports each payment/person/role once and never credits a later fact", async () => {
+  it("credits the closer the payment names, once per payment, and nobody on a disputed payment", async () => {
     const f = await scorecardFixture();
     const rows = await f.t.withIdentity(identity).query(internal.reports.rowsExport.liveRows, { kind: "credits", range: whole, now: whole.toMs });
     expect(rows.filter(r => r.paymentId === f.depositId)).toHaveLength(1);
-    expect(rows.filter(r => r.teamMemberId === f.memberId)).toHaveLength(3); // deposit, installment and disputed raw payment
+    // The four non-disputed payments all name the closer whose member this is,
+    // as Attribution credits them; the disputed one credits no one.
+    expect(rows.filter(r => r.teamMemberId === f.memberId && r.role === "closer")).toHaveLength(4);
+    expect(rows.some(r => r.amount === "999.99")).toBe(false);
+    // A closer credit row on the deal (here a later reassignment) never adds a closer.
     expect(rows.some(r => r.creditedName === "Later credit")).toBe(false);
+  });
+  it("applies the page's filters", async () => {
+    const f = await scorecardFixture();
+    const calls = await f.t.withIdentity(identity).query(internal.reports.rowsExport.liveRows, {
+      kind: "calls", range: whole, now: whole.toMs, filters: { closerId: f.closerId, callType: "follow_up" },
+    });
+    expect(calls).toEqual([]);
+    const sql = rowsExportSql("calls", whole, 1, { programId: f.programId, closerId: f.closerId, callType: "new" });
+    expect(sql.sql).toContain("booking_program_id = {program_id:String}");
+    expect(sql.sql).toContain("= {closer_id:String}");
+    expect(sql.params).toMatchObject({ program_id: f.programId, closer_id: f.closerId, call_type: "new" });
   });
   it("exports latest meeting credit, fallback owner, moved slots and attendance", async () => {
     const f = await scorecardFixture();

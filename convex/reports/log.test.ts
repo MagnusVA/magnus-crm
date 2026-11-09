@@ -81,6 +81,18 @@ describe("Report Log", () => {
         })
       ).page.map((e) => e.entityId),
     ).toEqual(["4", "2", "0"]);
+    // Events tagged with the member that her login didn't record: a Slack
+    // qualification the system logged, and another person's action.
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("domainEvents", {
+        tenantId: f.tenantId, entityType: "lead", entityId: "slack", eventType: "lead.qualified",
+        occurredAt: from + 7, teamMemberId: f.memberA, source: "system",
+      });
+      await ctx.db.insert("domainEvents", {
+        tenantId: f.tenantId, entityType: "meeting", entityId: "byBeto", eventType: "meeting.held",
+        occurredAt: from + 8, actorUserId: f.beto, teamMemberId: f.memberA, source: "closer",
+      });
+    });
     expect(
       (
         await own.query(api.reports.log.listMemberLog, {
@@ -89,7 +101,7 @@ describe("Report Log", () => {
           paginationOpts: { numItems: 10, cursor: null },
         })
       ).page.map((e) => e.entityId),
-    ).toEqual(["legacy", "4", "2", "0"]);
+    ).toEqual(["legacy", "byBeto", "slack", "4", "2", "0"]);
     await expect(
       own.query(api.reports.log.listMemberLog, {
         ...args,

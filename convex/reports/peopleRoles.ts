@@ -216,6 +216,9 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
       }
     }
     for (const respark of facts.resparks) {
+      // A respark is an item worked to "resparked"; skipped and not-a-fit
+      // items were worked without one.
+      if (respark.result !== "resparked") continue;
       if (respark.workedAt === undefined || !inRange(respark.workedAt, range)) continue;
       const worker = dimensions.workers.find(worker => worker._id === respark.workerId);
       const identity = memberIdentity(dimensions, worker?.teamMemberId);

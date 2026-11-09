@@ -80,6 +80,11 @@ async function createFixture() {
     const batchId = await ctx.db.insert("resparkBatches", { tenantId, userId: closerA, workerId: workerA, createdAt: from, heldUntil: to, size: 1, requestedSize: 1 });
     const itemId = await ctx.db.insert("resparkBatchItems", { tenantId, batchId, userId: closerA, workerId: workerA, leadId,
       position: 0, bucket: 1, heldUntil: to, result: "resparked", workedAt: split + 500 });
+    // Worked without a respark: they don't count as resparks.
+    for (const result of ["skipped", "not_a_fit"] as const) {
+      await ctx.db.insert("resparkBatchItems", { tenantId, batchId, userId: closerA, workerId: workerA, leadId,
+        position: 1, bucket: 1, heldUntil: to, result, workedAt: split + 600 });
+    }
     const credit = (fields: Pick<Doc<"dealAttributions">, "role" | "source"> & Partial<Doc<"dealAttributions">>) =>
       ctx.db.insert("dealAttributions", { tenantId, opportunityId: dealId, teamMemberId: memberA, attributedAt: from, createdAt: from, ...fields });
     await credit({ role: "lead_gen", source: { kind: "capture", prospectId, workerId: workerA, eventId } });
