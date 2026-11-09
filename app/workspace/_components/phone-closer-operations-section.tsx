@@ -11,6 +11,8 @@ import { ATTENDANCE_COUNTS_PARTIAL_HELP } from "./results-recorded";
 // ruled table with a Total row. Below @xl/closers each closer folds to two
 // lines: the name, then the counts in words. When attendance counts are
 // partial, one note above the rows says why, for the table and the list.
+// Canceled and moved slots (a call rescheduled to another time) are counted
+// apart, under each name, so the six figure columns still fit.
 
 type ReadyData = Extract<PhoneCloserOperationsSectionData, { status: "ready" }>["data"];
 type Counts = ReadyData["totals"];
@@ -23,6 +25,10 @@ function formatShowRate(value: number | null) {
 
 function resultsLine(counts: Counts, partial: boolean) {
   return `${formatWholeNumber(counts.resultsRecorded)} of ${formatWholeNumber(counts.pastCalls)} past calls have a result${partial ? " (partial)" : ""}`;
+}
+
+function slotsLine(counts: Counts) {
+  return `${formatWholeNumber(counts.canceled)} canceled · ${formatWholeNumber(counts.moved)} moved`;
 }
 
 const figure = "font-condensed text-[15px] font-semibold tabular-nums";
@@ -51,6 +57,8 @@ function CountWords({ counts }: { counts: Counts }) {
     [formatWholeNumber(counts.scheduled), "booked"],
     [formatWholeNumber(counts.held), "held"],
     [formatWholeNumber(counts.noShows), "no-show"],
+    [formatWholeNumber(counts.canceled), "canceled"],
+    [formatWholeNumber(counts.moved), "moved"],
     [formatWholeNumber(counts.reviewRequired), "to review"],
     [formatShowRate(counts.showRate), "show rate"],
     [formatShowRate(counts.noShowRate), "no-show rate"],
@@ -99,6 +107,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
               <th scope="row" className="py-2 pr-3 pl-4 text-left font-normal">
                 <p className="font-semibold">{getMemberDisplayName(row.closer)}</p>
                 <p className="text-[13px] text-muted-foreground">{resultsLine(row, partial)}</p>
+                <p className="text-[13px] text-muted-foreground">{slotsLine(row)}</p>
               </th>
               <Figures counts={row} />
             </tr>
@@ -107,6 +116,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <th scope="row" className="py-2 pr-3 pl-4 text-left">
               <p className="font-semibold">Total</p>
               <p className="text-[13px] font-normal text-muted-foreground">{resultsLine(data.totals, partial)}</p>
+              <p className="text-[13px] font-normal text-muted-foreground">{slotsLine(data.totals)}</p>
             </th>
             <Figures counts={data.totals} strong />
           </tr>

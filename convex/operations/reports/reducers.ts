@@ -385,6 +385,7 @@ function addMeetingStatusMetrics(
   addPageMetric(pageMetrics, section, rowKey, "booked", count);
   if (isHeldStatus(status)) addPageMetric(pageMetrics, section, rowKey, "showed", count);
   if (status === "canceled") addPageMetric(pageMetrics, section, rowKey, "canceled", count);
+  if (status === "moved") addPageMetric(pageMetrics, section, rowKey, "moved", count);
   if (status === "no_show") addPageMetric(pageMetrics, section, rowKey, "noShows", count);
 }
 
@@ -884,6 +885,7 @@ export function finalizeAggregateRecord(args: {
       const booked = numberField(payload, "booked");
       const showed = numberField(payload, "showed");
       payload.totalCalls = booked;
+      payload.moved = numberField(payload, "moved");
       payload.resultsRecorded = showed + numberField(payload, "noShows");
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
       payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
@@ -907,6 +909,7 @@ export function finalizeAggregateRecord(args: {
       const showed = numberField(payload, "showed");
       payload.booked = booked;
       payload.canceled = canceled;
+      payload.moved = numberField(payload, "moved");
       payload.noShows = numberField(payload, "noShows");
       payload.showed = showed;
       payload.resultsRecorded = showed + numberField(payload, "noShows");
@@ -924,6 +927,7 @@ export function finalizeAggregateRecord(args: {
       payload.calls = booked;
       payload.showed = showed;
       payload.canceled = canceled;
+      payload.moved = numberField(payload, "moved");
       payload.noShows = numberField(payload, "noShows");
       payload.resultsRecorded = showed + numberField(payload, "noShows");
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");

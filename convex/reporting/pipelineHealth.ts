@@ -707,6 +707,7 @@ export const getSchedulingShowRateByOperationsDimensions = query({
     scheduled: v.number(),
     shown: v.number(),
     canceled: v.number(),
+    moved: v.number(),
     noShows: v.number(),
     resultsRecorded: v.number(),
     pastCalls: v.number(),
@@ -759,6 +760,8 @@ export async function buildSchedulingShowRate(
   let scheduled = 0;
   let shown = 0;
   let canceled = 0;
+  // Slots given up in a reschedule, apart from canceled (D9).
+  let moved = 0;
   let noShows = 0;
   let notRecorded = 0;
   const attendance = await withAttendanceCounts(ctx, tenantId, filtered);
@@ -771,6 +774,9 @@ export async function buildSchedulingShowRate(
     if (row.meetingStatus === "canceled") {
       canceled += row.count;
     }
+    if (row.meetingStatus === "moved") {
+      moved += row.count;
+    }
     if (row.meetingStatus === "no_show") {
       noShows += row.count;
     }
@@ -781,6 +787,7 @@ export async function buildSchedulingShowRate(
     scheduled,
     shown,
     canceled,
+    moved,
     noShows,
     resultsRecorded: denominator,
     pastCalls: denominator + notRecorded,

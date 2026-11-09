@@ -18,6 +18,7 @@ import {
 import { deriveCallOutcomeByStage } from "../../reporting/lib/outcomeDerivation";
 import type { SqlRow } from "../clickhouse";
 import { closeRateCohortCounts, closeRateCohortSql } from "./closeRateCohort";
+import { contributionStatusSql } from "./operations";
 import {
   defineReport,
   noFilters,
@@ -145,8 +146,8 @@ WHERE tenant_id = {tenant_id:String}
 
 // operationsMeetingStatsV2, rebuilt as convex/analytics/definitions/operations.ts
 // does: one bucket per business day of `scheduledAt`, assigned closer, booked
-// program, the deal's sold program and status, days before `recent_from`
-// folded into the range's first day. With a team or DM closer, the reader
+// program, the deal's sold program and status (a moved slot as `moved`), days
+// before `recent_from` folded into the range's first day. With a team or DM closer, the reader
 // counts each credited meeting on its own, so a recent day keeps the meeting
 // id withAttendanceCounts splits by; folded days need none.
 function meetingBucketsSql(filters: OperationsFilters) {
@@ -165,7 +166,7 @@ SELECT
   m.assigned_closer_id AS assigned_closer_id,
   m.booking_program_id AS booking_program_id,
   d.sold_program_id AS sold_program_id,
-  m.status AS meeting_status,
+  ${contributionStatusSql("m")} AS meeting_status,
   count() AS count
 FROM analytics.meetings AS m
 INNER JOIN (

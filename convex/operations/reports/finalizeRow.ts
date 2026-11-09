@@ -11,7 +11,7 @@ export const summaryDefaults: Record<string, ScalarRecord> = {
   },
   qualifications_summary: { totalQualified: 0, dailyQuota: null, target: null },
   booked_calls_summary: { totalBooked: 0, teamOnlyBooked: 0, totalTarget: null },
-  sales_calls_summary: { booked: 0, showed: 0, canceled: 0, noShows: 0, cohortDeals: 0, wonDeals: 0 },
+  sales_calls_summary: { booked: 0, showed: 0, canceled: 0, moved: 0, noShows: 0, cohortDeals: 0, wonDeals: 0 },
 };
 
 export async function finalizeReportRow(

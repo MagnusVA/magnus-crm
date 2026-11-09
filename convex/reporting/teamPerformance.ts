@@ -425,6 +425,8 @@ export async function buildTeamOperationsDimensions(
       scheduled: number;
       completed: number;
       canceled: number;
+      // Slots given up in a reschedule, apart from canceled (D9).
+      moved: number;
       noShows: number;
       notRecorded: number;
     }
@@ -443,6 +445,7 @@ export async function buildTeamOperationsDimensions(
       scheduled: 0,
       completed: 0,
       canceled: 0,
+      moved: 0,
       noShows: 0,
       notRecorded: 0,
     };
@@ -453,6 +456,9 @@ export async function buildTeamOperationsDimensions(
     }
     if (row.meetingStatus === "canceled") {
       current.canceled += row.count;
+    }
+    if (row.meetingStatus === "moved") {
+      current.moved += row.count;
     }
     if (row.meetingStatus === "no_show") {
       current.noShows += row.count;
@@ -490,10 +496,11 @@ export async function buildTeamOperationsDimensions(
       scheduled: acc.scheduled + row.scheduled,
       completed: acc.completed + row.completed,
       canceled: acc.canceled + row.canceled,
+      moved: acc.moved + row.moved,
       noShows: acc.noShows + row.noShows,
       notRecorded: acc.notRecorded + row.notRecorded,
     }),
-    { scheduled: 0, completed: 0, canceled: 0, noShows: 0, notRecorded: 0 },
+    { scheduled: 0, completed: 0, canceled: 0, moved: 0, noShows: 0, notRecorded: 0 },
   );
   const denominator = totals.completed + totals.noShows;
 
@@ -528,6 +535,7 @@ export const getTeamOperationsDimensions = query({
         scheduled: v.number(),
         completed: v.number(),
         canceled: v.number(),
+        moved: v.number(),
         noShows: v.number(),
         notRecorded: v.number(),
         resultsRecorded: v.number(),
@@ -540,6 +548,7 @@ export const getTeamOperationsDimensions = query({
       scheduled: v.number(),
       completed: v.number(),
       canceled: v.number(),
+      moved: v.number(),
       noShows: v.number(),
       notRecorded: v.number(),
       resultsRecorded: v.number(),

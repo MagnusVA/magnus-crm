@@ -8,6 +8,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { termHelp } from "@/lib/reporting/definitions";
 
 type OverviewHelpTooltipProps = {
 	label: string;
@@ -97,11 +98,13 @@ export const overviewTooltips = {
 		closer:
 			"CRM user assigned to take the sales call.",
 		bookedCalls:
-			"All meetings scheduled in the range for this closer, across every status.",
+			"All meetings scheduled in the range for this closer, across every status, canceled and moved slots included.",
 		held:
 			"Held meetings for this closer in the selected range.",
 		noShows:
 			"Meetings marked no-show for this closer in the selected range.",
+		canceled: termHelp("canceled"),
+		moved: termHelp("moved"),
 		reviewRequired:
 			"Meetings requiring operations review in the selected range.",
 		showRate:

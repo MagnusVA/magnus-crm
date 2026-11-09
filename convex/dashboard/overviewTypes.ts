@@ -88,6 +88,10 @@ export type PhoneCloserOperations = {
     scheduled: number;
     held: number;
     noShows: number;
+    /** Canceled and not moved. */
+    canceled: number;
+    /** Slots given up in a reschedule (D9). */
+    moved: number;
     reviewRequired: number;
     resultsRecorded: number;
     pastCalls: number;
@@ -98,6 +102,10 @@ export type PhoneCloserOperations = {
     scheduled: number;
     held: number;
     noShows: number;
+    /** Canceled and not moved. */
+    canceled: number;
+    /** Slots given up in a reschedule (D9). */
+    moved: number;
     reviewRequired: number;
     resultsRecorded: number;
     pastCalls: number;

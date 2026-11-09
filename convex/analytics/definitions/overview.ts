@@ -45,7 +45,7 @@ import {
 // the tenant business day and take an Overview range. The SQL rebuilds what
 // each section reads, reusing the lead gen and Operations ports: the
 // `leadGenDailyStats` rows, the per-origin totals of `leadGenOriginStats`, the
-// `operationsMeetingStatsV2` buckets and the first-booking credit counts. The
+// `operationsMeetingStatsV2` buckets and the new-booking credit counts. The
 // qualifier rows count each opener's events and booked Slack deals, and the
 // Slack-sourced deals the slackQualificationsByUser aggregate indexes. The
 // section builders do the rest, and the readers' row caps don't apply.

@@ -26,7 +26,13 @@ export type SalesCloseRate = {
   wonDeals?: number;
 };
 
-export type SalesCallsStats = SalesCloseRate & {
+/**
+ * Slots given up in a reschedule, counted apart from canceled (D9). Optional
+ * because an answer cached before the count existed lacks it; read it as 0.
+ */
+export type SalesMoved = { moved?: number };
+
+export type SalesCallsStats = SalesCloseRate & SalesMoved & {
   totalCalls: number;
   showed: number;
   canceled: number;
@@ -37,7 +43,7 @@ export type SalesCallsStats = SalesCloseRate & {
   moneyByCurrency: SalesSummaryMoney[];
 };
 
-export type SalesProgramRow = SalesCloseRate & {
+export type SalesProgramRow = SalesCloseRate & SalesMoved & {
   programId: string | null;
   label: string;
   calls: number;
@@ -50,7 +56,7 @@ export type SalesProgramRow = SalesCloseRate & {
   moneyByCurrency: SalesPerformanceMoney[];
 };
 
-export type SalesCloserRow = SalesCloseRate & {
+export type SalesCloserRow = SalesCloseRate & SalesMoved & {
   closerId: string;
   label: string;
   avatar: MemberAvatarIdentity;
@@ -172,6 +178,7 @@ function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
     (result, closer) => ({
       booked: result.booked + closer.booked,
       canceled: result.canceled + closer.canceled,
+      moved: result.moved + (closer.moved ?? 0),
       noShows: result.noShows + closer.noShows,
       showed: result.showed + closer.showed,
       resultsRecorded: result.resultsRecorded + closer.resultsRecorded,
@@ -179,7 +186,7 @@ function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
       cohortDeals: result.cohortDeals + (closer.cohortDeals ?? 0),
       wonDeals: result.wonDeals + (closer.wonDeals ?? 0),
     }),
-    { booked: 0, canceled: 0, noShows: 0, showed: 0, resultsRecorded: 0, pastCalls: 0, cohortDeals: 0, wonDeals: 0 },
+    { booked: 0, canceled: 0, moved: 0, noShows: 0, showed: 0, resultsRecorded: 0, pastCalls: 0, cohortDeals: 0, wonDeals: 0 },
   );
   const byCurrency = new Map<
     string,
@@ -233,6 +240,7 @@ export function buildHistoricalSalesDashboard(args: {
       avatar: dashboardIdentity(row.payload, closerId, label),
       booked: numberValue(row.payload, "booked"),
       canceled: numberValue(row.payload, "canceled"),
+      moved: numberValue(row.payload, "moved"),
       noShows: numberValue(row.payload, "noShows"),
       showed: numberValue(row.payload, "showed"),
       resultsRecorded: numberValue(row.payload, "resultsRecorded"),
@@ -252,6 +260,7 @@ export function buildHistoricalSalesDashboard(args: {
       calls: numberValue(row.payload, "calls", numberValue(row.payload, "booked")),
       showed: numberValue(row.payload, "showed"),
       canceled: numberValue(row.payload, "canceled"),
+      moved: numberValue(row.payload, "moved"),
       noShows: numberValue(row.payload, "noShows"),
       resultsRecorded: numberValue(row.payload, "resultsRecorded"),
       pastCalls: numberValue(row.payload, "pastCalls"),
@@ -267,6 +276,7 @@ export function buildHistoricalSalesDashboard(args: {
       totalCalls: numberValue(args.summary, "totalCalls"),
       showed: numberValue(args.summary, "showed"),
       canceled: numberValue(args.summary, "canceled"),
+      moved: numberValue(args.summary, "moved"),
       noShows: numberValue(args.summary, "noShows"),
       resultsRecorded: numberValue(args.summary, "resultsRecorded"),
       pastCalls: numberValue(args.summary, "pastCalls"),

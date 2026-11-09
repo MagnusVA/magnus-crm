@@ -27,6 +27,19 @@ function snake(name: string) {
 }
 
 /**
+ * The status a meeting's projection bucket holds, as `contributionStatusSql`
+ * computes it: a canceled meeting another meeting replaced is `moved`.
+ */
+export function projectedMeetingStatus(
+  meeting: { _id: string; status: string },
+  meetings: ReadonlyArray<{ rescheduledFromMeetingId?: string }>,
+): string {
+  return meeting.status === "canceled" && meetings.some((other) => other.rescheduledFromMeetingId === meeting._id)
+    ? "moved"
+    : meeting.status;
+}
+
+/**
  * The row an `analytics.*` view returns for a Convex document: the inverse of
  * `docFromRow` (convex/analytics/rows.ts), without the fields the table's
  * view leaves out. Number fields ending in `At`, and `heldUntil`, become

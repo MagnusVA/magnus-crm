@@ -77,6 +77,7 @@ const closerTotalsFields = {
   notRecorded: v.number(),
   booked: v.number(),
   canceled: v.number(),
+  moved: v.number(),
   noShows: v.number(),
   showed: v.number(),
   resultsRecorded: v.number(),
@@ -125,6 +126,9 @@ const salesCallsMeetingRowValidator = v.object({
 type MeetingTotals = {
   booked: number;
   canceled: number;
+  // Slots given up in a reschedule, apart from canceled (D9). They stay in
+  // `booked`, as they were, and never reach held or no-show.
+  moved: number;
   noShows: number;
   showed: number;
   notRecorded: number;
@@ -136,7 +140,7 @@ type PaymentTotals = {
 };
 
 function emptyMeetingTotals(): MeetingTotals {
-  return { booked: 0, canceled: 0, noShows: 0, showed: 0, notRecorded: 0 };
+  return { booked: 0, canceled: 0, moved: 0, noShows: 0, showed: 0, notRecorded: 0 };
 }
 
 function addStatsRow(totals: MeetingTotals, row: MeetingStatsCount & { notRecorded: number }) {
@@ -144,6 +148,7 @@ function addStatsRow(totals: MeetingTotals, row: MeetingStatsCount & { notRecord
   totals.notRecorded += row.notRecorded;
   if (isHeldStatus(row.meetingStatus)) totals.showed += row.count;
   if (row.meetingStatus === "canceled") totals.canceled += row.count;
+  if (row.meetingStatus === "moved") totals.moved += row.count;
   if (row.meetingStatus === "no_show") totals.noShows += row.count;
 }
 
@@ -224,6 +229,7 @@ function emptyDashboard(start: number, end: number) {
       totalCalls: 0,
       showed: 0,
       canceled: 0,
+      moved: 0,
       noShows: 0,
       resultsRecorded: 0,
       pastCalls: 0,
@@ -277,7 +283,8 @@ function validateWindow(start: number, end: number) {
  * with a team-total row, all in one round trip.
  *
  * Population: the operationsMeetingStatsV2 rollup keyed by the UTC day of
- * `scheduledAt` (dayKey), all four meeting statuses counted. Payments follow the
+ * `scheduledAt` (dayKey), every meeting status counted, a moved slot apart
+ * from canceled. Payments follow the
  * teamPerformance/revenue definition of cash collected: non-disputed,
  * non-deposit (final) payments by `recordedAt`. The close rate is the cohort
  * close rate (convex/reporting/lib/closeRateCohort.ts) over the same window:
@@ -298,6 +305,7 @@ export const getSalesCallsDashboard = query({
       totalCalls: v.number(),
       showed: v.number(),
       canceled: v.number(),
+      moved: v.number(),
       noShows: v.number(),
       resultsRecorded: v.number(),
       pastCalls: v.number(),
@@ -317,6 +325,7 @@ export const getSalesCallsDashboard = query({
         calls: v.number(),
         showed: v.number(),
         canceled: v.number(),
+        moved: v.number(),
         noShows: v.number(),
         resultsRecorded: v.number(),
         pastCalls: v.number(),
@@ -550,6 +559,7 @@ export async function buildSalesCallsDashboard(
         calls: meetingTotals.booked,
         showed: meetingTotals.showed,
         canceled: meetingTotals.canceled,
+        moved: meetingTotals.moved,
         noShows: meetingTotals.noShows,
         resultsRecorded: meetingTotals.showed + meetingTotals.noShows,
         pastCalls: meetingTotals.showed + meetingTotals.noShows + meetingTotals.notRecorded,
@@ -634,6 +644,7 @@ export async function buildSalesCallsDashboard(
     (acc, closer) => ({
       booked: acc.booked + closer.booked,
       canceled: acc.canceled + closer.canceled,
+      moved: acc.moved + closer.moved,
       noShows: acc.noShows + closer.noShows,
       showed: acc.showed + closer.showed,
       notRecorded: acc.notRecorded + closer.notRecorded,
@@ -659,6 +670,7 @@ export async function buildSalesCallsDashboard(
       totalCalls: overallMeetings.booked,
       showed,
       canceled: overallMeetings.canceled,
+      moved: overallMeetings.moved,
       noShows: overallMeetings.noShows,
       resultsRecorded: showed + overallMeetings.noShows,
       pastCalls: showed + overallMeetings.noShows + overallMeetings.notRecorded,

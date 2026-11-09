@@ -6,11 +6,14 @@ export const meetingContribution = v.object({
   assignedCloserId: v.id("users"),
   bookingProgramId: v.optional(v.id("tenantPrograms")),
   soldProgramId: v.optional(v.id("tenantPrograms")),
+  // A meeting's status, except that a canceled meeting another meeting
+  // replaced counts as `moved` (docs/reviews/reports-decisions.html, D9).
   meetingStatus: v.union(
     v.literal("scheduled"),
     v.literal("held"),
     v.literal("canceled"),
     v.literal("no_show"),
+    v.literal("moved"),
   ),
 });
 export const meetingProjectionTables = {
