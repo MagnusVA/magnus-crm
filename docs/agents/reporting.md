@@ -49,7 +49,7 @@ Most reports aggregate in SQL and finalize inside the `complete` mutation, which
 - `build` is pure: rows and context in, the reader's answer out.
 - `finalize: nodeFinalize(node)` runs the same context and build in tests and `previewFinalize`, with the context sent through JSON as in production.
 
-`runReport` sends these reports to `runNode.ts:finalizeInNode`: the rows stay in the Node action (512 MiB, up to 16M characters of ClickHouse response), and only the answer, split into parts, goes to `complete`. Each run logs `analytics.node_build` with its rows, answer bytes, time and peak memory. An answer may be up to 12 MB; past that, or past the rows budget, the key fails with "Choose a shorter range". Parity runs the same build without saving (`previewInNode`).
+`runReport` sends these reports to `runNode.ts:finalizeInNode`: the rows stay in the Node action (512 MiB, up to 16M characters of ClickHouse response), and only the answer, split into parts, goes to `complete`. Each run logs `analytics.node_build` with its rows, answer bytes, time and peak memory. An answer may be up to 12 MB; past that, or past the rows budget, the key fails with "Choose a shorter range". A response that carries an `exception`, or fewer rows than it says, fails the run: ClickHouse answers 200 once rows are on the wire, so a limit hit after that would otherwise save part of the rows as the answer. Parity runs the same build without saving (`previewInNode`).
 
 ## The Reports pages (`convex/reports/`)
 
@@ -114,7 +114,7 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 | Put back every type the backfill changed | `npx convex run --prod migrations:run '{"fn":"migrations:reverseCallTypeBackfill"}'` |
 | Re-project moved slots (dry run first), then assert | `npx convex run --prod operations/movedSlotProjections:requeueMovedSlotProjections '{"tenantId":"…","dryRun":true}'`, then without `dryRun`, then `assertMovedSlotProjections '{"tenantId":"…"}'` once the projections drain |
 
-| Before reverting to code that stores one part per answer | `npx convex run --prod analytics/results:deleteMultipartResults` until `remaining` is false |
+| Before deploying a revert | `npx convex run --prod analytics/results:deleteMultipartResults` until `remaining` is false (see "Reverting the reports overhaul") |
 
 To preview a page before it's switched, add `?analytics=preview` to its URL.
 
@@ -128,6 +128,17 @@ The Reports pages (`scorecard`, `calls`, `people`, `attribution`) go live in thi
 4. `pnpm analytics:parity <page>` at `yesterday` and a few short custom ranges. Longer ranges SKIP, since the readers cap there.
 5. Open the page with `?analytics=preview` at Year to date and wait for it to finish: that runs the full production path (the Node build, the stored parts, `reports.get`). Check `analytics.node_build` in the logs for its rows, answer size and peak memory.
 6. `analytics/switch:enable` for that page; the `people` switch moves all four People reports. Do one page at a time (calls, scorecard, attribution, people), and after each check `magnus_app`'s queries and execution seconds per hour in `system.query_log` against its quota (600 queries, 900 seconds).
+
+### Reverting the reports overhaul
+
+A page that shows a wrong number goes back to its Convex readers with `switch:disable`; fix forward from there. Reverting the code is a last resort, and a plain `git revert` won't deploy once the new code has written data: Convex checks every stored document against the schema, and the old schema rejects `resultId` on `analyticsPayloads`, `payloadPartIds` on `analyticsResults`, a `moved` meeting contribution, and the new page names in a tenant's `analyticsReports`. To revert:
+
+1. `switch:disable` for `scorecard`, `calls`, `people` and `attribution`, then `deleteMultipartResults` until `remaining` is false. The old code reads only an answer's first part.
+2. If the call-type backfill ran, `reverseCallTypeBackfill`.
+3. Revert the commit, then restore this version of `convex/schema.ts`, `convex/analytics/schema.ts` and `convex/operations/meetingProjectionSchema.ts`. In `convex/operations/reports/readers.ts`, return a `moved` contribution's status as `canceled` (the type checker fails on that one line until you do).
+4. Deploy, then request a projection for every canceled meeting that has a successor, so the old code writes those contributions as `canceled` again.
+
+The schema can be narrowed later, once no document holds the new fields.
 
 The PostHog events to watch are:
 
