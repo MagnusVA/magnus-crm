@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { scorecardFixture, whole, history, today, identity } from "../../tests/scorecardFixtures";
-import { assembleRowsCsv, exportRowsFromSql, MAX_EXPORT_ROWS, rowsExportSql, type RowsKind } from "./rowsExport";
+import { assembleRowsCsv, exportRowsFromSql, MAX_EXPORT_ROWS, ROW_COLUMNS, rowsExportSql, type RowsKind } from "./rowsExport";
 
 const dates = { startDate: whole.startDate, endDateInclusive: whole.endDateInclusive };
 const decode = (bytes: ArrayBuffer) => new TextDecoder().decode(bytes);
@@ -75,6 +75,59 @@ describe("Rows CSV", () => {
     expect(rows.some(r => r.amount === "999.99")).toBe(false);
     // A closer credit row on the deal (here a later reassignment) never adds a closer.
     expect(rows.some(r => r.creditedName === "Later credit")).toBe(false);
+  });
+  it("exports distinct DM teams alongside named DM closers, once per payment and only after credit", async () => {
+    const f = await scorecardFixture();
+    const deposit = f.payments.find(p => p._id === f.depositId)!;
+    const { teamId, otherTeamId, lateTeamId } = await f.t.run(async ctx => {
+      const team = (slug: string) => ctx.db.insert("attributionTeams", { tenantId: f.tenantId, slug, displayName: "DM team",
+        utmSource: slug, normalizedUtmSource: slug, isActive: true, createdAt: 0, updatedAt: 0 });
+      const teamId = await team("one"); const otherTeamId = await team("two"); const lateTeamId = await team("late");
+      for (const [id, at] of [[teamId, deposit.recordedAt], [teamId, deposit.recordedAt - 1],
+        [otherTeamId, deposit.recordedAt], [lateTeamId, deposit.recordedAt + 1]] as const) {
+        await ctx.db.insert("dealAttributions", { tenantId: f.tenantId, opportunityId: f.dealA, role: "dm_team", teamId: id,
+          source: { kind: "booking_utm" }, attributedAt: at, createdAt: at });
+      }
+      for (const at of [deposit.recordedAt - 1, deposit.recordedAt + 1]) {
+        await ctx.db.insert("dealAttributions", { tenantId: f.tenantId, opportunityId: f.dealA, role: "dm_closer", teamMemberId: f.memberId,
+          source: { kind: "booking_utm" }, attributedAt: at, createdAt: at });
+      }
+      return { teamId, otherTeamId, lateTeamId };
+    });
+    const reader = f.t.withIdentity(identity);
+    const live = await reader.query(internal.reports.rowsExport.liveRows, { kind: "credits", range: whole, now: whole.toMs });
+    const dm = live.filter(r => r.role === "dm_team" || r.role === "dm_closer");
+    const expectedSqlRows = f.payments.filter(p => p.opportunityId === f.dealA && p.status !== "disputed").flatMap(p => {
+      const identities = [
+        { team_member_id: "", team_id: teamId, role: "dm_team", credited_name: "DM team" },
+        { team_member_id: "", team_id: otherTeamId, role: "dm_team", credited_name: "DM team" },
+        ...(p.recordedAt > deposit.recordedAt ? [{ team_member_id: "", team_id: lateTeamId, role: "dm_team", credited_name: "DM team" }] : []),
+        { team_member_id: f.memberId, team_id: "", role: "dm_closer", credited_name: "Credited closer" },
+      ];
+      return identities.map(credit => ({ payment_id: p._id, recorded_at_ms: p.recordedAt, deal_id: p.opportunityId,
+        person_name: "=Formula person", program: p.programName, type: p.paymentType, status: p.status,
+        currency: p.currency, amount_minor: p.amountMinor, ...credit }));
+    });
+    const sqlRows = exportRowsFromSql("credits", expectedSqlRows, whole.timeZone);
+    expect(dm).toHaveLength(7);
+    expect(dm).toEqual(expect.arrayContaining(sqlRows));
+    expect(dm.filter(r => r.paymentId === f.depositId && r.role === "dm_team").map(r => r.teamId).sort()).toEqual([teamId, otherTeamId].sort());
+    const lanes = await reader.query(api.reports.attribution.getLanes, { startDate: whole.fromMs, endDate: whole.toMs });
+    for (const role of ["dm_team", "dm_closer"] as const) {
+      for (const person of lanes.lanes.find(lane => lane.role === role)!.people) {
+        const exported = dm.filter(r => r.role === role && (role === "dm_team" ? r.teamId === person.teamId : r.teamMemberId === person.teamMemberId));
+        expect(exported.reduce((sum, r) => sum + Math.round(Number(r.amount) * 100), 0)).toBe(person.byCurrency[0].amountMinor);
+      }
+    }
+    expect(ROW_COLUMNS.credits.at(-1)).toMatchObject({ key: "teamId", label: "Credited team id" });
+    const query = rowsExportSql("credits", whole, whole.toMs);
+    expect(query.sql).toContain("FROM analytics.teams WHERE tenant_id = {tenant_id:String}");
+    expect(query.sql).toContain("GROUP BY opportunity_id, credited_member_id, credited_team_id, role");
+    expect(query.sql).toContain("c.attributed_at_ms <= p.recorded_at_ms");
+    expect(query.sql).toContain("c.credited_team_id AS team_id");
+    warehouse(expectedSqlRows.filter(row => row.recorded_at_ms < today.fromMs));
+    const csv = decode(await reader.action(api.reports.rowsExport.exportRows, { kind: "credits", range: dates }));
+    expect(csv).toContain(teamId); expect(csv).toContain("DM team");
   });
   it("pages through events with the Log's member and record filters", async () => {
     const f = await scorecardFixture();

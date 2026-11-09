@@ -51,7 +51,8 @@ export const ROW_COLUMNS: Record<RowsKind, ReportColumn[]> = {
     ["callType", "Call type"], ["attendance", "Attendance"], ["replacedMeetingId", "Replaced meeting id"]]),
   credits: columns([["paymentId", "Payment id"], ["recordedAt", "Recorded at (ISO)"], ["timeZone", "Tenant time zone"],
     ["dealId", "Deal id"], ["personName", "Person name"], ["program", "Program"], ["type", "Type"], ["status", "Status"],
-    ["currency", "Currency"], ["amount", "Amount"], ["teamMemberId", "Credited person id"], ["creditedName", "Credited person"], ["role", "Role"]]),
+    ["currency", "Currency"], ["amount", "Amount"], ["teamMemberId", "Credited person id"], ["creditedName", "Credited person"], ["role", "Role"],
+    ["teamId", "Credited team id"]]),
   // Metadata stays out: it can hold free text, and the log shows it on screen.
   events: columns([["eventId", "Event id"], ["occurredAt", "Occurred at (ISO)"], ["timeZone", "Tenant time zone"],
     ["label", "What happened"], ["eventType", "Event type"], ["entityType", "Record type"], ["entityId", "Record id"],
@@ -81,27 +82,32 @@ LEFT ANY JOIN (SELECT id, full_name FROM analytics.users WHERE tenant_id = {tena
 ORDER BY p.recorded_at_ms, p.id`;
   } else if (kind === "credits") {
     // The same credit as Attribution: every role but closer from the deal's
-    // credit rows (earliest per person and role, so repeated facts never
+    // credit rows (earliest per identity and role, so repeated facts never
     // multiply a payment, and a later credit never claims an earlier payment),
     // and the closer from the payment's own attributed closer. Disputed
     // payments credit no one.
     sql = `SELECT * FROM (
-SELECT ${paymentSelect}, c.team_member_id AS team_member_id, c.role AS role, tm.display_name AS credited_name ${paymentFrom(filters)}
+SELECT ${paymentSelect}, c.credited_member_id AS team_member_id, c.role AS role,
+  if(c.role = 'dm_team', coalesce(nullIf(t.display_name, ''), 'Unknown team'), tm.display_name) AS credited_name,
+  c.credited_team_id AS team_id ${paymentFrom(filters)}
 INNER JOIN (
-  SELECT opportunity_id, team_member_id, role, min(attributed_at_ms) AS attributed_at_ms
-  FROM analytics.attributions WHERE tenant_id = {tenant_id:String} AND ifNull(team_member_id, '') != '' AND role != 'closer'
-  GROUP BY opportunity_id, team_member_id, role
+  SELECT opportunity_id, if(role = 'dm_team', '', ifNull(team_member_id, '')) AS credited_member_id,
+    if(role = 'dm_team', ifNull(team_id, ''), '') AS credited_team_id, role, min(attributed_at_ms) AS attributed_at_ms
+  FROM analytics.attributions WHERE tenant_id = {tenant_id:String} AND role != 'closer'
+    AND if(role = 'dm_team', ifNull(team_id, '') != '', ifNull(team_member_id, '') != '')
+  GROUP BY opportunity_id, credited_member_id, credited_team_id, role
 ) AS c ON c.opportunity_id = p.opportunity_id
-LEFT ANY JOIN (SELECT id, display_name FROM analytics.team_members WHERE tenant_id = {tenant_id:String}) AS tm ON tm.id = c.team_member_id
+LEFT ANY JOIN (SELECT id, display_name FROM analytics.team_members WHERE tenant_id = {tenant_id:String}) AS tm ON tm.id = c.credited_member_id
+LEFT ANY JOIN (SELECT id, display_name FROM analytics.teams WHERE tenant_id = {tenant_id:String}) AS t ON t.id = c.credited_team_id
 WHERE c.attributed_at_ms <= p.recorded_at_ms AND ifNull(p.status, '') != 'disputed'
 UNION ALL
 SELECT ${paymentSelect}, u.team_member_id AS team_member_id, 'closer' AS role,
-  coalesce(nullIf(tm.display_name, ''), u.full_name) AS credited_name ${paymentFrom(filters)}
+  coalesce(nullIf(tm.display_name, ''), u.full_name) AS credited_name, '' AS team_id ${paymentFrom(filters)}
 INNER JOIN (SELECT id, team_member_id, full_name FROM analytics.users WHERE tenant_id = {tenant_id:String}) AS u ON u.id = p.attributed_closer_id
 LEFT ANY JOIN (SELECT id, display_name FROM analytics.team_members WHERE tenant_id = {tenant_id:String}) AS tm ON tm.id = u.team_member_id
 WHERE ifNull(p.status, '') != 'disputed'
 )
-ORDER BY recorded_at_ms, payment_id, team_member_id, role`;
+ORDER BY recorded_at_ms, payment_id, team_member_id, role, team_id`;
   } else if (kind === "events") {
     // A member's events are their login's own actions plus events tagged
     // with them, as the Log's member filter reads them (reports/log.ts).
@@ -176,7 +182,7 @@ export function exportRowsFromSql(kind: RowsKind, rows: SqlRow[], timeZone: stri
     paymentId: text(row.payment_id), recordedAt: iso(row.recorded_at_ms), timeZone, dealId: text(row.deal_id),
     personName: text(row.person_name), program: text(row.program), type: text(row.type), status: text(row.status),
     currency: text(row.currency), amount: (Number(row.amount_minor) / 100).toFixed(2),
-    ...(kind === "credits" ? { teamMemberId: text(row.team_member_id), creditedName: text(row.credited_name), role: text(row.role) }
+    ...(kind === "credits" ? { teamMemberId: text(row.team_member_id), creditedName: text(row.credited_name), role: text(row.role), teamId: text(row.team_id) }
       : { closerName: text(row.closer_name) }),
   });
 }
@@ -186,7 +192,7 @@ export const exportContext = internalQuery({ args: { range: datesValidator }, re
   const resolved = resolveAnalyticsRange({ kind: "custom", ...range }, setting, Date.now());
   return { tenantId, range: resolved, todayStart: businessDayStart(businessDateForInstant(Date.now(), setting), setting) };
 } });
-async function tenantDoc<Table extends "opportunities" | "leads" | "users" | "teamMembers">(
+async function tenantDoc<Table extends "opportunities" | "leads" | "users" | "teamMembers" | "attributionTeams">(
   ctx: QueryCtx, table: Table, id: Id<Table> | undefined, tenantId: Id<"tenants">, reader: LiveReader,
 ) {
   if (!id) return null;
@@ -242,14 +248,21 @@ export const liveRows = internalQuery({ args: { kind: kindValidator, range: scor
           if (p.attributedCloserId) {
             const user = await tenantDoc(ctx, "users", p.attributedCloserId, tenantId, reader);
             const member = await tenantDoc(ctx, "teamMembers", user?.teamMemberId, tenantId, reader);
-            result.push({ ...base, teamMemberId: user?.teamMemberId ?? "", creditedName: member?.displayName ?? user?.fullName ?? "", role: "closer" });
+            result.push({ ...base, teamMemberId: user?.teamMemberId ?? "", creditedName: member?.displayName ?? user?.fullName ?? "", role: "closer", teamId: "" });
           }
           for (const credit of credits) {
-            if (credit.role === "closer" || !credit.teamMemberId || credit.attributedAt > p.recordedAt) continue;
-            const key = `${credit.teamMemberId}:${credit.role}`;
+            if (credit.role === "closer" || credit.attributedAt > p.recordedAt) continue;
+            const identityId = credit.role === "dm_team" ? credit.teamId : credit.teamMemberId;
+            if (!identityId) continue;
+            const key = `${identityId}:${credit.role}`;
             if (seen.has(key)) continue; seen.add(key);
-            const member = await tenantDoc(ctx, "teamMembers", credit.teamMemberId, tenantId, reader);
-            result.push({ ...base, teamMemberId: credit.teamMemberId, creditedName: member?.displayName ?? "", role: credit.role });
+            if (credit.role === "dm_team") {
+              const team = await tenantDoc(ctx, "attributionTeams", credit.teamId, tenantId, reader);
+              result.push({ ...base, teamMemberId: "", creditedName: team?.displayName ?? "Unknown team", role: credit.role, teamId: credit.teamId ?? "" });
+            } else {
+              const member = await tenantDoc(ctx, "teamMembers", credit.teamMemberId, tenantId, reader);
+              result.push({ ...base, teamMemberId: credit.teamMemberId ?? "", creditedName: member?.displayName ?? "", role: credit.role, teamId: "" });
+            }
             if (result.length > MAX_EXPORT_ROWS) throw tooLarge();
           }
         }
