@@ -1,10 +1,12 @@
 import type { AnyReportDefinition } from "./definition";
 import { apiReports } from "./api/metrics";
 import { activityReports } from "./definitions/activity";
+import { attributionReports } from "./definitions/attribution";
 import { leadGenReports } from "./definitions/leadGen";
 import { leadsReports } from "./definitions/leads";
 import { operationsReports } from "./definitions/operations";
 import { overviewReports } from "./definitions/overview";
+import { peopleRoleReports } from "./definitions/peopleRoles";
 import { pipelineReports } from "./definitions/pipeline";
 import { remindersReports } from "./definitions/reminders";
 import { revenueReports } from "./definitions/revenue";
@@ -15,10 +17,12 @@ import { teamReports } from "./definitions/team";
 const definitions: readonly AnyReportDefinition[] = [
   ...apiReports,
   ...activityReports,
+  ...attributionReports,
   ...leadGenReports,
   ...leadsReports,
   ...operationsReports,
   ...overviewReports,
+  ...peopleRoleReports,
   ...pipelineReports,
   ...remindersReports,
   ...revenueReports,
