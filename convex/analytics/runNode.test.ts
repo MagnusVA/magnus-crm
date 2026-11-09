@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
 import { MAX_ROWS_JSON_CHARS } from "./results";
@@ -23,9 +24,12 @@ vi.mock("./registry", async () => {
   // Needs the rows first: its context reads the users the rows name.
   const fromRows = {
     keys: (rows: Rows) => [...new Set(rows.calls.map((row) => String(row.closer_id)))],
-    context: async (ctx: any, input: any, keys: readonly string[]) => {
-      const users = await Promise.all(keys.map((id) => ctx.db.get("users", ctx.db.normalizeId("users", id))));
-      return { closers: users.filter((user) => user?.tenantId === input.tenantId).map((user) => user.email) };
+    context: async (ctx: QueryCtx, input: { tenantId: Id<"tenants"> }, keys: readonly string[]) => {
+      const users = await Promise.all(keys.map((key) => {
+        const id = ctx.db.normalizeId("users", key);
+        return id ? ctx.db.get("users", id) : null;
+      }));
+      return { closers: users.flatMap((user) => (user?.tenantId === input.tenantId ? [user.email] : [])) };
     },
     build: (input: { rows: Rows; context: { closers: string[] } }) => ({
       calls: input.rows.calls.length,

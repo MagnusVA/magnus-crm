@@ -737,7 +737,7 @@ describe("multi-part answers", () => {
   }
 
   async function storedParts(fixture: Fixture) {
-    return await fixture.t.run(async (ctx) => (await ctx.db.query("analyticsPayloads").collect()).map((part) => part.json));
+    return await fixture.t.run(async (ctx) => (await ctx.db.query("analyticsPayloads").take(100)).map((part) => part.json));
   }
 
   async function insertWithParts(fixture: Fixture, json: string, overrides: Partial<Doc<"analyticsResults">> = {}) {
@@ -938,7 +938,7 @@ describe("multi-part answers", () => {
     await fixture.t.finishAllScheduledFunctions(vi.runAllTimers);
 
     expect(outcome).toEqual({ deleted: 1, remaining: false });
-    const left = await fixture.t.run(async (ctx) => (await ctx.db.query("analyticsResults").collect()).map((row) => row._id));
+    const left = await fixture.t.run(async (ctx) => (await ctx.db.query("analyticsResults").take(100)).map((row) => row._id));
     expect(left).toEqual([small]);
     expect(await storedParts(fixture)).toEqual(['{"small":true}']);
   });
