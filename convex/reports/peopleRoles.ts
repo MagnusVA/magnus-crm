@@ -130,9 +130,16 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
     const list = meetingsByDeal.get(meeting.opportunityId) ?? [];
     list.push(meeting); meetingsByDeal.set(meeting.opportunityId, list);
   }
+  // Credits by meeting, built once: a year has thousands of each.
+  const creditsByMeeting = new Map<string, typeof facts.attributions>();
+  for (const credit of facts.attributions) {
+    if (credit.meetingId === undefined) continue;
+    const list = creditsByMeeting.get(credit.meetingId) ?? [];
+    list.push(credit); creditsByMeeting.set(credit.meetingId, list);
+  }
   for (const credit of facts.attributions) {
     const teamOnly = role === "dm_closer" && credit.role === "dm_team" && credit.meetingId !== undefined &&
-      !facts.attributions.some(row => row.meetingId === credit.meetingId && row.role === "dm_closer");
+      !(creditsByMeeting.get(credit.meetingId) ?? []).some(row => row.role === "dm_closer");
     if ((credit.role !== role && !teamOnly) || !inRange(credit.attributedAt, range)) continue;
     const person = row(attributionIdentity(dimensions, credit));
     person.dealIds.push(credit.opportunityId);
@@ -175,7 +182,7 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
   }
   if (role === "dm_closer") for (const meeting of facts.meetings) {
     if (!inRange(meeting.createdAt, range) || isReplacement(meeting)) continue;
-    const credits = facts.attributions.filter(credit => credit.meetingId === meeting._id);
+    const credits = creditsByMeeting.get(meeting._id) ?? [];
     const named = credits.filter(credit => credit.role === "dm_closer");
     const bookingCredits = named.length > 0 ? named : credits.filter(credit => credit.role === "dm_team");
     const identities = new Map(bookingCredits.map(credit => {

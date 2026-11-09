@@ -53,16 +53,20 @@ export function buildFunnel(facts: ScorecardFacts, range: ResolvedAnalyticsRange
   const payments = selectedPayments(facts, range, filters);
   const meetings = [...new Map(facts.meetings.filter(m => !filters.programId || m.bookingProgramId === filters.programId).map(m => [m._id, m])).values()];
   const won = winners(facts, range, filters);
-  const byDay: FunnelOutput["byDay"] = [];
+  // Each item's day is worked out once: the time zone conversion is slow, and
+  // a year has hundreds of days and thousands of meetings.
+  const days = new Map<string, Omit<FunnelOutput["byDay"][number], "cash"> & { payments: Doc<"paymentRecords">[] }>();
   for (let dayKey = range.startDate; dayKey <= range.endDateInclusive; dayKey = addBusinessDays(dayKey, 1)) {
-    const onDay = (at: number) => businessDateForInstant(at, range) === dayKey;
-    byDay.push({ dayKey,
-      bookingsMade: meetings.filter(m => inRange(m.createdAt, range) && onDay(m.createdAt) && !isReplacement(m)).length,
-      callsHeld: meetings.filter(m => m.status === "held" && inRange(m.scheduledAt, range) && onDay(m.scheduledAt)).length,
-      dealsWon: won.filter(d => onDay(d.paymentReceivedAt!)).length,
-      cash: cashAmounts(payments.filter(p => onDay(p.recordedAt))),
-    });
+    days.set(dayKey, { dayKey, bookingsMade: 0, callsHeld: 0, dealsWon: 0, payments: [] });
   }
+  const day = (at: number) => days.get(businessDateForInstant(at, range));
+  for (const m of meetings) {
+    if (inRange(m.createdAt, range) && !isReplacement(m)) { const found = day(m.createdAt); if (found) found.bookingsMade++; }
+    if (m.status === "held" && inRange(m.scheduledAt, range)) { const found = day(m.scheduledAt); if (found) found.callsHeld++; }
+  }
+  for (const d of won) { const found = day(d.paymentReceivedAt!); if (found) found.dealsWon++; }
+  for (const p of payments) day(p.recordedAt)?.payments.push(p);
+  const byDay: FunnelOutput["byDay"] = [...days.values()].map(({ payments: onDay, ...counts }) => ({ ...counts, cash: cashAmounts(onDay) }));
   return { ...lifecycle, activity: {
     bookingsMade: byDay.reduce((sum, d) => sum + d.bookingsMade, 0),
     callsHeld: byDay.reduce((sum, d) => sum + d.callsHeld, 0), dealsWon: won.length, cash: cashAmounts(payments),
