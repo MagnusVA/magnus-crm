@@ -2,6 +2,7 @@
 
 import { v } from "convex/values";
 import { action } from "../_generated/server";
+import { expectedError } from "../lib/observability/errors";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { MEMBER_REPORT_ROLES } from "./lib/access";
 import type { ReportDocument } from "../../lib/operations-reports/document";
@@ -55,7 +56,10 @@ export const renderReportFile = action({
       return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     } catch (error) {
       if (error instanceof ReportSizeLimit) {
-        throw new Error("This page is too large to export in one file. Choose a shorter range.");
+        throw expectedError(
+          "reports.export_too_large",
+          "This page is too large to export in one file. Choose a shorter range.",
+        );
       }
       throw error;
     }

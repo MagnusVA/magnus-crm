@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ReportDocument } from "@/lib/operations-reports/document";
+import { getErrorMessage } from "@/lib/errors";
 import { renderSummaryCsv, reportExportFileName } from "@/lib/reporting/export";
 import { BAND_BUTTON } from "./report-ui";
 
@@ -97,7 +98,7 @@ export function ReportExportMenu({
     try {
       await work();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The export failed. Try again.");
+      toast.error(getErrorMessage(error, "The export failed. Try again."));
     } finally {
       setBusy(null);
     }
