@@ -402,6 +402,7 @@ import type * as reports_lib_callFacts from "../reports/lib/callFacts.js";
 import type * as reports_lib_creditFacts from "../reports/lib/creditFacts.js";
 import type * as reports_lib_validators from "../reports/lib/validators.js";
 import type * as reports_log from "../reports/log.js";
+import type * as reports_member from "../reports/member.js";
 import type * as reports_people from "../reports/people.js";
 import type * as reports_peopleRoles from "../reports/peopleRoles.js";
 import type * as reports_pipeline from "../reports/pipeline.js";
@@ -888,6 +889,7 @@ declare const fullApi: ApiFromModules<{
   "reports/lib/creditFacts": typeof reports_lib_creditFacts;
   "reports/lib/validators": typeof reports_lib_validators;
   "reports/log": typeof reports_log;
+  "reports/member": typeof reports_member;
   "reports/people": typeof reports_people;
   "reports/peopleRoles": typeof reports_peopleRoles;
   "reports/pipeline": typeof reports_pipeline;
