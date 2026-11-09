@@ -1,5 +1,7 @@
 import { recordMeeting } from "../lib/leadLifecycle";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
+import { callTypeForBooking } from "../lib/dealCallTypes";
+import { requestMeetingProjection } from "../operations/meetingStats";
 import { blockBooking, ignoreBooking } from "./blocked";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
@@ -159,20 +161,6 @@ async function syncMeetingFormResponsesForBooking(
 	}
 
 	await writeMeetingFormResponses(ctx, args);
-}
-
-async function getCallClassificationForOpportunity(
-	ctx: MutationCtx,
-	opportunityId: Id<"opportunities">,
-): Promise<"new" | "follow_up"> {
-	const existingMeeting = await ctx.db
-		.query("meetings")
-		.withIndex("by_opportunityId_and_scheduledAt", (q) =>
-			q.eq("opportunityId", opportunityId),
-		)
-		.first();
-
-	return existingMeeting ? "follow_up" : "new";
 }
 
 function bookedProgramPatch(config: Doc<"eventTypeConfigs"> | null | undefined) {
@@ -1123,11 +1111,11 @@ export const process = internalMutation({
 						scheduledAt,
 						durationMinutes,
 						status: "scheduled",
-						callClassification:
-							await getCallClassificationForOpportunity(
-								ctx,
-								targetOpportunityId,
-							),
+						callClassification: await callTypeForBooking(
+							ctx,
+							targetOpportunityId,
+							scheduledAt,
+						),
 						notes: meetingNotes,
 						leadName: lead.fullName ?? lead.email,
 						createdAt: now,
@@ -1150,6 +1138,11 @@ export const process = internalMutation({
 						utmParams,
 					});
 					await insertMeetingAggregate(ctx, meetingId);
+					if (rescheduledFromMeetingId) {
+						// The replaced meeting now has a successor: a canceled one
+						// projects as moved.
+						await requestMeetingProjection(ctx, tenantId, rescheduledFromMeetingId);
+					}
 					await recordMeeting(ctx, meetingId);
 					await syncMeetingFormResponsesForBooking(ctx, {
 						tenantId,
@@ -1434,9 +1427,10 @@ export const process = internalMutation({
 				scheduledAt,
 				durationMinutes,
 				status: "scheduled",
-				callClassification: await getCallClassificationForOpportunity(
+				callClassification: await callTypeForBooking(
 					ctx,
 					reschedOpportunityId,
+					scheduledAt,
 				),
 				notes: meetingNotes,
 				leadName: lead.fullName ?? lead.email,
@@ -1456,6 +1450,8 @@ export const process = internalMutation({
 				utmParams,
 			});
 			await insertMeetingAggregate(ctx, meetingId);
+			// The replaced slot now has a successor, so it projects as moved.
+			await requestMeetingProjection(ctx, tenantId, rescheduledFromMeetingId);
 			await recordMeeting(ctx, meetingId);
 			await syncMeetingFormResponsesForBooking(ctx, {
 				tenantId,
@@ -1758,9 +1754,10 @@ export const process = internalMutation({
 			scheduledAt,
 			durationMinutes,
 			status: "scheduled",
-			callClassification: await getCallClassificationForOpportunity(
+			callClassification: await callTypeForBooking(
 				ctx,
 				opportunityId,
+				scheduledAt,
 			),
 			notes: meetingNotes,
 			leadName: lead.fullName ?? lead.email, // Denormalize for query efficiency
