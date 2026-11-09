@@ -8,11 +8,12 @@
 //                         [--range 2026-09-01:2026-09-30] [--tz America/Tegucigalpa]
 //                         [--filters '{"programId":"…"}'] [--dev]
 //
-// Pages: revenue, team, pipeline, leads, activity, reminders,
-// slack_qualifications, sales_calls, booked_calls, qualifications, lead_gen,
-// overview, my_activity, and api for the external API's metrics. With no
-// --range it checks yesterday, last_month and last_90_days. Exits 1 when any
-// report differs.
+// Pages: scorecard, calls, people, attribution, revenue, sales_calls,
+// booked_calls, qualifications, lead_gen, overview, my_activity, and api for
+// the external API's metrics. With no --range it checks yesterday, last_month
+// and last_90_days. Exits 1 when any report differs. A report whose Convex
+// reader read only part of the range (its read caps) prints SKIP: compare it
+// at a shorter range.
 //
 // The Convex CLI ignores --prod when CONVEX_DEPLOY_KEY is set, in the shell or
 // in .env.local, and runs against the key's deployment. Export the production
@@ -208,6 +209,9 @@ function distributionDifferences(convex, clickhouse) {
   return out;
 }
 
+/** Flags a Convex reader sets when it read only part of the range. */
+const CAPPED_FLAGS = ["partial", "isTruncated", "callsPartial", "cohortPartial", "paymentsPartial"];
+
 function withoutKeys(value, keys) {
   return Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => !keys.includes(key)));
 }
@@ -262,6 +266,11 @@ for (const range of ranges) {
     try {
       convexRaw = convexRun(item.liveName, JSON.parse(item.liveArgsJson), ["--identity", JSON.stringify(identity)]);
     } catch (error) {
+      // A reader that refuses a long range (Scorecard's funnel) can't be compared.
+      if (/Choose a shorter range/.test(errorLine(error))) {
+        console.log(`SKIP  ${label}  ${item.reportId}: the Convex reader refuses this range. Check it with a shorter one.`);
+        continue;
+      }
       // Production hides a public function's error; its request ID finds it
       // in `npx convex logs --prod`.
       failed = true;
@@ -270,6 +279,13 @@ for (const range of ranges) {
     }
     // Internal readers (the API's) return their answer as JSON text.
     const convex = typeof convexRaw === "string" ? JSON.parse(convexRaw) : convexRaw;
+    // The Convex readers stop at their read caps (300 calls, 512 KiB) and say
+    // so; a partial answer isn't the truth to compare against.
+    const cappedBy = CAPPED_FLAGS.find((flag) => convex?.[flag] === true);
+    if (cappedBy) {
+      console.log(`SKIP  ${label}  ${item.reportId}: the Convex reader read only part of this range (${cappedBy}). Check it with a shorter one.`);
+      continue;
+    }
     let payload;
     try {
       payload = convexRun("analytics/parity:runNew", {

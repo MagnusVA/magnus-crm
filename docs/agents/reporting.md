@@ -27,9 +27,10 @@ Every report page reads today live from Convex, on its own or as part of a longe
 | `merge/*.ts` | One file per page: joins ClickHouse's answer for the days before today with the reader's answer from today. Pages import the merge functions at runtime, so a merge module imports server modules as types only |
 | `registry.ts` | Every report; add a page's definitions here |
 | `reports.ts` | `get` (the query pages subscribe to) and `request` (registers a key and runs it on a miss) |
-| `results.ts` | The `analyticsResults` lifecycle (answers live in `analyticsPayloads`, so bookkeeping reads small rows), the optional daily budget, and finalize |
+| `results.ts` | The `analyticsResults` lifecycle (answers live in `analyticsPayloads`, in parts of up to 900 KB, so bookkeeping reads small rows), the optional daily budget, and finalize |
 | `pool.ts` | `analyticsPool`, which runs what pages and API callers start, 2 at a time |
 | `run.ts` | `runReport` and `runPostSyncBatch` |
+| `runNode.ts` | The Node build path: reports with a `node` block fetch, build and save here |
 | `sync.ts` | The heartbeat cron, the Fivetran `sync_end` webhook (`/analytics/fivetran`), and the stale-sync alert |
 | `switch.ts`, `parity.ts` | CLI tools for switching pages and comparing sources on production |
 | `api/` | The external API: keys, metrics, and `/api/v1` routes |
@@ -39,6 +40,16 @@ Every report page reads today live from Convex, on its own or as part of a longe
 1. A page opens a key with `request`. If no answer covers the current sync and period, `request` runs it on `analyticsPool`. The pool runs 2 at a time, so a page's panels and the batch stay within `magnus_app`'s 4 simultaneous queries. There's no daily limit unless `ANALYTICS_DAILY_RUN_BUDGET` sets one; past it, a tenant's new keys wait for the next batch (`queued`), and retries of a failing key count too. An open panel renews its key hourly.
 2. After each sync, Fivetran calls `/analytics/fivetran`, and `runPostSyncBatch` reruns every key opened in the last 7 days, two at a time, while ClickHouse is awake.
 3. `analyticsSync` is one row. A 5-minute heartbeat stamps it, and Fivetran copies it, so ClickHouse's copy is the watermark: the newest write the sync included. No page reads this table.
+
+### The Node build path
+
+Most reports aggregate in SQL and finalize inside the `complete` mutation, which takes at most 4M characters of rows and about a second of CPU. A report that returns raw rows to reuse its Convex reader's builder can outgrow that (People's role reports read 44-54M characters for a year of production data). Such a report sets `node` in its definition (`NodeBuild` in `definition.ts`):
+
+- `context` reads the small Convex lookups the builder needs (directories, schedules, users) and returns plain JSON data, never a `Map`; `keys` names the IDs it needs from the rows. Without `keys`, the context loads before the SQL, and `sql(input, context)` can use it.
+- `build` is pure: rows and context in, the reader's answer out.
+- `finalize: nodeFinalize(node)` runs the same context and build in tests and `previewFinalize`, with the context sent through JSON as in production.
+
+`runReport` sends these reports to `runNode.ts:finalizeInNode`: the rows stay in the Node action (512 MiB, up to 24M characters of ClickHouse response), and only the answer, split into parts, goes to `complete`. Each run logs `analytics.node_build` with its rows, answer bytes, time and peak memory. An answer may be up to 12 MB; past that, or past the rows budget, the key fails with "Choose a shorter range". Parity runs the same build without saving (`previewInNode`).
 
 ## The Reports pages (`convex/reports/`)
 
@@ -77,7 +88,7 @@ The rebuilt Reports area (plan: `docs/reviews/reports-overhaul.html`, decisions:
   - `*_json` objects
   - no contact fields; `form_answers` shows a contact answer as `Hidden contact detail`
 - Fivetran adds a column only once a row sets it, so the views list unsynced schema fields as typed NULLs. When one appears in `convex_app`, replace the NULL in a new migration.
-- Rows handed to `finalize` are capped at 4 MB, and an answer at about 900 KB.
+- Rows handed to `finalize` in the mutation are capped at 4M characters; a Node-built report gets 24M. An answer is capped at 12 MB, stored in parts of up to 900 KB.
 
 ## ClickHouse objects
 
@@ -92,7 +103,7 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 
 | Task | Command |
 | --- | --- |
-| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`) |
+| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`). A report whose Convex reader read only part of the range prints SKIP; the Reports readers cap at 300 calls and 512 KiB, so compare them at `yesterday` or a few days |
 | Switch a page to ClickHouse | `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'` |
 | Roll a page back | `npx convex run --prod analytics/switch:disable '{"tenantId":"…","page":"revenue"}'` |
 | Rerun the batch by hand | `npx convex run --prod analytics/run:runPostSyncBatch '{"force":true}'` |
@@ -103,7 +114,20 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 | Put back every type the backfill changed | `npx convex run --prod migrations:run '{"fn":"migrations:reverseCallTypeBackfill"}'` |
 | Re-project moved slots (dry run first), then assert | `npx convex run --prod operations/movedSlotProjections:requeueMovedSlotProjections '{"tenantId":"…","dryRun":true}'`, then without `dryRun`, then `assertMovedSlotProjections '{"tenantId":"…"}'` once the projections drain |
 
+| Before reverting to code that stores one part per answer | `npx convex run --prod analytics/results:deleteMultipartResults` until `remaining` is false |
+
 To preview a page before it's switched, add `?analytics=preview` to its URL.
+
+### Switching the Reports pages
+
+The Reports pages (`scorecard`, `calls`, `people`, `attribution`) go live in this order, after the deploy:
+
+1. The call-type backfill: preview, run, assert (above).
+2. The moved-slot re-projection: dry run, run, assert once the projections drain.
+3. A full Fivetran sync whose watermark is past both.
+4. `pnpm analytics:parity <page>` at `yesterday` and a few short custom ranges. Longer ranges SKIP, since the readers cap there.
+5. Open the page with `?analytics=preview` at Year to date and wait for it to finish: that runs the full production path (the Node build, the stored parts, `reports.get`). Check `analytics.node_build` in the logs for its rows, answer size and peak memory.
+6. `analytics/switch:enable` for that page; the `people` switch moves all four People reports. Do one page at a time (calls, scorecard, attribution, people), and after each check `magnus_app`'s queries and execution seconds per hour in `system.query_log` against its quota (600 queries, 900 seconds).
 
 The PostHog events to watch are:
 
