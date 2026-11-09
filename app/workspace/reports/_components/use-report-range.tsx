@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import {
   DateRangePicker,
   formatBusinessDateSpan,
@@ -12,12 +14,13 @@ import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-ran
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import {
-  dashboardRangeFromToday,
+  dashboardLiveRange,
   dashboardRangePlan,
   MAX_ANALYTICS_RANGE_DAYS,
   resolveDashboardRange,
+  settledThroughDate,
 } from "@/lib/analyticsRange";
-import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay";
+import { businessDateForInstant, businessDayDisclosure, businessDayStart } from "@/lib/businessDay";
 import { reportDayKeys, reportWindow } from "@/lib/reportDateRange";
 
 // A Reports page's range on the shared picker (DESIGN.md, The One Picker
@@ -38,10 +41,20 @@ export function useReportRange() {
   const { range, setRange, queryRange, validationMessage } = useDashboardRange({
     validationOptions: REPORT_RANGE_VALIDATION,
   });
+  // Until a sync whose watermark is past the start of today lands, yesterday
+  // reads live too (reports-decisions D1). While the watermark loads, plan
+  // through yesterday as before.
+  const sync = useQuery(api.analytics.sync.getSyncWatermark, {});
+  const settledThrough =
+    sync === undefined
+      ? undefined
+      : settledThroughDate(todayBusinessDate, sync.watermark, businessDayStart(todayBusinessDate, setting));
 
   return useMemo(() => {
     const dates = resolveDashboardRange(queryRange, todayBusinessDate);
-    const todayDates = resolveDashboardRange(dashboardRangeFromToday(dates, todayBusinessDate), todayBusinessDate);
+    const plan = dashboardRangePlan(queryRange, todayBusinessDate, settledThrough);
+    const liveStartDate = plan.kind === "split" ? plan.liveStartDate : todayBusinessDate;
+    const todayDates = resolveDashboardRange(dashboardLiveRange(dates, todayBusinessDate, liveStartDate), todayBusinessDate);
     /** "This week · Oct 27 – Nov 2", "Today · Nov 5", or a custom range's dates. */
     const wordsFor = (input: DashboardRangeInput) => {
       const resolved = resolveDashboardRange(input, todayBusinessDate);
@@ -66,13 +79,13 @@ export function useReportRange() {
       dates,
       /** `{ startDayKey, endDayKeyExclusive }` for meeting-bucket readers. */
       dayKeys: reportDayKeys(dates),
-      /** The part from today, for a split's live reader. */
+      /** The part a split's live reader answers: from today, or from yesterday overnight. */
       todayDayKeys: reportDayKeys(todayDates),
       /** `{ startDate, endDate }` in ms for timestamp readers. */
       window: reportWindow(dates, setting),
       todayWindow: reportWindow(todayDates, setting),
       /** Which source answers the range (docs/agents/reporting.md). */
-      plan: dashboardRangePlan(queryRange, todayBusinessDate),
+      plan,
       /** "today", "this week", "this month", "in this range". */
       phrase: rangePhrase(queryRange),
       wordsFor,
@@ -80,7 +93,7 @@ export function useReportRange() {
       /** The band's day line. */
       dayLine: businessDayDisclosure(setting),
     };
-  }, [loaded, queryRange, range, rebuilding, setRange, setting, todayBusinessDate, validationMessage]);
+  }, [loaded, queryRange, range, rebuilding, setRange, setting, settledThrough, todayBusinessDate, validationMessage]);
 }
 
 export type ReportRange = ReturnType<typeof useReportRange>;
