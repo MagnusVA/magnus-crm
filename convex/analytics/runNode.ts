@@ -23,12 +23,12 @@ import { ANSWER_TOO_LARGE, MAX_ANSWER_BYTES, answerBytes, resolvedRangeValidator
 // answer, split into parts, goes to `complete`. Node actions have 512 MiB.
 
 /**
- * Characters of ClickHouse response text one report may read. About 3.5x
- * the largest report a year of production data needed in November 2026
- * (People's lead gen, about 6.8M); peak memory at this budget was measured
- * well under half of Node's 512 MiB.
+ * Characters of ClickHouse response text one report may read. Measured on
+ * production rows in November 2026: the largest year was 7.1M (People's
+ * closers), 14.1M with the data doubled, and memory grew about 11 bytes per
+ * character, so 16M keeps a run near half of Node's 512 MiB.
  */
-export const MAX_NODE_ROWS_CHARS = 24_000_000;
+export const MAX_NODE_ROWS_CHARS = 16_000_000;
 
 const FAILED = "The reporting database couldn't answer this range. It tries again after the next refresh.";
 /**

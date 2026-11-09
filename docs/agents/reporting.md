@@ -49,7 +49,7 @@ Most reports aggregate in SQL and finalize inside the `complete` mutation, which
 - `build` is pure: rows and context in, the reader's answer out.
 - `finalize: nodeFinalize(node)` runs the same context and build in tests and `previewFinalize`, with the context sent through JSON as in production.
 
-`runReport` sends these reports to `runNode.ts:finalizeInNode`: the rows stay in the Node action (512 MiB, up to 24M characters of ClickHouse response), and only the answer, split into parts, goes to `complete`. Each run logs `analytics.node_build` with its rows, answer bytes, time and peak memory. An answer may be up to 12 MB; past that, or past the rows budget, the key fails with "Choose a shorter range". Parity runs the same build without saving (`previewInNode`).
+`runReport` sends these reports to `runNode.ts:finalizeInNode`: the rows stay in the Node action (512 MiB, up to 16M characters of ClickHouse response), and only the answer, split into parts, goes to `complete`. Each run logs `analytics.node_build` with its rows, answer bytes, time and peak memory. An answer may be up to 12 MB; past that, or past the rows budget, the key fails with "Choose a shorter range". Parity runs the same build without saving (`previewInNode`).
 
 ## The Reports pages (`convex/reports/`)
 
@@ -88,7 +88,7 @@ The rebuilt Reports area (plan: `docs/reviews/reports-overhaul.html`, decisions:
   - `*_json` objects
   - no contact fields; `form_answers` shows a contact answer as `Hidden contact detail`
 - Fivetran adds a column only once a row sets it, so the views list unsynced schema fields as typed NULLs. When one appears in `convex_app`, replace the NULL in a new migration.
-- Rows handed to `finalize` in the mutation are capped at 4M characters; a Node-built report gets 24M. An answer is capped at 12 MB, stored in parts of up to 900 KB.
+- Rows handed to `finalize` in the mutation are capped at 4M characters; a Node-built report gets 16M. An answer is capped at 12 MB, stored in parts of up to 900 KB.
 
 ## ClickHouse objects
 
