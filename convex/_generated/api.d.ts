@@ -384,6 +384,7 @@ import type * as reporting_teamOutcomes from "../reporting/teamOutcomes.js";
 import type * as reporting_teamPerformance from "../reporting/teamPerformance.js";
 import type * as reporting_verification from "../reporting/verification.js";
 import type * as reporting_writeHooks from "../reporting/writeHooks.js";
+import type * as reports_export from "../reports/export.js";
 import type * as reports_lib_access from "../reports/lib/access.js";
 import type * as requireIdentity from "../requireIdentity.js";
 import type * as requireSystemAdmin from "../requireSystemAdmin.js";
@@ -850,6 +851,7 @@ declare const fullApi: ApiFromModules<{
   "reporting/teamPerformance": typeof reporting_teamPerformance;
   "reporting/verification": typeof reporting_verification;
   "reporting/writeHooks": typeof reporting_writeHooks;
+  "reports/export": typeof reports_export;
   "reports/lib/access": typeof reports_lib_access;
   requireIdentity: typeof requireIdentity;
   requireSystemAdmin: typeof requireSystemAdmin;
