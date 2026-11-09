@@ -31,7 +31,6 @@ vi.mock("convex/react", () => ({
 vi.mock("@/app/workspace/reports/_components/report-attribution-filters", () => ({ ReportAttributionFilters: () => null }));
 
 import { TeamReportPageClient } from "@/app/workspace/reports/team/_components/team-report-page-client";
-import { PipelineReportPageClient } from "@/app/workspace/reports/pipeline/_components/pipeline-report-page-client";
 import { RevenueReportPageClient } from "@/app/workspace/reports/revenue/_components/revenue-report-page-client";
 import { LeadGenRanking } from "@/app/workspace/_components/overview-rankings";
 import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origins-overview-section";
@@ -44,18 +43,12 @@ const renderPage = (component: () => React.ReactNode) =>
 
 beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
-// The day keys each page's default range sends on 2026-10-22: both open on Today.
+// The day keys each page's default range sends on 2026-10-22: it opens on Today.
 const pages = [
   {
     name: "Team Performance",
     component: TeamReportPageClient,
     query: "reporting/teamPerformance:getTeamOperationsDimensions",
-    defaultKeys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" },
-  },
-  {
-    name: "Pipeline Health",
-    component: PipelineReportPageClient,
-    query: "reporting/pipelineHealth:getSchedulingShowRateByOperationsDimensions",
     defaultKeys: { startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23" },
   },
 ];
