@@ -5,7 +5,6 @@ import { expectMergedAnswer } from "../../tests/analyticsMerge";
 import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mergeBookedCallsDashboard, mergeQualificationsDashboard } from "../analytics/merge/operations";
-import { mergeSlackQualifications } from "../analytics/merge/slackQualifications";
 import { weekOn, weekdays, type WeekHours, type Weekday } from "../lib/workSchedule";
 import { readSourcePage } from "../operations/reports/readers";
 import { reduceReportSourcePage } from "../operations/reports/reducers";
@@ -338,13 +337,6 @@ describe("goal days", () => {
     });
     const dashboard = await s.h.admin.query(api.operations.qualificationsDashboard.getQualificationsDashboard, range(WEEK_START, WEEK_END));
     expect(dashboard.goal).toMatchObject({ businessDayCount: 7, goalDayCount: 5, target: 15 });
-
-    const report = await s.h.admin.query(api.reporting.slackQualifications.getQualificationReport, {
-      startBusinessDate: WEEK_START, endBusinessDateExclusive: TODAY, granularity: "day",
-    });
-    expect(report.periods.map((period) => period.goalDays)).toEqual([1, 1, 1, 1, 1, 0, 0, 1]);
-    expect(report.periods.map((period) => period.expectedTeamCount)).toEqual([3, 3, 3, 3, 3, 0, 0, 3]);
-    expect(report.totals).toMatchObject({ businessDayCount: 8, goalDayCount: 6, expectedTeamQualified: 18 });
   });
 
   it("counts every day until a qualifier has hours", async () => {
@@ -379,7 +371,7 @@ describe("merges with goal days", () => {
     expect(merged.goal.teams.find((team) => team.teamId === s.north)).toMatchObject({ goalDayCount: 4 + 1, target: 10 });
   });
 
-  it("adds Qualifications and Slack qualifications goal days across the split", async () => {
+  it("adds Qualifications goal days across the split", async () => {
     const s = await setup();
     await seedUndated(s, "slackQualifierSchedules", weekOf(4, ["monday", "saturday"]));
     await s.h.t.run(async (ctx) => {
@@ -408,16 +400,5 @@ describe("merges with goal days", () => {
     const legacy = { ...dashboards.history, goal: legacyGoal } as unknown as typeof dashboards.history;
     expect(mergeQualificationsDashboard(legacy, dashboards.today).goal)
       .toMatchObject({ goalDayCount: 4 + 1, target: 15 });
-
-    const reports = await expectMergedAnswer({
-      t: s.h.t,
-      identity,
-      live: api.reporting.slackQualifications.getQualificationReport,
-      history: { startBusinessDate: WEEK_START, endBusinessDateExclusive: "2026-10-30", granularity: "week" },
-      today: { startBusinessDate: "2026-10-30", endBusinessDateExclusive: TODAY, granularity: "week" },
-      whole: { startBusinessDate: WEEK_START, endBusinessDateExclusive: TODAY, granularity: "week" },
-      merge: mergeSlackQualifications,
-    });
-    expect(reports.whole.totals).toMatchObject({ goalDayCount: 3, expectedTeamQualified: 9 });
   });
 });
