@@ -109,6 +109,27 @@ export class RowsBudgetExceededError extends Error {
   }
 }
 
+type ClickHouseBody = { data?: unknown; rows?: unknown; exception?: unknown };
+
+/**
+ * The rows of a response that is whole. A query that fails after ClickHouse
+ * began sending rows (a row or time limit, for example) still answers 200:
+ * the body then carries `exception` beside the rows sent so far, or fewer
+ * rows than `rows` says. Those rows must never become an answer.
+ */
+export function completeRows(body: ClickHouseBody, status: number | null): SqlRow[] {
+  if (body.exception !== undefined && body.exception !== null) {
+    throw new ClickHouseQueryError(String(body.exception).slice(0, ERROR_TEXT_LIMIT), status);
+  }
+  if (!Array.isArray(body.data)) {
+    throw new ClickHouseQueryError("The reporting database returned no rows array.", status);
+  }
+  if (body.rows !== undefined && Number(body.rows) !== body.data.length) {
+    throw new ClickHouseQueryError("The reporting database returned part of its rows.", status);
+  }
+  return body.data as SqlRow[];
+}
+
 async function post(
   query: SqlQuery,
   settings: Record<string, string>,
@@ -179,19 +200,16 @@ async function post(
         }
         throw new ClickHouseQueryError(text || `HTTP ${response.status}`, response.status);
       }
-      let body: { data?: unknown };
+      let body: ClickHouseBody;
       if (budget) {
         const text = await response.text();
         if (text.length > budget.remainingChars) throw new RowsBudgetExceededError();
         budget.remainingChars -= text.length;
-        body = JSON.parse(text) as { data?: unknown };
+        body = JSON.parse(text) as ClickHouseBody;
       } else {
-        body = (await response.json()) as { data?: unknown };
+        body = (await response.json()) as ClickHouseBody;
       }
-      if (!Array.isArray(body.data)) {
-        throw new ClickHouseQueryError("The reporting database returned no rows array.", response.status);
-      }
-      return body.data as SqlRow[];
+      return completeRows(body, response.status);
     }
   } finally {
     clearTimeout(timer);

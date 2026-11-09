@@ -174,7 +174,13 @@ export function browserDay(timeZone: string): BusinessDaySetting {
  */
 export type AnalyticsRangePlan =
   | { kind: "live" }
-  | { kind: "warehouse"; range: AnalyticsRange }
+  | {
+      kind: "warehouse";
+      range: AnalyticsRange;
+      /** The days the answer must cover: a preset's saved answer can be for an earlier period. */
+      startDate: string;
+      endDateInclusive: string;
+    }
   | {
       kind: "split";
       range: AnalyticsRange;
@@ -187,6 +193,32 @@ export type AnalyticsRangePlan =
       liveFromYesterday?: true;
     };
 
+/**
+ * The days a ClickHouse answer must cover before a panel shows it, or null
+ * when any saved answer for the key will do. A range that ended before today
+ * and a split's history are fixed days. A split that can't be merged reads
+ * its whole range as of the last sync, so its last day isn't checked.
+ */
+export function answerDays(
+  plan: AnalyticsRangePlan,
+  splits: boolean,
+): { startDate: string; endDateInclusive: string | null } | null {
+  if (plan.kind === "warehouse") return { startDate: plan.startDate, endDateInclusive: plan.endDateInclusive };
+  if (plan.kind !== "split") return null;
+  return { startDate: plan.historyStartDate, endDateInclusive: splits ? plan.historyEndDate : null };
+}
+
+export function answerCoversDays(
+  answer: { startDate: string; endDateInclusive: string } | null,
+  days: ReturnType<typeof answerDays>,
+) {
+  if (days === null) return true;
+  return (
+    answer !== null &&
+    answer.startDate === days.startDate &&
+    (days.endDateInclusive === null || answer.endDateInclusive === days.endDateInclusive)
+  );
+}
 /**
  * The cached range for some dates. Dates that match a preset become the
  * preset, so its answer stays valid as days pass; anything else is custom.
@@ -227,7 +259,7 @@ export function planAnalyticsRange(
 ): AnalyticsRangePlan {
   if (startDate > settledThrough) return { kind: "live" };
   const whole = rangeForDates(startDate, endDateInclusive, today);
-  if (endDateInclusive <= settledThrough) return { kind: "warehouse", range: whole };
+  if (endDateInclusive <= settledThrough) return { kind: "warehouse", range: whole, startDate, endDateInclusive };
   const yesterday = addBusinessDays(today, -1);
   return {
     kind: "split",

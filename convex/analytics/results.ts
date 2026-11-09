@@ -315,8 +315,12 @@ export async function registerRequest(
     // The next post-sync batch answers it. A stale run is dropped, so its
     // action, if it still waits on the pool, finds no run and doesn't query.
     // A pending row becomes queued even with an answer, so callers show that
-    // answer instead of waiting for a run that won't come.
-    const queue = row.status === "pending" || (row.status !== "queued" && !row.payloadId);
+    // answer instead of waiting for a run that won't come. So does a row
+    // whose answer is for an earlier period (last month's "last month"):
+    // pages don't show that answer, and say the key is queued instead.
+    const queue =
+      row.status === "pending" ||
+      (row.status !== "queued" && (!row.payloadId || !answerCoversPeriod(row, now)));
     if (queue || row.run !== undefined) {
       await ctx.db.patch("analyticsResults", row._id, {
         ...(queue ? { status: "queued" as const } : {}),

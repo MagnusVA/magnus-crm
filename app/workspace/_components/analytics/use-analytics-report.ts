@@ -5,7 +5,7 @@ import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { api } from "@/convex/_generated/api";
-import type { AnalyticsRangePlan } from "@/lib/analyticsRange";
+import { answerCoversDays, answerDays, type AnalyticsRangePlan } from "@/lib/analyticsRange";
 import { reportClientError } from "@/lib/observability/report-client-error";
 
 export type AnalyticsPage = NonNullable<
@@ -62,6 +62,7 @@ function cleanFilters(filters: AnalyticsFilterInput | undefined) {
 }
 
 const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 const RENEW_INTERVAL_MS = 60 * 60 * 1000;
 const RESEND_AFTER_MS = 60 * 1000;
 
@@ -124,11 +125,11 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
   const state = useQuery(api.analytics.reports.get, warehouseArgs ?? "skip");
   const request = useMutation(api.analytics.reports.request);
   const requestedKey = useRef<string | null>(null);
-  // A split's history keeps its preset key from day to day, so the key a
-  // panel requests includes the days it needs: the request goes out again
-  // when today moves on, and runs if the answer no longer covers them.
-  const historyDays = splits && plan.kind === "split" ? `${plan.historyStartDate}/${plan.historyEndDate}` : "";
-  const argsKey = warehouseArgs ? `${JSON.stringify(warehouseArgs)}${historyDays}` : null;
+  // A preset keeps its key from day to day, so the key a panel requests
+  // includes the days it needs: the request goes out again when today moves
+  // on, and runs if the answer no longer covers them.
+  const days = answerDays(plan, splits);
+  const argsKey = warehouseArgs ? `${JSON.stringify(warehouseArgs)}${days ? `${days.startDate}/${days.endDateInclusive}` : ""}` : null;
 
   const send = useCallback(() => {
     if (!warehouseArgs) return;
@@ -167,16 +168,12 @@ export function useAnalyticsReport<Query extends FunctionReference<"query">>(opt
     send();
   }, [answerState, argsKey, send]);
 
-  // A split merges only an answer for exactly the days before today. Last
-  // night's answer for "this week through yesterday" misses yesterday, so
-  // it waits for the run the request above starts.
+  // Only an answer for exactly the days the plan names is shown. Last
+  // night's answer for "this week through yesterday" misses yesterday, and
+  // yesterday's answer for "Yesterday" is for the day before, so each waits
+  // for the run the request above starts.
   const answer = state?.answer ?? null;
-  const answerFits =
-    !splits ||
-    plan.kind !== "split" ||
-    (answer !== null &&
-      answer.startDate === plan.historyStartDate &&
-      answer.endDateInclusive === plan.historyEndDate);
+  const answerFits = answerCoversDays(answer, days);
   const payloadJson = answerFits ? (state?.payloadJson ?? null) : null;
   const warehouseData = useMemo(
     () => (payloadJson === null ? undefined : (JSON.parse(payloadJson) as FunctionReturnType<Query>)),

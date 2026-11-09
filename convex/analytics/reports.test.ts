@@ -9,7 +9,7 @@ import { DAY_MS, PAYLOAD_PART_BYTES, splitPayload } from "./results";
 import { listReportDefinitions } from "./registry";
 import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
-import { formatSqlParam, queryWatermark } from "./clickhouse";
+import { completeRows, formatSqlParam, queryWatermark } from "./clickhouse";
 
 const metricsArgs = {
   reportId: "revenue.metrics",
@@ -470,6 +470,26 @@ describe("analytics budget and batch", () => {
     expect(state.payloadJson).toBe('{"cached":true}');
   });
 
+  it("queues a ready key whose answer is for an earlier period, past the budget", async () => {
+    const fixture = await createFixture();
+    vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", "1");
+    stubClickHouse(() => ({ body: { data: [] } }));
+    await setWatermark(fixture, 1_000);
+    const now = Date.now();
+    await insertResult(fixture, { tenantId: fixture.tenantA, argsKey: "other", missedAt: now - 1_000 });
+    // "Last month" answered long ago: the dates are another month's.
+    await insertResult(fixture, {
+      tenantId: fixture.tenantA,
+      payload: '{"cached":true}',
+      answer: { watermark: 1_000, startDate: "2020-01-01", endDateInclusive: "2020-01-31", completedAt: now },
+    });
+
+    const result = await fixture.adminA.mutation(api.analytics.reports.request, metricsArgs);
+
+    expect(result.started).toBe(false);
+    expect((await fixture.adminA.query(api.analytics.reports.get, metricsArgs)).state).toBe("queued");
+  });
+
   it("counts every run of a key that keeps failing against the budget", async () => {
     const fixture = await createFixture();
     vi.stubEnv("ANALYTICS_DAILY_RUN_BUDGET", String(BUDGET));
@@ -593,6 +613,28 @@ describe("ClickHouse parameters", () => {
 
     expect(await outcome).toBeInstanceOf(Error);
     expect(calls).toBe(4);
+  });
+});
+
+describe("ClickHouse responses", () => {
+  it("refuses rows from a query that failed after it began answering", async () => {
+    // ClickHouse answers 200 once rows are on the wire; a limit hit after
+    // that arrives as `exception` beside the rows sent so far.
+    expect(() =>
+      completeRows({ data: [{ id: "a" }], rows: 1, exception: "Code: 396. DB::Exception: Limit for result exceeded" }, 200),
+    ).toThrow("Limit for result exceeded");
+    expect(() => completeRows({ data: [{ id: "a" }], rows: 2 }, 200)).toThrow("part of its rows");
+    expect(() => completeRows({ rows: 0 }, 200)).toThrow("no rows array");
+    expect(completeRows({ data: [{ id: "a" }], rows: 1 }, 200)).toEqual([{ id: "a" }]);
+    expect(completeRows({ data: [] }, 200)).toEqual([]);
+
+    vi.stubEnv("CLICKHOUSE_URL", "https://clickhouse.example:8443");
+    vi.stubEnv("CLICKHOUSE_USER", "magnus_app");
+    vi.stubEnv("CLICKHOUSE_PASSWORD", "secret");
+    vi.stubGlobal("fetch", async () =>
+      new Response(JSON.stringify({ data: [{ watermark: 7_000, beats: 3 }], rows: 1, exception: "Code: 159. Timeout exceeded" })),
+    );
+    await expect(queryWatermark()).rejects.toThrow("Timeout exceeded");
   });
 });
 

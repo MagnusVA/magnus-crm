@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   analyticsRangeIsEmpty,
+  answerCoversDays,
+  answerDays,
   MAX_ANALYTICS_RANGE_DAYS,
   REPORT_RANGE_PRESETS,
   type ReportRangePreset,
@@ -94,10 +96,14 @@ describe("planAnalyticsRange", () => {
     expect(planAnalyticsRange("2026-09-01", "2026-09-30", today)).toEqual({
       kind: "warehouse",
       range: { kind: "preset", preset: "last_month" },
+      startDate: "2026-09-01",
+      endDateInclusive: "2026-09-30",
     });
     expect(planAnalyticsRange("2026-10-03", "2026-10-10", today)).toEqual({
       kind: "warehouse",
       range: { kind: "custom", startDate: "2026-10-03", endDateInclusive: "2026-10-10" },
+      startDate: "2026-10-03",
+      endDateInclusive: "2026-10-10",
     });
   });
 
@@ -149,6 +155,8 @@ describe("planAnalyticsRange", () => {
     expect(planAnalyticsRange("2026-09-01", "2026-09-30", today, settled)).toEqual({
       kind: "warehouse",
       range: { kind: "preset", preset: "last_month" },
+      startDate: "2026-09-01",
+      endDateInclusive: "2026-09-30",
     });
   });
 });
@@ -215,10 +223,14 @@ describe("dashboardRangePlan", () => {
     expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-10-01", endBusinessDateInclusive: "2026-10-26" }, "2026-10-27")).toEqual({
       kind: "warehouse",
       range: { kind: "custom", startDate: "2026-10-01", endDateInclusive: "2026-10-26" },
+      startDate: "2026-10-01",
+      endDateInclusive: "2026-10-26",
     });
     expect(dashboardRangePlan({ kind: "custom", startBusinessDate: "2026-09-01", endBusinessDateInclusive: "2026-09-30" }, "2026-10-27")).toEqual({
       kind: "warehouse",
       range: { kind: "preset", preset: "last_month" },
+      startDate: "2026-09-01",
+      endDateInclusive: "2026-09-30",
     });
   });
 
@@ -386,10 +398,14 @@ describe("Reports presets", () => {
     expect(dashboardRangePlan(preset("yesterday"), today)).toEqual({
       kind: "warehouse",
       range: { kind: "preset", preset: "yesterday" },
+      startDate: "2026-11-04",
+      endDateInclusive: "2026-11-04",
     });
     expect(dashboardRangePlan(preset("last_month"), today)).toEqual({
       kind: "warehouse",
       range: { kind: "preset", preset: "last_month" },
+      startDate: "2026-10-01",
+      endDateInclusive: "2026-10-31",
     });
     expect(dashboardRangePlan(preset("last_90_days"), today)).toEqual({
       kind: "split",
@@ -405,11 +421,15 @@ describe("Reports presets", () => {
     expect(dashboardRangePlan(preset("last_week"), today)).toEqual({
       kind: "warehouse",
       range: { kind: "custom", startDate: "2026-10-26", endDateInclusive: "2026-11-01" },
+      startDate: "2026-10-26",
+      endDateInclusive: "2026-11-01",
     });
     // On Monday, last week ended yesterday: still all ClickHouse.
     expect(dashboardRangePlan(preset("last_week"), "2026-11-02")).toEqual({
       kind: "warehouse",
       range: { kind: "custom", startDate: "2026-10-26", endDateInclusive: "2026-11-01" },
+      startDate: "2026-10-26",
+      endDateInclusive: "2026-11-01",
     });
     expect(dashboardRangePlan(preset("year_to_date"), today)).toEqual({
       kind: "split",
@@ -445,6 +465,44 @@ describe("Reports presets", () => {
     expect(dashboardRangePlan(preset("last_month"), today, settled)).toEqual({
       kind: "warehouse",
       range: { kind: "preset", preset: "last_month" },
+      startDate: "2026-10-01",
+      endDateInclusive: "2026-10-31",
     });
+  });
+});
+
+describe("the days a ClickHouse answer must cover", () => {
+  const today = "2026-11-05";
+  const preset = (name: "yesterday" | "last_month" | "this_month") => ({ kind: "preset" as const, preset: name });
+
+  it("refuses a preset's answer for an earlier period", () => {
+    // "Yesterday" opened on November 5 with the answer saved on November 4.
+    const days = answerDays(dashboardRangePlan(preset("yesterday"), today), false);
+    expect(days).toEqual({ startDate: "2026-11-04", endDateInclusive: "2026-11-04" });
+    expect(answerCoversDays({ startDate: "2026-11-03", endDateInclusive: "2026-11-03" }, days)).toBe(false);
+    expect(answerCoversDays({ startDate: "2026-11-04", endDateInclusive: "2026-11-04" }, days)).toBe(true);
+    expect(answerCoversDays(null, days)).toBe(false);
+    // "Last month" on November 5 with September's answer.
+    const lastMonth = answerDays(dashboardRangePlan(preset("last_month"), today), false);
+    expect(answerCoversDays({ startDate: "2026-09-01", endDateInclusive: "2026-09-30" }, lastMonth)).toBe(false);
+  });
+
+  it("holds a split's history to exactly the days before the live part", () => {
+    const days = answerDays(dashboardRangePlan(preset("this_month"), today), true);
+    expect(days).toEqual({ startDate: "2026-11-01", endDateInclusive: "2026-11-04" });
+    expect(answerCoversDays({ startDate: "2026-11-01", endDateInclusive: "2026-11-03" }, days)).toBe(false);
+  });
+
+  it("checks only the first day of a split that reads its whole range as of the last sync", () => {
+    const days = answerDays(dashboardRangePlan(preset("this_month"), today), false);
+    expect(days).toEqual({ startDate: "2026-11-01", endDateInclusive: null });
+    expect(answerCoversDays({ startDate: "2026-11-01", endDateInclusive: "2026-11-04" }, days)).toBe(true);
+    // October's answer under the same preset key.
+    expect(answerCoversDays({ startDate: "2026-10-01", endDateInclusive: "2026-10-31" }, days)).toBe(false);
+  });
+
+  it("asks nothing of a live range", () => {
+    expect(answerDays({ kind: "live" }, false)).toBeNull();
+    expect(answerCoversDays(null, null)).toBe(true);
   });
 });
