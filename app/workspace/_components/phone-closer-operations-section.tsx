@@ -32,8 +32,20 @@ function notRecorded(counts: Counts) {
   return counts.pastCalls - counts.resultsRecorded;
 }
 
+/**
+ * Canceled and moved, or null when the answer has neither. The type says
+ * they're always there, but an Overview answer saved before they were added
+ * lacks them until the next sync reruns it; leave them out rather than show
+ * NaN or a made-up 0.
+ */
+function slotCounts(counts: Counts): { canceled: number; moved: number } | null {
+  const { canceled, moved } = counts as Partial<Pick<Counts, "canceled" | "moved">>;
+  return typeof canceled === "number" && typeof moved === "number" ? { canceled, moved } : null;
+}
+
 function slotsLine(counts: Counts) {
-  return `${formatWholeNumber(counts.canceled)} canceled · ${formatWholeNumber(counts.moved)} moved`;
+  const slots = slotCounts(counts);
+  return slots ? `${formatWholeNumber(slots.canceled)} canceled · ${formatWholeNumber(slots.moved)} moved` : null;
 }
 
 const figure = "font-condensed text-[15px] font-semibold tabular-nums";
@@ -58,12 +70,17 @@ function Figures({ counts, strong = false }: { counts: Counts; strong?: boolean 
 }
 
 function CountWords({ counts }: { counts: Counts }) {
+  const slots = slotCounts(counts);
   const facts: Array<[string, string]> = [
     [formatWholeNumber(counts.scheduled), "booked"],
     [formatWholeNumber(counts.held), "held"],
     [formatWholeNumber(counts.noShows), "no-show"],
-    [formatWholeNumber(counts.canceled), "canceled"],
-    [formatWholeNumber(counts.moved), "moved"],
+    ...(slots
+      ? ([
+          [formatWholeNumber(slots.canceled), "canceled"],
+          [formatWholeNumber(slots.moved), "moved"],
+        ] as Array<[string, string]>)
+      : []),
     [formatWholeNumber(notRecorded(counts)), "not recorded"],
     [formatShowRate(counts.showRate), "show rate"],
     [formatShowRate(counts.noShowRate), "no-show rate"],
@@ -112,7 +129,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
               <th scope="row" className="py-2 pr-3 pl-4 text-left font-normal">
                 <p className="font-semibold">{getMemberDisplayName(row.closer)}</p>
                 <p className="text-[13px] text-muted-foreground">{resultsLine(row, partial)}</p>
-                <p className="text-[13px] text-muted-foreground">{slotsLine(row)}</p>
+                {slotsLine(row) ? <p className="text-[13px] text-muted-foreground">{slotsLine(row)}</p> : null}
               </th>
               <Figures counts={row} />
             </tr>
@@ -121,7 +138,9 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <th scope="row" className="py-2 pr-3 pl-4 text-left">
               <p className="font-semibold">Total</p>
               <p className="text-[13px] font-normal text-muted-foreground">{resultsLine(data.totals, partial)}</p>
-              <p className="text-[13px] font-normal text-muted-foreground">{slotsLine(data.totals)}</p>
+              {slotsLine(data.totals) ? (
+                <p className="text-[13px] font-normal text-muted-foreground">{slotsLine(data.totals)}</p>
+              ) : null}
             </th>
             <Figures counts={data.totals} strong />
           </tr>

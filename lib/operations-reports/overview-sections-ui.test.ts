@@ -25,7 +25,7 @@ import { ATTENDANCE_COUNTS_PARTIAL_HELP } from "@/app/workspace/_components/resu
 const closer = (id: string, name: string) => ({ id, name, imageSource: "none" as const, source: "crm_user" as const });
 const counts = { scheduled: 3, held: 2, noShows: 1, canceled: 0, moved: 0, resultsRecorded: 3, pastCalls: 3, showRate: 2 / 3, noShowRate: 1 / 3 };
 
-function phoneClosers(attendanceCountsPartial: boolean) {
+function phoneClosers(attendanceCountsPartial: boolean, rowCounts: typeof counts = counts) {
   return renderToStaticMarkup(
     createElement(PhoneCloserOperationsSection, {
       section: {
@@ -36,10 +36,10 @@ function phoneClosers(attendanceCountsPartial: boolean) {
         data: {
           attendanceCountsPartial,
           rows: [
-            { closerId: "u1" as Id<"users">, closer: closer("u1", "Ana"), ...counts },
-            { closerId: "u2" as Id<"users">, closer: closer("u2", "Ben"), ...counts },
+            { closerId: "u1" as Id<"users">, closer: closer("u1", "Ana"), ...rowCounts },
+            { closerId: "u2" as Id<"users">, closer: closer("u2", "Ben"), ...rowCounts },
           ],
-          totals: counts,
+          totals: rowCounts,
         },
       },
     }),
@@ -72,6 +72,22 @@ function topPosts(posts: Record<string, string>, todayBusinessDate?: string) {
 }
 
 afterEach(() => vi.useRealTimers());
+
+describe("Overview phone closers canceled and moved", () => {
+  it("shows them when the answer has them", () => {
+    const html = phoneClosers(false, { ...counts, canceled: 2, moved: 1 });
+    expect(html).toContain("2 canceled · 1 moved");
+  });
+
+  it("leaves them out of an answer saved before they were added", () => {
+    const { canceled: _canceled, moved: _moved, ...saved } = counts;
+    const html = phoneClosers(false, saved as typeof counts);
+    expect(html).not.toContain("NaN");
+    expect(html).not.toContain("canceled");
+    expect(html).not.toContain("moved");
+    expect(html).toContain("booked");
+  });
+});
 
 describe("Overview phone closers help", () => {
   it.each([true, false])("says the partial help once on the page, never as a tooltip (partial %s)", (partial) => {
