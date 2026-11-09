@@ -34,7 +34,7 @@ export function callHref(meetingId: string) {
 export function StagesCard({ data }: { data: PipelineNow | undefined }) {
   const partial = data?.stages.some((stage) => stage.partial) ?? false;
   return (
-    <ReportCard title="Stages" meta="Days since each deal entered its stage" container="@container/stages">
+    <ReportCard title="Stages" meta="Deal age: days since each open deal was created" container="@container/stages">
       {data === undefined ? (
         <RowsSkeleton rows={4} label="Loading stages" />
       ) : (
@@ -114,7 +114,7 @@ export function AgingCard({ data }: { data: PipelineNow | undefined }) {
           <div className={cn("hidden border-b px-4", AGING_COLUMNS)}>
             <span className={cn(COLUMN_HEAD, "px-0")}>Deal</span>
             <span className={cn(COLUMN_HEAD, "px-0")}>Stage</span>
-            <span className={cn(COLUMN_HEAD, "px-0 text-right")}>In stage</span>
+            <span className={cn(COLUMN_HEAD, "px-0 text-right")}>Age</span>
             <span className={cn(COLUMN_HEAD, "px-0")}>Closer</span>
             <span className={cn(COLUMN_HEAD, "px-0")}>Next step</span>
           </div>

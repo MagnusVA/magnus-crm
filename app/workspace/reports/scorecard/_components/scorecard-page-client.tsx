@@ -35,7 +35,8 @@ import {
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { useTeamMembers } from "../../log/_components/use-team-members";
 import { AnswersCard, defaultAnswerField } from "./answers-card";
-import { CurrencySelect, useRowsExport } from "./report-currency";
+import { CurrencySelect } from "./report-currency";
+import { useRowsExport } from "../../_components/report-export-menu";
 import {
   formatCount,
   formatMoney,
@@ -152,13 +153,7 @@ export function ScorecardPageClient() {
     now,
   );
   const programName = programId ? (programs?.find((row) => row._id === programId)?.name ?? "One program") : null;
-  const paymentsExport = useRowsExport({
-    kind: "payments",
-    label: "Payments · CSV",
-    page: "scorecard",
-    startDate: range.dates.startBusinessDate,
-    endDate: range.dates.endBusinessDateInclusive,
-  });
+  const paymentsExport = useRowsExport("payments", "scorecard", range.dates.startBusinessDate, range.dates.endBusinessDateInclusive, programId ? { programId } : {});
   const f = funnel.data;
 
   return (

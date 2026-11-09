@@ -394,8 +394,8 @@ function UnlinkedList({ rows, currency }: { rows: readonly UnlinkedRow[]; curren
             : row.role === "setter"
               ? `${formatCount(row.record!.qualifications)} qualified`
               : row.role === "dm_closer"
-                ? `${formatCount(row.record!.bookings)} bookings`
-                : `${formatCount(row.record!.captures)} captures`;
+                ? plural(row.record!.bookings, "booking")
+                : plural(row.record!.captures, "capture");
           return (
             <li key={row.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 last:border-b-0">
               <span className="font-medium">{row.closer ? row.name : `${ROLE_LABEL[row.role]} records`}</span>

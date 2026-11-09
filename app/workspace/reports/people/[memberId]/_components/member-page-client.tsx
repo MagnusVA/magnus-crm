@@ -14,6 +14,7 @@ import { AnalyticsFreshnessAlert, freshnessSummary } from "@/app/workspace/_comp
 import { useAnalyticsReport, type AnalyticsFreshness } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { useNow } from "@/hooks/use-now";
+import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { ReportExportMenu } from "../../../_components/report-export-menu";
 import { REPORT_PAGE, REPORT_PAIR, ReportCard, ReportNote } from "../../../_components/report-ui";
@@ -53,6 +54,18 @@ export function MemberPageClient({ memberId, viewerRole }: { memberId: Id<"teamM
   const searchParams = useSearchParams();
   const profile = useQuery(api.reports.member.getMemberProfile, { memberId });
   usePageTitle(profile ? `${profile.name} — People` : "Member report — People");
+  // Admins came from the roster; anyone else only has their own report.
+  useBreadcrumbTrail(
+    profile
+      ? isAdmin
+        ? [
+            { label: "Reports", href: "/workspace/reports" },
+            { label: "People", href: "/workspace/reports/people" },
+            { label: profile.name, href: `/workspace/reports/people/${memberId}` },
+          ]
+        : [{ label: "My report", href: `/workspace/reports/people/${memberId}` }]
+      : null,
+  );
   const range = useReportRange();
   const now = useNow();
   const ready = range.loaded && profile !== undefined;

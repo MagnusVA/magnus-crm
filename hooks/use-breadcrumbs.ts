@@ -44,6 +44,17 @@ const SEGMENT_LABELS: Record<string, string> = {
   prospects: "Prospects",
   meetings: "Meetings",
   admin: "Admin",
+  reports: "Reports",
+};
+
+/** Labels that depend on the folder above: Reports' pages share names with others. */
+const NESTED_SEGMENT_LABELS: Record<string, string> = {
+  "reports/scorecard": "Scorecard",
+  "reports/calls": "Calls",
+  "reports/people": "People",
+  "reports/attribution": "Attribution",
+  "reports/pipeline": "Pipeline",
+  "reports/log": "Log",
 };
 
 /**
@@ -78,10 +89,15 @@ export function useBreadcrumbs(): BreadcrumbSegment[] {
   // Build href accounting for the skipped prefix
   let href = isCloserPath ? "/workspace" : "";
 
+  let parent = "";
   for (const part of relevantParts) {
     href += `/${part}`;
+    const nested = NESTED_SEGMENT_LABELS[`${parent}/${part}`];
+    parent = part;
 
-    if (SEGMENT_LABELS[part]) {
+    if (nested) {
+      segments.push({ label: nested, href });
+    } else if (SEGMENT_LABELS[part]) {
       segments.push({ label: SEGMENT_LABELS[part], href });
     } else {
       // Dynamic segment (e.g., meetingId) — placeholder label

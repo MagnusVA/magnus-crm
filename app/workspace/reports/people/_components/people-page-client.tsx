@@ -69,10 +69,20 @@ export function PeoplePageClient() {
   const leadGenReport = useAnalyticsReport({ ...common, reportId: "people.lead_gen", live: api.reports.peopleRoles.getLeadGen, merge: mergePeopleRoles });
   const members = useQuery(api.reports.member.listReportMembers, {});
 
-  const loaded =
-    closersReport.data && settersReport.data && dmReport.data && leadGenReport.data
-      ? { closers: closersReport.data, setters: settersReport.data, dmClosers: dmReport.data, leadGen: leadGenReport.data }
-      : undefined;
+  // One object for the four answers, rebuilt only when one of them changes:
+  // `useKept` keeps whatever it's given, so a new object each render would
+  // set state on every render.
+  const closersData = closersReport.data;
+  const settersData = settersReport.data;
+  const dmData = dmReport.data;
+  const leadGenData = leadGenReport.data;
+  const loaded = useMemo(
+    () =>
+      closersData && settersData && dmData && leadGenData
+        ? { closers: closersData, setters: settersData, dmClosers: dmData, leadGen: leadGenData }
+        : undefined,
+    [closersData, settersData, dmData, leadGenData],
+  );
   const kept = useKept(loaded, JSON.stringify(range.window), range.phrase);
   const reports = kept.data;
   const freshness = freshnessSummary(

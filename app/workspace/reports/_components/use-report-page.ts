@@ -12,6 +12,8 @@ import { isPostHogEnabled } from "@/lib/posthog-config";
  * Data While Reloading). `key` names what the data is for (the range and
  * filters): the section dims only when the key changed, so a minute clock in
  * the arguments refreshes the numbers without dimming them every minute.
+ * `value` must keep its reference until its data changes (a query result, or
+ * a `useMemo`), since a new object each render would set state every render.
  */
 export function useKept<T>(value: T | undefined, key: string, phrase: string) {
   const [kept, setKept] = useState<{ value: T; key: string; phrase: string } | undefined>(

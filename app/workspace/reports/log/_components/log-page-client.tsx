@@ -10,7 +10,7 @@ import { useKeptWhileLoading } from "@/app/workspace/operations/lead-gen/_compon
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { cn } from "@/lib/utils";
-import { ReportExportMenu } from "../../_components/report-export-menu";
+import { ReportExportMenu, useRowsExport } from "../../_components/report-export-menu";
 import { BAND_SELECT, REPORT_PAGE, ReportBand } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { LogFeed } from "./log-feed";
@@ -32,6 +32,11 @@ export function LogPageClient() {
   const team = useTeamMembers();
   const [teamMemberId, setTeamMemberId] = useState<Id<"teamMembers"> | undefined>();
   const [entityType, setEntityType] = useState<LogEntityType | undefined>();
+  // Every event in the range with these filters, not just the loaded rows.
+  const eventsExport = useRowsExport("events", "log", range.dates.startBusinessDate, range.dates.endBusinessDateInclusive, {
+    ...(teamMemberId ? { teamMemberId } : {}),
+    ...(entityType ? { entityType } : {}),
+  });
 
   const feed = usePaginatedQuery(
     api.reports.log.listLog,
@@ -71,6 +76,7 @@ export function LogPageClient() {
               startDate={range.dates.startBusinessDate}
               endDate={range.dates.endBusinessDateInclusive}
               memberName={memberName}
+              extra={[eventsExport]}
               buildDocument={() =>
                 entries
                   ? buildLogDocument(entries, {

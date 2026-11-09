@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalQuery, type QueryCtx } from "../_generated/server";
-import { queryTenantClickHouse, queryWatermark, type SqlQuery, type SqlRow } from "../analytics/clickhouse";
+import { isClickHouseConfigured, queryTenantClickHouse, queryWatermark, type SqlQuery, type SqlRow } from "../analytics/clickhouse";
 import { rangeParams } from "../analytics/definition";
 import { requireTenantUser } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
@@ -312,7 +312,8 @@ export const exportRows = action({ args: { kind: kindValidator, range: datesVali
     const viewer = await requireTenantUserFromAction(ctx, [...REPORT_ADMIN_ROLES]);
     const context = await ctx.runQuery(internal.reports.rowsExport.exportContext, { range });
     const now = Date.now();
-    let warehouseTo = Math.min(context.range.toMs, context.todayStart);
+    // Without a reporting database (a dev deployment), every row is read live.
+    let warehouseTo = isClickHouseConfigured() ? Math.min(context.range.toMs, context.todayStart) : context.range.fromMs;
     if (context.range.fromMs < warehouseTo) {
       // Only completed days through the warehouse watermark are historical.
       // Before the first sync after midnight, yesterday remains a live read.

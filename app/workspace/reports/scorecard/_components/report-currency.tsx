@@ -1,12 +1,8 @@
 "use client";
 
-import { useAction } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { reportExportFileName } from "@/lib/reporting/export";
 import { cn } from "@/lib/utils";
 import { BAND_SELECT } from "../../_components/report-ui";
-import type { ReportExportExtra } from "../../_components/report-export-menu";
 
 /**
  * The band's currency select (the Sales calls one), shown only when the range
@@ -42,41 +38,3 @@ export function CurrencySelect({
   );
 }
 
-function downloadCsv(bytes: ArrayBuffer, fileName: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
-
-/**
- * The export menu's rows item: one line per payment or credit in the range,
- * built by the rows export action (ClickHouse for the days before today,
- * Convex for today).
- */
-export function useRowsExport({
-  kind,
-  label,
-  page,
-  startDate,
-  endDate,
-}: {
-  kind: "payments" | "credits";
-  label: string;
-  page: string;
-  startDate: string;
-  endDate: string;
-}): ReportExportExtra {
-  const exportRows = useAction(api.reports.rowsExport.exportRows);
-  return {
-    label,
-    run: async () => {
-      const bytes = await exportRows({ kind, range: { startDate, endDateInclusive: endDate } });
-      downloadCsv(bytes, reportExportFileName(`${page}_${kind}`, startDate, endDate, "csv"));
-    },
-  };
-}

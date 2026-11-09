@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAction } from "convex/react";
+import type { FunctionArgs } from "convex/server";
 import { DownloadIcon, LoaderCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -49,17 +50,19 @@ function download(bytes: Uint8Array | ArrayBuffer, fileName: string, type: strin
  * settled days, Convex for the rest). Pass it to `ReportExportMenu`'s `extra`.
  */
 export function useRowsExport(
-  kind: "calls" | "payments" | "credits",
+  kind: "calls" | "payments" | "credits" | "events",
   page: string,
   startDate: string,
   endDate: string,
+  /** The page's filters, so the file holds the records the page shows. */
+  filters: FunctionArgs<typeof api.reports.rowsExport.exportRows>["filters"] = {},
 ): ReportExportExtra {
   const exportRows = useAction(api.reports.rowsExport.exportRows);
-  const label = { calls: "Calls · CSV", payments: "Payments · CSV", credits: "Credits · CSV" }[kind];
+  const label = { calls: "Calls · CSV", payments: "Payments · CSV", credits: "Credits · CSV", events: "Events · CSV" }[kind];
   return {
     label,
     run: async () => {
-      const bytes = await exportRows({ kind, range: { startDate, endDateInclusive: endDate } });
+      const bytes = await exportRows({ kind, range: { startDate, endDateInclusive: endDate }, filters });
       download(bytes, reportExportFileName(`${page}-${kind}`, startDate, endDate, "csv"), "text/csv;charset=utf-8");
     },
   };

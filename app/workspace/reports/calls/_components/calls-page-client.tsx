@@ -44,11 +44,15 @@ export function CallsPageClient() {
   usePageTitle("Calls — Reports");
   useReportViewed("calls");
   const range = useReportRange();
-  const rowsExport = useRowsExport("calls", "calls", range.dates.startBusinessDate, range.dates.endBusinessDateInclusive);
   const now = useNow();
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
   const [closerId, setCloserId] = useState<Id<"users"> | undefined>();
   const [callType, setCallType] = useState<CallType | undefined>();
+  const rowsExport = useRowsExport("calls", "calls", range.dates.startBusinessDate, range.dates.endBusinessDateInclusive, {
+    programId,
+    closerId,
+    callType,
+  });
   const closers = useQuery(api.users.queries.listActiveClosers, {});
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, { includeArchived: true });
 

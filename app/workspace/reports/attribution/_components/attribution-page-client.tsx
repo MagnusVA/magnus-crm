@@ -17,7 +17,8 @@ import { REPORT_TERMS, termHelp } from "@/lib/reporting/definitions";
 import { ReportExportMenu } from "../../_components/report-export-menu";
 import { FigureZone, OtherFigure, REPORT_PAGE, REPORT_PAIR, ReportBand, ReportFigures } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
-import { CurrencySelect, useRowsExport } from "../../scorecard/_components/report-currency";
+import { CurrencySelect } from "../../scorecard/_components/report-currency";
+import { useRowsExport } from "../../_components/report-export-menu";
 import { formatCount, formatMoney, inCurrency, pickMainCurrency, shownCurrency } from "../../scorecard/_components/report-money";
 import { LanesCard, PathsCard, ResponsibleCard, coverageProof } from "./attribution-cards";
 import {
@@ -71,13 +72,7 @@ export function AttributionPageClient() {
   const total = inCurrency(lanes.data?.totals, currency);
   const others = (lanes.data?.totals ?? []).filter((row) => row.currency !== currency && row.cashMinor !== 0);
   const freshness = freshnessSummary([lanesReport.freshness, pathsReport.freshness], now);
-  const creditsExport = useRowsExport({
-    kind: "credits",
-    label: "Credits · CSV",
-    page: "attribution",
-    startDate: range.dates.startBusinessDate,
-    endDate: range.dates.endBusinessDateInclusive,
-  });
+  const creditsExport = useRowsExport("credits", "attribution", range.dates.startBusinessDate, range.dates.endBusinessDateInclusive);
 
   return (
     <div className={REPORT_PAGE}>

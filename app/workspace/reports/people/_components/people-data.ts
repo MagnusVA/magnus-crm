@@ -5,7 +5,7 @@ import type { PeopleRoleReport, PeopleRoleRow } from "@/convex/reports/peopleRol
 import type { ReportColumn, ReportDocument, ReportRecord, ReportTable } from "@/lib/operations-reports/document";
 import type { ReportTermKey } from "@/lib/reporting/definitions";
 import { definitionsTable } from "@/lib/reporting/export";
-import { formatCount, formatMinutes, formatMoney, formatRate, median, rate, rankCurrencies } from "./report-format";
+import { formatCount, formatMinutes, formatMoney, formatRate, median, plural, rate, rankCurrencies } from "./report-format";
 
 // The People roster and the member report, shaped without React so the
 // tables, the team medians and the exports read the same numbers.
@@ -238,8 +238,8 @@ export function headline(entry: EveryoneRow): string {
     parts.push(`${formatCount(m.held)} held · ${formatRate(m.showRate)} show`);
   }
   if (entry.setter) parts.push(`${formatCount(entry.setter.qualifications)} qualified`);
-  if (entry.dmCloser) parts.push(`${formatCount(entry.dmCloser.bookings)} bookings`);
-  if (entry.leadGen) parts.push(`${formatCount(entry.leadGen.captures)} captures`);
+  if (entry.dmCloser) parts.push(plural(entry.dmCloser.bookings, "booking"));
+  if (entry.leadGen) parts.push(plural(entry.leadGen.captures, "capture"));
   return parts.length > 0 ? parts.join(" · ") : "Nothing in this range";
 }
 

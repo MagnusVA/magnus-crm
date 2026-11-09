@@ -92,7 +92,7 @@ export function buildPipelineDocument(data: PipelineNow, input: { generatedAt: n
         columns: [
           { key: "stage", label: "Stage" },
           { key: "deals", label: "Deals", format: "number" },
-          { key: "median", label: "Median days in stage", format: "decimal" },
+          { key: "median", label: "Median deal age (days)", format: "decimal" },
           { key: "oldest", label: "Oldest, days", format: "decimal" },
           { key: "partial", label: "Partial" },
         ],
@@ -109,7 +109,7 @@ export function buildPipelineDocument(data: PipelineNow, input: { generatedAt: n
         columns: [
           { key: "person", label: "Person" },
           { key: "stage", label: "Stage" },
-          { key: "age", label: "Days in stage", format: "decimal" },
+          { key: "age", label: "Deal age (days)", format: "decimal" },
           { key: "closer", label: "Closer" },
           { key: "nextStep", label: "Next step" },
           { key: "dealId", label: "Deal ID" },
