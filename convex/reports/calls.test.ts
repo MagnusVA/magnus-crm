@@ -85,6 +85,46 @@ describe("Calls facts and builder", () => {
       ).toMatchObject({ due: false, status: "canceled" });
     });
   });
+  it("advances the live due boundary when the page clock changes", async () => {
+    const f = await callsReportFixture();
+    const end = await f.t.run(async (ctx) => {
+      const m = (await ctx.db.get("meetings", f.owed))!;
+      return m.scheduledAt + m.durationMinutes * 60_000;
+    });
+    const reader = f.t.withIdentity(identity);
+    const args = { startDate: from, endDate: to };
+    const before = await reader.query(api.reports.calls.getCallsSummary, {
+      ...args,
+      asOf: end - 1,
+    });
+    const after = await reader.query(api.reports.calls.getCallsSummary, {
+      ...args,
+      asOf: end,
+    });
+    expect(before.counts.notRecorded).toBe(0);
+    expect(after.counts.notRecorded).toBe(1);
+    expect(after.counts.upcoming).toBe(before.counts.upcoming - 1);
+    const peopleBefore = await reader.query(
+      api.reports.people.getPeopleClosers,
+      { ...args, memberId: f.memberB, asOf: end - 1 },
+    );
+    const peopleAfter = await reader.query(
+      api.reports.people.getPeopleClosers,
+      { ...args, memberId: f.memberB, asOf: end },
+    );
+    expect(peopleAfter.rows[0].notRecorded).toBe(
+      peopleBefore.rows[0].notRecorded + 1,
+    );
+    const pipelineBefore = await reader.query(
+      api.reports.pipeline.getPipelineNow,
+      { asOf: end - 1 },
+    );
+    const pipelineAfter = await reader.query(
+      api.reports.pipeline.getPipelineNow,
+      { asOf: end },
+    );
+    expect(pipelineAfter.owed.total).toBe(pipelineBefore.owed.total + 1);
+  });
   it("returns the oldest 200 owed calls and keeps their full count", async () => {
     const f = await callsReportFixture();
     await f.t.run(async (ctx) => {

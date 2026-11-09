@@ -459,6 +459,8 @@ export const peopleClosersValidator = v.object({
 export const getPeopleClosers = query({
   returns: peopleClosersValidator,
   args: {
+    // A minute clock from the page makes time-only changes reactive.
+    asOf: v.optional(v.number()),
     startDate: v.number(),
     endDate: v.number(),
     memberId: v.optional(v.id("teamMembers")),
@@ -477,7 +479,7 @@ export const getPeopleClosers = query({
       ctx,
       viewer.tenantId,
       meetings.rows,
-      Date.now(),
+      args.asOf ?? Date.now(),
     );
     const facts = {
       facts: loaded.facts,

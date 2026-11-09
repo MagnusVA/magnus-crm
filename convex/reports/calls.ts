@@ -279,6 +279,8 @@ export const callsSummaryValidator = v.object({
 export const getCallsSummary = query({
   returns: callsSummaryValidator,
   args: {
+    // A minute clock from the page makes time-only changes reactive.
+    asOf: v.optional(v.number()),
     startDate: v.number(),
     endDate: v.number(),
     programId: v.optional(v.id("tenantPrograms")),
@@ -294,7 +296,12 @@ export const getCallsSummary = query({
       args.startDate,
       args.endDate,
     );
-    const facts = await loadCallFacts(ctx, tenantId, meetings.rows, Date.now());
+    const facts = await loadCallFacts(
+      ctx,
+      tenantId,
+      meetings.rows,
+      args.asOf ?? Date.now(),
+    );
     return buildCallsSummary(
       { facts: facts.facts, partial: facts.partial || meetings.capped },
       args,

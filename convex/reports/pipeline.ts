@@ -129,10 +129,11 @@ export const pipelineNowValidator = v.object({
 
 export const getPipelineNow = query({
   returns: pipelineNowValidator,
-  args: {},
-  handler: async (ctx): Promise<PipelineNow> => {
+  args: { asOf: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<PipelineNow> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const now = Date.now();
+    // The page can advance a minute clock without waiting for a data write.
+    const now = args.asOf ?? Date.now();
     const tenant = await ctx.db.get("tenants", tenantId);
     // Pipeline Health already maintains the stage counts. Use them only once
     // verified; the fallback's counts and medians explicitly carry its bound.
