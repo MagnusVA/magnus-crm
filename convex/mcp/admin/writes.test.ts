@@ -295,6 +295,19 @@ describe("review bot fixes", () => {
     ).rejects.toThrow("Nothing to correct");
   });
 
+  it("makes the commit stale when the payment turns disputed after the preview", async () => {
+    const h = await fixture();
+    const paymentRecordId = await payment(h);
+    const prepared = (await h.t.mutation(internal.mcp.admin.writes.payments.prepareCorrectPayment, {
+      caller: h.caller,
+      paymentRecordId,
+      amount: 400,
+      reason: "Wrong amount logged",
+    })) as Prepared;
+    await h.t.run((ctx) => ctx.db.patch("paymentRecords", paymentRecordId, { status: "disputed" }));
+    expect(await h.commit(prepared.commit)).toMatchObject({ status: "stale" });
+  });
+
   it("gives the core's own reason for a disputed payment", async () => {
     const h = await fixture();
     const paymentRecordId = await payment(h, { status: "disputed" });
