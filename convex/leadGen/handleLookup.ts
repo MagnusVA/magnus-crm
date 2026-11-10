@@ -98,7 +98,9 @@ export async function lookupHandle(
     if (!lead || !person || holder.conflict || (holder.lead && holder.lead._id !== person._id)) {
       return { ...base, verdict: "conflict", prospect, lead: null };
     }
-    return { ...base, verdict: verdictFor(lead, prospect.contactAttemptCount > 0), prospect, lead };
+    // The survivor decides: a merge moves a person's prospects over in pages,
+    // so a prospect can still point at the merged record for a moment.
+    return { ...base, verdict: verdictFor(person, prospect.contactAttemptCount > 0), prospect, lead: person };
   }
 
   if (holder.conflict) return { ...base, verdict: "conflict", prospect: null, lead: null };

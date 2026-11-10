@@ -88,7 +88,10 @@ function AiAssistantsSettings() {
     return <IntegrationCardSkeleton label="Loading AI assistant settings" groups={[3]} />;
   }
 
-  const isOn = (group: Group) => group.roles.every((role) => settings.roles.includes(role));
+  // On when any of the group's roles is on: one admin role saved alone still
+  // lets those admins connect, so the card must not call the group off.
+  const isOn = (group: Group) => group.roles.some((role) => settings.roles.includes(role));
+  const isPartial = (group: Group) => isOn(group) && !group.roles.every((role) => settings.roles.includes(role));
   const on = GROUPS.filter(isOn);
 
   async function turnOff(group: Group) {
@@ -121,7 +124,11 @@ function AiAssistantsSettings() {
             key={group.id}
             id={group.id}
             label={group.label}
-            description={group.description}
+            description={
+              isPartial(group)
+                ? `${group.description} · on for part of this group; turn it off and on to include everyone`
+                : group.description
+            }
             checked={isOn(group)}
             disabled={saving || !group.roles.every((role) => settings.availableRoles.includes(role))}
             onCheckedChange={(checked) => {

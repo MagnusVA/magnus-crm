@@ -360,6 +360,35 @@ describe("a handle that changed hands", () => {
   });
 });
 
+describe("a prospect still pointing at a merged person", () => {
+  it("takes its verdict from the survivor", async () => {
+    const f = await fixture();
+    const captured = await webCapture(f, "user_dani", "@moved.person");
+    // The person was merged into one marked do not contact, and the prospect
+    // hasn't been repointed yet.
+    await f.t.run(async (ctx) => {
+      const survivorId = await ctx.db.insert("leads", {
+        tenantId: f.tenantId,
+        fullName: "Survivor",
+        status: "active",
+        lifecycleStage: "in_conversation",
+        lifecycleStageEnteredAt: { in_conversation: NOW },
+        disposition: "do_not_contact",
+        resparkGroup: "out",
+        firstSeenAt: NOW,
+        updatedAt: NOW,
+        searchText: "Survivor",
+      } as never);
+      await ctx.db.patch("leads", captured.leadId!, { status: "merged", mergedIntoLeadId: survivorId });
+    });
+    const sofia = await f.agent("user_sofia");
+    const check = await sofia("magnus_check_handles", { handles: ["@moved.person"] });
+    expect((check.data as { results: Array<{ verdict: string }> }).results[0].verdict).toBe("do_not_contact");
+    const preview = await sofia("magnus_capture_prospects", { ...list(["@moved.person"]), confirm: false });
+    expect(preview.data as Preview).toMatchObject({ willSave: 0, lines: [{ verdict: "do_not_contact", willSave: false }] });
+  });
+});
+
 describe("the respark write tools", () => {
   async function withPool(people: number) {
     const f = await fixture();

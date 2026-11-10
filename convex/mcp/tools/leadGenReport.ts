@@ -3,6 +3,7 @@ import { v, type Infer } from "convex/values";
 import { internal } from "../../_generated/api";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../../_generated/server";
 import { isExpectedError, rejectRequest } from "../../lib/observability/errors";
+import { reportError } from "../../lib/observability/log";
 import { leadGenBusinessDayBlocked } from "../../lib/businessDayRebuildState";
 import { LEAD_GEN_ADMIN_ROLES, mcpCallerValidator, requireMcpUser } from "../guard";
 import { leadGenRangeArgs, resolveLeadGenRange, type LeadGenActionCaller } from "../leadGenShared";
@@ -145,14 +146,32 @@ export const readWarehouse = internalQuery({
   },
 });
 
+/**
+ * Asks for the snapshot job. Null when the workspace can't start one now:
+ * this admin already has a dashboard report running, or the workspace has
+ * two. Those are ordinary states, said here in the mutation so no error
+ * message has to be matched across the action boundary. Any other failure
+ * throws.
+ */
 export const requestSnapshot = internalMutation({
   args: { caller: mcpCallerValidator, ...dates, source: v.optional(leadGenSourceValidator), requestToken: v.string() },
-  returns: v.id("operationsReportJobs"),
+  returns: v.union(v.id("operationsReportJobs"), v.null()),
   handler: async (ctx, args) => {
     const me = await requireMcpUser(ctx, args.caller, [...LEAD_GEN_ADMIN_ROLES]);
-    return (await requestReport(ctx, me, { purpose: "dashboard", reportKind: "lead-gen",
-      range: { kind: "custom", startBusinessDate: args.startDayKey, endBusinessDateInclusive: args.endDayKey },
-      sourceFilter: args.source ?? "all", requestToken: args.requestToken })).jobId;
+    try {
+      return (await requestReport(ctx, me, { purpose: "dashboard", reportKind: "lead-gen",
+        range: { kind: "custom", startBusinessDate: args.startDayKey, endBusinessDateInclusive: args.endDayKey },
+        sourceFilter: args.source ?? "all", requestToken: args.requestToken })).jobId;
+    } catch (error) {
+      const message = !isExpectedError(error) && error instanceof Error ? error.message : "";
+      if (!/already have an active dashboard report|already has two active reports/.test(message)) throw error;
+      reportError("mcp.lead_gen_report.snapshot_refused", error, {
+        severity: "warning",
+        fingerprint: "mcp.lead_gen_report.snapshot_refused",
+        tenantId: me.tenantId,
+      });
+      return null;
+    }
   },
 });
 export const readSnapshot = internalQuery({
@@ -313,16 +332,15 @@ export const report = internalAction({
       } else ready(section, liveValue(section, live), Date.now(), { live: true, version: live.businessDayVersion });
     }
     if ([...waiting].some(s => results.get(s)!.source === "snapshot") && !snapshotJobId) {
-      try {
-        snapshotJobId = await ctx.runMutation(internal.mcp.tools.leadGenReport.requestSnapshot,
-          // The same token for ten minutes: asking again finds the job this call
-          // started, even after it finished and gave up its admission slot.
-          { caller: args.caller, ...filters, requestToken: ["mcp-report", range.startDayKey, range.endDayKey, args.source ?? "all",
-            context.businessDayVersion, Math.floor(Date.now() / SNAPSHOT_REUSE_MS)].join(":") });
-      } catch (error) {
-        if (isExpectedError(error)) throw error;
-        // The workspace or this admin already has a report running, so no
-        // snapshot can start now. The sections that don't need one still answer.
+      const requested: Id<"operationsReportJobs"> | null = await ctx.runMutation(internal.mcp.tools.leadGenReport.requestSnapshot,
+        // The same token for ten minutes: asking again finds the job this call
+        // started, even after it finished and gave up its admission slot.
+        { caller: args.caller, ...filters, requestToken: ["mcp-report", range.startDayKey, range.endDayKey, args.source ?? "all",
+          context.businessDayVersion, Math.floor(Date.now() / SNAPSHOT_REUSE_MS)].join(":") });
+      if (requested) snapshotJobId = requested;
+      else {
+        // No snapshot can start now. The sections that don't need one still
+        // answer; the others stay pending with no rows.
         for (const section of [...waiting]) {
           if (results.get(section)!.source === "snapshot") waiting.delete(section);
         }
