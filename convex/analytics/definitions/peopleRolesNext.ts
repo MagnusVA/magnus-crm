@@ -2,7 +2,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { MEMBER_REPORT_ROLES, resolveMemberFilter } from "../../reports/lib/access";
 import { addMoney, loadCreditDimensions, memberIdentity, teamIdentity, type CreditDimensions, type PeopleRole } from "../../reports/lib/creditFacts";
-import { emptyPeopleRoleRow, finishPeopleRoleReport, loadRoleHours, type PeopleRoleReport, type PeopleRoleDay, type PeopleRoleItem, type getLeadGen, type getSetters } from "../../reports/peopleRoles";
+import { emptyPeopleRoleRow, finishPeopleRoleReport, loadRoleHours, type PeopleRoleReport, type PeopleRoleDay, type PeopleRoleItem, type getLeadGen, type getSetters, type getDmClosers } from "../../reports/peopleRoles";
 import type { SqlQuery, SqlRow } from "../clickhouse";
 import { defineReport, nodeFinalize, num, rangeParams, str, type NodeBuild } from "../definition";
 import type { PeopleRoleFilters, PeopleRoleContext } from "./peopleRoles";
@@ -119,6 +119,36 @@ LEFT ANY JOIN (
 WHERE c.attributed_at_ms >= {from_ms:Int64} AND c.attributed_at_ms < {to_ms:Int64}
 GROUP BY c.identity_key`;
 
+export const dmBookingCte = `booking_credits AS (
+  SELECT m.id AS id, m.opportunity_id AS opportunity_id, m.created_at_ms AS at_ms,
+    m.status AS status, m.scheduled_at_ms AS scheduled_at_ms, m.duration_minutes AS duration_minutes,
+    m.lead_name AS lead_name, c.identity_key AS identity_key, c.role AS credit_role,
+    countIf(c.role = 'dm_closer') OVER (PARTITION BY m.id) AS named_count
+  FROM (
+    SELECT id, opportunity_id, created_at_ms, status, scheduled_at_ms, duration_minutes, lead_name
+    FROM analytics.meetings WHERE tenant_id = {tenant_id:String}
+      AND created_at_ms >= {from_ms:Int64} AND created_at_ms < {to_ms:Int64}
+      AND rescheduled_from_meeting_id IS NULL
+  ) AS m INNER ALL JOIN credits AS c ON c.meeting_id = m.id
+), bookings AS (
+  SELECT DISTINCT id, opportunity_id, at_ms, status, scheduled_at_ms, duration_minutes, lead_name, identity_key
+  FROM booking_credits WHERE credit_role = 'dm_closer' OR named_count = 0
+)`;
+export const dmActivitySelect = `SELECT identity_key, count() AS bookings,
+  countIf(status = 'held') AS held, countIf(status = 'no_show') AS no_show,
+  countIf(status = 'scheduled' AND scheduled_at_ms + duration_minutes * 60000 <= {now_ms:Int64}) AS not_recorded
+FROM bookings GROUP BY identity_key`;
+export const dmDaysSelect = `SELECT ${day("at_ms")} AS day_key, count() AS bookings
+FROM bookings WHERE identity_key = {member_key:String} GROUP BY day_key`;
+export const dmItemsSelect = `SELECT m.id AS id, m.at_ms AS at_ms,
+  coalesce(if(ifNull(p.id, '') != '', p.full_name, NULL), m.lead_name, 'Unknown person') AS person_name,
+  nullIf(d.lead_id, '') AS lead_id, m.opportunity_id AS opportunity_id, m.status AS result,
+  nullIf(d.outcome, '') AS outcome, m.scheduled_at_ms AS scheduled_at_ms
+FROM (SELECT * FROM bookings WHERE identity_key = {member_key:String} ORDER BY at_ms DESC, id ASC LIMIT 300) AS m
+LEFT ANY JOIN (SELECT id, lead_id, outcome FROM analytics.deals WHERE tenant_id = {tenant_id:String}) AS d ON d.id = m.opportunity_id
+LEFT ANY JOIN (SELECT id, full_name FROM analytics.people WHERE tenant_id = {tenant_id:String}) AS p ON p.id = d.lead_id
+ORDER BY m.at_ms DESC, m.id ASC`;
+
 export const leadGenActivityCtes = `${VOIDED_CAPTURES}, captures AS (
   SELECT c.id AS id, ${workerKey("c.worker_id")} AS identity_key, c.submitted_at_ms AS at_ms,
     c.prospect_id AS prospect_id, c.source AS result, nullIf(p.lead_id, '') AS lead_id
@@ -140,7 +170,7 @@ export const leadGenDaysSelect = `SELECT ${day("at_ms")} AS day_key, count() AS 
 FROM captures WHERE identity_key = {member_key:String} GROUP BY day_key
 UNION ALL SELECT ${day("at_ms")} AS day_key, 0 AS captures, count() AS resparks
 FROM resparks WHERE identity_key = {member_key:String} GROUP BY day_key`;
-export const leadGenItemsSelect = `SELECT c.id AS id, c.at_ms AS at_ms, coalesce(p.full_name, 'Unknown person') AS person_name,
+export const leadGenItemsSelect = `SELECT c.id AS id, c.at_ms AS at_ms, coalesce(if(ifNull(p.id, '') != '', p.full_name, NULL), 'Unknown person') AS person_name,
   c.lead_id AS lead_id, CAST(NULL AS Nullable(String)) AS opportunity_id, c.result AS result,
   CAST(NULL AS Nullable(String)) AS outcome, CAST(NULL AS Nullable(Int64)) AS scheduled_at_ms
 FROM (SELECT * FROM captures WHERE identity_key = {member_key:String} ORDER BY at_ms DESC, id ASC LIMIT 300) AS c
@@ -169,6 +199,14 @@ export function roleAggregateSql(range: ResolvedAnalyticsRange, role: PeopleRole
     if (memberId) {
       result.days = query(setterActivityCte, setterDaysSelect);
       result.items = query(setterActivityCte, setterItemsSelect);
+    }
+  }
+  if (role === "dm_closer") {
+    const bookingCtes = `${credits}, ${dmBookingCte}`;
+    result.activity = query(bookingCtes, dmActivitySelect);
+    if (memberId) {
+      result.days = query(bookingCtes, dmDaysSelect);
+      result.items = query(bookingCtes, dmItemsSelect);
     }
   }
   return result;
@@ -248,5 +286,18 @@ export const peopleSettersNext = defineReport<typeof getSetters, PeopleRoleFilte
   },
   node: setterNode, finalize: nodeFinalize(setterNode),
   live: { name: "reports/peopleRoles:getSetters", args: input => ({ startDate: input.range.fromMs, endDate: input.range.toMs,
+    ...(input.filters.memberId ? { memberId: input.filters.memberId } : {}) }) },
+});
+
+const dmNode = roleAggregateNode("dm_closer");
+export const peopleDmClosersNext = defineReport<typeof getDmClosers, PeopleRoleFilters, Context>({
+  id: "people.dm_closers.next", page: null, roles: MEMBER_REPORT_ROLES, day: "business",
+  parseFilters: async (ctx, raw, viewer) => ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) }),
+  sql: (input, context) => {
+    if (!context) throw new Error("Role aggregate context must load before SQL.");
+    return roleAggregateSql(input.range, "dm_closer", input.filters.memberId, context);
+  },
+  node: dmNode, finalize: nodeFinalize(dmNode),
+  live: { name: "reports/peopleRoles:getDmClosers", args: input => ({ startDate: input.range.fromMs, endDate: input.range.toMs,
     ...(input.filters.memberId ? { memberId: input.filters.memberId } : {}) }) },
 });

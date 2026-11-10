@@ -4,14 +4,14 @@ import type { PeopleRoleReport } from "../../reports/peopleRoles";
 import { expectSameAnswer } from "../../../tests/analyticsParity";
 import { roleAggregateRows } from "../../../tests/peopleRolesAggregateFixtures";
 import { createRoleFixture, DAY, from, split, to, range, identity } from "../../../tests/peopleRolesFixtures";
-import { peopleLeadGenNext, peopleSettersNext } from "./peopleRolesNext";
+import { peopleLeadGenNext, peopleSettersNext, peopleDmClosersNext } from "./peopleRolesNext";
 import { getReportDefinition, listReportDefinitions } from "../registry";
 import { REPORT_PANELS } from "../../mcp/reports/catalog";
 import { mergePeopleRoles } from "../merge/peopleRoles";
 
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(to + DAY); });
 afterEach(() => vi.useRealTimers());
-const cases = [{ definition: peopleSettersNext, role: "setter", live: api.reports.peopleRoles.getSetters }, { definition: peopleLeadGenNext, role: "lead_gen", live: api.reports.peopleRoles.getLeadGen }] as const;
+const cases = [{ definition: peopleDmClosersNext, role: "dm_closer", live: api.reports.peopleRoles.getDmClosers }, { definition: peopleSettersNext, role: "setter", live: api.reports.peopleRoles.getSetters }, { definition: peopleLeadGenNext, role: "lead_gen", live: api.reports.peopleRoles.getLeadGen }] as const;
 for (const { definition, role, live } of cases) describe(definition.id, () => {
   it("is dormant and requires context before SQL", async () => {
     expect(definition.page).toBeNull();
@@ -91,10 +91,24 @@ for (const { definition, role, live } of cases) describe(definition.id, () => {
         const c = (await ctx.db.query("leadGenSubmissions").first())!;
         const { _id, _creationTime, ...fields } = c; void _id; void _creationTime;
         for (let i = 0; i < 302; i++) await ctx.db.insert("leadGenSubmissions", { ...fields, workerId: i === 301 ? f.workerB : f.workerA, submittedAt: split + 5000 });
-      } else {
+      } else if (role === "setter") {
         const q = (await ctx.db.query("slackQualificationEvents").first())!;
         const { _id, _creationTime, ...fields } = q; void _id; void _creationTime;
         for (let i = 0; i < 302; i++) await ctx.db.insert("slackQualificationEvents", { ...fields, slackUserId: i === 301 ? "UB" : "UA", submittedAt: split + 5000 });
+      } else {
+        const m = (await ctx.db.get("meetings", f.meetingA))!;
+        const { _id, _creationTime, ...fields } = m; void _id; void _creationTime;
+        const credit = (await ctx.db.query("dealAttributions").take(100)).find(c => c.role === "dm_closer")!;
+        const { _id: cid, _creationTime: cc, ...c } = credit; void cid; void cc;
+        const deal = (await ctx.db.get("opportunities", f.dealId))!;
+        const { _id: did, _creationTime: dc, ...d } = deal; void did; void dc;
+        const otherDeal = await ctx.db.insert("opportunities", d);
+        for (let i = 0; i < 302; i++) {
+          // Keep each deal below the live reader's 200-related-row cap.
+          const opportunityId = i % 2 ? otherDeal : f.dealId;
+          const meetingId = await ctx.db.insert("meetings", { ...fields, opportunityId, createdAt: split + 5000 });
+          await ctx.db.insert("dealAttributions", { ...c, opportunityId, meetingId, teamMemberId: i === 301 ? f.memberB : f.memberA });
+        }
       }
     });
     const rows = await roleAggregateRows(f.t, f.tenantId, role, f.memberA, range, to + DAY);
@@ -102,7 +116,7 @@ for (const { definition, role, live } of cases) describe(definition.id, () => {
       live, liveArgs: { startDate: from, endDate: to, memberId: f.memberA }, filters: { memberId: f.memberA }, rows });
     expect(answer.items).toHaveLength(300);
     expect(answer.isTruncated).toBe(false);
-    expect(role === "lead_gen" ? answer.rows[0].captures : answer.rows[0].qualifications).toBe(303);
+    expect(role === "lead_gen" ? answer.rows[0].captures : role === "setter" ? answer.rows[0].qualifications : answer.rows[0].bookings).toBe(303);
   });
 });
 
@@ -123,4 +137,43 @@ it("setters resolve Slack user and team together and keep firstBookedAt after me
     live: api.reports.peopleRoles.getSetters, liveArgs: { startDate: from, endDate: to }, filters: { memberId: null }, rows });
   expect(answer.rows.find(r => r.teamMemberId === f.memberB)).toMatchObject({ qualifications: 1, booked: 1, held: 0 });
   expect(answer.rows.find(r => r.key === "unlinked")?.qualifications).toBe(1);
+});
+
+it("DM payments suppress team fallback only for eligible named recipients, including unlinked ones", async () => {
+  const f = await createRoleFixture();
+  await f.t.run(async ctx => {
+    const credits = await ctx.db.query("dealAttributions").take(100);
+    for (const c of credits.filter(c => c.role === "dm_closer")) await ctx.db.delete("dealAttributions", c._id);
+    const base = credits.find(c => c.role === "dm_closer")!;
+    const { _id, _creationTime, ...fields } = base; void _id; void _creationTime;
+    // Missing member still resolves to a named recipient, "unlinked".
+    await ctx.db.insert("dealAttributions", { ...fields, teamMemberId: undefined, attributedAt: split + 1500 });
+    // A second legitimate member gets full cash independently.
+    await ctx.db.insert("dealAttributions", { ...fields, teamMemberId: f.memberB, attributedAt: split + 1500 });
+  });
+  const rows = await roleAggregateRows(f.t, f.tenantId, "dm_closer", null, range, to + DAY);
+  const answer: PeopleRoleReport = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range, reportId: peopleDmClosersNext.id,
+    live: api.reports.peopleRoles.getDmClosers, liveArgs: { startDate: from, endDate: to }, filters: { memberId: null }, rows });
+  expect(answer.rows.find(r => r.teamId === f.teamId)).toMatchObject({ byCurrency: [{ currency: "USD", amountMinor: 30000 }], dealsWon: 1, bookings: 1 });
+  expect(answer.rows.find(r => r.key === "unlinked")).toMatchObject({ byCurrency: [{ currency: "EUR", amountMinor: 7000 }], bookings: 1 });
+  expect(answer.rows.find(r => r.teamMemberId === f.memberB)?.byCurrency).toEqual([{ currency: "EUR", amountMinor: 7000 }]);
+});
+
+for (const { definition, role, live } of cases) it(`${definition.id} excludes payment-before-credit cash and private reconciliation ids`, async () => {
+  const f = await createRoleFixture();
+  await f.t.run(async ctx => {
+    for (const c of await ctx.db.query("dealAttributions").take(100)) if (c.role === role || role === "dm_closer" && c.role === "dm_team")
+      await ctx.db.patch("dealAttributions", c._id, { attributedAt: from + 200 });
+    const p = (await ctx.db.query("paymentRecords").first())!;
+    const { _id, _creationTime, ...fields } = p; void _id; void _creationTime;
+    await ctx.db.insert("paymentRecords", { ...fields, recordedAt: from + 100, amountMinor: 999999 });
+  });
+  for (const memberId of [null, f.memberA, f.memberIdle]) {
+    const rows = await roleAggregateRows(f.t, f.tenantId, role, memberId, range, to + DAY);
+    const answer: PeopleRoleReport = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range, reportId: definition.id,
+      live, liveArgs: { startDate: from, endDate: to, ...(memberId ? { memberId } : {}) }, filters: { memberId }, rows });
+    expect(answer.rows.every(r => r.byCurrency.every(c => c.amountMinor < 999999))).toBe(true);
+    if (memberId === f.memberIdle && role !== "setter") expect(answer.firstPaymentDealIds).toEqual([]);
+    if (memberId === f.memberA && role !== "setter") expect(answer.firstPaymentDealIds).toContain(f.dealId);
+  }
 });
