@@ -167,7 +167,9 @@ export const prepare = internalQuery({ args: { caller: mcpCallerValidator, reque
     }
 } });
 /** Where a ready answer's JSON lives; read one at a time through jobAnswer. */
-export type AnswerSource = { kind: "web"; resultId: string } | { kind: "mcp"; requestId: string };
+// Pinned to the answer polling approved: a web row can be refreshed for
+// another window, and an assistant row republished by a later run.
+export type AnswerSource = { kind: "web"; resultId: string; startDate: string; endDateInclusive: string; watermark: number } | { kind: "mcp"; requestId: string; runToken: string | null };
 export type JobAnswer = {
     status: "ready" | "pending" | "failed" | "unavailable";
     source?: AnswerSource;
@@ -184,13 +186,13 @@ export async function readJob(ctx: QueryCtx, tenantId: Parameters<typeof findRes
         const key = analyticsArgsKey({ filters: JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: job.window.dayStartHour } });
         const cached = await findResult(ctx, tenantId, job.report, key);
         if (cached?.answer && cached.answer.watermark >= job.syncWatermark && cachedWindowFits(job.window, cached.answer) && payloadIdsOf(cached).length > 0)
-            return { status: "ready", source: { kind: "web", resultId: cached._id }, watermark: cached.answer.watermark };
+            return { status: "ready", source: { kind: "web", resultId: cached._id, startDate: cached.answer.startDate, endDateInclusive: cached.answer.endDateInclusive, watermark: cached.answer.watermark }, watermark: cached.answer.watermark };
     }
     const row = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", tenantId).eq("key", job.key)).unique();
     if (!row || row.expiresAt <= Date.now())
         return { status: "pending" };
     if (row.status === "ready" && (row.resultJson !== undefined || row.payloadParts !== undefined))
-        return { status: "ready", source: { kind: "mcp", requestId: row._id }, watermark: row.watermark };
+        return { status: "ready", source: { kind: "mcp", requestId: row._id, runToken: row.payloadRunToken ?? null }, watermark: row.watermark };
     if (row.status === "failed")
         return failedJobRetryable(row, Date.now()) ? { status: "pending" } : { status: "failed", reason: row.error ?? "warehouse_failed" };
     return { status: "pending" };
@@ -207,12 +209,13 @@ export const jobStates = internalQuery({ args: { caller: mcpCallerValidator, job
  * missing (deleted, or a re-admitted run), or the row moved on. Callers treat
  * null as pending. Returned as text so its arrays never cross as Convex arrays.
  */
-export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, source: v.union(v.object({ kind: v.literal("web"), resultId: v.string() }), v.object({ kind: v.literal("mcp"), requestId: v.string() })) }, returns: v.union(v.string(), v.null()), handler: async (ctx, args) => {
+export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, source: v.union(v.object({ kind: v.literal("web"), resultId: v.string(), startDate: v.string(), endDateInclusive: v.string(), watermark: v.number() }), v.object({ kind: v.literal("mcp"), requestId: v.string(), runToken: v.union(v.string(), v.null()) })) }, returns: v.union(v.string(), v.null()), handler: async (ctx, args) => {
         const me = await requireMcpAdmin(ctx, args.caller, { permission: "reports:view" });
         if (args.source.kind === "web") {
             const id = ctx.db.normalizeId("analyticsResults", args.source.resultId);
             const row = id ? await ctx.db.get("analyticsResults", id) : null;
-            if (!row || row.tenantId !== me.tenantId)
+            const pinned = args.source;
+            if (!row || row.tenantId !== me.tenantId || row.answer?.startDate !== pinned.startDate || row.answer.endDateInclusive !== pinned.endDateInclusive || row.answer.watermark !== pinned.watermark)
                 return null;
             return (await resultState(ctx, row)).payloadJson;
         }
@@ -221,8 +224,8 @@ export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, sou
         if (!row || row.tenantId !== me.tenantId || row.status !== "ready")
             return null;
         if (row.resultJson !== undefined)
-            return row.resultJson;
-        if (row.payloadParts === undefined || row.payloadRunToken === undefined)
+            return args.source.runToken === null ? row.resultJson : null;
+        if (row.payloadParts === undefined || row.payloadRunToken === undefined || row.payloadRunToken !== args.source.runToken)
             return null;
         const parts = await ctx.db.query("mcpReportPayloads").withIndex("by_requestId_and_runToken_and_index", q => q.eq("requestId", row._id).eq("runToken", row.payloadRunToken!)).take(row.payloadParts + 1);
         if (parts.length !== row.payloadParts || parts.some((part, index) => part.index !== index || part.tenantId !== me.tenantId))

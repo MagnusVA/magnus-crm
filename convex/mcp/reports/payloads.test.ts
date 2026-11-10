@@ -100,7 +100,7 @@ describe("assistant answers in parts", () => {
     const [state] = JSON.parse(
       await f.t.query(internal.mcp.reports.planning.jobStates, { caller: f.caller, jobs: [runJob] }),
     ) as JobAnswer[];
-    expect(state).toEqual({ status: "ready", source: { kind: "mcp", requestId: run.requestId }, watermark: f.watermark });
+    expect(state).toEqual({ status: "ready", source: { kind: "mcp", requestId: run.requestId, runToken: "run-1" }, watermark: f.watermark });
     const read = await f.t.query(internal.mcp.reports.planning.jobAnswer, { caller: f.caller, source: state.source! });
     expect(read).toBe(json);
   });
@@ -111,7 +111,7 @@ describe("assistant answers in parts", () => {
     const parts = await store(f, run, bigAnswer(2));
     await f.t.mutation(internal.mcp.reports.admission.finish, { ...run, parts, watermark: f.watermark });
     await complete(f, run);
-    const source = { kind: "mcp" as const, requestId: run.requestId };
+    const source = { kind: "mcp" as const, requestId: run.requestId, runToken: "run-1" };
     const other = await seedAdminTenant(f.t, { prefix: "second_", orgId: "org_second" });
     expect(
       await f.t.query(internal.mcp.reports.planning.jobAnswer, {
@@ -191,6 +191,62 @@ describe("assistant answers in parts", () => {
     expect(await f.t.run((ctx) => ctx.db.get("mcpReportRequests", run.requestId))).toBeNull();
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await partCount(f)).toBe(0);
+  });
+
+  it("deletes an answer's parts when recovery abandons its run after it was published", async () => {
+    const f = await fixture();
+    const { run } = await running(f);
+    const parts = await store(f, run, bigAnswer(1.5));
+    await f.t.mutation(internal.mcp.reports.admission.finish, { ...run, parts, watermark: f.watermark });
+    // The action timed out before onComplete ran.
+    await f.t.run((ctx) => ctx.db.patch("mcpReportRequests", run.requestId, { startedAt: Date.now() - 12 * 60_000, workId: undefined }));
+    await f.t.mutation(internal.mcp.reports.admission.recover, {});
+    const row = await f.t.run((ctx) => ctx.db.get("mcpReportRequests", run.requestId));
+    expect(row).toMatchObject({ status: "failed", error: "abandoned_job" });
+    expect(row?.payloadRunToken).toBeUndefined();
+    await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await partCount(f)).toBe(0);
+  });
+
+  it("reads only the answer polling approved", async () => {
+    const f = await fixture();
+    const { run } = await running(f);
+    const parts = await store(f, run, bigAnswer(1));
+    await f.t.mutation(internal.mcp.reports.admission.finish, { ...run, parts, watermark: f.watermark });
+    await complete(f, run);
+    // A later run republished the key: the old descriptor reads as pending.
+    expect(
+      await f.t.query(internal.mcp.reports.planning.jobAnswer, {
+        caller: f.caller,
+        source: { kind: "mcp", requestId: run.requestId, runToken: "run-0" },
+      }),
+    ).toBeNull();
+    // A web row refreshed for another window or sync reads as pending too.
+    const resultId = await f.t.run(async (ctx) => {
+      const payloadId = await ctx.db.insert("analyticsPayloads", { tenantId: f.tenantId, json: "{}" });
+      return await ctx.db.insert("analyticsResults", {
+        tenantId: f.tenantId, reportId: "people.lead_gen", argsKey: "k", filtersJson: "{}",
+        range: { kind: "preset", preset: "last_month" }, timeZone: "America/Tegucigalpa", dayStartHour: 1,
+        status: "ready", payloadId, lastRequestedAt: Date.now(),
+        answer: { startDate: "2026-11-01", endDateInclusive: "2026-11-30", watermark: f.watermark, completedAt: Date.now() },
+      });
+    });
+    const web = { kind: "web" as const, resultId, startDate: "2026-10-01", endDateInclusive: "2026-10-31", watermark: f.watermark };
+    expect(await f.t.query(internal.mcp.reports.planning.jobAnswer, { caller: f.caller, source: web })).toBeNull();
+    expect(
+      await f.t.query(internal.mcp.reports.planning.jobAnswer, {
+        caller: f.caller,
+        source: { ...web, startDate: "2026-11-01", endDateInclusive: "2026-11-30" },
+      }),
+    ).toBe("{}");
+  });
+
+  it("still finishes a run that started before answers moved to parts", async () => {
+    const f = await fixture();
+    const { run } = await running(f);
+    await f.t.mutation(internal.mcp.reports.admission.finish, { ...run, resultJson: '{"rows":[]}', watermark: f.watermark });
+    await complete(f, run);
+    expect(await f.t.run((ctx) => ctx.db.get("mcpReportRequests", run.requestId))).toMatchObject({ status: "ready", resultJson: '{"rows":[]}' });
   });
 
   it("doesn't retry a range that was too large until the key expires", () => {

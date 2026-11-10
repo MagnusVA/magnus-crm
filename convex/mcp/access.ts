@@ -125,15 +125,18 @@ export const pruneDaily = internalMutation({
       .query("mcpReportRequests")
       .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
       .take(PRUNE_BATCH);
+    let deletions = 0;
     for (const row of reports) {
       await ctx.db.delete("mcpReportRequests", row._id);
-      // Answer parts go in their own small batches, never in this mutation.
+      // Answer parts go in their own small batches, never in this mutation,
+      // and staggered a second apart so expiring answers don't burst writes.
       for (const runToken of new Set([row.runToken, row.payloadRunToken]))
         if (runToken !== undefined)
-          await ctx.scheduler.runAfter(0, internal.mcp.reports.admission.deleteParts, {
-            requestId: row._id,
-            runToken,
-          });
+          await ctx.scheduler.runAfter(
+            1_000 * deletions++,
+            internal.mcp.reports.admission.deleteParts,
+            { requestId: row._id, runToken },
+          );
     }
 
     if (

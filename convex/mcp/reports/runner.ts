@@ -6,7 +6,7 @@ import { queryWatermark } from "../../analytics/clickhouse";
 import { assistantDefinition } from "./catalog";
 import { reportError } from "../../lib/observability/log";
 import { ANSWER_TOO_LARGE } from "../../analytics/results";
-import { storeAnswerParts } from "./payloads";
+import { RUN_SUPERSEDED, storeAnswerParts } from "./payloads";
 export const run = internalAction({
     args: { requestId: v.id("mcpReportRequests"), runToken: v.string() }, returns: v.null(),
     handler: async (ctx, args) => {
@@ -37,7 +37,9 @@ export const run = internalAction({
             const waiting = message === "waiting_for_first_sync";
             // Over the rows budget or the answer cap: the agent should choose a shorter range.
             const tooLarge = message.includes(ANSWER_TOO_LARGE);
-            if (!waiting && !tooLarge)
+            // A newer run or an expiry took the request over: expected, not an error.
+            const superseded = message.includes(RUN_SUPERSEDED);
+            if (!waiting && !tooLarge && !superseded)
                 reportError("mcp.report_failed", error, { reportId: admitted.job.report, tenantId: admitted.tenantId, fingerprint: `mcp.report_failed:${admitted.job.report}` });
             await ctx.runMutation(internal.mcp.reports.admission.finish, { ...args, error: waiting ? "waiting_for_first_sync" : tooLarge ? "range_too_large" : "warehouse_failed" });
         }

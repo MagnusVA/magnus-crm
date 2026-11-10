@@ -29,7 +29,8 @@ async function recoverAndDispatch(ctx: MutationCtx) {
         }
         if (row.workId)
             await analyticsPool.cancel(ctx, row.workId as WorkId);
-        await ctx.db.patch("mcpReportRequests", row._id, { status: "failed", error: "abandoned_job", finishedAt: now });
+        // Clear a published answer too, or its parts would be kept from deletion.
+        await ctx.db.patch("mcpReportRequests", row._id, { status: "failed", error: "abandoned_job", payloadParts: undefined, payloadRunToken: undefined, finishedAt: now });
         await scheduleDeleteParts(ctx, row._id, row.runToken);
     }
     if (active)
@@ -114,7 +115,8 @@ export const storePart = internalMutation({
 });
 /** Publishes a run's parts, or records its failure and schedules its parts' deletion. */
 export const finish = internalMutation({
-    args: { requestId: v.id("mcpReportRequests"), runToken: v.string(), parts: v.optional(v.number()), watermark: v.optional(v.number()), error: v.optional(v.string()) }, returns: v.null(),
+    // resultJson: accepted for one release so a run started before the deploy fails cleanly.
+    args: { requestId: v.id("mcpReportRequests"), runToken: v.string(), parts: v.optional(v.number()), resultJson: v.optional(v.string()), watermark: v.optional(v.number()), error: v.optional(v.string()) }, returns: v.null(),
     handler: async (ctx, args) => {
         const row: Doc<"mcpReportRequests"> | null = await ctx.db.get("mcpReportRequests", args.requestId);
         if (!row || row.runToken !== args.runToken || row.status !== "running") {
@@ -125,9 +127,11 @@ export const finish = internalMutation({
         const job = JSON.parse(row.paramsJson) as ReportJob;
         const expired = (sync?.watermark ?? 0) > job.syncWatermark && (sync?.watermark ?? 0) > (args.watermark ?? 0);
         const published = !args.error && !expired && args.parts !== undefined;
+        // A run started before parts existed still finishes with its inline answer.
+        const inline = !args.error && !expired && args.parts === undefined ? args.resultJson : undefined;
         if (!published)
             await scheduleDeleteParts(ctx, row._id, args.runToken);
-        await ctx.db.patch("mcpReportRequests", row._id, { resultJson: undefined, payloadParts: published ? args.parts : undefined, payloadRunToken: published ? args.runToken : undefined, error: args.error ?? (expired ? "sync_changed" : published ? undefined : "warehouse_failed"), watermark: args.watermark, finishedAt: Date.now() });
+        await ctx.db.patch("mcpReportRequests", row._id, { resultJson: inline, payloadParts: published ? args.parts : undefined, payloadRunToken: published ? args.runToken : undefined, error: args.error ?? (expired ? "sync_changed" : published || inline !== undefined ? undefined : "warehouse_failed"), watermark: args.watermark, finishedAt: Date.now() });
         return null;
     },
 });
@@ -148,7 +152,7 @@ export const deleteParts = internalMutation({
     },
 });
 /** Pause between deletion batches, so cleanup never spends the write budget in a burst. */
-const PART_DELETE_SPACING_MS = 200;
+const PART_DELETE_SPACING_MS = 1_000; // the web's DELETE_BATCH_DELAY_MS
 /** Release the permit only after Workpool has finished the action. Releasing
  * inside the action's last mutation could briefly occupy both web workers. */
 export const onComplete = internalMutation({
