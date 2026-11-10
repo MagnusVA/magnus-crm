@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { LIFECYCLE_STAGES, type LifecycleStage } from "../../leads/lifecycle";
-import { createLiveReadState, readLiveDocuments, readLiveQueryRows } from "../../lib/liveQueryBounds";
+import { LIVE_QUERY_BYTE_BUDGET, createLiveReadState, readLiveDocuments, readLiveQueryRows } from "../../lib/liveQueryBounds";
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { leadStageEntries } from "../../reporting/aggregates";
 import { resolveAnalyticsRange, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
@@ -48,17 +48,29 @@ export function buildLifecycle(people: readonly Doc<"leads">[], range: ResolvedA
 // Share a byte budget across source scans and joins, and reject partial
 // answers. `tooLarge` is what a caller whose user sees the refusal throws:
 // production hides a plain Error's message.
-export function liveReader(tooLarge: () => Error = () => new Error("Choose a shorter range")) {
+export function liveReader(tooLarge: () => Error = () => new Error("Choose a shorter range"), byteBudget = LIVE_QUERY_BYTE_BUDGET) {
   const state = createLiveReadState();
   const checked = <T>(result: { rows: T[]; capped: boolean }) => {
     if (result.capped) throw tooLarge();
     return result.rows;
   };
   return {
-    rows: async <T>(source: AsyncIterable<T>, limit = 2500) => checked(await readLiveQueryRows(source, limit, state)),
-    documents: async <K, T>(keys: readonly K[], load: (key: K) => Promise<T | null>) => checked(await readLiveDocuments(keys, load, state)),
+    rows: async <T>(source: AsyncIterable<T>, limit = 2500) => checked(await readLiveQueryRows(source, limit, state, byteBudget)),
+    documents: async <K, T>(keys: readonly K[], load: (key: K) => Promise<T | null>) => checked(await readLiveDocuments(keys, load, state, byteBudget)),
   };
 }
+
+// The funnel gets a whole lead per person who entered a stage: a busy day is
+// several hundred people, more than the shared 512 KiB budget holds, so this
+// read has its own byte budget. What bounds it is Convex's 4,096 index ranges
+// per query: walking the stage aggregate costs about one range per 8 entries
+// (measured; counted here as one per 6) and each person's get costs one. That
+// estimate must fit LIFECYCLE_RANGE_BUDGET, which leaves about 1,100 ranges
+// for the funnel's payment deals (inside the shared budget), meetings, auth
+// and tenant reads; past it the funnel refuses as a shorter range.
+const LIFECYCLE_BYTE_BUDGET = 6 * 1024 * 1024;
+const LIFECYCLE_RANGE_BUDGET = 3000;
+const AGGREGATE_ENTRIES_PER_RANGE = 6;
 export type LiveReader = ReturnType<typeof liveReader>;
 
 export async function assertScorecardRange(ctx: QueryCtx, tenantId: Id<"tenants">, range: ResolvedAnalyticsRange) {
@@ -92,8 +104,9 @@ export async function loadScorecardFacts(
   return { payments, deals: deals.filter(d => d.tenantId === tenantId), meetings };
 }
 
-export async function loadLifecycle(ctx: QueryCtx, tenantId: Id<"tenants">, range: ResolvedAnalyticsRange, reader = liveReader()) {
+export async function loadLifecycle(ctx: QueryCtx, tenantId: Id<"tenants">, range: ResolvedAnalyticsRange, reader = liveReader(undefined, LIFECYCLE_BYTE_BUDGET)) {
   const ids = new Set<Id<"leads">>();
+  let entries = 0;
   // Stage events use processing time, omit initial stages and same-stage time
   // corrections. The maintained aggregate indexes actual entry times and removes
   // merged people, so it also covers late evidence without scanning all people.
@@ -103,8 +116,10 @@ export async function loadLifecycle(ctx: QueryCtx, tenantId: Id<"tenants">, rang
       upper: { key: [stage, range.toMs], inclusive: false },
     } });
     if (!page.isDone || page.page.length > 2500) throw new Error("Choose a shorter range");
+    entries += page.page.length;
     for (const item of page.page) ids.add(item.id.slice(0, item.id.lastIndexOf(":")) as Id<"leads">);
   }
+  if (Math.ceil(entries / AGGREGATE_ENTRIES_PER_RANGE) + ids.size > LIFECYCLE_RANGE_BUDGET) throw new Error("Choose a shorter range");
   const people = await reader.documents([...ids], id => ctx.db.get("leads", id));
   return buildLifecycle(people.filter(p => p.tenantId === tenantId), range);
 }

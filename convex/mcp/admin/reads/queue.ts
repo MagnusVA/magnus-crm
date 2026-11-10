@@ -358,8 +358,8 @@ export async function buildQueue(
     limit?: number;
   },
 ) {
-  // Six full items fit the gateway's 12 KiB answer, which carries each twice.
-  const limit = Math.min(limitOf(args.limit), 6),
+  // Ten full items fit the gateway's answer, which carries each twice.
+  const limit = Math.min(limitOf(args.limit), 10),
     now = Date.now();
   if (args.closerId) await loadInTenant(ctx, me, "users", args.closerId);
   let items: QueueItem[] = [],

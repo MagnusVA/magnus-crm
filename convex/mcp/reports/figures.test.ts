@@ -10,7 +10,7 @@ import { laneViews, responsibleRows, pathRows } from "../../../app/workspace/rep
 import { readLivePanel } from "./live";
 import { REPORT_PANELS } from "./catalog";
 import { safeText, boundPanel, type Json } from "./output";
-import { gatewayAnswerBytes, type MetricRow } from "../../../lib/assistantReportMerge";
+import { gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES, type MetricRow } from "../../../lib/assistantReportMerge";
 import type { Prepared } from "./planning";
 import type { ToolRequest } from "./contracts";
 import { ASSISTANT_METRICS, projectNumbers } from "./metrics";
@@ -74,7 +74,7 @@ for (const split of [false, true]) describe(`page figures, ${split ? "warehouse 
     expect(p.figures).toMatchObject({ timeToRecord: recordTiming(page.recordMinutes).median, recordingSamples: 40, resultsAtLeastOneDayLate: recordTiming(page.recordMinutes).late, ledger: safeText(callsLedger(page.counts)), showRate: attendanceRates(page.counts).showRate });
     expect((p.data.recordMinutes as number[]).length).toBeLessThan(40);
     expect(p.figures.firstCallShowRate).toEqual(showRateWays(page).find(r => r.key === "first")!.rate);
-    expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(12288);
+    expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
   });
   it("matches Scorecard, People and Attribution page shaping on the same readers", async () => {
     const f = await fixture(split);
@@ -166,7 +166,7 @@ describe("page projection constraints", () => {
     for (const role of [undefined, "closers", "setters", "dm_closers", "lead_gen"] as const) {
       const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "people", range, role });
       expect(result.status, JSON.stringify(result)).toBe("ready");
-      expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(12288);
+      expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
       if (role) expect(panel(result, `people.${role}`).figures).toHaveProperty("roleTabCounts");
     }
   });

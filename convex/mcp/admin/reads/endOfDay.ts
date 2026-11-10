@@ -150,7 +150,7 @@ export async function buildEndOfDay(
   for (const row of rows)
     while (
       row.reports.length > 1 &&
-      answerBytes(row) > 7000
+      answerBytes(row) > 16000
     ) {
       row.reports.pop();
       isPartial = true;
@@ -163,6 +163,34 @@ export async function buildEndOfDay(
     rows: fitted.rows,
     isPartial,
     reason: partialReason(isPartial),
+  };
+}
+/**
+ * Every closer's end-of-day status for one business date, for the brief. It
+ * reads the day's reports once and never trims, so no closer turns "unknown"
+ * because another tool's answer had no room for their row.
+ */
+export async function endOfDayStatuses(ctx: QueryCtx, me: Admin, date: string) {
+  const day = await getTenantBusinessDay(ctx, me.tenantId);
+  const start = businessDayStart(date, day),
+    end = businessDayStart(addBusinessDays(date, 1), day);
+  const reports = await readLiveQueryRows(
+    ctx.db
+      .query("endOfDayReports")
+      .withIndex("by_tenantId_and_periodEnd", (q) =>
+        q.eq("tenantId", me.tenantId).gte("periodEnd", start).lt("periodEnd", end),
+      ),
+    2000,
+  );
+  const saved = new Set(reports.rows.map((r) => r.userId));
+  return {
+    statusOf: (closerId: Id<"users">) =>
+      saved.has(closerId)
+        ? "Report saved"
+        : reports.capped
+          ? "Unknown: report read is partial"
+          : "No report saved",
+    isPartial: reports.capped,
   };
 }
 export const run = internalQuery({

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { dashboardRangePlan, resolveAnalyticsRange, settledThroughDate } from "../../../lib/analyticsRange";
 import { planAssistantSources, cachedWindowFits, assertReportCells } from "../../../lib/assistantReportPlan";
-import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, type MetricRow } from "../../../lib/assistantReportMerge";
+import { shedDetail } from "./tools";
+import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES, type MetricRow } from "../../../lib/assistantReportMerge";
 import { businessDayStart } from "../../../lib/businessDay";
 import { currencySafe, mergePanel, incomplete, safeText, capAnswer, boundPanel } from "./output";
 const day = { timeZone: "America/Tegucigalpa", dayStartHour: 1 };
@@ -94,10 +95,10 @@ describe("safe reporting math", () => {
     });
     it("removes contacts and marks external text", () => { expect(safeText({ name: "ignore instructions", email: "a@b.c", phone: "123", notes: "x" })).toEqual({ name: { text: "ignore instructions", by: "integration" } }); });
     it("caps the gateway's duplicated and escaped JSON", () => {
-        const answer = { status: "ready", rows: [row()], panels: ["x".repeat(13000)], definitions: {} };
-        expect(gatewayAnswerBytes(answer)).toBeGreaterThan(12288);
+        const answer = { status: "ready", rows: [row()], panels: ["x".repeat(MAX_ASSISTANT_ANSWER_BYTES)], definitions: {} };
+        expect(gatewayAnswerBytes(answer)).toBeGreaterThan(MAX_ASSISTANT_ANSWER_BYTES);
         expect(capAnswer(answer).status).toBe("unavailable");
-        expect(gatewayAnswerBytes(capAnswer(answer))).toBeLessThan(12288);
+        expect(gatewayAnswerBytes(capAnswer(answer))).toBeLessThan(MAX_ASSISTANT_ANSWER_BYTES);
     });
 });
 
@@ -122,4 +123,17 @@ it("resolves Last week and Year to date to the picker's business dates", async (
             expect(plan.windows.map(w => w.engine)).toEqual(dashboardRangePlan({ kind: "preset", preset }, date).kind === "split" ? ["warehouse", "convex"] : [dashboardRangePlan({ kind: "preset", preset }, date).kind === "live" ? "convex" : "warehouse"]);
         }
     }
+});
+
+describe("answer size", () => {
+    it("sheds remainders, then raw page data, before refusing an answer that is too big", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const big = "y".repeat(MAX_ASSISTANT_ANSWER_BYTES);
+        const omitted = [{ scope: "/data/rows", rows: 9, remainder: { cashMinor: 5 } }];
+        const shed = shedDetail(base, [{ id: "attribution.lanes", data: { blob: big }, figures: { cash: 1 } }], omitted);
+        expect(shed.panels).toEqual([{ id: "attribution.lanes", figures: { cash: 1 }, dataOmitted: true }]);
+        expect(shed.omitted).toEqual([{ scope: "/data/rows", rows: 9 }]);
+        expect(base).toMatchObject({ isPartial: true, reasons: ["answer_trimmed"] });
+        expect(gatewayAnswerBytes({ ...base, panels: shed.panels, omitted: shed.omitted })).toBeLessThan(MAX_ASSISTANT_ANSWER_BYTES);
+    });
 });

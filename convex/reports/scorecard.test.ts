@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { scorecardFixture, whole, history, today, identity, HOUR } from "../../tests/scorecardFixtures";
 import { buildAnswers, buildCash, buildFollowThrough, buildFunnel, buildLifecycle, buildOrigins } from "./scorecard";
 import { privateAnswer } from "./lib/scorecardFacts";
+import { syncLeadStageEntries } from "../lib/leadLifecycle";
 
 afterEach(() => vi.useRealTimers());
 describe("Scorecard builders", () => {
@@ -108,6 +109,54 @@ describe("Scorecard readers", () => {
     });
     await expect(f.t.withIdentity(identity).query(api.reports.scorecard.cash, { range: whole })).rejects.toThrow("Choose a shorter range");
   });
+  it("counts a busy day's funnel: 700 people of realistic size entering it", async () => {
+    // Production, Nov 9: about 650 people entered In conversation in one day,
+    // and the live funnel failed with "Choose a shorter range".
+    const f = await scorecardFixture();
+    const at = today.fromMs + HOUR;
+    for (let batch = 0; batch < 700; batch += 50) await f.t.run(async ctx => {
+      for (let i = batch; i < batch + 50; i++) {
+        const times = { prospect: at + i, in_conversation: at + i };
+        const id = await ctx.db.insert("leads", { tenantId: f.tenantId, fullName: `Busy ${i}`, firstSeenAt: at, updatedAt: at,
+          status: "active", lifecycleStage: "in_conversation", lifecycleStageEnteredAt: times, disposition: "open",
+          searchText: `busy ${i} ${"x".repeat(700)}` });
+        await syncLeadStageEntries(ctx, f.tenantId, id, null, { stage: "in_conversation", enteredAt: times });
+      }
+    });
+    const output = await f.t.withIdentity(identity).query(api.reports.scorecard.funnel, { range: today });
+    expect(output.stages.in_conversation).toBeGreaterThanOrEqual(700);
+  });
+  async function seedSixStages(f: Awaited<ReturnType<typeof scorecardFixture>>, count: number) {
+    const at = today.fromMs + HOUR;
+    const payment = f.payments[0];
+    const { _id, _creationTime, ...paymentFields } = payment;
+    void _id; void _creationTime;
+    for (let batch = 0; batch < count; batch += 25) await f.t.run(async ctx => {
+      for (let i = batch; i < Math.min(count, batch + 25); i++) {
+        const times = { prospect: at + i, in_conversation: at + i, qualified: at + i, booked: at + i, showed: at + i, customer: at + i };
+        const id = await ctx.db.insert("leads", { tenantId: f.tenantId, fullName: `Six ${i}`, firstSeenAt: at, updatedAt: at,
+          status: "active", lifecycleStage: "customer", lifecycleStageEnteredAt: times, disposition: "open",
+          searchText: `six ${i} ${"x".repeat(1500)}` });
+        await syncLeadStageEntries(ctx, f.tenantId, id, null, { stage: "customer", enteredAt: times });
+        // Every tenth person paid today, so the funnel also joins payment deals.
+        if (i % 10 === 0) {
+          const dealId = await ctx.db.insert("opportunities", { ...(await ctx.db.get("opportunities", f.dealA))!, _id: undefined, _creationTime: undefined, leadId: id } as never);
+          await ctx.db.insert("paymentRecords", { ...paymentFields, opportunityId: dealId, recordedAt: at + i });
+        }
+      }
+    });
+  }
+  it("stays inside Convex's per-query limits when 1,400 people enter all six stages and pay", async () => {
+    const f = await scorecardFixture();
+    await seedSixStages(f, 1400);
+    const output = await f.t.withIdentity(identity).query(api.reports.scorecard.funnel, { range: today });
+    expect(output.stages.customer).toBeGreaterThanOrEqual(1400);
+  }, 240_000);
+  it("refuses as a shorter range, not a Convex limit, when the stage walk would not fit", async () => {
+    const f = await scorecardFixture();
+    await seedSixStages(f, 1600);
+    await expect(f.t.withIdentity(identity).query(api.reports.scorecard.funnel, { range: today })).rejects.toThrow("Choose a shorter range");
+  }, 240_000);
   it("filters bookings by booking program and cash by payment program", async () => {
     const f = await scorecardFixture();
     const otherId = await f.t.run(ctx => ctx.db.insert("tenantPrograms", { tenantId: f.tenantId, name: "Other", normalizedName: "other", createdByUserId: f.adminId, createdAt: 0, updatedAt: 0 }));

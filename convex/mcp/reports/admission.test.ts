@@ -250,3 +250,14 @@ it("caps cold admissions at six jobs per tenant per minute", async () => {
     expect((await rows(f)).filter(r => r.kind === "job")).toHaveLength(7);
     expect((await rows(f)).find(r => r.kind === "allowance")?.runCount).toBe(7);
 });
+
+it("answers pending, not unavailable, while the per-minute allowance is spent", async () => {
+    const f = await fixture();
+    const requested = Array.from({ length: 6 }, (_, index) => ({ ...jobs(f, 1)[0], key: `minute-spent:${index}` }));
+    for (let batch = 0; batch < 2; batch++) {
+        await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: requested.slice(0, (batch + 1) * 3) });
+        for (let i = 0; i < 3; i++) await advanceJob(f);
+    }
+    const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range: { kind: "preset", preset: "last_month" } });
+    expect(result).toMatchObject({ status: "pending", retryAfterSeconds: 60, reasons: ["assistant_minute_allowance_spent"] });
+});

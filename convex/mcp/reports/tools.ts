@@ -36,6 +36,23 @@ export function mergedPageAnswers(loaded: Loaded[], period: string): Map<string,
     }
     return result;
 }
+/**
+ * A report still too big at one row per list sheds detail before it is
+ * refused: first the omissions' remainders, then each panel's raw page answer,
+ * keeping the figures the page shows.
+ */
+export function shedDetail(base: { isPartial: boolean; reasons: string[] }, panels: Json[], omitted: Json[]) {
+    const fits = () => gatewayAnswerBytes({ ...base, status: "ready", panels, omitted }) <= MAX_ASSISTANT_ANSWER_BYTES;
+    if (fits()) return { panels, omitted };
+    base.isPartial = true;
+    base.reasons.push("answer_trimmed");
+    omitted = omitted.map(item => item && typeof item === "object" && !Array.isArray(item) ? { scope: item.scope ?? null, rows: item.rows ?? null } : item);
+    if (fits()) return { panels, omitted };
+    panels = panels.map(panel => panel && typeof panel === "object" && !Array.isArray(panel) && "data" in panel && "figures" in panel
+        ? Object.fromEntries([...Object.entries(panel).filter(([key]) => key !== "data"), ["dataOmitted", true]]) as Json
+        : panel);
+    return { panels, omitted };
+}
 export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: ToolRequest): Promise<Record<string, unknown>> {
     const started = Date.now();
     const prepared: Prepared = JSON.parse(await ctx.runQuery(internal.mcp.reports.planning.prepare, { caller, request }));
@@ -61,6 +78,10 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
             break;
         const needed = jobs.filter((_, i) => answers[i].status !== "ready");
         const admission = await ctx.runMutation(internal.mcp.reports.admission.admit, { caller, jobs: needed });
+        // The per-minute allowance clears within a minute: the same request
+        // can be retried. The daily one can't, so it stays unavailable.
+        if (admission.status === "unavailable" && admission.reason === "assistant_minute_allowance_spent")
+            return capAnswer({ ...base, status: "pending", isPartial: true, reasons: [admission.reason], retryAfterSeconds: 60 });
         if (admission.status === "unavailable")
             return capAnswer({ ...base, status: "unavailable", isPartial: true, reasons: [admission.reason ?? "admission_unavailable"] });
         const remaining = ASSISTANT_COLD_WAIT_MS - (Date.now() - started);
@@ -183,6 +204,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         if (gatewayAnswerBytes({ ...base, status: "ready", panels, omitted }) <= MAX_ASSISTANT_ANSWER_BYTES)
             break;
     }
+    ({ panels, omitted } = shedDetail(base, panels, omitted));
     if (JSON.stringify(panels).includes('"mixed_currencies"')) {
         base.isPartial = true;
         base.reasons.push("mixed_currencies");

@@ -48,7 +48,11 @@ export function boundMetricRows(rows: MetricRow[], limit: number, complete: bool
   return { rows: rows.filter(r => kept.has(r.group)), omitted: { groups: Math.max(0, groups.length - limit), remainder: [...remainder.values()] } };
 }
 
-export const MAX_ASSISTANT_ANSWER_BYTES = 12 * 1024;
+/**
+ * An assistant answer as the gateway sends it: the JSON twice, as
+ * structuredContent and as escaped text, so the model reads about half.
+ */
+export const MAX_ASSISTANT_ANSWER_BYTES = 32 * 1024;
 /** The gateway returns the same answer as structuredContent AND serialized text. */
 export function gatewayAnswerBytes(answer: unknown) {
   return new TextEncoder().encode(JSON.stringify({ structuredContent: answer, content: [{ type: "text", text: JSON.stringify(answer) }] })).byteLength;

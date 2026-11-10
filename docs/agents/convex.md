@@ -61,7 +61,7 @@ Find an existing mutation that writes the same table and match its side-effect c
 
 ## Reads
 
-- Bound live reads with `readLiveQueryRows` or `readLiveDocuments` (`convex/lib/liveQueryBounds.ts`). They stop at a 512 KB budget and return `capped` so the UI can say the data is partial. A `for await` loop over a query has no bound.
+- Bound live reads with `readLiveQueryRows` or `readLiveDocuments` (`convex/lib/liveQueryBounds.ts`). They stop at a 512 KB budget and return `capped` so the UI can say the data is partial. Convex allows 16 MiB read per query, but the budget also keeps readers under its other limits (4,096 index ranges, each `db.get` and query call is one; 32,000 documents), and several readers often share one query. Raise a reader's own budget only when its document and lookup counts are bounded separately, as the Scorecard funnel's lifecycle read is. A `for await` loop over a query has no bound.
 - Counts and sums come from `@convex-dev/aggregate` instances defined in `reporting/aggregates.ts` and `billing/aggregates.ts` and mounted in `convex/convex.config.ts`.
 
 ## Dates

@@ -22,7 +22,7 @@ import { formatLocal } from "../../time";
 import { appLink } from "../prepare";
 import { text, textValidator, partialReason } from "./common";
 import { buildQueueSummary, queueSummaryValidator, type Queue } from "./queue";
-import { buildEndOfDay } from "./endOfDay";
+import { endOfDayStatuses } from "./endOfDay";
 import { buildHealth, healthRowValidator, freshnessValidator } from "./health";
 
 export const briefArgs = { date: v.optional(v.string()) };
@@ -97,11 +97,12 @@ export const run = internalQuery({
         closerId: v.id("users"),
         name: textValidator,
         metrics: metricsValidator,
-        yesterdayEndOfDay: v.string(),
+        endOfDay: v.string(),
         allowedActions: v.array(v.string()),
-        openInMagnus: v.string(),
       }),
     ),
+    endOfDayDate: v.string(),
+    closersOpenInMagnus: v.string(),
     queues: v.array(queueSummaryValidator),
     out: v.array(
       v.object({
@@ -145,9 +146,11 @@ export const run = internalQuery({
     const activeCloserIds = new Set(
       activeUsers.rows.filter((u) => u.role === "closer").map((u) => u._id),
     );
-    const yesterday = await buildEndOfDay(ctx, me, {
-      date: addBusinessDays(date, -1),
-    });
+    // A past day's own end-of-day reports; for today, yesterday's, since
+    // today's aren't due yet.
+    const today = businessDateForInstant(now, day);
+    const endOfDayDate = date < today ? date : addBusinessDays(date, -1);
+    const endOfDay = await endOfDayStatuses(ctx, me, endOfDayDate);
     const health = await buildHealth(ctx, me);
     const queues = [];
     for (const queue of [
@@ -242,7 +245,7 @@ export const run = internalQuery({
       );
     let isPartial =
       activeUsers.capped ||
-      yesterday.isPartial ||
+      endOfDay.isPartial ||
       queues.some((q) => q.isPartial) ||
       absences.capped ||
       relevant.length > 25 ||
@@ -270,11 +273,7 @@ export const run = internalQuery({
             ),
           ),
         },
-        yesterdayEndOfDay:
-          yesterday.rows.find((r) => r.closerId === c.closerId)?.status ??
-          (yesterday.isPartial
-            ? "Unknown: report read is partial"
-            : "No report saved"),
+        endOfDay: endOfDay.statusOf(c.closerId),
         allowedActions: [
           "magnus_end_of_day",
           "magnus_lookup",
@@ -283,7 +282,6 @@ export const run = internalQuery({
             ? ["magnus_cover_closer"]
             : []),
         ],
-        openInMagnus: appLink("/workspace/operations/sales-calls"),
       })) ?? [];
     isPartial ||= (dashboard?.closers.length ?? 0) > 25;
     const total = overview?.data.totals;
@@ -320,6 +318,8 @@ export const run = internalQuery({
       },
       floor,
       closers,
+      endOfDayDate,
+      closersOpenInMagnus: appLink("/workspace/operations/sales-calls"),
       queues,
       out,
       health: health.rows.filter((r) => r.status !== "ok"),
