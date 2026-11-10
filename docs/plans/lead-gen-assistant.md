@@ -89,3 +89,54 @@ Vote 1: approve 8, approve 8, approve 8, BLOCK 8, BLOCK 7. Both blocks were the 
 
 ## 7. Vote 2 and what changed
 Vote 2: approve 8, approve 8, approve 8, approve 8, BLOCK 8. The block: tool 9 promised to accumulate pages of the existing submissions reader inside one query, but that reader uses native `.paginate()` capped at two rows, and Convex allows one native paginated call per query execution. Fix: tool 9 is now an ACTION that accumulates separately executed queries under one budget (row 9 above). Also folded into the catalog rows above, as the smallest-change voter asked: itemIds on the person tool, merged duplicate lines, `alreadySaved` with void state, asOf and isPartial on today and floor, the respark source-filter note, and cursors bound to their result. One rule for both list writes: a line already saved under the same key, or an item the same user already marked the same way, is reported and not failed; any other change since the preview fails the whole commit and leaves the token unused. Each day tool passes `["lead_generator"]` to its own `requireMcpUser` call as well as `metadata.roles`. Added tests: access revoked during report polling and between preview and commit (no delayed result, no write); a stale preview (disposition or pool eligibility changed) fails the whole list.
+
+## 8. Release 2: the rest of the lead gen side
+
+Built after a lead generator's feedback on the demo. The lead gen items from rows 14 to 22 are built here, with one item the first plan did not have: a contact-again date. The admin change tools (rows 16 to 19 and 22) and admin post outcomes (row 15) are left to the admin assistant. A second planning council (five drafts, five critiques, two votes) settled the design; section 9 records it.
+
+### What was added
+
+| Tool | Roles | Kind | Confirm | What it does |
+|---|---|---|---|---|
+| `magnus_my_lead_gen_outcomes` | LG | query | none | The lead gen's own capture cohort by stage, 25 people a page. A person who didn't show carries up to 3 no-shows with category and the closer's note. No money, no closer names |
+| `magnus_set_contact_again` | LG | mutation | one idempotent call, read back | Saves or clears the date a person asked to be contacted again, with a note |
+| `magnus_flag_capture` | LG | mutation | one idempotent call | Flags one of the lead gen's own captures for an admin to review. One flag per capture |
+| `magnus_end_lead_gen_shift` | LG | mutation | preview + token | Saves the day's report Magnus counts and posts it to the lead gen Slack channel |
+
+Existing tools gained: the post's author and date in the capture preview when Magnus already has them; the contact-again date on the respark batch, the respark person, the handle check and the outcomes; a capture's flag state on the lead gen's activity, the admin's submissions and the admin's handle check.
+
+### Rules
+
+- **Contact-again date.** Stored on the person (`leads.contactAgain`, convex/lib/contactAgain.ts). Until the date arrives no respark claim picks the person, and nobody can mark them resparked; Skip and Not a fit still work. A lead gen sets it for a person they captured or a person in their own held batch, worked or not, so they can mark resparked first and then save the date. Admins set it for anyone; closers read it. It is refused for, and never shown on, a do-not-contact, customer or merged person, and it is cleared when a person becomes one. At a merge the later date wins. There is no cron: every check compares the date with now. Pool counts leave out people whose date is ahead; past 512 of them on a team the counts are returned unavailable, never wrong.
+- **No-show notes for a lead gen.** The category is always shown. The closer's note is shown for a no-show at or after the lead gen's first capture, including notes written before this release. Before a lead gen reads a note, contact details are masked and the tenant's staff names and amounts of money are replaced (convex/leadGen/assistantText.ts). If the staff roster is too large to read in full, the note is withheld. A nickname Magnus doesn't know, or money written as prose, can't be caught. Contact-again notes get the same treatment for lead gens. The no-show dialog tells the closer that lead gens can read the note.
+- **End of shift.** One report per worker per business day, in its own table (`leadGenShiftReports`), never in the closer's `endOfDayReports`. The token is bound to the business day; at commit Magnus counts again and saves nothing if a number changed. Scheduled hours are read apart from capture rows, and an incomplete schedule read gives unknown hours, never zero. A later call the same day returns the saved report and retries a Slack post that failed, had no channel, or stayed pending past its lease.
+- **Flags.** One per capture, ever (`leadGenCaptureFlags`). A flag changes no number. A void closes it in the same transaction; an admin can dismiss it with a note on the Operations lead gen page.
+
+### Schema
+
+All additive, with no backfill: an optional `contactAgain` on `leads` with one index, and two new tables. A person with no date is unrestricted, and both tables start empty.
+
+### Not built
+
+A pace target, shift start times, the admin change tools, and admin post outcomes. The respark claim's read accounting for skip and merge-history documents is as it was before; it is a follow-up.
+
+## 9. The second council
+
+Scores from the critique round, by reviewer lens and draft:
+
+| Reviewer | A | B | C | D | E |
+|---|---|---|---|---|---|
+| Smallest change | 9 | 4 | 8 | 7 | 7 |
+| Correctness | 7 | 7.5 | 6 | 5 | 5 |
+| Verification | 7 | 5 | 8 | 8 | 7.5 |
+| Data and performance | 6.5 | 4 | 7 | 8.5 | 7.5 |
+| Product and architecture | 8 | 5.5 | 7.5 | 8 | 8.5 |
+
+Vote 1 on the merged plan: approve 8, approve 8, approve 8, approve 8, block 8. The block: a lead gen could save a date only from a respark batch, so a freshly captured person needed an agent. Fix: the date dialog is also on the lead gen's own capture rows in My Activity. Vote 2: five approvals at 8.
+
+Decisions against a reviewer's advice:
+
+- The claim's read budget was not rewritten (data reviewer). The date is on the person document the claim already loads, so the skip adds no read.
+- Older no-show notes are shown to lead gens, with redaction (one draft wanted only notes written after this release). The owner asked for the reasons, and the redaction covers names, amounts and contact details.
+- No-show history has no cursors of its own (data draft). A person carries their 3 newest qualifying no-shows and a `historyPartial` flag.
+- The shift report's hours can differ from My Activity on a day with no captures, where the page shows zero.
