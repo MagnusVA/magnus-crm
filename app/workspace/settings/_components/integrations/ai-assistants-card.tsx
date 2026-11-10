@@ -44,9 +44,9 @@ const GROUPS: readonly {
     label: "Lead generators",
     noun: "lead generators",
     roles: ["lead_generator"],
-    description: "8 tools · handle checks, captures, their respark batch and their own numbers",
+    description: "12 tools · captures, respark, their own numbers and people, contact-again dates and the end of the shift",
     confirm:
-      "Their AI agents can check handles, save captures and work their respark batch, and that data goes to whichever AI provider each lead generator uses.",
+      "Their AI agents can save captures, work their respark batch, save contact-again dates and post their end-of-shift report, and that data goes to whichever AI provider each lead generator uses.",
   },
   {
     id: "ai-admins",

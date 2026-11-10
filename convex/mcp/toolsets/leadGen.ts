@@ -8,15 +8,20 @@ import { internal } from "../../_generated/api";
 import { mcpCallerValidator } from "../guard";
 import { myActivityArgs } from "../tools/leadGenActivity";
 import { captureArgs } from "../tools/leadGenCapture";
+import { contactAgainArgs } from "../tools/leadGenContactAgain";
+import { endShiftArgs } from "../tools/leadGenEndOfShift";
+import { flagCaptureArgs } from "../tools/leadGenFlags";
 import { checkHandlesArgs } from "../tools/leadGenHandles";
+import { outcomesArgs } from "../tools/leadGenOutcomes";
 import { resparkBatchArgs, resparkPersonArgs } from "../tools/leadGenRespark";
 import { claimArgs, markArgs } from "../tools/leadGenResparkWrites";
 import { todayArgs } from "../tools/leadGenToday";
 
 /**
- * The lead generator's toolset (docs/plans/lead-gen-assistant.md §2): the
- * shift in counts, a handle check, captures, the respark batch and the lead
- * gen's own numbers. Every tool is an internal Convex function that takes the
+ * The lead generator's toolset (docs/plans/lead-gen-assistant.md §2 and
+ * "Release 2"): the shift in counts, a handle check, captures, the respark
+ * batch, the lead gen's own numbers, what happened to their people, a
+ * contact-again date, a flag for a wrong capture and the end of the shift. Every tool is an internal Convex function that takes the
  * injected `caller` and starts with `requireMcpUser`; `metadata.roles` is what
  * the gateway's `authorize` checks for `tools/list` and `tools/call`.
  *
@@ -116,5 +121,49 @@ export const leadGenTools: McpToolRegistration[] = [
     identityArg: "caller",
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     metadata: LEAD_GEN,
+  }),
+  defineMcpQuery({
+    name: "magnus_my_lead_gen_outcomes",
+    title: "What happened to your people",
+    description:
+      "What happened to the people the lead gen captured first, for a capture range: range (today, this_week, last_week, this_month) or startDate and endDate as business dates (YYYY-MM-DD), up to 120 days. Returns a count per stage (captured, in conversation, qualified, booked, showed, customer) and 25 people a page for one stage; pass stage to pick it. Stages are cumulative: a person who showed is also counted as booked. A person who didn't show carries up to 3 no-shows, newest first, each with its category and the closer's note when one was recorded; names and amounts in a note are replaced, and a note can be withheld. contactAgain is the date the person asked to be contacted again, when one is saved. historyPartial means older history was left out. No money and no closer names. cursor continues the people. Read-only.",
+    fn: internal.mcp.tools.leadGenOutcomes.outcomes,
+    args: { caller: mcpCallerValidator, ...outcomesArgs },
+    identityArg: "caller",
+    annotations: READ,
+    metadata: LEAD_GEN,
+  }),
+  defineMcpMutation({
+    name: "magnus_set_contact_again",
+    title: "Save a contact-again date",
+    description:
+      "Saves the date a person asked to be contacted again, with a short note in the lead gen's words, or clears it with date: null. Pass exactly one of submissionId (one of the lead gen's own captures, from magnus_my_lead_gen_activity) or itemId (a person in their held respark batch, worked or not). date is a future business date (YYYY-MM-DD). Until that date nobody's respark batch picks the person and nobody can mark them resparked; closers and admins see the date. It records no message and no respark: if the lead gen just messaged this person from their batch, mark them resparked first, then save the date. One call, and saving the same date and note twice changes nothing. Read back what Magnus saved.",
+    fn: internal.mcp.tools.leadGenContactAgain.setContactAgain,
+    args: { caller: mcpCallerValidator, ...contactAgainArgs },
+    identityArg: "caller",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    metadata: { ...LEAD_GEN, auditArgs: { redact: ["note"] } },
+  }),
+  defineMcpMutation({
+    name: "magnus_flag_capture",
+    title: "Flag a capture for an admin",
+    description:
+      "Flags one of the lead gen's own captures as wrong, with a reason in their words, for an admin to review. Pass the submissionId from magnus_my_lead_gen_activity or the capture result. It changes no number: the capture still counts until an admin voids it. One flag per capture; flagging again returns the first flag. A lead gen can't void a capture.",
+    fn: internal.mcp.tools.leadGenFlags.flagCapture,
+    args: { caller: mcpCallerValidator, ...flagCaptureArgs },
+    identityArg: "caller",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    metadata: { ...LEAD_GEN, auditArgs: { redact: ["reason"] } },
+  }),
+  defineMcpMutation({
+    name: "magnus_end_lead_gen_shift",
+    title: "End your shift",
+    description:
+      "Ends the lead gen's shift: saves the day's report that Magnus counts (raw leads, resparks, entries, not a fit, scheduled hours, leads per scheduled hour) and posts it to the lead gen Slack channel. Pass narrative, a few short lines the lead gen dictated about the day, and an optional note for the team. Never put numbers in either; Magnus adds them. Two calls: confirm: false returns Magnus's preview and a confirmToken; read it back word for word, and only after a clear yes call again with the same narrative and note, confirm: true and the token. If the numbers changed in between, nothing is saved; preview again. One report per business day: a later call returns that day's report and saves no new lines, and it retries the Slack post if the first one failed or no channel was set. Hours shown as unknown mean Magnus couldn't read the schedule in full.",
+    fn: internal.mcp.tools.leadGenEndOfShift.endShift,
+    args: { caller: mcpCallerValidator, ...endShiftArgs },
+    identityArg: "caller",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    metadata: { ...LEAD_GEN, auditArgs: { redact: ["narrative", "note"] } },
   }),
 ];

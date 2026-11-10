@@ -11,11 +11,15 @@ const LEAD_GEN_TOOLS = [
   "magnus_capture_prospects",
   "magnus_check_handles",
   "magnus_claim_respark_batch",
+  "magnus_end_lead_gen_shift",
+  "magnus_flag_capture",
   "magnus_lead_gen_today",
   "magnus_mark_respark_items",
   "magnus_my_lead_gen_activity",
+  "magnus_my_lead_gen_outcomes",
   "magnus_respark_batch",
   "magnus_respark_person",
+  "magnus_set_contact_again",
 ];
 const ADMIN_TOOLS = [
   "magnus_check_handles",
