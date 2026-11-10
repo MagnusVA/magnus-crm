@@ -6,8 +6,11 @@ import { env, httpAction, type ActionCtx } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { gateway, mcpRateLimiter } from "./gateway";
 import { MCP_CLIENT_CLAIM } from "./guard";
-import { closerInstructions } from "./instructions";
+import type { CrmRole } from "../lib/roleMapping";
+import { instructionsFor } from "./instructions";
 import { closerTools } from "./toolsets/closer";
+import { leadGenTools } from "./toolsets/leadGen";
+import { leadGenAdminTools } from "./toolsets/leadGenAdmin";
 import { handleProofUpload } from "./uploads";
 
 /**
@@ -111,6 +114,13 @@ function clientFromClientId(clientId: unknown): string | undefined {
   }
 }
 
+/**
+ * One flat catalog for every role. The gateway keeps the tools it is given
+ * and drops the rest, so each role's toolset must be in this one list;
+ * `metadata.roles` decides who lists and calls each tool.
+ */
+const mcpTools = [...closerTools, ...leadGenTools, ...leadGenAdminTools];
+
 type CallerAccess =
   | { ok: true; userId: string; role: string; fullName: string; companyName: string; timeZone: string }
   | { ok: false; code: string; message: string };
@@ -177,18 +187,18 @@ const handleMcp = httpAction(async (ctx, request) => {
     return { allowed: true };
   };
 
-  let instructions = closerInstructions(null);
+  let instructions = instructionsFor(null, null);
   if (rpc.method === "initialize") {
     const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1];
     const identity = token ? await resolveIdentity(token) : null;
     const access = identity ? await accessFor(identity) : null;
-    if (access?.ok) instructions = closerInstructions(access);
+    if (access?.ok) instructions = instructionsFor(access.role as CrmRole, access);
   }
 
   const response = await gateway.handleMcpRequest(ctx, request, {
     authorize,
     resolveIdentity,
-    tools: closerTools,
+    tools: mcpTools,
     requireAuth: true,
     initializeInstructions: instructions,
   });

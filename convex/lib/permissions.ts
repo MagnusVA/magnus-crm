@@ -53,8 +53,9 @@ export const PERMISSIONS = {
   // === End Billing Ops ===
   // === AI assistants (docs/plans/closer-assistant.md) ===
   // Connect an AI client over MCP. A role also needs a toolset and the
-  // tenant's switch (§6.1). Only closers have a toolset today.
-  "mcp:connect": ["closer"],
+  // tenant's switch (§6.1). Closers have the closer toolset; lead generators
+  // and admins have the lead gen toolsets.
+  "mcp:connect": ["tenant_master", "tenant_admin", "closer", "lead_generator"],
   // Check calls where Jev's second opinion disagrees with the record (§6.9).
   "second-opinion:review": ["tenant_master", "tenant_admin"],
   // Turn the second opinion on or off and set its cap. Owner only: turning

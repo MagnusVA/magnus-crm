@@ -52,13 +52,15 @@ export async function issueConfirmation(
 }
 
 /**
- * Checks a commit's token. A token already used returns its stored result, so
- * the caller hands it back instead of writing twice. Otherwise the caller may
- * write, then must call `markConfirmationUsed` in the same transaction.
+ * Checks a commit's token. The token must belong to this user, tenant and
+ * tool, and the arguments must match the preview, before anything else is
+ * decided: a used token then returns its stored result, so the caller hands
+ * it back instead of writing twice. Otherwise the caller may write, then must
+ * call `markConfirmationUsed` in the same transaction.
  */
 export async function redeemConfirmation(
   ctx: MutationCtx,
-  who: { userId: Id<"users"> },
+  who: { tenantId: Id<"tenants">; userId: Id<"users"> },
   tool: string,
   token: string | undefined,
   args: unknown,
@@ -69,7 +71,7 @@ export async function redeemConfirmation(
   if (!token) {
     throw rejectRequest(
       "confirm.token_required",
-      "Preview first with confirm: false, read the preview to the closer, then commit with its confirmToken.",
+      "Preview first with confirm: false, read the preview back word for word, then commit with its confirmToken.",
     );
   }
   const tokenHash = await sha256Hex(token);
@@ -77,23 +79,29 @@ export async function redeemConfirmation(
     .query("mcpConfirmations")
     .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
     .first();
-  if (!row || row.userId !== who.userId || row.tool !== tool) {
+  if (
+    !row ||
+    row.userId !== who.userId ||
+    row.tenantId !== who.tenantId ||
+    row.tool !== tool
+  ) {
     throw rejectRequest(
       "confirm.token_unknown",
-      "That preview token isn't valid. Preview again, then ask the closer.",
+      "That preview token isn't valid. Preview again, then ask for a yes.",
+    );
+  }
+  // Before the replay: a used token must not answer for different details.
+  if (row.argsHash !== (await sha256Hex(stableJson(args)))) {
+    throw rejectRequest(
+      "confirm.args_changed",
+      "These details differ from the preview. Preview again, then ask for a yes.",
     );
   }
   if (row.usedAt !== undefined) {
     return { kind: "replay", result: row.resultJson ? JSON.parse(row.resultJson) : null };
   }
   if (row.expiresAt < Date.now()) {
-    throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask the closer.");
-  }
-  if (row.argsHash !== (await sha256Hex(stableJson(args)))) {
-    throw rejectRequest(
-      "confirm.args_changed",
-      "These details differ from the preview. Preview again, then ask the closer.",
-    );
+    throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask for a yes.");
   }
   return { kind: "fresh", confirmationId: row._id };
 }

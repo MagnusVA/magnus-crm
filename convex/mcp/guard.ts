@@ -16,10 +16,23 @@ import {
 /**
  * Roles that have a toolset in `convex/mcp/toolsets/`. A role needs a toolset,
  * the `mcp:connect` permission and the tenant's switch before its users get
- * any tool (docs/plans/closer-assistant.md §6.1). Adding a role later means
- * writing its toolset and adding it here.
+ * any tool (docs/plans/closer-assistant.md §6.1). Closers have the closer
+ * toolset; lead generators and both admin roles have the lead gen toolsets.
+ * Adding a role later means writing its toolset and adding it here.
  */
-export const MCP_TOOLSET_ROLES = ["closer"] as const satisfies readonly CrmRole[];
+export const MCP_TOOLSET_ROLES = [
+  "closer",
+  "lead_generator",
+  "tenant_admin",
+  "tenant_master",
+] as const satisfies readonly CrmRole[];
+
+/** The roles each lead gen tool passes to `requireMcpUser`. */
+export const LEAD_GEN_ROLES = ["lead_generator"] as const satisfies readonly CrmRole[];
+export const LEAD_GEN_ADMIN_ROLES = [
+  "tenant_admin",
+  "tenant_master",
+] as const satisfies readonly CrmRole[];
 
 export function roleHasMcpToolset(role: CrmRole): boolean {
   return (MCP_TOOLSET_ROLES as readonly CrmRole[]).includes(role);

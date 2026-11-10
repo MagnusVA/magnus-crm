@@ -85,6 +85,16 @@ describe("magnus_mark_no_show", () => {
       confirmToken,
     });
     expect(retry.data).toMatchObject({ ok: true, alreadyDone: true });
+
+    // A used token never answers for different details.
+    const changedAfterUse = await callTool(f.t, f.token, f.sessionId, "magnus_mark_no_show", {
+      meetingId: f.meetingId,
+      reason: "late_cancel",
+      confirm: true,
+      confirmToken,
+    });
+    expect(changedAfterUse.isError).toBe(true);
+    expect(changedAfterUse.text ?? "").toContain("differ from the preview");
   });
 
   it("won't commit without a preview token", async () => {
