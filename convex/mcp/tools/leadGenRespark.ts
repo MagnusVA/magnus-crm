@@ -113,6 +113,15 @@ export const person = internalQuery({
     const budget = new McpProjectionBudget(itemIds.length);
     if (profile.team) profile.team.name = budget.text(profile.team.name);
     const redactor = await loadStaffRedactor(ctx, me.tenantId);
+    // Notes, disposition reasons and loss reasons are written by staff, so
+    // they can name a closer or an amount: the same redaction as a no-show note.
+    const staffText = (value: string) => {
+      const safe = redactor.safeNote(value);
+      if (!safe.note) return { text: "[withheld]", personSupplied: true as const, truncated: true };
+      const projected = budget.personText(safe.note.text, { mask: false });
+      if (safe.note.truncated) budget.textTruncated = budget.isPartial = true;
+      return { ...projected, truncated: projected.truncated || safe.note.truncated };
+    };
     const people = [];
     const limit = Math.max(1, Math.floor((50 - itemIds.length) / itemIds.length / 8));
     for (const itemId of itemIds) {
@@ -128,14 +137,14 @@ export const person = internalQuery({
       people.push({ itemId, panel: {
         contactAgain: contactAgainMcp(panel.contactAgain, me.timeZone, budget), resparkBlockedReason: panel.resparkBlockedReason,
         handle: panel.handle ? budget.text(panel.handle, { mask: false }) : null, stage: panel.stage, disposition: panel.disposition,
-        dispositionReason: panel.dispositionReason ? budget.personText(panel.dispositionReason) : null,
+        dispositionReason: panel.dispositionReason ? staffText(panel.dispositionReason) : null,
         identity: { name: panel.identity.name ? budget.personText(panel.identity.name) : null,
           phone: panel.identity.phone ? budget.text(panel.identity.phone) : null, email: panel.identity.email ? budget.text(panel.identity.email) : null },
         timeZone: panel.timeZone ? budget.text(panel.timeZone, { mask: false }) : null, timeline,
-        deals: deals.map(deal => ({ ...deal, createdAt: formatLocal(deal.createdAt, me.timeZone), lostReason: deal.lostReason ? budget.personText(deal.lostReason) : null })),
+        deals: deals.map(deal => ({ ...deal, createdAt: formatLocal(deal.createdAt, me.timeZone), lostReason: deal.lostReason ? staffText(deal.lostReason) : null })),
         calls: calls.map(call => ({ ...call, scheduledAt: formatLocal(call.scheduledAt, me.timeZone), bookingAnswers: budget.take(call.bookingAnswers, limit).map(answer => ({
           question: budget.personText(answer.question), answer: budget.personText(answer.answer) })) })),
-        notes: notes.map(note => ({ ...note, createdAt: formatLocal(note.createdAt, me.timeZone), content: budget.personText(note.content) })),
+        notes: notes.map(note => ({ ...note, createdAt: formatLocal(note.createdAt, me.timeZone), content: staffText(note.content) })),
         resparkHistory: resparkHistory.map(entry => ({ ...entry,
           workedAt: entry.workedAt === null ? null : formatLocal(entry.workedAt, me.timeZone) })),
       } });

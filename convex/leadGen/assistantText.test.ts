@@ -61,7 +61,7 @@ describe("the staff note redactor", () => {
   });
 
   it("redacts amounts written with a symbol, a code or a word", () => {
-    for (const amount of ["$3,000", "USD 300", "300 USD", "€1.200,50", "300 dollars", "300 dólares", "2 grand"]) {
+    for (const amount of ["$3,000", "USD 300", "usd 500", "300 USD", "300 usd", "€1.200,50", "300 dollars", "300 dólares", "2 grand"]) {
       expect(redactAmounts(`She said ${amount} is too much`)).toBe("She said [amount] is too much");
     }
     expect(redactAmounts("Call at 3 on the 14th")).toBe("Call at 3 on the 14th");

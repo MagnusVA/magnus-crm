@@ -4,7 +4,7 @@ import { internalQuery } from "../../_generated/server";
 import { getMyDaySummaryCore, getOwnLeadGenProfile, leadGenProfileValidator } from "../../leadGen/activity";
 import { leadGenBusinessDayBlocked } from "../../lib/businessDayRebuildState";
 import { createLiveReadState } from "../../lib/liveQueryBounds";
-import { McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
+import { isOriginLink, McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
 import { rememberTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { getHeldResparkBatchCore, getMyResparkTodayCore, getResparkPoolCountsCore } from "../../respark/queries";
 import { loadLeadGenScheduledHoursForRange } from "../../workSchedules/rangeHours";
@@ -48,7 +48,7 @@ export const run = internalQuery({
       .withIndex("by_tenantId_and_workerId_and_submittedAt", q => q.eq("tenantId", me.tenantId).eq("workerId", worker._id))
       .order("desc").first();
     const lastOrigin = last ? { source: last.source, kind: last.originKind,
-      value: last.originValue ? budget.personText(last.originValue, { mask: false }) : null, usedAt: formatLocal(last.submittedAt, me.timeZone) } : null;
+      value: last.originValue ? budget.personText(last.originValue, { mask: !isOriginLink(last.originKind) }) : null, usedAt: formatLocal(last.submittedAt, me.timeZone) } : null;
     return { profile, dayKey, asOf: formatLocal(asOf, me.timeZone), unavailableReason: null, isPartial: state.capped || budget.isPartial || pool.isPartial,
       textTruncated: budget.textTruncated,
       counts: { today: day.submissions, unique: day.uniqueProspects, dupes: day.duplicates,

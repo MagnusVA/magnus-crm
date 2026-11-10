@@ -408,6 +408,23 @@ describe("handles and post links in the read tools", () => {
     const lastOrigin = (today.data as { counts: { lastOrigin: { value: { text: string } } } }).counts.lastOrigin;
     expect(lastOrigin.value.text).toContain("17841400000000000");
   });
+
+  it("still masks a phone or an email typed into an origin label", async () => {
+    const f = await fixture();
+    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
+      source: "instagram",
+      rawHandleOrProfileUrl: "@someone.new",
+      originKind: "follower",
+      originUrlOrLabel: "Call pat@example.com at +1 555 010 9999",
+    });
+    const sofia = await f.agent("user_sofia");
+    const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);
+    const today = JSON.stringify((await sofia("magnus_lead_gen_today")).data);
+    for (const result of [activity, today]) {
+      expect(result).not.toContain("pat@example.com");
+      expect(result).not.toContain("555 010 9999");
+    }
+  });
 });
 
 describe("the respark write tools", () => {
@@ -503,6 +520,25 @@ describe("the respark write tools", () => {
     expect(again.willRecord).toBe(0);
     expect(again.confirmToken).toBeUndefined();
     expect(again.preview).toContain("can't be changed");
+  });
+
+  it("replaces staff names and amounts in a held person's notes", async () => {
+    const { f, sofia, items } = await withPool(1);
+    await f.t.run((ctx) =>
+      ctx.db.insert("leadNotes", {
+        tenantId: f.tenantId,
+        leadId: items[0].leadId,
+        authorKind: "user",
+        userId: f.daniId,
+        content: "Dani Cruz quoted $500 and Alex Rivera will follow up",
+        createdAt: NOW,
+      } as never),
+    );
+    const person = await sofia("magnus_respark_person", { itemIds: [items[0]._id] });
+    expect(person.isError).toBe(false);
+    const text = JSON.stringify(person.data);
+    expect(text).toContain("[staff] quoted [amount] and [staff] will follow up");
+    expect(text).not.toMatch(/Dani|Cruz|Alex|Rivera|\$500/);
   });
 
   it("keeps a batch to the lead gen who holds it", async () => {

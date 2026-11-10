@@ -5,6 +5,15 @@ export const mcpPersonTextValidator = v.object({
   text: v.string(), personSupplied: v.literal(true), truncated: v.boolean(),
 });
 
+/**
+ * A post or reel origin is a validated link the agent passes back. Any other
+ * origin (a story label, "follower") is free text a lead gen typed, and can
+ * hold a phone or an email.
+ */
+export function isOriginLink(originKind: string): boolean {
+  return originKind === "post" || originKind === "reel";
+}
+
 /** One response budget, including children of every returned person. */
 export class McpProjectionBudget {
   private rowsLeft: number;

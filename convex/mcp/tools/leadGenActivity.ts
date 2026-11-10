@@ -14,7 +14,7 @@ import type { SafeNoteResult } from "../../leadGen/assistantText";
 import { mcpCaptureFlag, mcpCaptureFlagValidator, type CaptureFlag } from "../../leadGen/captureFlags";
 import { leadGenBusinessDayBlocked } from "../../lib/businessDayRebuildState";
 import { rejectRequest } from "../../lib/observability/errors";
-import { McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
+import { isOriginLink, McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
 import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser } from "../guard";
 import { leadGenRangeArgs, resolveLeadGenRange, type LeadGenActionCaller, type LeadGenRangeArgs } from "../leadGenShared";
 import { formatLocal } from "../time";
@@ -99,7 +99,7 @@ export const readActivity = internalQuery({
       ...(row.submissionId && { submissionId: row.submissionId }),
       ...(row.flag && { flag: activityFlag(row.flag, me.timeZone, budget) }),
       id: row._id, submittedAt: row.submittedAt, type: row.type, source: row.source,
-      originKind: row.originKind, originValue: row.originValue ? budget.personText(row.originValue, { mask: false }) : null,
+      originKind: row.originKind, originValue: row.originValue ? budget.personText(row.originValue, { mask: !isOriginLink(row.originKind) }) : null,
       handle: row.prospect?.normalizedHandle ? budget.text(row.prospect.normalizedHandle, { mask: false }) : null, voided: row.voided ?? false }));
     const liveRange = info.history ? info.plan.kind === "split" ? { kind: "custom" as const, startBusinessDate: info.today, endBusinessDateInclusive: info.today } : null : info.range;
     const summary = liveRange ? await getMyActivitySummaryCore(ctx, me, { range: liveRange }) : null;

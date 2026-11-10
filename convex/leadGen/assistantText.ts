@@ -33,7 +33,9 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\
 const AMOUNT = "\\d[\\d.,]*(?:\\s?[kKmM]\\b)?";
 const CURRENCY_PATTERNS = [
   new RegExp(`(?:US\\$|\\$|€|£|¥|₡|₲)\\s?${AMOUNT}`, "g"),
-  new RegExp(`\\b(?:USD|EUR|GBP|HNL|MXN|CAD|L\\.?)\\s?${AMOUNT}`, "g"),
+  new RegExp(`\\b(?:USD|EUR|GBP|HNL|MXN|CAD)\\s?${AMOUNT}`, "gi"),
+  // Lempira's "L 500": capital only, or every "l 5" in prose would match.
+  new RegExp(`\\bL\\.?\\s?${AMOUNT}`, "g"),
   new RegExp(
     `${AMOUNT}\\s?(?:USD|EUR|GBP|HNL|MXN|CAD|usd|dollars?|dólares?|dolares?|euros?|pesos?|lempiras?|bucks|grand)\\b`,
     "gi",

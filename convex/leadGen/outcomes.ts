@@ -81,8 +81,8 @@ export async function readMyOutcomesCore(
   // JSON escapes control characters to six bytes. Charge that encoded size
   // as well as the shared text budget, keeping the whole response below 64 KiB.
   let jsonTextBytesLeft = 24_000;
-  const projectedText = (value: string) => {
-    const projected = budget.text(value);
+  const projectedText = (value: string, options: { mask?: boolean } = {}) => {
+    const projected = budget.text(value, options);
     let result = "";
     for (const char of projected) {
       const size = new TextEncoder().encode(JSON.stringify(char)).byteLength - 2;
@@ -94,7 +94,7 @@ export async function readMyOutcomesCore(
     budget.textTruncated ||= result !== projected;
     return result;
   };
-  const handles = new Map(hydrated.map(({ prospect }) => [prospect._id, projectedText(prospect.normalizedHandle)]));
+  const handles = new Map(hydrated.map(({ prospect }) => [prospect._id, projectedText(prospect.normalizedHandle, { mask: false })]));
   const safeNote = (value: string | undefined, lead: Doc<"leads">): SafeNoteResult | { note: null; withheld: null } => {
     if (!value) return { note: null, withheld: null };
     const safe = redactor.safeNote(value, [lead]);
