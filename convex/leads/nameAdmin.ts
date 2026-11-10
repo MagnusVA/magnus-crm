@@ -140,6 +140,7 @@ export async function refreshLeadNameCopies(
     .withIndex("by_tenantId_and_leadId_and_submittedAt", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", leadId),
     )
+    .order("desc")
     .take(SUBMISSION_LIMIT);
   for (const event of events) {
     await rebuildQualificationRow(ctx, event._id);
