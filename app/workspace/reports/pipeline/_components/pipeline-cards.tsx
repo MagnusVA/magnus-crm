@@ -153,7 +153,8 @@ export function OwedCard({ data, now }: { data: PipelineNow | undefined; now: nu
   );
   const paged = useCursorPages(list, { total: data?.owed.total ?? null, totalIsMinimum: data?.owed.partial ?? false });
   const { rows, firstLoad } = paged;
-  const onFirstPage = paged.pager.from <= 1;
+  // The page asked for, not the rows shown: Next can be waiting for its rows.
+  const onFirstPage = paged.page === 0;
   // Back on the first page (by Previous, or because calls got their results
   // and the list shrank), the list follows the clock again.
   if (heldAt !== null && onFirstPage) setHeldAt(null);

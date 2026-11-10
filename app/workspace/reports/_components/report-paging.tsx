@@ -124,7 +124,13 @@ export function useCursorPages<T>(
     totalIsMinimum = false,
     resetKey,
   }: { pageSize?: number; total?: number | null; totalIsMinimum?: boolean; resetKey?: string } = {},
-): { rows: T[]; firstLoad: boolean; pager: PagerState } {
+): {
+  rows: T[];
+  firstLoad: boolean;
+  /** The page asked for, 0-based: ahead of the rows shown while Next waits for its rows. */
+  page: number;
+  pager: PagerState;
+} {
   const key = usePageKey(resetKey);
   const [state, setState] = useState({ page: 0, key });
   const loaded = list.results.length;
@@ -132,9 +138,9 @@ export function useCursorPages<T>(
   const firstLoad = list.status === "LoadingFirstPage";
   const wanted = state.key === key ? state.page : 0;
   // A row leaving the list (a call gets its result) can empty the last page.
-  // While rows are still loading, a page past them is one Next asked for.
   const { page: current, lastPage: last, start, end } = pageWindow(loaded, pageSize, wanted);
-  const page = exhausted ? current : wanted;
+  // Only rows on their way can justify a page past the loaded ones.
+  const page = list.status === "LoadingMore" ? wanted : current;
   if (state.key !== key || state.page !== page) setState({ page, key });
   const setPage = (next: number) => setState({ page: next, key });
   const shown = list.results.slice(start, end);
@@ -143,6 +149,7 @@ export function useCursorPages<T>(
   return {
     rows: shown,
     firstLoad,
+    page,
     pager: {
       from: shown.length === 0 ? 0 : start + 1,
       to: start + shown.length,
