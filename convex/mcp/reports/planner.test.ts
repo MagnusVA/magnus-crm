@@ -127,6 +127,13 @@ it("resolves Last week and Year to date to the picker's business dates", async (
 });
 
 describe("answer size", () => {
+    it("keeps the data of a panel with no figures, and refuses an answer that still doesn't fit", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const big = "z".repeat(MAX_ASSISTANT_ANSWER_BYTES);
+        const shed = shedDetail(base, [{ id: "scorecard.origins", data: { blob: big }, figures: {} }], []);
+        expect(shed.panels).toEqual([{ id: "scorecard.origins", data: { blob: big }, figures: {} }]);
+        expect(capAnswer({ ...base, status: "ready", panels: shed.panels, omitted: shed.omitted }).status).toBe("unavailable");
+    });
     it("sheds an answer just under the cap, leaving room for the reasons added after", () => {
         const base = { isPartial: false, reasons: [] as string[] };
         const panel = (n: number) => [{ id: "attribution.lanes", data: { blob: "y".repeat(n) }, figures: { cash: 1 } }] as Json[];

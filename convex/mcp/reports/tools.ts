@@ -55,7 +55,11 @@ export function shedDetail(base: { isPartial: boolean; reasons: string[] }, pane
         ? { scope: item.scope ?? null, rows: item.rows ?? null, ...(item.nullReason ? { nullReason: item.nullReason } : {}) }
         : item);
     if (fits()) return { panels, omitted };
-    panels = panels.map(panel => panel && typeof panel === "object" && !Array.isArray(panel) && "data" in panel && "figures" in panel
+    // Only a panel whose figures carry the page's numbers can lose its raw
+    // data; a panel with empty figures keeps it, and an answer that still
+    // doesn't fit is refused by capAnswer rather than sent empty.
+    const hasFigures = (figures: Json) => !!figures && typeof figures === "object" && (Array.isArray(figures) ? figures.length > 0 : Object.keys(figures).length > 0);
+    panels = panels.map(panel => panel && typeof panel === "object" && !Array.isArray(panel) && "data" in panel && hasFigures(panel.figures)
         ? Object.fromEntries([...Object.entries(panel).filter(([key]) => key !== "data"), ["dataOmitted", true]]) as Json
         : panel);
     return { panels, omitted };
