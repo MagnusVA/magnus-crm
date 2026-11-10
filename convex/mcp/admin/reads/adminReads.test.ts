@@ -794,7 +794,7 @@ describe("queue variants and setup", () => {
       }),
     ).rejects.toThrow(/can't find/);
   });
-  it("caps large briefs and end-of-day answers below 12 KiB", async () => {
+  it("caps large briefs and end-of-day answers below the answer cap", async () => {
     const f = await fixture();
     await f.t.run(async (ctx) => {
       for (let i = 0; i < 35; i++)
@@ -901,7 +901,7 @@ describe("round 1 review fixes", () => {
     expect(JSON.stringify(result.items[0])).toContain("Quinn converted");
   });
 
-  it("keeps a full queue page inside the gateway's 12 KiB answer", async () => {
+  it("keeps a full queue page inside the gateway's answer cap", async () => {
     const f = await fixture();
     await f.t.run(async (ctx) => {
       const programId = (await ctx.db.get("paymentRecords", f.paymentId))!.programId;
