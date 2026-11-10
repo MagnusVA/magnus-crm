@@ -17,11 +17,13 @@ import { tenantBusinessToday } from "../../lib/tenantBusinessDay";
 import {
   mcpCallerValidator,
   requireMcpAdmin,
+  normalizeMcpId,
+  withMcpCursorErrors,
 } from "../guard";
 import { formatLocal } from "../time";
 
 export const floorArgs = {
-  teamId: v.optional(v.id("attributionTeams")),
+  teamId: v.optional(v.string()),
   cursor: v.optional(v.string()),
 };
 
@@ -71,17 +73,21 @@ export const floor = internalQuery({
   handler: async (ctx, { caller, ...args }) => {
     const me = await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
     const now = Date.now();
-    const result = await readLeadGenFloor(ctx, {
+    const result = await withMcpCursorErrors("lead_gen.invalid_cursor", () => readLeadGenFloor(ctx, {
       tenantId: me.tenantId,
       ...args,
+      teamId: args.teamId === undefined ? undefined : normalizeMcpId(ctx, "attributionTeams", args.teamId, "teamId"),
       now,
-    });
+    }));
     return {
       ...result,
       timeZone: me.timeZone,
       asOf: formatLocal(now, me.timeZone),
       specialists: result.specialists.map((row) => ({
         ...row,
+        // A specialist without a display name falls back to an email on the
+        // web; contact details stay out of assistant answers.
+        name: row.name.includes("@") ? "Unnamed specialist" : row.name,
         lastCaptureAt:
           row.lastCaptureAt === null
             ? null
@@ -151,11 +157,11 @@ export const roster = internalQuery({
       resparkRules: settings,
     };
     if (teamsPhase) {
-      const page = await listTeamsCore(ctx, {
+      const page = await withMcpCursorErrors("lead_gen.invalid_cursor", () => listTeamsCore(ctx, {
         tenantId: me.tenantId,
         includeInactive,
         paginationOpts: { cursor: position!.slice(6) || null },
-      });
+      }));
       return {
         ...base,
         specialists: [],
@@ -165,17 +171,26 @@ export const roster = internalQuery({
           active: team.isActive,
           textTruncated: trimLeadGenText(team.displayName) !== team.displayName,
         })),
-        isPartial: false,
+        isPartial: !page.isDone,
         cursor: page.isDone
           ? null
           : encodeLeadGenCursor(scope, `teams:${page.continueCursor}`),
       };
     }
-    const page = await listWorkersCore(ctx, {
+    const page = await withMcpCursorErrors("lead_gen.invalid_cursor", () => listWorkersCore(ctx, {
       tenantId: me.tenantId,
       includeInactive,
       paginationOpts: { cursor: position, numItems: 25 },
-    });
+    }));
+    // A bounded take can accompany the worker pagination without a second native paginate.
+    const preview = await ctx.db.query("attributionTeams").withIndex("by_tenantId", q => q.eq("tenantId", me.tenantId)).take(26);
+    const teamsFit = preview.length <= 25;
+    const firstTeams = teamsFit && cursor === undefined ? (await Promise.all(preview.map(async team => {
+      if (!includeInactive && !team.isActive) return null;
+      const worker = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_teamId", q => q.eq("tenantId", me.tenantId).eq("teamId", team._id)).first();
+      return worker ? { teamId: team._id, name: trimLeadGenText(team.displayName), active: team.isActive, textTruncated: trimLeadGenText(team.displayName) !== team.displayName } : null;
+    }))).filter(team => team !== null) : [];
+    const next = !page.isDone ? encodeLeadGenCursor(scope, page.continueCursor) : teamsFit ? null : encodeLeadGenCursor(scope, "teams:");
     const today = await tenantBusinessToday(ctx, me.tenantId);
     const schedules = await listWorkerSchedulesCore(ctx, {
       tenantId: me.tenantId,
@@ -189,7 +204,7 @@ export const roster = internalQuery({
           : null;
         const teamName =
           team?.tenantId === me.tenantId ? team.displayName : null;
-        const name = worker.displayName ?? worker.email;
+        const name = worker.displayName ?? "Unnamed specialist";
         return {
           workerId: worker._id,
           name: trimLeadGenText(name),
@@ -208,12 +223,9 @@ export const roster = internalQuery({
     return {
       ...base,
       specialists,
-      teams: [],
-      isPartial: schedules.capped,
-      cursor: encodeLeadGenCursor(
-        scope,
-        page.isDone ? "teams:" : page.continueCursor,
-      ),
+      teams: firstTeams,
+      isPartial: schedules.capped || next !== null,
+      cursor: next,
     };
   },
 });

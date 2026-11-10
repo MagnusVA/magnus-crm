@@ -25,15 +25,12 @@ export type ToolRequest = Infer<typeof requestValidator>;
 export const jobValidator = v.object({ key: v.string(), report: v.string(), filtersJson: v.string(), range: analyticsRangeValidator, window: resolvedRangeValidator, syncWatermark: v.number() });
 export type ReportJob = Infer<typeof jobValidator>;
 export const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
-export const ASSISTANT_DAILY_RUN_ALLOWANCE = 40;
-export const ASSISTANT_MINUTE_JOB_ALLOWANCE = 6;
 export const ASSISTANT_JOB_TIMEOUT_MS = 11 * 60 * 1000;
 export const ASSISTANT_COLD_WAIT_MS = 8000;
 
 /**
  * A failed job may be admitted again a minute after it failed, so a passing
  * warehouse error doesn't stick to the same request until the key expires.
- * A retry still counts against the daily and per-minute allowances.
  */
 export const FAILED_JOB_RETRY_MS = 60_000;
 export function failedJobRetryable(row: { status: string; finishedAt?: number; createdAt: number }, now: number): boolean {

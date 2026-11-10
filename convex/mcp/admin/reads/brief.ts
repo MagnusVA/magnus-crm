@@ -16,7 +16,9 @@ import {
 import {
   addBusinessDays,
   businessDateForInstant,
+  calendarDate,
 } from "../../../../lib/businessDay";
+import { rejectRequest } from "../../../lib/observability/errors";
 import { mcpCallerValidator, requireMcpAdmin } from "../../guard";
 import { formatLocal } from "../../time";
 import { appLink } from "../prepare";
@@ -126,6 +128,16 @@ export const run = internalQuery({
   }),
   handler: async (ctx, { caller, date: requestedDate }) => {
     const me = await requireMcpAdmin(ctx, caller);
+    if (requestedDate !== undefined) {
+      try {
+        calendarDate(requestedDate);
+      } catch {
+        throw rejectRequest(
+          "mcp.invalid_date",
+          "Pass date as a real business date, YYYY-MM-DD.",
+        );
+      }
+    }
     const now = Date.now(),
       day = await getTenantBusinessDay(ctx, me.tenantId),
       date = requestedDate ?? businessDateForInstant(now, day);
@@ -146,10 +158,10 @@ export const run = internalQuery({
     const activeCloserIds = new Set(
       activeUsers.rows.filter((u) => u.role === "closer").map((u) => u._id),
     );
-    // A past day's own end-of-day reports; for today, yesterday's, since
-    // today's aren't due yet.
+    // A past day's own end-of-day reports; for today or a future day,
+    // yesterday's, since no later report is due yet.
     const today = businessDateForInstant(now, day);
-    const endOfDayDate = date < today ? date : addBusinessDays(date, -1);
+    const endOfDayDate = date < today ? date : addBusinessDays(today, -1);
     const endOfDay = await endOfDayStatuses(ctx, me, endOfDayDate);
     const health = await buildHealth(ctx, me);
     const queues = [];
@@ -159,6 +171,8 @@ export const run = internalQuery({
       "second_opinions",
       "missed_meetings",
       "booking_reviews",
+      "unmatched_recordings",
+      "team_review",
       "failed_work",
     ] as Queue[])
       queues.push(await buildQueueSummary(ctx, me, queue));
@@ -167,11 +181,13 @@ export const run = internalQuery({
       paymentQueue.count = await countBillingPayments(ctx, me.tenantId, {
         status: "recorded",
       });
+      paymentQueue.atLeast = paymentQueue.count;
       paymentQueue.isPartial = false;
     }
     const reviewQueue = queues.find((q) => q.queue === "booking_reviews")!;
     const reviews = await buildBookingReviewCount(ctx, me.tenantId);
-    reviewQueue.count = reviews.count;
+    reviewQueue.count = reviews.capped ? null : reviews.count;
+    reviewQueue.atLeast = reviews.count;
     reviewQueue.isPartial = reviews.capped;
     const absences = await readLiveQueryRows(
       ctx.db

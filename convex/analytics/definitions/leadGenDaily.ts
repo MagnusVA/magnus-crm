@@ -73,7 +73,7 @@ export const leadGenDailyReports = [
       await buildLeadGenOverview(ctx, input.tenantId, {
         rows: dailyStatRows(input.rows.daily),
         capped: false,
-      }),
+      }, leadGenLiveArgs(input)),
     live: live("getOverview"),
   }),
   defineReport<typeof listWorkerPerformance, LeadGenReportFilters>({

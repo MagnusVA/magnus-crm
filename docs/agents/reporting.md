@@ -41,6 +41,10 @@ Every report page reads today live from Convex, on its own or as part of a longe
 2. After each sync, Fivetran calls `/analytics/fivetran`, and `runPostSyncBatch` reruns every key opened in the last 7 days, two at a time, while ClickHouse is awake.
 3. `analyticsSync` is one row. A 5-minute heartbeat stamps it, and Fivetran copies it, so ClickHouse's copy is the watermark: the newest write the sync included. No page reads this table.
 
+### Assistant warehouse requests
+
+`magnus_report` and `magnus_numbers` have no per-tenant key, daily-run or per-minute warehouse allowance. Assistant keys cache answers for six hours. A global lane admits at most three running or waiting jobs, with one running in the shared pool; excess jobs stay pending until retried, preserving a worker for web reports. Legacy allowance rows and fields remain in the schema but are no longer read or written.
+
 ### The Node build path
 
 Most reports aggregate in SQL and finalize inside the `complete` mutation, which takes at most 4M characters of rows and about a second of CPU. A report that returns raw rows to reuse its Convex reader's builder can outgrow that (People's role reports read 44-54M characters for a year of production data). Such a report sets `node` in its definition (`NodeBuild` in `definition.ts`):

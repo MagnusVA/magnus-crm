@@ -3,7 +3,7 @@ import workpool from "@convex-dev/workpool/test";
 import { adminFixture, adminCaller } from "../../../tests/mcpAdminFixtures";
 import { internal, api } from "../../_generated/api";
 import { resolveAnalyticsRange } from "../../../lib/analyticsRange";
-import { ASSISTANT_DAILY_RUN_ALLOWANCE, ASSISTANT_JOB_TIMEOUT_MS, type ReportJob } from "./contracts";
+import { ASSISTANT_JOB_TIMEOUT_MS, type ReportJob } from "./contracts";
 import { readLivePanel } from "./live";
 import { analyticsArgsKey } from "../../analytics/keys";
 import type { Prepared } from "./planning";
@@ -48,7 +48,7 @@ describe("isolated assistant report admission", () => {
         let saved = await rows(f);
         expect(saved.filter(r => r.status === "running")).toHaveLength(1);
         expect(saved.filter(r => r.status === "waiting")).toHaveLength(2);
-        expect(saved.find(r => r.kind === "allowance")?.runCount).toBe(3);
+        expect(saved.some(r => r.kind === "allowance")).toBe(false);
         await advanceJob(f);
         await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: requested });
         for (let i = 0; i < 3; i++) {
@@ -59,7 +59,7 @@ describe("isolated assistant report admission", () => {
         }
         saved = await rows(f);
         expect(saved.filter(r => r.kind === "job" && r.status === "ready")).toHaveLength(4);
-        expect(saved.find(r => r.kind === "allowance")?.runCount).toBe(4);
+        expect(saved.some(r => r.kind === "allowance")).toBe(false);
         expect(await f.t.run(ctx => ctx.db.query("analyticsResults").take(10))).toHaveLength(0);
     });
     it("deduplicates retries and counts each job once", async () => {
@@ -69,7 +69,7 @@ describe("isolated assistant report admission", () => {
         await f.t.mutation(internal.mcp.reports.admission.admit, request);
         const saved = await rows(f);
         expect(saved.filter(r => r.kind === "job")).toHaveLength(2);
-        expect(saved.find(r => r.kind === "allowance")?.runCount).toBe(2);
+        expect(saved.some(r => r.kind === "allowance")).toBe(false);
     });
     it("recovers a permit after failure", async () => {
         const f = await fixture();
@@ -91,7 +91,7 @@ describe("isolated assistant report admission", () => {
         vi.advanceTimersByTime(61_000);
         await f.t.mutation(internal.mcp.reports.admission.admit, request);
         expect((await rows(f)).find(r => r._id === failed._id)?.status).not.toBe("failed");
-        expect((await rows(f)).find(r => r.kind === "allowance")?.runCount).toBe(2);
+        expect((await rows(f)).some(r => r.kind === "allowance")).toBe(false);
     });
     it("retries a failed job on its own key when the workspace holds 30 keys", async () => {
         const f = await fixture();
@@ -128,12 +128,12 @@ describe("isolated assistant report admission", () => {
         expect(saved.filter(r => r.status === "running")).toHaveLength(1);
         expect(saved.filter(r => r.status === "waiting")).toHaveLength(1);
     });
-    it("a spent allowance queues nothing and leaves the web's budget available", async () => {
+    it("ignores legacy allowance rows and leaves the web budget available", async () => {
         const f = await fixture();
-        await f.t.run(ctx => ctx.db.insert("mcpReportRequests", { tenantId: f.tenantId, userId: f.adminId, key: "allowance:2026-11-09", report: "allowance", kind: "allowance", paramsJson: "{}", status: "ready", createdAt: Date.now(), expiresAt: Date.now() + 86400000, runCount: ASSISTANT_DAILY_RUN_ALLOWANCE }));
+        await f.t.run(ctx => ctx.db.insert("mcpReportRequests", { tenantId: f.tenantId, userId: f.adminId, key: "allowance:2026-11-09", report: "allowance", kind: "allowance", paramsJson: "{}", status: "ready", createdAt: Date.now(), expiresAt: Date.now() + 86400000, runCount: 999, minuteStartedAt: Date.now(), minuteCount: 999 }));
         const result = await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: jobs(f, 1) });
-        expect(result.reason).toBe("assistant_daily_allowance_spent");
-        expect((await rows(f)).filter(r => r.kind === "job")).toHaveLength(0);
+        expect(result).toEqual({ status: "pending", reason: null });
+        expect((await rows(f)).filter(r => r.kind === "job")).toHaveLength(1);
         const web = await f.adminWeb.mutation(api.analytics.reports.request, { reportId: "revenue.metrics", filters: {}, range: { kind: "preset", preset: "last_month" }, timeZone: "America/Tegucigalpa" });
         expect(web).toBeDefined();
         expect((await f.t.run(ctx => ctx.db.query("analyticsResults").take(5)))[0].status).toBe("pending");
@@ -235,29 +235,16 @@ it("runs through the real shared pool and releases only after completion", async
     expect(await f.t.run(ctx => ctx.db.query("analyticsResults").take(5))).toHaveLength(0);
 });
 
-it("caps cold admissions at six jobs per tenant per minute", async () => {
+it("admits more than 40 runs, 30 keys and six jobs in one minute without allowance bookkeeping", async () => {
     const f = await fixture();
-    const requested = Array.from({ length: 7 }, (_, index) => ({ ...jobs(f, 1)[0], key: `minute:${index}` }));
-    for (let batch = 0; batch < 2; batch++) {
-        await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: requested.slice(0, (batch + 1) * 3) });
-        for (let i = 0; i < 3; i++) await advanceJob(f);
+    const requested = Array.from({ length: 42 }, (_, index) => ({ ...jobs(f, 1)[0], key: `unlimited:${index}` }));
+    for (let i = 0; i < requested.length; i++) {
+        const result = await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: [requested[i]] });
+        expect(result).toEqual({ status: "pending", reason: null });
+        await advanceJob(f);
     }
-    const refused = await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: requested });
-    expect(refused.reason).toBe("assistant_minute_allowance_spent");
-    expect((await rows(f)).filter(r => r.kind === "job")).toHaveLength(6);
-    vi.setSystemTime(Date.now() + 60001);
-    await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: requested });
-    expect((await rows(f)).filter(r => r.kind === "job")).toHaveLength(7);
-    expect((await rows(f)).find(r => r.kind === "allowance")?.runCount).toBe(7);
-});
-
-it("answers pending, not unavailable, while the per-minute allowance is spent", async () => {
-    const f = await fixture();
-    const requested = Array.from({ length: 6 }, (_, index) => ({ ...jobs(f, 1)[0], key: `minute-spent:${index}` }));
-    for (let batch = 0; batch < 2; batch++) {
-        await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: requested.slice(0, (batch + 1) * 3) });
-        for (let i = 0; i < 3; i++) await advanceJob(f);
-    }
-    const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range: { kind: "preset", preset: "last_month" } });
-    expect(result).toMatchObject({ status: "pending", retryAfterSeconds: 60, reasons: ["assistant_minute_allowance_spent"] });
+    const saved = await rows(f);
+    expect(saved).toHaveLength(42);
+    expect(saved.every(r => r.kind === "job" && r.status === "ready")).toBe(true);
+    expect(saved.every(r => r.expiresAt === r.createdAt + 6 * 60 * 60 * 1000)).toBe(true);
 });

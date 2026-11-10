@@ -12,7 +12,9 @@ function formatter(timeZone: string, withDate: boolean) {
   if (!format) {
     format = new Intl.DateTimeFormat("en-US", {
       timeZone,
-      ...(withDate ? { weekday: "short", day: "numeric", month: "short" } : {}),
+      ...(withDate
+        ? { weekday: "short", day: "numeric", month: "short", year: "numeric" }
+        : {}),
       hour: "numeric",
       minute: "2-digit",
       timeZoneName: "short",
@@ -22,7 +24,7 @@ function formatter(timeZone: string, withDate: boolean) {
   return format;
 }
 
-/** "Tue, Nov 3, 9:00 AM CST". */
+/** "Tue, Nov 3, 2026, 9:00 AM CST". */
 export function formatLocal(ms: number, timeZone: string): string {
   return formatter(timeZone, true).format(ms);
 }

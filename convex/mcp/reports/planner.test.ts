@@ -167,3 +167,21 @@ describe("answer size", () => {
         expect(gatewayAnswerBytes({ ...base, panels: shed.panels, omitted: shed.omitted })).toBeLessThan(MAX_ASSISTANT_ANSWER_BYTES);
     });
 });
+
+it("ranks mixed count and money rows by the first additive metric and returns ranked groups", () => {
+    const rows: MetricRow[] = ["low", "middle", "high"].flatMap((group, i) => [
+        { id: "closeRate", group, value: 1 - i / 3, unit: "ratio", period: "total" },
+        { id: "dealsWon", group, value: i * 2, unit: "count", period: "total" },
+        { id: "cash", group, value: 100 - i, unit: "minor", currency: "USD", period: "total" },
+    ]);
+    const result = boundMetricRows(rows, 2, true);
+    expect([...new Set(result.rows.map(r => r.group))]).toEqual(["high", "middle"]);
+    expect(result.omitted.remainder?.find(r => r.id === "dealsWon")?.value).toBe(0);
+});
+it("skips money ranking across currencies and uses the next additive metric", () => {
+    const rows: MetricRow[] = ["a", "b"].flatMap((group, i) => [
+        { id: "cash", group, value: 100 - i, unit: "minor", currency: i ? "EUR" : "USD", period: "total" },
+        { id: "dealsWon", group, value: i, unit: "count", period: "total" },
+    ]);
+    expect(boundMetricRows(rows, 1, true).rows.map(r => r.group)).toEqual(["b", "b"]);
+});

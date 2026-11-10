@@ -3,12 +3,12 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { LIFECYCLE_STAGES, type LifecycleStage } from "../leads/lifecycle";
-import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
+import { createLiveReadState, readLiveDocuments, readLiveQueryRows } from "../lib/liveQueryBounds";
 import {
   leadGenWorkerMemberIdentity,
   memberAvatarIdentityValidator,
 } from "../lib/memberIdentity";
-import { countProspectConversions } from "../lib/prospectConversions";
+import { countProspectConversions, prospectConversionStages } from "../lib/prospectConversions";
 import {
   addBusinessDays,
   businessDateToUtcStart,
@@ -54,9 +54,10 @@ async function countLeadGenDeals(
   startAt: number,
   endAt: number,
   workerIds: Id<"leadGenWorkers">[],
+  prospectIds?: Set<Id<"leadGenProspects">>,
 ): Promise<{ byWorker: Map<Id<"leadGenWorkers">, number>; capped: boolean }> {
   const tenant = await ctx.db.get("tenants", tenantId);
-  if (tenant?.leadGenDealsAggregateVerifiedAt !== undefined) {
+  if (tenant?.leadGenDealsAggregateVerifiedAt !== undefined && !prospectIds) {
     const counts = await leadGenDealsByWorker.countBatch(
       ctx,
       workerIds.map((workerId) => ({
@@ -88,7 +89,7 @@ async function countLeadGenDeals(
   );
   const byWorker = new Map<Id<"leadGenWorkers">, number>();
   for (const row of read.rows) {
-    if (row.source.kind !== "capture") continue;
+    if (row.source.kind !== "capture" || prospectIds && !prospectIds.has(row.source.prospectId)) continue;
     const workerId = row.source.workerId;
     byWorker.set(workerId, (byWorker.get(workerId) ?? 0) + 1);
   }
@@ -149,7 +150,7 @@ export async function buildProspectConversions(
 }
 
 export const listProspectConversions = query({
-  args: { startDayKey: v.string(), endDayKey: v.string() },
+  args: { startDayKey: v.string(), endDayKey: v.string(), teamId: v.optional(v.id("attributionTeams")) },
   returns: v.object({
     rows: v.array(
       v.object({
@@ -175,7 +176,7 @@ export const listProspectConversions = query({
 
 
 /** Shared read core; callers authorize the tenant before entering. */
-export async function readProspectConversions(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string }) {
+export async function readProspectConversions(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string; teamId?: Id<"attributionTeams"> }) {
     if (args.startDayKey > args.endDayKey) {
       throw new Error("Start date must be on or before end date");
     }
@@ -184,6 +185,11 @@ export async function readProspectConversions(ctx: QueryCtx, tenantId: Id<"tenan
 
     const workers = await loadConversionWorkers(ctx, tenantId);
     const workerIds = workers.page.map((worker) => worker._id);
+    if (args.teamId) {
+      const selected = await teamProspectCounts(ctx, tenantId, args.teamId, startAt, endAt);
+      const deals = await countLeadGenDeals(ctx, tenantId, startAt, endAt, workerIds, selected.prospectIds);
+      return await buildProspectConversions(ctx, { ...workers, capped: workers.capped || selected.capped }, { counts: selected.counts, deals });
+    }
     const deals = await countLeadGenDeals(ctx, tenantId, startAt, endAt, workerIds);
     const counts = new Map<Id<"leadGenWorkers">, ProspectConversionCounts>();
     for (const workerId of workerIds) {
@@ -194,4 +200,21 @@ export async function readProspectConversions(ctx: QueryCtx, tenantId: Id<"tenan
       counts.set(workerId, workerCounts);
     }
     return await buildProspectConversions(ctx, workers, { counts, deals });
+}
+
+/** Filter by the first capture's stored team, even after its worker moves. */
+async function teamProspectCounts(ctx: QueryCtx, tenantId: Id<"tenants">, teamId: Id<"attributionTeams">, startAt: number, endAt: number) {
+  const state = createLiveReadState();
+  const captures = await readLiveQueryRows(ctx.db.query("leadGenSubmissions").withIndex("by_tenantId_and_teamId_and_submittedAt", q => q.eq("tenantId", tenantId).eq("teamId", teamId).gte("submittedAt", startAt).lt("submittedAt", endAt)), CONVERSION_DEALS_READ_LIMIT, state);
+  const prospects = await readLiveDocuments([...new Set(captures.rows.map(r => r.prospectId))], id => ctx.db.get("leadGenProspects", id), state);
+  const firstCaptures = prospects.rows.filter(p => p.tenantId === tenantId && captures.rows.some(c => c.prospectId === p._id && c.workerId === p.firstCapturedByWorkerId && c.submittedAt === p.firstCapturedAt));
+  const people = await readLiveDocuments([...new Set(firstCaptures.map(p => p.leadId))], id => ctx.db.get("leads", id), state);
+  const byId = new Map(people.rows.filter(p => p.tenantId === tenantId).map(p => [p._id, p]));
+  const counts = new Map<Id<"leadGenWorkers">, ProspectConversionCounts>();
+  for (const prospect of firstCaptures) {
+    const row = counts.get(prospect.firstCapturedByWorkerId) ?? Object.fromEntries(LIFECYCLE_STAGES.map(stage => [stage, 0])) as ProspectConversionCounts;
+    for (const stage of prospectConversionStages(prospect, byId.get(prospect.leadId) ?? null)) row[stage]++;
+    counts.set(prospect.firstCapturedByWorkerId, row);
+  }
+  return { counts, prospectIds: new Set(firstCaptures.map(p => p._id)), capped: state.capped };
 }

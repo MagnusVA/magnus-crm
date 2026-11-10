@@ -180,10 +180,12 @@ async function listTeamPageCore(
       maximumRowsRead: 25,
       maximumBytesRead: 128 * 1024,
     });
-  return {
-    ...page,
-    page: page.page.filter((team) => args.includeInactive || team.isActive),
-  };
+  const teams = await Promise.all(page.page.map(async team => {
+    if (!args.includeInactive && !team.isActive) return null;
+    const worker = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_teamId", q => q.eq("tenantId", args.tenantId).eq("teamId", team._id)).first();
+    return worker ? team : null;
+  }));
+  return { ...page, page: teams.filter(team => team !== null) };
 }
 
 export async function listWorkerSchedulesCore(

@@ -15,7 +15,7 @@ import { mcpCaptureFlag, mcpCaptureFlagValidator, type CaptureFlag } from "../..
 import { leadGenBusinessDayBlocked } from "../../lib/businessDayRebuildState";
 import { rejectRequest } from "../../lib/observability/errors";
 import { isOriginLink, McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
-import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser } from "../guard";
+import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser, withMcpCursorErrors } from "../guard";
 import { leadGenRangeArgs, resolveLeadGenRange, type LeadGenActionCaller, type LeadGenRangeArgs } from "../leadGenShared";
 import { formatLocal } from "../time";
 
@@ -94,7 +94,7 @@ export const readActivity = internalQuery({
       numbers: null, recent: [], cursor: null, isPartial: false, textTruncated: budget.textTruncated };
     if (!worker || !worker.isActive || profile.noTeam) return { result: { ...base, isPartial: true }, todaySummary: null, history: null };
     if (await leadGenBusinessDayBlocked(ctx, me.tenantId)) return { result: { ...base, state: "pending", isPartial: true, asOf: null }, todaySummary: null, history: null };
-    const recent = await listMyRecentSubmissionsCore(ctx, me, { range: info.range, paginationOpts: { cursor, numItems: 25 } }, { includeVoided: true });
+    const recent = await withMcpCursorErrors("activity.invalid_cursor", () => listMyRecentSubmissionsCore(ctx, me, { range: info.range, paginationOpts: { cursor, numItems: 25 } }, { includeVoided: true }));
     const rows = recent.page.map(row => ({
       ...(row.submissionId && { submissionId: row.submissionId }),
       ...(row.flag && { flag: activityFlag(row.flag, me.timeZone, budget) }),

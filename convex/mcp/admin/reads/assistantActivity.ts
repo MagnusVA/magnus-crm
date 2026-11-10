@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "../../../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../../../_generated/server";
-import { mcpCallerValidator, requireMcpAdmin, loadInTenant } from "../../guard";
+import { mcpCallerValidator, requireMcpAdmin, loadInTenant, normalizeMcpId, withMcpCursorErrors } from "../../guard";
 import { formatLocal } from "../../time";
 import {
   type Admin,
@@ -11,13 +11,16 @@ import {
   partialReason,
 } from "./common";
 import { appLink, approvalPath } from "../prepare";
-import { expectedError } from "../../../lib/observability/errors";
+import { businessDayStart, calendarDate } from "../../../../lib/businessDay";
+import { getTenantBusinessDay } from "../../../lib/tenantBusinessDay";
+import { COMMITTERS } from "../committers";
+import { rejectRequest } from "../../../lib/observability/errors";
 
 export const activityArgs = {
   since: v.optional(v.string()),
-  userId: v.optional(v.id("users")),
+  userId: v.optional(v.string()),
   tool: v.optional(v.string()),
-  planId: v.optional(v.id("mcpConfirmations")),
+  planId: v.optional(v.string()),
   cursor: v.optional(v.string()),
 };
 const receiptValidator = v.object({
@@ -204,15 +207,34 @@ export const run = internalQuery({
     reason: v.union(v.string(), v.null()),
     timeZone: v.string(),
   }),
-  handler: async (ctx, { caller, since, userId, tool, planId, cursor }) => {
+  handler: async (ctx, { caller, since, userId: rawUserId, tool, planId: rawPlanId, cursor }) => {
     const me = await requireMcpAdmin(ctx, caller);
+    const userId = rawUserId === undefined ? undefined : normalizeMcpId(ctx, "users", rawUserId, "userId");
+    const planId = rawPlanId === undefined ? undefined : normalizeMcpId(ctx, "mcpConfirmations", rawPlanId, "planId");
+    const knownTools = [...new Set(Object.keys(COMMITTERS).flatMap((name) => [name, name.split(".")[0]]))];
+    if (tool !== undefined && !knownTools.includes(tool)) throw rejectRequest("mcp.invalid_tool", `Unknown receipt tool. Use one of: ${knownTools.join(", ")}.`);
     if (userId) await loadInTenant(ctx, me, "users", userId);
-    const sinceMs = since === undefined ? undefined : Date.parse(since);
-    if (sinceMs !== undefined && !Number.isFinite(sinceMs))
-      throw expectedError(
-        "mcp.invalid_since",
-        "Use an ISO date or timestamp for since.",
-      );
+    let sinceMs: number | undefined;
+    if (since !== undefined) {
+      try {
+        const date = since.slice(0, 10);
+        calendarDate(date);
+        if (since === date) sinceMs = businessDayStart(date, await getTenantBusinessDay(ctx, me.tenantId));
+        else {
+          if (!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(since)) throw new Error("Invalid ISO timestamp");
+          sinceMs = Date.parse(since);
+          if (!Number.isFinite(sinceMs)) throw new Error("Invalid timestamp");
+          // Round-trip the local wall time with its explicit offset.
+          const suffix = since.match(/([+-])(\d{2}):(\d{2})$/);
+          const offset = suffix ? (suffix[1] === "+" ? 1 : -1) * (Number(suffix[2]) * 60 + Number(suffix[3])) * 60000 : 0;
+          const local = new Date(sinceMs + offset).toISOString();
+          const wall = since.replace(/(?:Z|[+-]\d{2}:\d{2})$/, "");
+          if (local !== `${wall.includes(".") ? wall.padEnd(23, "0") : wall + ".000"}Z`) throw new Error("Invalid timestamp");
+        }
+      } catch {
+        throw rejectRequest("mcp.invalid_since", "Use a real ISO date YYYY-MM-DD or ISO timestamp with seconds and a time-zone offset for since. Dates start at the tenant business-day boundary.");
+      }
+    }
     if (planId) {
       const row = await loadInTenant(ctx, me, "mcpConfirmations", planId);
       if (row.kind !== "plan") notFound();
@@ -238,7 +260,7 @@ export const run = internalQuery({
         );
     const selected = cursor ? parse(cursor) : null;
     if (cursor && selected === null)
-      throw expectedError(
+      throw rejectRequest(
         "mcp.invalid_cursor",
         "Use the cursor returned by this tool.",
       );
@@ -253,7 +275,7 @@ export const run = internalQuery({
       !(c.phase === "waiting" || c.phase === "receipts") ||
       !(c.cursor === null || typeof c.cursor === "string")
     )
-      throw expectedError(
+      throw rejectRequest(
         "mcp.invalid_cursor",
         "Use the cursor returned by this tool.",
       );
@@ -268,19 +290,19 @@ export const run = internalQuery({
                 : q.eq("tenantId", me.tenantId).gte("usedAt", sinceMs),
             )
             .order("desc");
-    const page = await source.paginate({
-      cursor: c.cursor,
+    const page = await withMcpCursorErrors("mcp.invalid_cursor", () => source.paginate({
+      cursor: c.cursor as string | null,
       numItems: 10,
       maximumRowsRead: 50,
       maximumBytesRead: 200_000,
-    });
+    }));
     const rows = page.page.filter(
       (r) =>
         r.kind &&
         (r.usedAt !== undefined ||
           (r.kind === "plan" && r.status === "waiting")) &&
         (!userId || r.userId === userId) &&
-        (!tool || r.tool === tool) &&
+        (!tool || r.tool === tool || r.tool.startsWith(`${tool}.`)) &&
         (sinceMs === undefined ||
           (r.usedAt ?? r.createdAt ?? r._creationTime) >= sinceMs),
     );

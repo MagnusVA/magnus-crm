@@ -1,5 +1,15 @@
 import { v } from "convex/values";
-import type { Doc, Id } from "../../../_generated/dataModel";
+import type { PaginationResult } from "convex/server";
+import type { Doc, Id, TableNames } from "../../../_generated/dataModel";
+import { stream } from "convex-helpers/server/stream";
+import schema from "../../../schema";
+import { getTenantBusinessDay } from "../../../lib/tenantBusinessDay";
+import {
+  addBusinessDays,
+  businessDateForInstant,
+  businessDayStart,
+} from "../../../../lib/businessDay";
+import { meetingAttendanceDisplay } from "../../../../lib/status-config";
 import { internalQuery, type QueryCtx } from "../../../_generated/server";
 import { readLiveQueryRows } from "../../../lib/liveQueryBounds";
 import { isMissedMeetingLoss } from "../../../opportunities/dealState";
@@ -13,7 +23,6 @@ import {
   text,
   textValidator,
   ageValidator,
-  limitOf,
   tenantId,
   notFound,
   canSeeOpinions,
@@ -23,7 +32,7 @@ import {
   paths,
   partialReason,
 } from "./common";
-import { pageNotRecorded, readNotRecorded } from "./notRecorded";
+import { countNotRecorded, pageNotRecorded } from "./notRecorded";
 
 export const queueValidator = v.union(
   v.literal("payments_to_review"),
@@ -304,6 +313,32 @@ function failedSources(ctx: QueryCtx, me: Admin) {
       ),
   ] as const;
 }
+/** failedSources as streams, which a page may paginate in turn. */
+function failedStreams(ctx: QueryCtx, me: Admin) {
+  const db = stream(ctx.db, schema);
+  return [
+    db
+      .query("meetingProjections")
+      .withIndex("by_tenantId_and_status_and_requestedAt", (q) =>
+        q.eq("tenantId", me.tenantId).eq("status", "failed"),
+      ),
+    db
+      .query("opportunityProjectionJobs")
+      .withIndex("by_tenantId_and_status_and_requestedAt", (q) =>
+        q.eq("tenantId", me.tenantId).eq("status", "failed"),
+      ),
+    db
+      .query("webhookDeliveries")
+      .withIndex("by_tenantId_and_status_and_receivedAt", (q) =>
+        q.eq("tenantId", me.tenantId).eq("status", "failed"),
+      ),
+    db
+      .query("webhookDeliveries")
+      .withIndex("by_tenantId_and_status_and_receivedAt", (q) =>
+        q.eq("tenantId", me.tenantId).eq("status", "blocked"),
+      ),
+  ] as const;
+}
 type FailedRow =
   | Doc<"meetingProjections">
   | Doc<"opportunityProjectionJobs">
@@ -347,6 +382,138 @@ function failedItem(me: Admin, row: FailedRow) {
     state: row.status,
   };
 }
+/**
+ * A queue cursor names its queue, closer filter and the minute it was first
+ * read (`asOf`), so every page reads the same index range and a cursor can't
+ * be replayed against other filters. Positions are the native cursors.
+ */
+type QueueCursor = {
+  v: 1;
+  queue: Queue;
+  closerId: string | null;
+  asOf: number;
+  position: unknown;
+};
+function invalidCursor(): never {
+  throw rejectRequest(
+    "mcp.invalid_cursor",
+    "Use the cursor this tool returned, with the same queue and closerId, or start again without one.",
+  );
+}
+function readCursor(
+  raw: string | undefined,
+  queue: Queue,
+  closerId: Id<"users"> | undefined,
+): QueueCursor | null {
+  if (raw === undefined || raw === "") return null;
+  let cursor: QueueCursor;
+  try {
+    cursor = JSON.parse(raw) as QueueCursor;
+  } catch {
+    invalidCursor();
+  }
+  if (
+    !cursor ||
+    typeof cursor !== "object" ||
+    cursor.v !== 1 ||
+    cursor.queue !== queue ||
+    cursor.closerId !== (closerId ?? null) ||
+    !Number.isSafeInteger(cursor.asOf)
+  )
+    invalidCursor();
+  return cursor;
+}
+function nativePosition(cursor: QueueCursor | null): string | null {
+  if (!cursor) return null;
+  if (typeof cursor.position !== "string") invalidCursor();
+  return cursor.position;
+}
+/** A native cursor that no longer fits its query is the caller's to restart. */
+async function paged<T>(position: string | null, read: () => Promise<T>) {
+  try {
+    return await read();
+  } catch (error) {
+    if (position !== null) invalidCursor();
+    throw error;
+  }
+}
+/**
+ * The person has a deal created after this one: the No-shows and
+ * cancellations page's "booked again" rule (operations/missedMeetings.ts).
+ */
+async function bookedAgain(ctx: QueryCtx, deal: Doc<"opportunities">) {
+  const deals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) =>
+      q.eq("tenantId", deal.tenantId).eq("leadId", deal.leadId),
+    )
+    .order("desc")
+    .take(10);
+  return deals.some((d) => d._id !== deal._id && d.createdAt > deal.createdAt);
+}
+/** Missed-meeting losses the queue shows: the web list's default window. */
+export const MISSED_MEETINGS_DAYS = 30;
+async function missedWindow(ctx: QueryCtx, me: Admin, asOf: number) {
+  const day = await getTenantBusinessDay(ctx, me.tenantId);
+  const today = businessDateForInstant(asOf, day);
+  return businessDayStart(
+    addBusinessDays(today, -(MISSED_MEETINGS_DAYS - 1)),
+    day,
+  );
+}
+function missedCandidates(ctx: QueryCtx, me: Admin, start: number) {
+  return stream(ctx.db, schema)
+    .query("opportunities")
+    .withIndex("by_tenantId_and_stage_and_outcome_and_latestActivityAt", (q) =>
+      q
+        .eq("tenantId", me.tenantId)
+        .eq("stage", "closed")
+        .eq("outcome", "lost")
+        .gte("latestActivityAt", start),
+    );
+}
+async function isOpenMissedMeeting(
+  ctx: QueryCtx,
+  deal: Doc<"opportunities">,
+  start: number,
+  asOf: number,
+) {
+  return (
+    isMissedMeetingLoss(deal) !== null &&
+    deal.lostAt !== undefined &&
+    deal.lostAt >= start &&
+    deal.lostAt <= asOf &&
+    !(await bookedAgain(ctx, deal))
+  );
+}
+type TeamReviewItem = Awaited<
+  ReturnType<typeof buildTeamReview>
+>["items"][number];
+async function teamReviewItem(ctx: QueryCtx, me: Admin, row: TeamReviewItem) {
+  const name = async (id: Id<"teamMembers">) => {
+    const member = await ctx.db.get("teamMembers", id);
+    return member?.tenantId === me.tenantId
+      ? member.displayName
+      : "Removed member";
+  };
+  const title =
+    row.kind === "same_human"
+      ? `Same person? ${(await Promise.all(row.members.map(name))).join(" and ")}`
+      : row.kind === "slack_unlinked"
+        ? `Slack user not linked to a login: ${await name(row.teamMemberId)}`
+        : `${await name(row.teamMemberId)}: lead gen and DM closer teams differ`;
+  return item(
+    me,
+    "team_review",
+    row.key,
+    title,
+    null,
+    [row.kind],
+    ["magnus_queue"],
+    appLink("/workspace/team/review"),
+    "admin",
+  );
+}
 export async function buildQueue(
   ctx: QueryCtx,
   me: Admin,
@@ -359,233 +526,238 @@ export async function buildQueue(
   },
 ) {
   // Ten full items fit the gateway's answer, which carries each twice.
-  const limit = Math.min(limitOf(args.limit), 10),
-    now = Date.now();
+  const limit = args.limit ?? 10;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 10)
+    throw rejectRequest("mcp.invalid_limit", "Use a limit from 1 to 10.");
   if (args.closerId) await loadInTenant(ctx, me, "users", args.closerId);
+  const itemId = args.itemId === "" ? undefined : args.itemId;
+  const previous = itemId
+    ? null
+    : readCursor(args.cursor, args.queue, args.closerId);
+  // The minute the first page was read. Later pages keep it.
+  const asOf = previous?.asOf ?? Math.floor(Date.now() / 60_000) * 60_000;
   let items: QueueItem[] = [],
-    isPartial = false,
-    cursor: string | null = null;
-  const options = {
-    cursor: args.cursor ?? null,
+    done = true,
+    position: unknown = null;
+  const options = (cursor: string | null) => ({
+    cursor,
     numItems: limit,
     maximumRowsRead: limit,
     maximumBytesRead: 512 * 1024,
-  };
+  });
+  // Filtered streams fill a page from up to this many index rows.
+  const filtered = (cursor: string | null) => ({
+    cursor,
+    numItems: limit,
+    maximumRowsRead: 300,
+  });
   const closer = (id: Id<"users"> | undefined) =>
     !args.closerId || id === args.closerId;
+  const one = async <T extends TableNames>(table: T) =>
+    await loadInTenant(ctx, me, table, await tenantId(ctx, me, table, itemId!));
   if (args.queue === "payments_to_review") {
-    const page = args.itemId
-      ? {
-          page: [
-            await loadInTenant(
-              ctx,
-              me,
-              "paymentRecords",
-              await tenantId(ctx, me, "paymentRecords", args.itemId),
-            ),
-          ],
-          isDone: true,
-          continueCursor: "",
-        }
-      : await ctx.db
-          .query("paymentRecords")
-          .withIndex("by_tenantId_and_status_and_recordedAt", (q) =>
-            q.eq("tenantId", me.tenantId).eq("status", "recorded"),
-          )
-          .paginate(options);
-    const rows = page.page.filter(
-      (r) => r.status === "recorded" && closer(r.attributedCloserId),
-    );
-    items = await Promise.all(rows.map((r) => paymentItem(ctx, me, r)));
-    isPartial = !page.isDone;
-    cursor = page.isDone ? null : page.continueCursor;
+    if (itemId) {
+      const row = await one("paymentRecords");
+      if (row.status !== "recorded" || !closer(row.attributedCloserId))
+        notFound();
+      items = [await paymentItem(ctx, me, row)];
+    } else {
+      const at = nativePosition(previous);
+      const page = await paged(at, () =>
+        args.closerId
+          ? stream(ctx.db, schema)
+              .query("paymentRecords")
+              .withIndex(
+                "by_tenantId_and_attributedCloserId_and_recordedAt",
+                (q) =>
+                  q
+                    .eq("tenantId", me.tenantId)
+                    .eq("attributedCloserId", args.closerId),
+              )
+              .filterWith(async (r) => r.status === "recorded")
+              .paginate(filtered(at))
+          : ctx.db
+              .query("paymentRecords")
+              .withIndex("by_tenantId_and_status_and_recordedAt", (q) =>
+                q.eq("tenantId", me.tenantId).eq("status", "recorded"),
+              )
+              .paginate(options(at)),
+      );
+      items = await Promise.all(
+        page.page
+          .filter((r) => r.status === "recorded")
+          .map((r) => paymentItem(ctx, me, r)),
+      );
+      done = page.isDone;
+      position = page.continueCursor;
+    }
   } else if (args.queue === "not_recorded") {
-    if (args.itemId) {
-      const id = await tenantId(ctx, me, "meetings", args.itemId),
-        row = await loadInTenant(ctx, me, "meetings", id);
+    if (itemId) {
+      const row = await one("meetings");
       if (
-        row.status !== "scheduled" ||
-        row.scheduledAt + row.durationMinutes * 60000 > now ||
+        meetingAttendanceDisplay(row, Date.now()) !== "not_recorded" ||
         !closer(row.assignedCloserId)
       )
         notFound();
       items = [await meetingItem(ctx, me, row)];
     } else {
-      const page = await pageNotRecorded(ctx, me.tenantId, {
-        now,
-        closerId: args.closerId,
-        cursor: args.cursor,
-        limit,
-      });
+      const at = nativePosition(previous);
+      const page = await paged(at, () =>
+        pageNotRecorded(ctx, me.tenantId, {
+          cutoff: asOf,
+          closerId: args.closerId,
+          cursor: at,
+          limit,
+        }),
+      );
       items = await Promise.all(page.rows.map((r) => meetingItem(ctx, me, r)));
-      isPartial = page.isPartial;
-      cursor = page.cursor;
+      done = page.isDone;
+      position = page.continueCursor;
     }
   } else if (args.queue === "missed_meetings") {
-    const page = args.itemId
-      ? {
-          page: [
-            await loadInTenant(
-              ctx,
-              me,
-              "opportunities",
-              await tenantId(ctx, me, "opportunities", args.itemId),
-            ),
-          ],
-          isDone: true,
-          continueCursor: "",
-        }
-      : await ctx.db
-          .query("opportunities")
-          .withIndex(
-            "by_tenantId_and_stage_and_outcome_and_latestActivityAt",
+    const start = await missedWindow(ctx, me, asOf);
+    if (itemId) {
+      const row = await one("opportunities");
+      if (
+        !(await isOpenMissedMeeting(ctx, row, start, Date.now())) ||
+        !closer(row.assignedCloserId)
+      )
+        notFound();
+      items = [await missedItem(ctx, me, row)];
+    } else {
+      const at = nativePosition(previous);
+      const page = await paged(at, () =>
+        missedCandidates(ctx, me, start)
+          .filterWith(
+            async (r) =>
+              closer(r.assignedCloserId) &&
+              (await isOpenMissedMeeting(ctx, r, start, asOf)),
+          )
+          .paginate(filtered(at)),
+      );
+      items = await Promise.all(page.page.map((r) => missedItem(ctx, me, r)));
+      done = page.isDone;
+      position = page.continueCursor;
+    }
+  } else if (args.queue === "second_opinions") {
+    if (!canSeeOpinions(me)) {
+      if (itemId) notFound();
+    } else if (itemId) {
+      const row = await one("secondOpinions");
+      if (
+        row.status !== "answered" ||
+        row.reviewState !== "open" ||
+        !closer(row.closerUserId)
+      )
+        notFound();
+      items = [await opinionItem(ctx, me, row)];
+    } else {
+      const at = nativePosition(previous);
+      const base = stream(ctx.db, schema).query("secondOpinions");
+      const query = args.closerId
+        ? base.withIndex(
+            "by_tenantId_and_closerUserId_and_reviewState_and_createdAt",
             (q) =>
               q
                 .eq("tenantId", me.tenantId)
-                .eq("stage", "closed")
-                .eq("outcome", "lost"),
+                .eq("closerUserId", args.closerId!)
+                .eq("reviewState", "open"),
           )
-          .paginate(options);
-    items = await Promise.all(
-      page.page
-        .filter((r) => isMissedMeetingLoss(r) && closer(r.assignedCloserId))
-        .map((r) => missedItem(ctx, me, r)),
-    );
-    isPartial = !page.isDone;
-    cursor = page.isDone ? null : page.continueCursor;
-  } else if (args.queue === "second_opinions") {
-    if (!canSeeOpinions(me)) {
-      if (args.itemId) notFound();
-    } else {
-      const query = args.closerId
-        ? ctx.db
-            .query("secondOpinions")
-            .withIndex(
-              "by_tenantId_and_closerUserId_and_reviewState_and_createdAt",
-              (q) =>
-                q
-                  .eq("tenantId", me.tenantId)
-                  .eq("closerUserId", args.closerId!)
-                  .eq("reviewState", "open"),
-            )
-        : ctx.db
-            .query("secondOpinions")
-            .withIndex("by_tenantId_and_reviewState_and_createdAt", (q) =>
-              q.eq("tenantId", me.tenantId).eq("reviewState", "open"),
-            );
-      const page = args.itemId
-        ? {
-            page: [
-              await loadInTenant(
-                ctx,
-                me,
-                "secondOpinions",
-                await tenantId(ctx, me, "secondOpinions", args.itemId),
-              ),
-            ],
-            isDone: true,
-            continueCursor: "",
-          }
-        : await query.paginate(options);
-      items = await Promise.all(
-        page.page
-          .filter(
-            (r) =>
-              r.status === "answered" &&
-              r.reviewState === "open" &&
-              closer(r.closerUserId),
-          )
-          .map((r) => opinionItem(ctx, me, r)),
+        : base.withIndex("by_tenantId_and_reviewState_and_createdAt", (q) =>
+            q.eq("tenantId", me.tenantId).eq("reviewState", "open"),
+          );
+      const page = await paged(at, () =>
+        query
+          .filterWith(async (r) => r.status === "answered")
+          .paginate(filtered(at)),
       );
-      isPartial = !page.isDone;
-      cursor = page.isDone ? null : page.continueCursor;
+      items = await Promise.all(page.page.map((r) => opinionItem(ctx, me, r)));
+      done = page.isDone;
+      position = page.continueCursor;
     }
   } else if (args.queue === "booking_reviews") {
     if (args.closerId)
       throw rejectRequest("queue.no_closer_filter", "Booking reviews have no closer filter.");
-    const page = args.itemId
-      ? {
-          page: [
-            await loadInTenant(
-              ctx,
-              me,
-              "bookingReviews",
-              await tenantId(ctx, me, "bookingReviews", args.itemId),
-            ),
-          ],
-          isDone: true,
-          continueCursor: "",
-        }
-      : await ctx.db
+    if (itemId) {
+      const row = await one("bookingReviews");
+      if (row.status !== "open") notFound();
+      items = [bookingItem(me, row)];
+    } else {
+      const at = nativePosition(previous);
+      const page = await paged(at, () =>
+        ctx.db
           .query("bookingReviews")
           .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
             q.eq("tenantId", me.tenantId).eq("status", "open"),
           )
-          .paginate(options);
-    items = page.page
-      .filter((r) => r.status === "open")
-      .map((r) => bookingItem(me, r));
-    isPartial = !page.isDone;
-    cursor = page.isDone ? null : page.continueCursor;
+          .paginate(options(at)),
+      );
+      items = page.page
+        .filter((r) => r.status === "open")
+        .map((r) => bookingItem(me, r));
+      done = page.isDone;
+      position = page.continueCursor;
+    }
   } else if (args.queue === "unmatched_recordings") {
-    const page = args.itemId
-      ? {
-          page: [
-            await loadInTenant(
-              ctx,
-              me,
-              "callRecordings",
-              await tenantId(ctx, me, "callRecordings", args.itemId),
-            ),
-          ],
-          isDone: true,
-          continueCursor: "",
-        }
-      : await ctx.db
-          .query("callRecordings")
-          .withIndex("by_tenantId_and_matchStatus_and_createdAt", (q) =>
-            q.eq("tenantId", me.tenantId).eq("matchStatus", "unmatched"),
-          )
-          .paginate(options);
-    items = page.page
-      .filter(
-        (r) => r.matchStatus === "unmatched" && closer(r.recordedByUserId),
-      )
-      .map((r) => recordingItem(me, r));
-    isPartial = !page.isDone;
-    cursor = page.isDone ? null : page.continueCursor;
+    if (itemId) {
+      const row = await one("callRecordings");
+      if (row.matchStatus !== "unmatched" || !closer(row.recordedByUserId))
+        notFound();
+      items = [recordingItem(me, row)];
+    } else {
+      const at = nativePosition(previous);
+      const page = await paged(at, () =>
+        args.closerId
+          ? ctx.db
+              .query("callRecordings")
+              .withIndex("by_tenantId_and_recordedByUserId_and_matchStatus", (q) =>
+                q
+                  .eq("tenantId", me.tenantId)
+                  .eq("recordedByUserId", args.closerId)
+                  .eq("matchStatus", "unmatched"),
+              )
+              .paginate(options(at))
+          : ctx.db
+              .query("callRecordings")
+              .withIndex("by_tenantId_and_matchStatus_and_createdAt", (q) =>
+                q.eq("tenantId", me.tenantId).eq("matchStatus", "unmatched"),
+              )
+              .paginate(options(at)),
+      );
+      items = page.page
+        .filter((r) => r.matchStatus === "unmatched")
+        .map((r) => recordingItem(me, r));
+      done = page.isDone;
+      position = page.continueCursor;
+    }
   } else if (args.queue === "team_review") {
     if (args.closerId) throw rejectRequest("queue.no_closer_filter", "Team review has no closer filter.");
     const review = await buildTeamReview(ctx, me.tenantId);
-    const offset = args.cursor ? Number(args.cursor) : 0;
-    if (!Number.isSafeInteger(offset) || offset < 0) notFound();
-    const selected = args.itemId
-      ? review.items.filter((r) => r.key === args.itemId)
-      : review.items.slice(offset, offset + limit);
-    items = selected.map((r) =>
-      item(
-        me,
-        "team_review",
-        r.key,
-        "Team member review",
-        null,
-        [r.kind],
-        ["magnus_queue", "magnus_lookup"],
-        appLink("/workspace/team/review"),
-        "admin",
-      ),
-    );
-    isPartial = !args.itemId && offset + limit < review.items.length;
-    cursor = isPartial ? String(offset + limit) : null;
+    if (itemId) {
+      const row = review.items.find((r) => r.key === itemId);
+      if (!row) notFound();
+      items = [await teamReviewItem(ctx, me, row)];
+    } else {
+      const offset = previous?.position ?? 0;
+      if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0)
+        invalidCursor();
+      items = await Promise.all(
+        review.items
+          .slice(offset, offset + limit)
+          .map((r) => teamReviewItem(ctx, me, r)),
+      );
+      done = offset + limit >= review.items.length;
+      position = offset + limit;
+    }
   } else {
     if (args.closerId) throw rejectRequest("queue.no_closer_filter", "Failed work has no closer filter.");
-    if (args.itemId) {
+    if (itemId) {
       for (const table of [
         "meetingProjections",
         "opportunityProjectionJobs",
         "webhookDeliveries",
       ] as const) {
-        const id = ctx.db.normalizeId(table, args.itemId);
+        const id = ctx.db.normalizeId(table, itemId);
         if (!id) continue;
         const row = await ctx.db.get(table, id);
         if (
@@ -595,76 +767,86 @@ export async function buildQueue(
           items = [failedItem(me, row)];
       }
     } else {
-      let c: { source: number; cursor: string | null } | null = { source: 0, cursor: null };
-      if (args.cursor) {
-        try {
-          c = JSON.parse(args.cursor) as typeof c;
-        } catch {
-          c = null;
-        }
-      }
+      // Four sources in turn; a page keeps reading the next source until it
+      // is full, so an empty source never costs the agent a call.
+      let at = (previous?.position ?? { source: 0, cursor: null }) as {
+        source: number;
+        cursor: string | null;
+      };
       if (
-        !c ||
-        typeof c !== "object" ||
-        !Number.isInteger(c.source) ||
-        c.source < 0 ||
-        c.source > 3 ||
-        !(typeof c.cursor === "string" || c.cursor === null)
+        !at ||
+        typeof at !== "object" ||
+        !Number.isInteger(at.source) ||
+        at.source < 0 ||
+        at.source > 3 ||
+        !(typeof at.cursor === "string" || at.cursor === null)
       )
-        notFound();
-      const page = await failedSources(ctx, me)[c.source].paginate({
-        ...options,
-        cursor: c.cursor,
-      });
-      items = page.page.map((r) => failedItem(me, r));
-      isPartial = !page.isDone || c.source < 3;
-      cursor = isPartial
-        ? JSON.stringify({
-            source: page.isDone ? c.source + 1 : c.source,
-            cursor: page.isDone ? null : page.continueCursor,
-          })
-        : null;
+        invalidCursor();
+      // Streams, not native pagination: a function may call .paginate() once.
+      const sources = failedStreams(ctx, me);
+      for (;;) {
+        const source = at.source,
+          cursor = at.cursor;
+        const page = await paged(cursor, (): Promise<PaginationResult<FailedRow>> =>
+          sources[source].paginate({
+            cursor,
+            numItems: limit - items.length,
+            maximumRowsRead: limit - items.length,
+          }),
+        );
+        items.push(...page.page.map((r) => failedItem(me, r)));
+        at = page.isDone
+          ? { source: source + 1, cursor: null }
+          : { source, cursor: page.continueCursor };
+        if (at.source > 3 || items.length >= limit) break;
+      }
+      done = at.source > 3;
+      position = at;
     }
   }
-  if (args.itemId && !items.length) notFound();
+  if (itemId && !items.length) notFound();
+  const cursor = done
+    ? null
+    : JSON.stringify({
+        v: 1,
+        queue: args.queue,
+        closerId: args.closerId ?? null,
+        asOf,
+        position,
+      } satisfies QueueCursor);
   return {
     queue: args.queue,
     items,
     cursor,
-    isPartial,
-    reason: partialReason(isPartial),
+    isPartial: cursor !== null,
+    reason: partialReason(cursor !== null, true),
     timeZone: me.timeZone,
   };
 }
 
-/** Counts are bounded lower bounds when capped; oldest uses the indexed ascending order. */
+/**
+ * A queue's whole backlog. `count` is exact or null; when a bounded read
+ * can't see the end, `count` is null and `atLeast` is what it saw, so no
+ * capped scan reads as a total. Oldest uses each index's ascending order.
+ */
 export async function buildQueueSummary(
   ctx: QueryCtx,
   me: Admin,
   queue: Queue,
 ) {
-  let count = 0,
-    capped = false,
+  const now = Date.now();
+  let count: number | null = 0,
+    atLeast = 0,
     oldest: number | null = null;
-  const finish = () => ({
-    queue,
-    count,
-    isPartial: capped,
-    oldestAgeSeconds:
-      oldest === null
-        ? null
-        : Math.max(0, Math.floor((Date.now() - oldest) / 1000)),
-    oldestAt: oldest === null ? null : formatLocal(oldest, me.timeZone),
-  });
+  const seen = (rows: number, capped: boolean) => {
+    atLeast = rows;
+    count = capped ? null : rows;
+  };
   if (queue === "not_recorded") {
-    const s = await readNotRecorded(ctx, me.tenantId, Date.now());
-    count = s.rows.length;
-    capped = s.capped;
-    oldest = s.rows.length
-      ? Math.min(
-          ...s.rows.map((r) => r.scheduledAt + r.durationMinutes * 60000),
-        )
-      : null;
+    const s = await countNotRecorded(ctx, me.tenantId, now);
+    count = s.count;
+    atLeast = s.count ?? s.atLeast;
+    oldest = s.oldest;
   } else if (queue === "payments_to_review") {
     const s = await readLiveQueryRows(
       ctx.db
@@ -674,8 +856,7 @@ export async function buildQueueSummary(
         ),
       100,
     );
-    count = s.rows.length;
-    capped = s.capped;
+    seen(s.rows.length, s.capped);
     oldest = s.rows[0]?.recordedAt ?? null;
   } else if (queue === "booking_reviews") {
     const s = await readLiveQueryRows(
@@ -686,8 +867,7 @@ export async function buildQueueSummary(
         ),
       100,
     );
-    count = s.rows.length;
-    capped = s.capped;
+    seen(s.rows.length, s.capped);
     oldest = s.rows[0]?.createdAt ?? null;
   } else if (queue === "second_opinions") {
     if (canSeeOpinions(me)) {
@@ -700,11 +880,11 @@ export async function buildQueueSummary(
         100,
       );
       const rows = s.rows.filter((r) => r.status === "answered");
-      count = rows.length;
-      capped = s.capped;
+      seen(rows.length, s.capped);
       oldest = rows[0]?.createdAt ?? null;
     }
   } else if (queue === "missed_meetings") {
+    const start = await missedWindow(ctx, me, now);
     const s = await readLiveQueryRows(
       ctx.db
         .query("opportunities")
@@ -714,32 +894,58 @@ export async function buildQueueSummary(
             q
               .eq("tenantId", me.tenantId)
               .eq("stage", "closed")
-              .eq("outcome", "lost"),
+              .eq("outcome", "lost")
+              .gte("latestActivityAt", start),
         ),
-      300,
+      500,
     );
-    const rows = s.rows.filter(isMissedMeetingLoss);
-    count = rows.length;
-    capped = s.capped;
-    oldest = rows.length
-      ? Math.min(...rows.map((r) => r.lostAt ?? r.updatedAt))
-      : null;
+    const open = await Promise.all(
+      s.rows.map((r) => isOpenMissedMeeting(ctx, r, start, now)),
+    );
+    const rows = s.rows.filter((_, i) => open[i]);
+    seen(rows.length, s.capped);
+    oldest = rows.length ? Math.min(...rows.map((r) => r.lostAt!)) : null;
+  } else if (queue === "unmatched_recordings") {
+    const s = await readLiveQueryRows(
+      ctx.db
+        .query("callRecordings")
+        .withIndex("by_tenantId_and_matchStatus_and_createdAt", (q) =>
+          q.eq("tenantId", me.tenantId).eq("matchStatus", "unmatched"),
+        ),
+      100,
+    );
+    seen(s.rows.length, s.capped);
+    oldest = s.rows[0]?.createdAt ?? null;
+  } else if (queue === "team_review") {
+    seen((await buildTeamReview(ctx, me.tenantId)).count, false);
   } else if (queue === "failed_work") {
+    let rows = 0,
+      capped = false;
     for (const source of failedSources(ctx, me)) {
       const s = await readLiveQueryRows<FailedRow>(source, 100);
-      count += s.rows.length;
+      rows += s.rows.length;
       capped ||= s.capped;
       for (const r of s.rows) {
         const at = "requestedAt" in r ? r.requestedAt : r.receivedAt;
         oldest = oldest === null ? at : Math.min(oldest, at);
       }
     }
+    seen(rows, capped);
   }
-  return finish();
+  return {
+    queue,
+    count,
+    atLeast,
+    isPartial: count === null,
+    oldestAgeSeconds:
+      oldest === null ? null : Math.max(0, Math.floor((now - oldest) / 1000)),
+    oldestAt: oldest === null ? null : formatLocal(oldest, me.timeZone),
+  };
 }
 export const queueSummaryValidator = v.object({
   queue: queueValidator,
-  count: v.number(),
+  count: v.union(v.number(), v.null()),
+  atLeast: v.number(),
   isPartial: v.boolean(),
   oldestAgeSeconds: v.union(v.number(), v.null()),
   oldestAt: v.union(v.string(), v.null()),

@@ -3,7 +3,7 @@ import type { Id } from "../../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../../_generated/server";
 import { canonicalJson } from "../../analytics/keys";
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
-import { expectedError } from "../../lib/observability/errors";
+import { expectedError, rejectRequest } from "../../lib/observability/errors";
 import { readOpenDeals, readOwedCalls } from "../../reports/pipeline";
 import { readLog, type LogEntry } from "../../reports/log";
 import { readDealChain, readDealNames } from "../../reports/attribution";
@@ -14,11 +14,13 @@ import { creditIdentityValidator, currencyAmountsValidator } from "../../reports
 import { pipelineNextStep } from "../../reports/lib/pipelineNextStep";
 import { openStageValidator } from "../../reports/lib/validators";
 import { dealAttributionRoleValidator } from "../../lib/attribution/validators";
-import { loadInTenant, mcpCallerValidator, requireMcpAdmin } from "../guard";
-import { limitOf, notFound, paths, text, textValidator, type Admin } from "../admin/reads/common";
+import { loadInTenant, mcpCallerValidator, requireMcpAdmin, normalizeMcpId } from "../guard";
+import { limitOf, paths, text, textValidator, type Admin } from "../admin/reads/common";
 import { appLink } from "../admin/prepare";
 import { rangeValidator } from "./contracts";
 import { planAssistantSources } from "../../../lib/assistantReportPlan";
+import { resolveLeadGenRange } from "../leadGenShared";
+import { businessDateForInstant } from "../../../lib/businessDay";
 import { gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES } from "../../../lib/assistantReportMerge";
 
 const listValidator = v.union(
@@ -33,15 +35,17 @@ const entityTypeValidator = v.union(
 export const reportListArgs = {
   list: listValidator,
   range: v.optional(rangeValidator),
-  teamMemberId: v.optional(v.id("teamMembers")),
-  actorUserId: v.optional(v.id("users")),
+  teamMemberId: v.optional(v.string()),
+  actorUserId: v.optional(v.string()),
   entityType: v.optional(entityTypeValidator),
-  memberId: v.optional(v.id("teamMembers")),
-  opportunityId: v.optional(v.id("opportunities")),
+  memberId: v.optional(v.string()),
+  opportunityId: v.optional(v.string()),
   limit: v.optional(v.number()),
   cursor: v.optional(v.string()),
 };
-type Args = Infer<typeof _reportListArgsValidator>;
+type Args = Omit<Infer<typeof _reportListArgsValidator>, "teamMemberId" | "actorUserId" | "memberId" | "opportunityId"> & {
+  teamMemberId?: Id<"teamMembers">; actorUserId?: Id<"users">; memberId?: Id<"teamMembers">; opportunityId?: Id<"opportunities">;
+};
 const _reportListArgsValidator = v.object(reportListArgs);
 const nullableNumber = v.union(v.number(), v.null());
 const nullableText = v.union(textValidator, v.null());
@@ -106,17 +110,20 @@ type Row = Infer<typeof rowValidator>;
 // The raw page cursor stays bound to its tenant, list and filters. asOf freezes
 // both the owed-call cutoff and relative-date log windows across continuations.
 type Cursor = { version: 1; tenantId: string; key: string; asOf: number; position: string | number };
+function invalidCursor(): never {
+  throw rejectRequest("mcp.invalid_cursor", "That cursor does not match this list or its filters. Use the returned cursor with the same list and filters, or start again without it.");
+}
 function decodeCursor(raw: string | undefined, tenantId: Id<"tenants">, key: string): Cursor {
   if (raw === undefined) return { version: 1, tenantId, key, asOf: Date.now(), position: 0 };
   try {
     const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object" || Array.isArray(value)) notFound();
+    if (!value || typeof value !== "object" || Array.isArray(value)) invalidCursor();
     const c = value as Cursor;
     if (Object.keys(c).sort().join(",") !== "asOf,key,position,tenantId,version" ||
       c.version !== 1 || c.tenantId !== tenantId || c.key !== key || !Number.isFinite(c.asOf) ||
-      !(typeof c.position === "string" && c.position.length > 0 || typeof c.position === "number" && Number.isSafeInteger(c.position) && c.position >= 0)) notFound();
+      !(typeof c.position === "string" && c.position.length > 0 || typeof c.position === "number" && Number.isSafeInteger(c.position) && c.position >= 0)) invalidCursor();
     return c;
-  } catch { return notFound(); }
+  } catch { return invalidCursor(); }
 }
 function continuation(cursor: Cursor, position: string | number, isDone: boolean) {
   return isDone ? null : JSON.stringify({ ...cursor, position });
@@ -145,13 +152,13 @@ function logRow(entry: LogEntry, fallback: string): Row {
 }
 async function memberFilters(ctx: QueryCtx, me: Admin, args: Args) {
   const memberId = args.list === "member_log" ? args.memberId : args.teamMemberId;
-  if (args.list === "member_log" && !memberId) notFound();
+  if (args.list === "member_log" && !memberId) throw rejectRequest("mcp.invalid_argument", "memberId is required for member_log.");
   if (memberId) await loadInTenant(ctx, me, "teamMembers", memberId);
   await resolveMemberFilter(ctx, memberId, me);
   let actorUserId = args.actorUserId;
   if (actorUserId) {
     const actor = await loadInTenant(ctx, me, "users", actorUserId);
-    if (memberId && actor.teamMemberId !== memberId) notFound();
+    if (memberId && actor.teamMemberId !== memberId) throw rejectRequest("mcp.invalid_filter", "actorUserId and the member filter must name the same team member.");
   } else if (args.list === "member_log") {
     // The member page supplies the linked login as well as the member. This
     // includes older login-only events and member-tagged system actions.
@@ -163,8 +170,14 @@ async function memberFilters(ctx: QueryCtx, me: Admin, args: Args) {
 
 export const run = internalQuery({
   args: { caller: mcpCallerValidator, ...reportListArgs }, returns: answerValidator,
-  handler: async (ctx, { caller, ...args }): Promise<Answer> => {
+  handler: async (ctx, { caller, ...raw }): Promise<Answer> => {
     const me = await requireMcpAdmin(ctx, caller, { permission: "reports:view" });
+    const args: Args = { ...raw,
+      teamMemberId: raw.teamMemberId === undefined ? undefined : normalizeMcpId(ctx, "teamMembers", raw.teamMemberId, "teamMemberId"),
+      actorUserId: raw.actorUserId === undefined ? undefined : normalizeMcpId(ctx, "users", raw.actorUserId, "actorUserId"),
+      memberId: raw.memberId === undefined ? undefined : normalizeMcpId(ctx, "teamMembers", raw.memberId, "memberId"),
+      opportunityId: raw.opportunityId === undefined ? undefined : normalizeMcpId(ctx, "opportunities", raw.opportunityId, "opportunityId"),
+    };
     const limit = limitOf(args.limit);
     const isLog = args.list === "log" || args.list === "member_log";
     if (args.memberId && args.list !== "member_log" || args.opportunityId && args.list !== "deal_credits" ||
@@ -177,7 +190,7 @@ export const run = internalQuery({
     const key = canonicalJson(filters);
     const cursor = decodeCursor(args.cursor, me.tenantId, key);
     const paged = isLog || args.list === "pipeline_open_deals" || args.list === "pipeline_owed_calls";
-    if (args.cursor && (paged ? typeof cursor.position !== "string" : typeof cursor.position !== "number")) notFound();
+    if (args.cursor && (paged ? typeof cursor.position !== "string" : typeof cursor.position !== "number")) invalidCursor();
     const path = args.list === "report_fields" ? "/workspace/reports/scorecard"
       : args.list === "deal_credits" ? "/workspace/reports/attribution"
       : args.list === "member_log" ? `/workspace/reports/people/${args.memberId}`
@@ -191,6 +204,7 @@ export const run = internalQuery({
       const members = await memberFilters(ctx, me, args);
       const day = await getTenantBusinessDay(ctx, me.tenantId);
       const range = args.range ?? { kind: "preset", preset: "today" };
+      if (range.kind === "custom") resolveLeadGenRange({ startDate: range.startDate, endDate: range.endDateInclusive }, businessDateForInstant(Date.now(), day), { maxDays: 36600 });
       const { resolvedRange: resolved } = planAssistantSources({
         range, day, now: cursor.asOf, page: "log", warehousePages: [],
       });
@@ -199,7 +213,7 @@ export const run = internalQuery({
     }
     let allRows: Row[] = [];
     if (args.list === "deal_credits") {
-      if (!args.opportunityId) notFound();
+      if (!args.opportunityId) throw rejectRequest("mcp.invalid_argument", "opportunityId is required for deal_credits.");
       await loadInTenant(ctx, me, "opportunities", args.opportunityId);
       const chain = await readDealChain(ctx, me.tenantId, args.opportunityId);
       const names = await readDealNames(ctx, me.tenantId, [args.opportunityId]);
@@ -225,6 +239,7 @@ export const run = internalQuery({
     // Never slice a paginated result and advance past rows we did not return.
     for (let count = limit; ; count = Math.max(1, Math.floor(count / 2))) {
       let rows: Row[], next: string | null;
+      let scanLimited = false;
       const paginationOpts = { numItems: count, cursor: typeof cursor.position === "string" ? cursor.position : null };
       if (paged) {
         try {
@@ -242,21 +257,22 @@ export const run = internalQuery({
             next = continuation(cursor, page.continueCursor, page.isDone);
           } else {
             const page = await readLog(ctx, me.tenantId, { ...logArgs!, paginationOpts });
+            scanLimited = page.pageStatus === "SplitRequired";
             rows = page.page.map(row => logRow(row, openInMagnus));
             next = continuation(cursor, page.continueCursor, page.isDone);
           }
         } catch (error) {
           // Invalid raw Convex cursors must not disclose platform details.
-          if (args.cursor && error instanceof Error && /cursor|JSON/i.test(error.message)) notFound();
+          if (args.cursor && error instanceof Error && /cursor|JSON/i.test(error.message)) invalidCursor();
           throw error;
         }
       } else {
         const offset = typeof cursor.position === "number" ? cursor.position : 0;
-        if (offset > allRows.length) notFound();
+        if (offset > allRows.length) invalidCursor();
         rows = allRows.slice(offset, offset + count);
         next = continuation(cursor, offset + rows.length, offset + rows.length >= allRows.length);
       }
-      const reasons = [...(base.sourceIsPartial ? ["source_read_limit"] : []), ...(next ? [rows.length ? "more_rows" : "scan_limit"] : [])];
+      const reasons = [...(base.sourceIsPartial ? ["source_read_limit"] : []), ...(next ? [scanLimited || rows.length === 0 ? "scan_limit" : "more_rows"] : [])];
       const answer = { ...base, rows, cursor: next, isPartial: base.sourceIsPartial || next !== null, reasons };
       if (gatewayAnswerBytes(answer) <= MAX_ASSISTANT_ANSWER_BYTES) return answer;
       if (count === 1) throw expectedError("mcp.answer_size_limit", "This row exceeds the answer limit. Open the report in Magnus.");

@@ -49,7 +49,7 @@ export const leadGenTools: McpToolRegistration[] = [
     name: "magnus_check_handles",
     title: "Check handles before messaging",
     description:
-      "Checks 1 to 10 Instagram handles or profile URLs against Magnus before anyone is messaged. Per handle: the normalized handle or why it is invalid, and a verdict of new, known, captured before, not a fit, do not contact or conflict, with the person's stage. Saves nothing and counts nothing. A lead gen sees whether a capture was theirs or a teammate's. An admin also gets each capture's ID, specialist, time, origin and void state, a page at a time with cursor.",
+      "Checks 1 to 10 Instagram handles or profile URLs against Magnus before anyone is messaged. Per handle: the normalized handle or why it is invalid, and a verdict of new, known, captured before, not a fit, do not contact or conflict, with the person's stage. Saves nothing and counts nothing. A lead gen sees whether a capture was theirs or a teammate's. An admin also gets each capture's ID, specialist, time, origin and void state, a page at a time with cursor. Equivalent handles share a result whose inputs array lists every submitted spelling.",
     fn: internal.mcp.tools.leadGenHandles.check,
     args: { caller: mcpCallerValidator, ...checkHandlesArgs },
     identityArg: "caller",

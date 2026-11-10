@@ -5,6 +5,7 @@ import { buildSlackInstallationStatus } from "../../../slack/channelsCore";
 import { buildFathomSettings } from "../../../fathom/connectionCore";
 import { buildBookingHealthIssues } from "../../../operations/bookingHealthCore";
 import { buildWorkHealth } from "../../../operations/workStatusCore";
+import { getTenantCalendlyConnectionState } from "../../../lib/tenantCalendlyConnection";
 import { readSyncRow } from "../../../analytics/results";
 import { mcpCallerValidator, requireMcpAdmin } from "../../guard";
 import { formatLocal } from "../../time";
@@ -71,6 +72,8 @@ export async function buildHealth(ctx: QueryCtx, me: Admin, area?: Area) {
     });
   if (wants("calendly")) {
     const c = await buildCalendlyConnectionStatus(ctx, me.tenantId);
+    const connection = await getTenantCalendlyConnectionState(ctx, me.tenantId);
+    const observations = [c?.lastEventTypeSyncCompletedAt, c?.lastTokenRefresh, connection?.lastHealthCheckAt].filter((at): at is number => typeof at === "number");
     push(
       "calendly",
       !c?.hasAccessToken
@@ -91,7 +94,7 @@ export async function buildHealth(ctx: QueryCtx, me: Admin, area?: Area) {
             : !c.calendlyWebhookUri || !c.hasWebhookSigningKey
               ? ["webhook_incomplete"]
               : [],
-      c?.lastEventTypeSyncCompletedAt ?? c?.lastTokenRefresh ?? null,
+      observations.length ? Math.max(...observations) : null,
       "/workspace/settings",
     );
   }

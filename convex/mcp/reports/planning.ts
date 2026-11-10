@@ -13,7 +13,7 @@ import { addBusinessDays, businessDateForInstant, businessDayStart } from "../..
 import type { AnalyticsFilters } from "../../analytics/definition";
 import { requestValidator, jobValidator, failedJobRetryable, type ToolRequest, type ReportJob } from "./contracts";
 import { assistantDefinition, REPORT_PANELS, CURRENT_REPORT_PAGES, LIVE_PANELS } from "./catalog";
-import { metricPanels, validateNumbers } from "./metrics";
+import { creditRole, metricPanels, validateNumbers } from "./metrics";
 import { readFieldCatalog } from "../../reports/formFields";
 import { readMemberProfile } from "../../reports/member";
 export type PanelInput = {
@@ -69,7 +69,9 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
     // No data reader, cache lookup or job runs before this output-size check.
     const periods = request.kind === "numbers" && request.groupBy === "day" ? rangePeriods(base.resolvedRange) : 1;
     const groups = request.kind === "numbers" && request.groupBy && request.groupBy !== "day" ? limit + 1 : 1;
-    assertReportCells(periods * (compare ? 2 : 1), groups);
+    const comparison = compare ? planAssistantSources({ range: compare, day, now: Date.now(), page: "", warehousePages: [] }) : null;
+    const comparisonPeriods = comparison ? request.kind === "numbers" && request.groupBy === "day" ? rangePeriods(comparison.resolvedRange) : 1 : 0;
+    assertReportCells(periods + comparisonPeriods, groups);
     if (request.kind === "numbers") {
         validateNumbers(request);
     }
@@ -82,7 +84,15 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
         if (request.role && !["people", "attribution"].includes(request.report)) throw new ReportRequestError("role is supported by People and Attribution.");
         if (request.report === "people" && request.role && !["everyone", "closers", "setters", "dm_closers", "lead_gen"].includes(request.role)) throw new ReportRequestError("People role must match a tab: everyone, closers, setters, dm_closers, lead_gen.");
     }
-    if (request.memberId) await loadInTenant(ctx, me, "teamMembers", request.memberId);
+    if (request.memberId) {
+        await loadInTenant(ctx, me, "teamMembers", request.memberId);
+        if (request.kind === "numbers") {
+            const profile = await readMemberProfile(ctx, me.tenantId, request.memberId);
+            const panels = request.metrics.flatMap(metric => metricPanels(metric, request));
+            const role = panels.includes("people.closers") ? "closer" : creditRole(request.role) ?? "setter";
+            if (!profile?.roles.some(r => r === role)) throw new ReportRequestError(`The member isn't in the ${role} role.`);
+        }
+    }
     if (request.programId) await loadInTenant(ctx, me, "tenantPrograms", request.programId);
     if (request.closerId) await loadInTenant(ctx, me, "users", request.closerId);
     const inputs: PanelInput[] = [];
@@ -90,8 +100,10 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
     let fieldKey: string | undefined;
     if (request.kind === "report" && request.report === "scorecard") {
         const catalog = await readFieldCatalog(ctx, me.tenantId);
+        if (request.fieldKey !== undefined && (!request.fieldKey.trim() || request.fieldKey.length > 500)) throw new ReportRequestError("Choose a form field with 1 to 500 characters. Use report_fields for valid keys.");
+        if (request.fieldKey !== undefined && !catalog.some(f => f.fieldKey === request.fieldKey?.trim())) throw new ReportRequestError(`Unknown fieldKey. Valid keys from report_fields: ${[...new Set(catalog.map(f => f.fieldKey))].join(", ") || "none"}.`);
         // Same default selection as Scorecard's defaultAnswerField.
-        fieldKey = request.fieldKey ?? (catalog.find(f => /income|revenue|earn|salary|budget|invest|make per/iu.test(f.currentLabel)) ?? catalog[0])?.fieldKey;
+        fieldKey = request.fieldKey?.trim() ?? (catalog.find(f => /income|revenue|earn|salary|budget|invest|make per/iu.test(f.currentLabel)) ?? catalog[0])?.fieldKey;
         if (!fieldKey) reportPanels = reportPanels.filter(id => id !== "scorecard.answers");
     }
     if (request.kind === "report" && request.report === "people" && request.memberId) {
@@ -99,14 +111,17 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
         const rolePanels = { closer: "people.closers", setter: "people.setters", dm_closer: "people.dm_closers", lead_gen: "people.lead_gen" };
         reportPanels = ["people.profile", ...(profile?.roles ?? []).map(role => rolePanels[role])];
     }
-    const ids = request.kind === "numbers" ? [...new Set(request.metrics.flatMap(m => metricPanels(m, request)))] : reportPanels;
-    // A currency selector on People considers every role, even when a tab is selected.
-    // Scorecard's default currency weighs its cash, funnel and origins panels.
-    const expanded = request.kind !== "numbers" ? ids : [...new Set([
-        ...ids,
-        ...(ids.some(id => id.startsWith("people.")) ? ["people.closers", "people.setters", "people.dm_closers", "people.lead_gen"] : []),
-        ...(ids.some(id => id.startsWith("scorecard.")) ? ["scorecard.cash", "scorecard.funnel", "scorecard.origins"] : []),
-    ])];
+    let ids: readonly string[] = request.kind === "numbers" ? [...new Set(request.metrics.flatMap(m => metricPanels(m, request)))] : reportPanels;
+    if (request.kind === "report" && request.panel) ids = ids.filter(id => request.panel === id || request.panel === id.split(".")[1]);
+    // Currency selection and validation need the other money panels. A roster-only request stays live.
+    const currencyPanels = [
+        ...((request.kind === "numbers" || !request.memberId) && ids.some(id => ["people.closers", "people.setters", "people.dm_closers", "people.lead_gen"].includes(id)) ? ["people.closers", "people.setters", "people.dm_closers", "people.lead_gen"] : []),
+        ...(ids.some(id => ["scorecard.cash", "scorecard.funnel", "scorecard.origins"].includes(id)) ? ["scorecard.cash", "scorecard.funnel", "scorecard.origins"] : []),
+        ...(ids.includes("attribution.paths") ? ["attribution.lanes"] : []),
+    ];
+    // Full People tabs include counts from every role; a selected panel is independent.
+    const rosterPanels = request.kind === "report" && request.report === "people" && !request.panel && !request.memberId ? REPORT_PANELS.people : [];
+    const expanded = [...new Set([...ids, ...currencyPanels, ...rosterPanels])];
     const panels = expanded.map(id => ({ id, team: false, page: id.split(".")[0], raw: {
         ...(request.programId ? { programId: request.programId } : {}),
         ...(request.kind === "report" && request.teamId ? { teamId: request.teamId } : {}),

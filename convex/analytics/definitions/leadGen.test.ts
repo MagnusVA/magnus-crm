@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readLivePanel } from "../../mcp/reports/live";
+import { getReportDefinition } from "../registry";
 import { api } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { recordDealCreation } from "../../lib/attribution/dealAttributions";
@@ -270,6 +272,7 @@ async function loadModel(h: Harness) {
       attributions: await ctx.db.query("dealAttributions").take(1000),
       deals: await ctx.db.query("opportunities").take(1000),
       resparkItems: await ctx.db.query("resparkBatchItems").take(1000),
+      resparkBatches: await ctx.db.query("resparkBatches").take(1000),
     };
   });
 }
@@ -437,11 +440,12 @@ function topOriginsByTeamRows(
     .filter((row) => row.origin_rank <= filters.limitPerTeam);
 }
 
-function conversionRows(model: Model) {
+function conversionRows(model: Model, teamId?: string) {
+  const selected = new Set(model.prospects.filter(prospect => !teamId || model.captures.some(c => c.prospect_id === prospect._id && c.worker_id === prospect.firstCapturedByWorkerId && c.at[0] === prospect.firstCapturedAt && c.team_id === teamId)).map(p => p._id));
   const people = new Map(model.people.filter((lead) => lead.status !== "merged").map((lead) => [lead._id, lead]));
   const stages = groupBy(
     model.prospects.filter(
-      (prospect) => prospect.leadId && people.has(prospect.leadId) && prospect.firstCapturedAt >= FROM && prospect.firstCapturedAt < TO,
+      (prospect) => selected.has(prospect._id) && prospect.leadId && people.has(prospect.leadId) && prospect.firstCapturedAt >= FROM && prospect.firstCapturedAt < TO,
     ),
     (prospect) => prospect.firstCapturedByWorkerId,
   ).map((prospects) => {
@@ -456,25 +460,27 @@ function conversionRows(model: Model) {
   });
   const deals = groupBy(
     model.attributions.filter(
-      (row) => row.role === "lead_gen" && row.source.kind === "capture" && row.attributedAt >= FROM && row.attributedAt < TO,
+      (row) => row.role === "lead_gen" && row.source.kind === "capture" && selected.has(row.source.prospectId) && row.attributedAt >= FROM && row.attributedAt < TO,
     ),
     (row) => (row.source as { workerId: string }).workerId,
   ).map((rows) => ({ worker_id: (rows[0].source as { workerId: string }).workerId, deals: rows.length }));
   return { stages, deals };
 }
 
-function resparkRows(model: Model, source: Source | null) {
+function resparkRows(model: Model, source: Source | null, teamId?: string) {
+  const batches = new Set(model.resparkBatches.filter(b => !teamId || b.teamId === teamId).map(b => b._id));
+  const items = new Set(model.resparkItems.filter(i => batches.has(i.batchId)).map(i => i._id));
   const raw = groupBy(
-    inRange(model).filter((row) => !source || row.source === source),
+    inRange(model).filter((row) => (!source || row.source === source) && (!teamId || row.team_id === teamId)),
     (row) => row.worker_id,
   ).map((rows) => ({ worker_id: rows[0].worker_id, raw_leads: rows.filter((row) => row.active).length }));
   const booked = new Set(model.deals.filter((deal) => deal.firstBookedAt !== undefined).map((deal) => deal._id));
   return {
     raw,
-    resparks: resparkResultRows(model, null),
+    resparks: resparkResultRows({ ...model, resparkItems: model.resparkItems.filter(i => items.has(i._id)) }, null),
     booked: groupBy(
       model.attributions.filter(
-        (row) => row.source.kind === "respark" && row.attributedAt >= FROM && row.attributedAt < TO && booked.has(row.opportunityId),
+        (row) => row.source.kind === "respark" && items.has(row.source.itemId) && row.attributedAt >= FROM && row.attributedAt < TO && booked.has(row.opportunityId),
       ),
       (row) => (row.source as { workerId: string }).workerId,
     ).map((rows) => ({ worker_id: (rows[0].source as { workerId: string }).workerId, booked: rows.length })),
@@ -648,4 +654,49 @@ describe("Lead Gen from ClickHouse rows", () => {
       if (worker === a) expect(summary).toMatchObject({ resparks: 1, notAFit: 1, scheduledHours: 6 });
     }
   });
+});
+
+it("filters conversion and Respark panels by stored team after a worker moves", async () => {
+  const { h, a, c, teamA, teamB } = await setup();
+  await h.t.run(ctx => ctx.db.patch("leadGenWorkers", a.workerId, { teamId: teamB }));
+  const model = await loadModel(h);
+  for (const teamId of [teamA, teamB]) {
+    const base = { t: h.t, identity: adminIdentity, tenantId: h.tenantId, range };
+    const conversions = await expectSameAnswer({ ...base, reportId: "lead_gen.prospect_conversions", live: api.leadGen.conversions.listProspectConversions, liveArgs: { ...dayKeys, teamId }, filters: { teamId }, rows: conversionRows(model, teamId) });
+    const resparks = await expectSameAnswer({ ...base, reportId: "lead_gen.respark_performance", live: api.leadGen.resparkReports.listResparkPerformance, liveArgs: { ...dayKeys, teamId }, filters: { teamId, source: null }, rows: resparkRows(model, null, teamId) });
+    expect(await h.t.run(ctx => readLivePanel(ctx, h.tenantId, "lead_gen.prospect_conversions", { teamId }, range))).toEqual(conversions);
+    expect(await h.t.run(ctx => readLivePanel(ctx, h.tenantId, "lead_gen.respark_performance", { teamId }, range))).toEqual(resparks);
+    if (teamId === teamA) {
+      expect(conversions.rows.map((r: { workerId: string }) => r.workerId)).not.toContain(c.workerId);
+      expect(resparks.rows.find((r: { workerId: string }) => r.workerId === a.workerId)?.resparks).toBe(1);
+    } else {
+      expect(conversions.rows.map((r: { workerId: string }) => r.workerId)).toEqual([c.workerId]);
+      expect(resparks.rows.find((r: { workerId: string }) => r.workerId === a.workerId)?.resparks).toBe(0);
+    }
+    for (const id of ["lead_gen.prospect_conversions", "lead_gen.respark_performance"]) {
+      const definition = getReportDefinition(id);
+      const sql = await definition.sql({ tenantId: h.tenantId, filters: { teamId, source: null }, range });
+      for (const query of Object.values(sql)) {
+        expect(query.params).toMatchObject({ team_id: teamId });
+        expect(query.sql).toContain("team_id = {team_id:String}");
+      }
+    }
+  }
+});
+
+it("includes scheduled specialists without captures in overview hours for web, MCP and warehouse", async () => {
+  const { h, a, teamA } = await setup();
+  const silent = await worker(h, "silent", teamA);
+  await h.t.run(async ctx => {
+    for (const weekday of ["monday", "tuesday"] as const) await ctx.db.insert("leadGenWorkerSchedules", { tenantId: h.tenantId, workerId: silent.workerId, userId: silent.userId, weekday, scheduledHours: 6, updatedByUserId: silent.userId, updatedAt: FROM - DAY });
+  });
+  const model = await loadModel(h);
+  const overview = await expectSameAnswer({ t: h.t, identity: adminIdentity, tenantId: h.tenantId, range, reportId: "lead_gen.overview", live: api.leadGen.reporting.getOverview, liveArgs: { ...dayKeys, teamId: teamA }, filters: { ...noFilters, teamId: teamA }, rows: { daily: dailyRows(model, { teamId: teamA }) } });
+  expect(overview.scheduledHours).toBe(18);
+  expect(overview.leadsPerHour).toBe(overview.submissions / 18);
+  expect(await h.t.run(ctx => readLivePanel(ctx, h.tenantId, "lead_gen.overview", { teamId: teamA }, range))).toEqual(overview);
+  const emptyDay = await h.admin.query(api.leadGen.reporting.getOverview, { startDayKey: "2026-10-26", endDayKey: "2026-10-26", teamId: teamA });
+  expect(emptyDay).toMatchObject({ submissions: 0, scheduledHours: 12, leadsPerHour: 0 });
+  const justA = await h.admin.query(api.leadGen.reporting.getOverview, { ...dayKeys, workerId: a.workerId });
+  expect(justA.scheduledHours).toBe(6);
 });

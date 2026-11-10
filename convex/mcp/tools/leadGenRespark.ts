@@ -10,7 +10,7 @@ import { McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/m
 import { resparkResultValidator } from "../../lib/respark/validators";
 import { dealOutcomeValidator, dealStageValidator } from "../../opportunities/stages";
 import { getHeldResparkBatchCore, getResparkPersonPanelCore, resparkBatchCardCore } from "../../respark/queries";
-import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser } from "../guard";
+import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, normalizeMcpId, withMcpCursorErrors } from "../guard";
 import { progressValidator } from "./leadGenToday";
 import { formatLocal } from "../time";
 
@@ -64,9 +64,9 @@ export const batch = internalQuery({
       } catch { throw rejectRequest("respark.invalid_cursor", "Use a cursor from your current held batch."); }
     }
     // Page the item index before doing any person/history hydration.
-    const page = await ctx.db.query("resparkBatchItems")
+    const page = await withMcpCursorErrors("respark.invalid_cursor", () => ctx.db.query("resparkBatchItems")
       .withIndex("by_batchId_and_position", q => q.eq("batchId", held.batch._id))
-      .paginate({ cursor: nativeCursor, numItems: 25 });
+      .paginate({ cursor: nativeCursor, numItems: 25 }));
     const projection = new McpProjectionBudget(page.page.length);
     const touchLimit = Math.min(3, Math.floor((50 - page.page.length) / Math.max(1, page.page.length)));
     const state = createLiveReadState();
@@ -100,14 +100,15 @@ const panelValidator = v.object({ contactAgain: contactAgainMcpValidator, respar
     bookingAnswers: v.array(v.object({ question: mcpPersonTextValidator, answer: mcpPersonTextValidator })) })),
   notes: v.array(v.object({ noteId: v.id("leadNotes"), content: mcpPersonTextValidator, createdAt: v.string() })),
   resparkHistory: v.array(v.object({ itemId: v.id("resparkBatchItems"), result: resultValidator, workedAt: nullableString, bucket: v.number() })) });
-export const resparkPersonArgs = { itemIds: v.array(v.id("resparkBatchItems")) };
+export const resparkPersonArgs = { itemIds: v.array(v.string()) };
 
 export const person = internalQuery({
   args: { caller: mcpCallerValidator, ...resparkPersonArgs },
   returns: v.object({ profile: leadGenProfileValidator, asOf: v.string(), isPartial: v.boolean(), textTruncated: v.boolean(),
     people: v.array(v.object({ itemId: v.id("resparkBatchItems"), panel: v.union(panelValidator, v.null()) })) }),
-  handler: async (ctx, { caller, itemIds }) => {
+  handler: async (ctx, { caller, itemIds: rawItemIds }) => {
     const me = await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
+    const itemIds = rawItemIds.map(value => normalizeMcpId(ctx, "resparkBatchItems", value, "itemIds"));
     if (itemIds.length < 1 || itemIds.length > 5) throw rejectRequest("respark.item_limit", "Pass 1 to 5 itemIds from your held batch.");
     const { profile } = await getOwnLeadGenProfile(ctx, me);
     const budget = new McpProjectionBudget(itemIds.length);

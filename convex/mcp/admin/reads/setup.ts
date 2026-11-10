@@ -16,7 +16,7 @@ import {
 } from "../../../lib/eventTypeBookability";
 import { readLiveQueryRows } from "../../../lib/liveQueryBounds";
 import { mcpCallerValidator, requireMcpAdmin } from "../../guard";
-import { text, textValidator, partialReason, fitRows } from "./common";
+import { text, textValidator, fitRows } from "./common";
 import { appLink } from "../prepare";
 
 export const setupArea = v.union(
@@ -159,15 +159,17 @@ export const run = internalQuery({
           const resolved = resolveSharedCell(shared, eventTypes);
           const sharedIssue =
             resolved.kind === "none" ? resolved.reason : resolved.issue;
+          const usesShared = c.teams.some((team) => team.isActive && team.usesShared &&
+            !c.teamRoutes.some((route) => route.teamId === team._id && route.programId === program._id && route.mode === mode));
           items.push(
             entry(
               `shared:${program._id}:${mode}`,
               program.name,
-              sharedIssue ? "gap" : "configured",
+              usesShared ? (sharedIssue ? "gap" : "configured") : "not_used",
               {
                 programId: program._id,
                 mode,
-                issue: sharedIssue,
+                issue: usesShared ? sharedIssue : null,
                 eventTypeId:
                   resolved.kind === "none" ? null : resolved.eventTypeConfigId,
               },
@@ -347,7 +349,7 @@ export const run = internalQuery({
       area,
       items: fitted.rows,
       isPartial,
-      reason: partialReason(isPartial),
+      reason: isPartial ? "The setup read reached its limit. Open the editor using openInMagnus for the rest." : null,
       openInMagnus: appLink(editor),
     };
   },

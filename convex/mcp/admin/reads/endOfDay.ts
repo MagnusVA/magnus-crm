@@ -3,8 +3,9 @@ import type { Id } from "../../../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../../../_generated/server";
 import { readLiveQueryRows } from "../../../lib/liveQueryBounds";
 import { getTenantBusinessDay } from "../../../lib/tenantBusinessDay";
-import { addBusinessDays, businessDayStart } from "../../../../lib/businessDay";
-import { mcpCallerValidator, requireMcpAdmin, loadInTenant } from "../../guard";
+import { addBusinessDays, businessDayStart, calendarDate, businessDateForInstant } from "../../../../lib/businessDay";
+import { mcpCallerValidator, requireMcpAdmin, loadInTenant, normalizeMcpId } from "../../guard";
+import { rejectRequest } from "../../../lib/observability/errors";
 import { formatLocal } from "../../time";
 import {
   answerBytes,
@@ -18,7 +19,7 @@ import {
 
 export const endOfDayArgs = {
   date: v.string(),
-  closerId: v.optional(v.id("users")),
+  closerId: v.optional(v.string()),
   includeNarrative: v.optional(v.boolean()),
 };
 const reportValidator = v.object({
@@ -36,8 +37,8 @@ export const endOfDayRowValidator = v.object({
   closerId: v.id("users"),
   name: textValidator,
   status: v.string(),
-  calls: v.number(),
-  won: v.number(),
+  calls: v.union(v.number(), v.null()),
+  won: v.union(v.number(), v.null()),
   reports: v.array(reportValidator),
   allowedActions: v.array(v.string()),
   openInMagnus: v.string(),
@@ -48,9 +49,17 @@ export async function buildEndOfDay(
   args: { date: string; closerId?: Id<"users">; includeNarrative?: boolean },
 ) {
   const day = await getTenantBusinessDay(ctx, me.tenantId);
+  try { calendarDate(args.date); } catch {
+    throw rejectRequest("range.invalid", "date must be a real business date in YYYY-MM-DD format.");
+  }
+  const today = businessDateForInstant(Date.now(), day);
+  if (args.date > today) throw rejectRequest("range.invalid", `date is in the future. Today's business date is ${today}.`);
   const start = businessDayStart(args.date, day),
     end = businessDayStart(addBusinessDays(args.date, 1), day);
-  if (args.closerId) await loadInTenant(ctx, me, "users", args.closerId);
+  if (args.closerId) {
+    const closer = await loadInTenant(ctx, me, "users", args.closerId);
+    if (closer.role !== "closer") throw rejectRequest("mcp.invalid_closer", "closerId must name a closer in this workspace.");
+  }
   const [users, reports] = await Promise.all([
     readLiveQueryRows(
       ctx.db
@@ -101,14 +110,14 @@ export async function buildEndOfDay(
         : reports.capped
           ? "Unknown: report read is partial"
           : "No report saved",
-      calls: saved.reduce(
+      calls: saved.length ? saved.reduce(
         (sum, r) =>
           sum +
           r.numbers.newCalls.scheduled +
           r.numbers.followUpCalls.scheduled,
         0,
-      ),
-      won: saved.reduce((sum, r) => sum + r.numbers.deals.won, 0),
+      ) : null,
+      won: saved.length ? saved.reduce((sum, r) => sum + r.numbers.deals.won, 0) : null,
       reports: saved.slice(0, 10).map((r) => ({
         reportId: r._id,
         savedAt: formatLocal(r.createdAt, me.timeZone),
@@ -204,6 +213,6 @@ export const run = internalQuery({
   }),
   handler: async (ctx, { caller, ...args }) => {
     const me = await requireMcpAdmin(ctx, caller);
-    return await buildEndOfDay(ctx, me, args);
+    return await buildEndOfDay(ctx, me, { ...args, closerId: args.closerId === undefined ? undefined : normalizeMcpId(ctx, "users", args.closerId, "closerId") });
   },
 });

@@ -1,3 +1,7 @@
+import { rejectRequest } from "../../lib/observability/errors";
+import { ReportRequestError } from "../../../lib/assistantReportPlan";
+import type { PeopleClosers } from "../../reports/people";
+import type { FollowThroughOutput } from "../../reports/scorecard";
 import { v } from "convex/values";
 import { internalAction, type ActionCtx } from "../../_generated/server";
 import { internal } from "../../_generated/api";
@@ -86,7 +90,7 @@ export function shedDetail(base: { isPartial: boolean; reasons: string[] }, pane
         : panel);
     return { panels, omitted };
 }
-export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: ToolRequest): Promise<Record<string, unknown>> {
+async function executeReportTool(ctx: ActionCtx, caller: McpCaller, request: ToolRequest): Promise<Record<string, unknown>> {
     const started = Date.now();
     const prepared: Prepared = JSON.parse(await ctx.runQuery(internal.mcp.reports.planning.prepare, { caller, request }));
     const sourceKey = (i: Prepared["inputs"][number]) => JSON.stringify([i.window.engine, i.window.window.startDate, i.window.window.endDateInclusive, i.window.label, i.period]);
@@ -110,13 +114,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         if (answers.every(a => a.status === "ready"))
             break;
         const needed = jobs.filter((_, i) => answers[i].status !== "ready");
-        const admission = await ctx.runMutation(internal.mcp.reports.admission.admit, { caller, jobs: needed });
-        // The per-minute allowance clears within a minute: the same request
-        // can be retried. The daily one can't, so it stays unavailable.
-        if (admission.status === "unavailable" && admission.reason === "assistant_minute_allowance_spent")
-            return capAnswer({ ...base, status: "pending", isPartial: true, reasons: [admission.reason], retryAfterSeconds: 60 });
-        if (admission.status === "unavailable")
-            return capAnswer({ ...base, status: "unavailable", isPartial: true, reasons: [admission.reason ?? "admission_unavailable"] });
+        await ctx.runMutation(internal.mcp.reports.admission.admit, { caller, jobs: needed });
         const remaining = ASSISTANT_COLD_WAIT_MS - (Date.now() - started);
         if (remaining <= 0)
             return pending();
@@ -178,16 +176,23 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
             return [rowKey(aligned), r];
         }));
         const withDeltas = bounded.rows.map(r => ({ ...r, ...(request.compareTo ? metricDelta(r, baselines.get(rowKey(r)) ?? (complete && !NON_ADDITIVE.has(r.id) ? { ...r, value: 0 } : undefined), complete && !r.lowerBound && !baselines.get(rowKey(r))?.lowerBound) : {}) }));
+        const comparisonAnswers = mergedPageAnswers(loaded, "comparison");
         const groupRows = (items: Array<MetricRow & Record<string, unknown>>) => {
             const result = new Map<string, {
                 group: string | null;
+                label?: Json;
                 periods: Array<{
                     period: string;
                     metrics: Array<MetricRow & Record<string, unknown>>;
                 }>;
             }>();
             for (const item of items) {
-                const group = result.get(item.group ?? "") ?? { group: item.group, periods: [] };
+                const name = request.groupBy === "closer" ? (currentAnswers.get("people.closers") as PeopleClosers | undefined)?.rows.find(r => r.userId === item.group)?.name
+                    ?? (currentAnswers.get("scorecard.follow_through") as FollowThroughOutput | undefined)?.byCloser.find(r => r.userId === item.group)?.name
+                    ?? (comparisonAnswers.get("people.closers") as PeopleClosers | undefined)?.rows.find(r => r.userId === item.group)?.name
+                    ?? (comparisonAnswers.get("scorecard.follow_through") as FollowThroughOutput | undefined)?.byCloser.find(r => r.userId === item.group)?.name : undefined;
+                const label = name ? (safeText({ closerName: name }) as { closerName: Json }).closerName : undefined;
+                const group = result.get(item.group ?? "") ?? { group: item.group, ...(label ? { label } : {}), periods: [] };
                 let period = group.periods.find(p => p.period === item.period);
                 if (!period) {
                     period = { period: item.period, metrics: [] };
@@ -206,7 +211,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         const baselineRemainder = request.compareTo ? boundMetricRows(comparison.filter(r => !displayedGroups.has(r.group)), 0, complete).omitted : null;
         if (baselineRemainder && baselineRemainder.groups > 0) {
             base.isPartial = true;
-            if (!base.reasons.includes("row_limit")) base.reasons.push("row_limit");
+            if (comparison.some(r => !displayedGroups.has(r.group) && !rows.some(current => current.group === r.group))) base.reasons.push("comparison_only_groups");
         }
         return capAnswer({ ...base, status: "ready", rows: groupRows(withDeltas), ...(request.compareTo ? { comparison: groupRows(comparison.filter(r => displayedGroups.has(r.group))), comparisonOmitted: baselineRemainder } : {}), omitted: bounded.omitted });
     }
@@ -249,6 +254,14 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
     }
     base.reasons = [...new Set(base.reasons)];
     return capAnswer({ ...base, status: "ready", panels, omitted });
+}
+export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: ToolRequest): Promise<Record<string, unknown>> {
+    try {
+        return await executeReportTool(ctx, caller, request);
+    } catch (error) {
+        if (error instanceof ReportRequestError) throw rejectRequest("report.invalid_request", error.message);
+        throw error;
+    }
 }
 export const numbers = internalAction({ args: { caller: mcpCallerValidator, ...numbersArgs }, returns: v.any(), handler: async (ctx, { caller, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "numbers", ...args }) });
 export const report = internalAction({ args: { caller: mcpCallerValidator, ...reportArgs }, returns: v.any(), handler: async (ctx, { caller, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "report", ...args }) });

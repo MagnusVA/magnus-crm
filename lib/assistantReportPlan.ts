@@ -1,4 +1,4 @@
-import { MAX_ANALYTICS_RANGE_DAYS, dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, resolveDashboardRange, type ResolvedAnalyticsRange } from "./analyticsRange";
+import { EmptyAnalyticsRangeError, MAX_ANALYTICS_RANGE_DAYS, dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, resolveDashboardRange, type ResolvedAnalyticsRange } from "./analyticsRange";
 import { addBusinessDays, businessDateForInstant, calendarDate, countBusinessDays, type BusinessDaySetting } from "./businessDay";
 
 export type AssistantRange = AnalyticsRange | { kind: "preset"; preset: "today" | "last_week" | "year_to_date" };
@@ -13,7 +13,13 @@ export function planAssistantSources(args: { range: AssistantRange; day: Busines
   const range: AnalyticsRange = args.range.kind === "preset" && ["today", "last_week", "year_to_date"].includes(args.range.preset)
     ? (() => { const dates = resolveDashboardRange({ kind: "preset", preset: args.range.preset }, today); return { kind: "custom" as const, startDate: dates.startBusinessDate, endDateInclusive: dates.endBusinessDateInclusive }; })() : args.range as AnalyticsRange;
   assertRequestRange(range);
-  const resolvedRange = resolveAnalyticsRange(range, args.day, args.now);
+  let resolvedRange: ResolvedAnalyticsRange;
+  try {
+    resolvedRange = resolveAnalyticsRange(range, args.day, args.now);
+  } catch (error) {
+    if (error instanceof EmptyAnalyticsRangeError) throw new ReportRequestError(error.message);
+    throw error;
+  }
   const plan = dashboardRangePlan(args.range.kind === "preset" && !("throughYesterday" in args.range && args.range.throughYesterday)
     ? { kind: "preset", preset: args.range.preset }
     : { kind: "custom", startBusinessDate: resolvedRange.startDate, endBusinessDateInclusive: resolvedRange.endDateInclusive }, today, args.settledThrough);

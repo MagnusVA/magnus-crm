@@ -196,7 +196,7 @@ export function dailyStatRows(rows: SqlRow[] | undefined): LeadGenDailyStatInput
 }
 
 /** Worked Respark items per worker, as `resparkResultsByWorker` counts them. */
-export function resparkResultsSql(range: ResolvedAnalyticsRange, workerId: Id<"leadGenWorkers"> | null) {
+export function resparkResultsSql(range: ResolvedAnalyticsRange, workerId: Id<"leadGenWorkers"> | null, teamId: Id<"attributionTeams"> | null = null) {
   return {
     sql: `
 SELECT
@@ -208,8 +208,10 @@ WHERE tenant_id = {tenant_id:String}
   AND worked_at_ms >= {from_ms:Int64}
   AND worked_at_ms < {to_ms:Int64}
   ${workerId ? "AND worker_id = {worker_id:String}" : ""}
+  ${teamId ? `AND batch_id IN (SELECT id FROM analytics.respark_batches
+    WHERE tenant_id = {tenant_id:String} AND team_id = {team_id:String})` : ""}
 GROUP BY worker_id`,
-    params: { ...rangeParams(range), ...(workerId ? { worker_id: workerId } : {}) },
+    params: { ...rangeParams(range), ...(workerId ? { worker_id: workerId } : {}), ...(teamId ? { team_id: teamId } : {}) },
   };
 }
 

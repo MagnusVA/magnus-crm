@@ -7,7 +7,7 @@ import { trimLeadGenText } from "../../leadGen/floor";
 import { visibleContactAgain } from "../../lib/contactAgain";
 import { leadGenOriginKindValidator, leadGenSourceValidator } from "../../leadGen/validators";
 import { rejectRequest } from "../../lib/observability/errors";
-import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpAdmin, requireMcpUser, type McpUser } from "../guard";
+import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpAdmin, requireMcpUser, type McpUser, withMcpCursorErrors } from "../guard";
 import { formatLocal } from "../time";
 
 /**
@@ -54,6 +54,7 @@ const captureValidator = v.object({
 const resultValidator = v.object({
   contactAgain: v.optional(v.object({ date: v.string(), note: v.optional(v.object({ text: v.string(), personSupplied: v.literal(true), truncated: v.boolean() })) })),
   input: v.string(),
+  inputs: v.array(v.string()),
   handle: v.union(v.string(), v.null()),
   verdict: verdictValidator,
   summary: v.string(),
@@ -158,7 +159,7 @@ export const check = internalQuery({
           .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", me.tenantId).eq("userId", me.userId))
           .unique();
     const toRow = captureRows(ctx, me);
-    const single = isAdmin && merged.length === 1;
+    const single = isAdmin && handles.length === 1;
     let capturesCursor: string | null | undefined;
 
     const results = [];
@@ -166,6 +167,7 @@ export const check = internalQuery({
       if (!lookup.valid) {
         results.push({
           input: lookup.input,
+          inputs: [lookup.input],
           handle: null,
           verdict: "invalid" as const,
           summary: lookup.reason,
@@ -176,6 +178,7 @@ export const check = internalQuery({
       }
       const contact = lookup.lead ? visibleContactAgain(lookup.lead) : null;
       const row = {
+        inputs: lookups.filter((candidate) => candidate.valid && candidate.dedupeKey === lookup.dedupeKey).map((candidate) => candidate.input),
         ...(contact && { contactAgain: { date: contact.date,
           ...(isAdmin && { note: { text: trimLeadGenText(contact.note), personSupplied: true as const, truncated: trimLeadGenText(contact.note) !== contact.note } }) } }),
         input: lookup.input,
@@ -203,7 +206,7 @@ export const check = internalQuery({
         .order("desc");
       if (single) {
         // One native paginated read a query: only the one-handle call pages.
-        const page = await newestFirst.paginate({ numItems: CAPTURES_PER_PAGE, cursor: cursor ?? null });
+        const page = await withMcpCursorErrors("handles.invalid_cursor", () => newestFirst.paginate({ numItems: CAPTURES_PER_PAGE, cursor: cursor ?? null }));
         capturesCursor = page.isDone ? null : page.continueCursor;
         results.push({
           ...row,
