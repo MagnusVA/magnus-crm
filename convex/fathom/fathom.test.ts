@@ -773,6 +773,13 @@ describe("Fathom API workflows", () => {
     expect(stored.find((r) => r.fathomRecordingId === 42)).toMatchObject({
       summaryMarkdown: "Summary",
       transcriptLineCount: 2,
+      actionItems: [
+        {
+          description: "Send proposal",
+          assigneeEmail: "closer@example.com",
+          timestamp: "00:01:00",
+        },
+      ],
     });
     const silent = stored.find((r) => r.fathomRecordingId === 43);
     expect(silent?.summaryMarkdown).toBeUndefined();
