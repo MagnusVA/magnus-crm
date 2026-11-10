@@ -16,6 +16,7 @@ import {
 import type { AnalyticsFilters } from "./definition";
 import { getReportDefinition } from "./registry";
 import { ANSWER_TOO_LARGE, MAX_ANSWER_BYTES, answerBytes, resolvedRangeValidator, splitPayload } from "./results";
+import { storeAnswerParts } from "../mcp/reports/payloads";
 
 // The Node build path (docs/agents/reporting.md): reports whose rows are too
 // large to pass into the `complete` mutation, or whose build needs more than
@@ -183,5 +184,33 @@ export const previewInNode = internalAction({
     const built: Built = await buildReportInNode(ctx, args);
     if (answerBytes(built.payloadJson) > MAX_ANSWER_BYTES) throw new Error(ANSWER_TOO_LARGE);
     return built.payloadJson;
+  },
+});
+
+/**
+ * The admin assistant's Node build: the answer is stored in parts under the
+ * request's run and only the part count comes back, so a multi-megabyte answer
+ * never passes through the V8 runner or into one document.
+ */
+export const storeAssistantAnswer = internalAction({
+  args: {
+    requestId: v.id("mcpReportRequests"),
+    runToken: v.string(),
+    reportId: v.string(),
+    tenantId: v.id("tenants"),
+    filtersJson: v.string(),
+    range: resolvedRangeValidator,
+  },
+  returns: v.number(),
+  handler: async (ctx, { requestId, runToken, ...build }): Promise<number> => {
+    const built: Built = await buildReportInNode(ctx, build);
+    log.info("mcp.node_build", {
+      reportId: build.reportId,
+      tenantId: build.tenantId,
+      rowsChars: built.rowsChars,
+      answerBytes: answerBytes(built.payloadJson),
+      ms: built.ms,
+    });
+    return await storeAnswerParts(ctx, { requestId, runToken }, built.payloadJson);
   },
 });
