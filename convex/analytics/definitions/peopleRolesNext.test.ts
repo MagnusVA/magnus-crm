@@ -4,14 +4,14 @@ import type { PeopleRoleReport } from "../../reports/peopleRoles";
 import { expectSameAnswer } from "../../../tests/analyticsParity";
 import { roleAggregateRows } from "../../../tests/peopleRolesAggregateFixtures";
 import { createRoleFixture, DAY, from, split, to, range, identity } from "../../../tests/peopleRolesFixtures";
-import { peopleLeadGenNext } from "./peopleRolesNext";
+import { peopleLeadGenNext, peopleSettersNext } from "./peopleRolesNext";
 import { getReportDefinition, listReportDefinitions } from "../registry";
 import { REPORT_PANELS } from "../../mcp/reports/catalog";
 import { mergePeopleRoles } from "../merge/peopleRoles";
 
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(to + DAY); });
 afterEach(() => vi.useRealTimers());
-const cases = [{ definition: peopleLeadGenNext, role: "lead_gen", live: api.reports.peopleRoles.getLeadGen }] as const;
+const cases = [{ definition: peopleSettersNext, role: "setter", live: api.reports.peopleRoles.getSetters }, { definition: peopleLeadGenNext, role: "lead_gen", live: api.reports.peopleRoles.getLeadGen }] as const;
 for (const { definition, role, live } of cases) describe(definition.id, () => {
   it("is dormant and requires context before SQL", async () => {
     expect(definition.page).toBeNull();
@@ -87,15 +87,40 @@ for (const { definition, role, live } of cases) describe(definition.id, () => {
   it("filters before the deterministic 300-item cut, keeping complete counts", async () => {
     const f = await createRoleFixture();
     await f.t.run(async ctx => {
-      const c = (await ctx.db.query("leadGenSubmissions").first())!;
-      const { _id, _creationTime, ...fields } = c; void _id; void _creationTime;
-      for (let i = 0; i < 302; i++) await ctx.db.insert("leadGenSubmissions", { ...fields, workerId: i === 301 ? f.workerB : f.workerA, submittedAt: split + 5000 });
+      if (role === "lead_gen") {
+        const c = (await ctx.db.query("leadGenSubmissions").first())!;
+        const { _id, _creationTime, ...fields } = c; void _id; void _creationTime;
+        for (let i = 0; i < 302; i++) await ctx.db.insert("leadGenSubmissions", { ...fields, workerId: i === 301 ? f.workerB : f.workerA, submittedAt: split + 5000 });
+      } else {
+        const q = (await ctx.db.query("slackQualificationEvents").first())!;
+        const { _id, _creationTime, ...fields } = q; void _id; void _creationTime;
+        for (let i = 0; i < 302; i++) await ctx.db.insert("slackQualificationEvents", { ...fields, slackUserId: i === 301 ? "UB" : "UA", submittedAt: split + 5000 });
+      }
     });
     const rows = await roleAggregateRows(f.t, f.tenantId, role, f.memberA, range, to + DAY);
     const answer: PeopleRoleReport = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range, reportId: definition.id,
       live, liveArgs: { startDate: from, endDate: to, memberId: f.memberA }, filters: { memberId: f.memberA }, rows });
     expect(answer.items).toHaveLength(300);
     expect(answer.isTruncated).toBe(false);
-    expect(answer.rows[0].captures).toBe(303);
+    expect(role === "lead_gen" ? answer.rows[0].captures : answer.rows[0].qualifications).toBe(303);
   });
+});
+
+it("setters resolve Slack user and team together and keep firstBookedAt after meetings are removed", async () => {
+  const f = await createRoleFixture();
+  await f.t.run(async ctx => {
+    for (const m of await ctx.db.query("meetings").take(100)) await ctx.db.delete("meetings", m._id);
+    const u = (await ctx.db.query("slackUsers").first())!;
+    const { _id, _creationTime, ...fields } = u; void _id; void _creationTime;
+    await ctx.db.insert("slackUsers", { ...fields, slackUserId: "UA", slackTeamId: "OTHER", teamMemberId: f.memberB });
+    const q = (await ctx.db.query("slackQualificationEvents").first())!;
+    const { _id: qid, _creationTime: qc, ...qualification } = q; void qid; void qc;
+    await ctx.db.insert("slackQualificationEvents", { ...qualification, slackUserId: "UA", slackTeamId: "OTHER" });
+    await ctx.db.insert("slackQualificationEvents", { ...qualification, slackUserId: "missing", slackTeamId: "OTHER" });
+  });
+  const rows = await roleAggregateRows(f.t, f.tenantId, "setter", null, range, to + DAY);
+  const answer: PeopleRoleReport = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range, reportId: peopleSettersNext.id,
+    live: api.reports.peopleRoles.getSetters, liveArgs: { startDate: from, endDate: to }, filters: { memberId: null }, rows });
+  expect(answer.rows.find(r => r.teamMemberId === f.memberB)).toMatchObject({ qualifications: 1, booked: 1, held: 0 });
+  expect(answer.rows.find(r => r.key === "unlinked")?.qualifications).toBe(1);
 });

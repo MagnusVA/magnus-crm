@@ -6,7 +6,7 @@ import { leadGenReports } from "./definitions/leadGen";
 import { operationsReports } from "./definitions/operations";
 import { overviewReports } from "./definitions/overview";
 import { peopleCloserReports } from "./definitions/people";
-import { peopleLeadGenNext } from "./definitions/peopleRolesNext";
+import { peopleLeadGenNext, peopleSettersNext } from "./definitions/peopleRolesNext";
 import { peopleRoleReports } from "./definitions/peopleRoles";
 import { revenueReports } from "./definitions/revenue";
 import { scorecardReports } from "./definitions/scorecard";
@@ -22,6 +22,7 @@ const definitions: readonly AnyReportDefinition[] = [
   ...peopleCloserReports,
   ...peopleRoleReports,
   peopleLeadGenNext,
+  peopleSettersNext,
   ...revenueReports,
   ...scorecardReports,
 ];

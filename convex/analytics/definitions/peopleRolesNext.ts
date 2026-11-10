@@ -2,7 +2,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { MEMBER_REPORT_ROLES, resolveMemberFilter } from "../../reports/lib/access";
 import { addMoney, loadCreditDimensions, memberIdentity, teamIdentity, type CreditDimensions, type PeopleRole } from "../../reports/lib/creditFacts";
-import { emptyPeopleRoleRow, finishPeopleRoleReport, loadRoleHours, type PeopleRoleReport, type PeopleRoleDay, type PeopleRoleItem, type getLeadGen } from "../../reports/peopleRoles";
+import { emptyPeopleRoleRow, finishPeopleRoleReport, loadRoleHours, type PeopleRoleReport, type PeopleRoleDay, type PeopleRoleItem, type getLeadGen, type getSetters } from "../../reports/peopleRoles";
 import type { SqlQuery, SqlRow } from "../clickhouse";
 import { defineReport, nodeFinalize, num, rangeParams, str, type NodeBuild } from "../definition";
 import type { PeopleRoleFilters, PeopleRoleContext } from "./peopleRoles";
@@ -85,6 +85,40 @@ WHERE c.attributed_at_ms >= {from_ms:Int64} AND c.attributed_at_ms < {to_ms:Int6
   )))` : ""}
 GROUP BY c.identity_key`;
 }
+const slackKey = `ifNull(nullIf(arrayElement({slack_members:Array(String)}, indexOf(
+    arrayZip({slack_user_ids:Array(String)}, {slack_team_ids:Array(String)}),
+    (ifNull(slack_user_id, ''), ifNull(slack_team_id, '')))), ''), 'unlinked')`;
+export const setterActivityCte = `qualifications AS (
+  SELECT id, submitted_at_ms AS at_ms, ${slackKey} AS identity_key,
+    result_kind, full_name_snapshot, lead_id, opportunity_id
+  FROM analytics.qualifications WHERE tenant_id = {tenant_id:String}
+    AND submitted_at_ms >= {from_ms:Int64} AND submitted_at_ms < {to_ms:Int64}
+)`;
+export const setterActivitySelect = `SELECT identity_key, result_kind, count() AS qualifications
+FROM qualifications GROUP BY identity_key, result_kind`;
+export const setterDaysSelect = `SELECT ${day("at_ms")} AS day_key, count() AS qualifications
+FROM qualifications WHERE identity_key = {member_key:String} GROUP BY day_key`;
+export const setterItemsSelect = `SELECT q.id AS id, q.at_ms AS at_ms, q.full_name_snapshot AS person_name,
+  q.lead_id AS lead_id, q.opportunity_id AS opportunity_id, q.result_kind AS result,
+  nullIf(d.outcome, '') AS outcome, CAST(NULL AS Nullable(Int64)) AS scheduled_at_ms
+FROM (SELECT * FROM qualifications WHERE identity_key = {member_key:String} ORDER BY at_ms DESC, id ASC LIMIT 300) AS q
+LEFT ANY JOIN (SELECT id, outcome FROM analytics.deals WHERE tenant_id = {tenant_id:String}) AS d ON d.id = q.opportunity_id
+ORDER BY q.at_ms DESC, q.id ASC`;
+export const setterDealsSelect = `SELECT c.identity_key AS identity_key, groupUniqArray(c.opportunity_id) AS deal_ids,
+  groupUniqArrayIf(c.opportunity_id, c.source_kind = 'capture') AS capture_deal_ids,
+  groupUniqArrayIf(c.opportunity_id, c.source_kind = 'respark') AS respark_deal_ids,
+  groupUniqArrayIf(c.opportunity_id, d.first_booked_at_ms IS NOT NULL OR m.meetings > 0) AS booked_deal_ids,
+  groupUniqArrayIf(c.opportunity_id, m.held > 0) AS held_deal_ids,
+  groupUniqArrayIf(c.opportunity_id, d.outcome = 'won') AS won_deal_ids
+FROM credits AS c
+LEFT ANY JOIN (SELECT id, first_booked_at_ms, outcome FROM analytics.deals WHERE tenant_id = {tenant_id:String}) AS d ON d.id = c.opportunity_id
+LEFT ANY JOIN (
+  SELECT opportunity_id, count() AS meetings, countIf(status = 'held') AS held
+  FROM analytics.meetings WHERE tenant_id = {tenant_id:String} GROUP BY opportunity_id
+) AS m ON m.opportunity_id = c.opportunity_id
+WHERE c.attributed_at_ms >= {from_ms:Int64} AND c.attributed_at_ms < {to_ms:Int64}
+GROUP BY c.identity_key`;
+
 export const leadGenActivityCtes = `${VOIDED_CAPTURES}, captures AS (
   SELECT c.id AS id, ${workerKey("c.worker_id")} AS identity_key, c.submitted_at_ms AS at_ms,
     c.prospect_id AS prospect_id, c.source AS result, nullIf(p.lead_id, '') AS lead_id
@@ -118,7 +152,7 @@ export function roleAggregateSql(range: ResolvedAnalyticsRange, role: PeopleRole
   const credits = roleCreditCtes(role);
   const query = (ctes: string, select: string): SqlQuery => ({ sql: `WITH ${ctes}\n${select}`, params });
   const result: Record<string, SqlQuery> = {
-    cash: query(credits, roleCashSelect), deals: query(credits, roleDealSelect(role)),
+    cash: query(credits, roleCashSelect), deals: query(credits, role === "setter" ? setterDealsSelect : roleDealSelect(role)),
     ...(role !== "setter" ? { wins: query(`${credits}, ${roleFirstPaymentsCte}`, roleWinsSelect),
       firstPaymentDeals: query(`${credits}, ${roleFirstPaymentsCte}`, roleFirstPaymentDealsSelect) } : {}),
   };
@@ -128,6 +162,13 @@ export function roleAggregateSql(range: ResolvedAnalyticsRange, role: PeopleRole
     if (memberId) {
       result.days = query(leadGenActivityCtes, leadGenDaysSelect);
       result.items = query(leadGenActivityCtes, leadGenItemsSelect);
+    }
+  }
+  if (role === "setter") {
+    result.activity = query(setterActivityCte, setterActivitySelect);
+    if (memberId) {
+      result.days = query(setterActivityCte, setterDaysSelect);
+      result.items = query(setterActivityCte, setterItemsSelect);
     }
   }
   return result;
@@ -194,5 +235,18 @@ export const peopleLeadGenNext = defineReport<typeof getLeadGen, PeopleRoleFilte
   },
   node: leadGenNode, finalize: nodeFinalize(leadGenNode),
   live: { name: "reports/peopleRoles:getLeadGen", args: input => ({ startDate: input.range.fromMs, endDate: input.range.toMs,
+    ...(input.filters.memberId ? { memberId: input.filters.memberId } : {}) }) },
+});
+
+const setterNode = roleAggregateNode("setter");
+export const peopleSettersNext = defineReport<typeof getSetters, PeopleRoleFilters, Context>({
+  id: "people.setters.next", page: null, roles: MEMBER_REPORT_ROLES, day: "business",
+  parseFilters: async (ctx, raw, viewer) => ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) }),
+  sql: (input, context) => {
+    if (!context) throw new Error("Role aggregate context must load before SQL.");
+    return roleAggregateSql(input.range, "setter", input.filters.memberId, context);
+  },
+  node: setterNode, finalize: nodeFinalize(setterNode),
+  live: { name: "reports/peopleRoles:getSetters", args: input => ({ startDate: input.range.fromMs, endDate: input.range.toMs,
     ...(input.filters.memberId ? { memberId: input.filters.memberId } : {}) }) },
 });
