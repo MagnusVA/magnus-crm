@@ -129,10 +129,10 @@ describe("answer size", () => {
     it("sheds remainders, then raw page data, before refusing an answer that is too big", () => {
         const base = { isPartial: false, reasons: [] as string[] };
         const big = "y".repeat(MAX_ASSISTANT_ANSWER_BYTES);
-        const omitted = [{ scope: "/data/rows", rows: 9, remainder: { cashMinor: 5 } }];
+        const omitted = [{ scope: "/data/rows", rows: 9, remainder: { cashMinor: 5 } }, { scope: "/data/origins", rows: null, remainder: null, nullReason: "incomplete_input" }];
         const shed = shedDetail(base, [{ id: "attribution.lanes", data: { blob: big }, figures: { cash: 1 } }], omitted);
         expect(shed.panels).toEqual([{ id: "attribution.lanes", figures: { cash: 1 }, dataOmitted: true }]);
-        expect(shed.omitted).toEqual([{ scope: "/data/rows", rows: 9 }]);
+        expect(shed.omitted).toEqual([{ scope: "/data/rows", rows: 9 }, { scope: "/data/origins", rows: null, nullReason: "incomplete_input" }]);
         expect(base).toMatchObject({ isPartial: true, reasons: ["answer_trimmed"] });
         expect(gatewayAnswerBytes({ ...base, panels: shed.panels, omitted: shed.omitted })).toBeLessThan(MAX_ASSISTANT_ANSWER_BYTES);
     });

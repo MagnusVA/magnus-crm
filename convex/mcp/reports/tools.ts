@@ -46,7 +46,10 @@ export function shedDetail(base: { isPartial: boolean; reasons: string[] }, pane
     if (fits()) return { panels, omitted };
     base.isPartial = true;
     base.reasons.push("answer_trimmed");
-    omitted = omitted.map(item => item && typeof item === "object" && !Array.isArray(item) ? { scope: item.scope ?? null, rows: item.rows ?? null } : item);
+    // Keep each omission's nullReason: it says the source list was incomplete.
+    omitted = omitted.map(item => item && typeof item === "object" && !Array.isArray(item)
+        ? { scope: item.scope ?? null, rows: item.rows ?? null, ...(item.nullReason ? { nullReason: item.nullReason } : {}) }
+        : item);
     if (fits()) return { panels, omitted };
     panels = panels.map(panel => panel && typeof panel === "object" && !Array.isArray(panel) && "data" in panel && "figures" in panel
         ? Object.fromEntries([...Object.entries(panel).filter(([key]) => key !== "data"), ["dataOmitted", true]]) as Json
