@@ -21,8 +21,14 @@ export class McpProjectionBudget {
     return result;
   }
 
-  text(value: string): string {
-    const safe = maskContactText(value, []);
+  /**
+   * Trims text to the budget. Free text is masked for contact details first.
+   * A handle or a post link is an identifier the agent passes back, and the
+   * phone pattern would eat the digits in `user_12345678` or a reel's id, so
+   * those are trimmed only: pass `mask: false`.
+   */
+  text(value: string, options: { mask?: boolean } = {}): string {
+    const safe = options.mask === false ? value : maskContactText(value, []);
     let result = "";
     let bytes = 0;
     for (const char of safe) {
@@ -37,9 +43,9 @@ export class McpProjectionBudget {
     return result;
   }
 
-  personText(value: string) {
-    const safe = maskContactText(value, []);
-    const text = this.text(safe);
+  personText(value: string, options: { mask?: boolean } = {}) {
+    const safe = options.mask === false ? value : maskContactText(value, []);
+    const text = this.text(safe, options);
     return { text, personSupplied: true as const, truncated: text !== safe };
   }
 }

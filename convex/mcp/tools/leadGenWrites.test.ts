@@ -389,6 +389,27 @@ describe("a prospect still pointing at a merged person", () => {
   });
 });
 
+describe("handles and post links in the read tools", () => {
+  it("come back whole, so the agent can pass them on", async () => {
+    const f = await fixture();
+    const reel = "https://www.instagram.com/reel/17841400000000000";
+    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
+      source: "instagram",
+      rawHandleOrProfileUrl: "@user_12345678",
+      originKind: "reel",
+      originUrlOrLabel: reel,
+    });
+    const sofia = await f.agent("user_sofia");
+    const activity = await sofia("magnus_my_lead_gen_activity", { range: "today" });
+    const row = (activity.data as { recent: Array<{ handle: string; originValue: { text: string } }> }).recent[0];
+    expect(row.handle).toBe("user_12345678");
+    expect(row.originValue.text).toContain("17841400000000000");
+    const today = await sofia("magnus_lead_gen_today");
+    const lastOrigin = (today.data as { counts: { lastOrigin: { value: { text: string } } } }).counts.lastOrigin;
+    expect(lastOrigin.value.text).toContain("17841400000000000");
+  });
+});
+
 describe("the respark write tools", () => {
   async function withPool(people: number) {
     const f = await fixture();

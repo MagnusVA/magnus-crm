@@ -78,7 +78,7 @@ export const batch = internalQuery({
       const capturedBy = person?.capturedBy === "you" ? "you" as const : person?.capturedBy === "a teammate" ? "a teammate" as const : null;
       items.push({ itemId: item._id, bucket: item.bucket, result: card.result,
         contactAgain: contactAgainMcp(person?.contactAgain ?? null, me.timeZone, projection), resparkBlockedReason: card.resparkBlockedReason,
-        handle: person?.handle ? projection.text(person.handle) : null, stage: person?.stage ?? null,
+        handle: person?.handle ? projection.text(person.handle, { mask: false }) : null, stage: person?.stage ?? null,
         disposition: person?.disposition ?? null, capturedAt: person?.capturedAt == null ? null : formatLocal(person.capturedAt, me.timeZone), capturedBy,
         newestDealOutcome: person?.newestDeal?.outcome ?? null,
         lastTouches: projection.take(person?.lastTouches ?? [], touchLimit).map(touch => ({ ...touch, occurredAt: formatLocal(touch.occurredAt, me.timeZone), eventType: projection.text(touch.eventType), label: projection.text(touch.label) })),
@@ -127,11 +127,11 @@ export const person = internalQuery({
       const resparkHistory = budget.take(panel.resparkHistory, limit);
       people.push({ itemId, panel: {
         contactAgain: contactAgainMcp(panel.contactAgain, me.timeZone, budget), resparkBlockedReason: panel.resparkBlockedReason,
-        handle: panel.handle ? budget.text(panel.handle) : null, stage: panel.stage, disposition: panel.disposition,
+        handle: panel.handle ? budget.text(panel.handle, { mask: false }) : null, stage: panel.stage, disposition: panel.disposition,
         dispositionReason: panel.dispositionReason ? budget.personText(panel.dispositionReason) : null,
         identity: { name: panel.identity.name ? budget.personText(panel.identity.name) : null,
           phone: panel.identity.phone ? budget.text(panel.identity.phone) : null, email: panel.identity.email ? budget.text(panel.identity.email) : null },
-        timeZone: panel.timeZone ? budget.text(panel.timeZone) : null, timeline,
+        timeZone: panel.timeZone ? budget.text(panel.timeZone, { mask: false }) : null, timeline,
         deals: deals.map(deal => ({ ...deal, createdAt: formatLocal(deal.createdAt, me.timeZone), lostReason: deal.lostReason ? budget.personText(deal.lostReason) : null })),
         calls: calls.map(call => ({ ...call, scheduledAt: formatLocal(call.scheduledAt, me.timeZone), bookingAnswers: budget.take(call.bookingAnswers, limit).map(answer => ({
           question: budget.personText(answer.question), answer: budget.personText(answer.answer) })) })),

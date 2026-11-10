@@ -25,6 +25,7 @@ import {
 // (the handle and WHAT, then when · source · origin in slate).
 
 const CaptureFlagDialog = dynamic(() => import("./capture-flag-dialog").then(mod => mod.CaptureFlagDialog));
+const ContactAgainDialog = dynamic(() => import("./contact-again-dialog").then(mod => mod.ContactAgainDialog));
 
 export const ACTIVITY_PAGE_SIZE = 25;
 
@@ -177,7 +178,8 @@ function ActivityRowItem({ row, timeZone, singleDay }: { row: ActivityRow; timeZ
               {row.flag.dismissal?.withheld ? <p>The admin note could not be shown safely.</p> : null}
             </details>
           ) : null}
-          {/* Row actions wrap here so the contact date action can join them. */}
+          {/* A person captured today who says "next month" isn't in a respark batch yet, so the date is saved here. */}
+          {role === "lead_generator" && !row.isVoided ? <ContactAgainDialog submissionId={row.submissionId} /> : null}
           {role === "lead_generator" && !row.isVoided && !row.flag ? (
             <CaptureFlagDialog kind="flag" submissionId={row.submissionId} prospectLabel={row.prospect?.normalizedHandle ? `@${row.prospect.normalizedHandle}` : "this person"} />
           ) : null}
