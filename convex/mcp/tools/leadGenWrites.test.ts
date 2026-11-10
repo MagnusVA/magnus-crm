@@ -409,35 +409,33 @@ describe("handles and post links in the read tools", () => {
     expect(lastOrigin.value.text).toContain("C1784140000xYz");
   });
 
-  it("still masks a phone or an email typed into an origin label, or put in a post link that isn't Instagram's", async () => {
+  it("still masks a phone or an email typed into an origin label, or put in a post link that isn't a plain Instagram one", async () => {
     const f = await fixture();
-    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
-      source: "instagram",
-      rawHandleOrProfileUrl: "@someone.new",
-      originKind: "follower",
-      originUrlOrLabel: "Call pat@example.com at +1 555 010 9999",
-    });
-    // The capture accepts any URL as a post origin.
-    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
-      source: "instagram",
-      rawHandleOrProfileUrl: "@someone.else",
-      originKind: "post",
-      originUrlOrLabel: "https://example.com/pat@example.com/15550109999",
-    });
-    // An Instagram link with a phone where a username would be.
-    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
-      source: "instagram",
-      rawHandleOrProfileUrl: "@a.third.one",
-      originKind: "post",
-      originUrlOrLabel: "https://instagram.com/15550109999/p/AbC",
-    });
     const sofia = await f.agent("user_sofia");
-    const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);
-    const today = JSON.stringify((await sofia("magnus_lead_gen_today")).data);
-    for (const result of [activity, today]) {
-      expect(result).not.toContain("pat@example.com");
-      expect(result).not.toContain("555 010 9999");
-      expect(result).not.toContain("15550109999");
+    const origins = [
+      // Free text a lead gen typed as a label.
+      { handle: "@someone.new", originKind: "follower" as const, value: "Call pat@example.com at +1 555 010 9999" },
+      // The capture accepts any URL as a post origin.
+      { handle: "@someone.else", originKind: "post" as const, value: "https://example.com/pat@example.com/15550109999" },
+      // An Instagram link with a phone where a username would be.
+      { handle: "@a.third.one", originKind: "post" as const, value: "https://instagram.com/15550109999/p/AbC" },
+    ];
+    for (const origin of origins) {
+      await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
+        source: "instagram",
+        rawHandleOrProfileUrl: origin.handle,
+        originKind: origin.originKind,
+        originUrlOrLabel: origin.value,
+      });
+      // Checked after each capture: the today tool shows only the last origin.
+      const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);
+      const today = JSON.stringify((await sofia("magnus_lead_gen_today")).data);
+      expect(today).toContain("lastOrigin");
+      for (const result of [activity, today]) {
+        expect(result).not.toContain("pat@example.com");
+        expect(result).not.toContain("555 010 9999");
+        expect(result).not.toContain("15550109999");
+      }
     }
   });
 });
