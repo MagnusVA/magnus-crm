@@ -409,13 +409,20 @@ describe("handles and post links in the read tools", () => {
     expect(lastOrigin.value.text).toContain("17841400000000000");
   });
 
-  it("still masks a phone or an email typed into an origin label", async () => {
+  it("still masks a phone or an email typed into an origin label, or put in a post link that isn't Instagram's", async () => {
     const f = await fixture();
     await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
       source: "instagram",
       rawHandleOrProfileUrl: "@someone.new",
       originKind: "follower",
       originUrlOrLabel: "Call pat@example.com at +1 555 010 9999",
+    });
+    // The capture accepts any URL as a post origin.
+    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
+      source: "instagram",
+      rawHandleOrProfileUrl: "@someone.else",
+      originKind: "post",
+      originUrlOrLabel: "https://example.com/pat@example.com/15550109999",
     });
     const sofia = await f.agent("user_sofia");
     const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);

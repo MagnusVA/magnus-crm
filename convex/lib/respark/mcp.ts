@@ -5,13 +5,20 @@ export const mcpPersonTextValidator = v.object({
   text: v.string(), personSupplied: v.literal(true), truncated: v.boolean(),
 });
 
+// instagram.com/p/<code>, /reel/<code>, /reels/<code> or /tv/<code>, with an
+// optional username before it and nothing after.
+const INSTAGRAM_POST_LINK =
+  /^https?:\/\/(?:www\.)?instagram\.com\/(?:[A-Za-z0-9._]+\/)?(?:p|reel|reels|tv)\/[A-Za-z0-9_-]+\/?$/;
+
 /**
- * A post or reel origin is a validated link the agent passes back. Any other
- * origin (a story label, "follower") is free text a lead gen typed, and can
- * hold a phone or an email.
+ * Whether an origin is a link the agent may pass back whole. Only a post or
+ * reel origin whose value is an Instagram post or reel link qualifies: the
+ * capture accepts any URL for those kinds, and a URL such as
+ * https://example.com/pat@example.com must still be masked. Every other
+ * origin (a story label, "follower") is free text a lead gen typed.
  */
-export function isOriginLink(originKind: string): boolean {
-  return originKind === "post" || originKind === "reel";
+export function isOriginLink(originKind: string, originValue: string): boolean {
+  return (originKind === "post" || originKind === "reel") && INSTAGRAM_POST_LINK.test(originValue);
 }
 
 /** One response budget, including children of every returned person. */

@@ -99,7 +99,7 @@ export const readActivity = internalQuery({
       ...(row.submissionId && { submissionId: row.submissionId }),
       ...(row.flag && { flag: activityFlag(row.flag, me.timeZone, budget) }),
       id: row._id, submittedAt: row.submittedAt, type: row.type, source: row.source,
-      originKind: row.originKind, originValue: row.originValue ? budget.personText(row.originValue, { mask: !isOriginLink(row.originKind) }) : null,
+      originKind: row.originKind, originValue: row.originValue ? budget.personText(row.originValue, { mask: !isOriginLink(row.originKind, row.originValue) }) : null,
       handle: row.prospect?.normalizedHandle ? budget.text(row.prospect.normalizedHandle, { mask: false }) : null, voided: row.voided ?? false }));
     const liveRange = info.history ? info.plan.kind === "split" ? { kind: "custom" as const, startBusinessDate: info.today, endBusinessDateInclusive: info.today } : null : info.range;
     const summary = liveRange ? await getMyActivitySummaryCore(ctx, me, { range: liveRange }) : null;
