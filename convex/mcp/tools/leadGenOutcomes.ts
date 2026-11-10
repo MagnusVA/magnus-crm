@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../../_generated/server";
-import { rejectRequest } from "../../lib/observability/errors";
+import { outcomesResultValidator, readMyOutcomesCore } from "../../leadGen/outcomes";
 import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser } from "../guard";
 import { leadGenRangeArgs } from "../leadGenShared";
 
@@ -25,9 +25,9 @@ export const outcomesArgs = {
 
 export const outcomes = internalQuery({
   args: { caller: mcpCallerValidator, ...outcomesArgs },
-  returns: v.any(),
-  handler: async (ctx, { caller }) => {
-    await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
-    throw rejectRequest("mcp.not_built", "This tool isn't built yet.");
+  returns: outcomesResultValidator,
+  handler: async (ctx, { caller, ...args }) => {
+    const me = await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
+    return await readMyOutcomesCore(ctx, me, args);
   },
 });

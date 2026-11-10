@@ -162,6 +162,7 @@ import type * as leadCustomers_types from "../leadCustomers/types.js";
 import type * as leadCustomers_validators from "../leadCustomers/validators.js";
 import type * as leadGen_activity from "../leadGen/activity.js";
 import type * as leadGen_aggregates from "../leadGen/aggregates.js";
+import type * as leadGen_assistantAccess from "../leadGen/assistantAccess.js";
 import type * as leadGen_assistantText from "../leadGen/assistantText.js";
 import type * as leadGen_auditMatching from "../leadGen/auditMatching.js";
 import type * as leadGen_auditQueries from "../leadGen/auditQueries.js";
@@ -724,6 +725,7 @@ declare const fullApi: ApiFromModules<{
   "leadCustomers/validators": typeof leadCustomers_validators;
   "leadGen/activity": typeof leadGen_activity;
   "leadGen/aggregates": typeof leadGen_aggregates;
+  "leadGen/assistantAccess": typeof leadGen_assistantAccess;
   "leadGen/assistantText": typeof leadGen_assistantText;
   "leadGen/auditMatching": typeof leadGen_auditMatching;
   "leadGen/auditQueries": typeof leadGen_auditQueries;
