@@ -33,6 +33,7 @@ const RESPARK_HREF = "/workspace/lead-gen/respark";
 // Pages an admin reaches here that the sidebar doesn't list on its own line.
 const adminExtras: NavItem[] = [
   { label: "Lead gen rules", href: "/workspace/settings?tab=lead-gen", icon: SettingsIcon },
+  { label: "Fathom", href: "/workspace/settings/fathom", icon: SettingsIcon },
   { label: "Respark", href: RESPARK_HREF, icon: RefreshCwIcon },
 ];
 
