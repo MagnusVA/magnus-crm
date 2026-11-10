@@ -1,3 +1,5 @@
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
+import { mergedStream, stream } from "convex-helpers/server/stream";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -10,8 +12,10 @@ import {
 import { meetingsByStatus } from "../reporting/aggregates";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
+import schema from "../schema";
 import { REPORT_ADMIN_ROLES } from "./lib/access";
 import { loadCallFacts } from "./lib/callFacts";
+import { pipelineNextStep } from "./lib/pipelineNextStep";
 
 import { nullableNumber, openStageValidator } from "./lib/validators";
 
@@ -126,6 +130,146 @@ export const pipelineNowValidator = v.object({
     ),
     partial: v.boolean(),
   }),
+});
+
+export const listOpenDeals = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(
+    v.object({
+      opportunityId: v.id("opportunities"),
+      stage: openStageValidator,
+      createdAt: v.number(),
+      leadName: v.string(),
+      closerName: v.union(v.string(), v.null()),
+      nextMeetingAt: nullableNumber,
+      task: v.union(v.object({ at: nullableNumber }), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+    const database = stream(ctx.db, schema);
+    const result = await mergedStream(
+      OPEN_PIPELINE_STAGES.map((stage) =>
+        database
+          .query("opportunities")
+          .withIndex("by_tenantId_and_stage_and_outcome_and_createdAt", (q) =>
+            q.eq("tenantId", tenantId).eq("stage", stage).eq("outcome", "open"),
+          )
+          .order("asc"),
+      ),
+      ["createdAt", "_creationTime", "_id"],
+    ).paginate({
+      ...args.paginationOpts,
+      numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),
+    });
+    const closers = new Map<Id<"users">, string | null>();
+    for (const id of new Set(
+      result.page.flatMap((deal) =>
+        deal.assignedCloserId ? [deal.assignedCloserId] : [],
+      ),
+    )) {
+      const closer = await ctx.db.get("users", id);
+      closers.set(
+        id,
+        closer?.tenantId === tenantId ? getUserDisplayName(closer) : null,
+      );
+    }
+    const rows = await Promise.all(
+      result.page.map(async (deal) => {
+        const lead = await ctx.db.get("leads", deal.leadId);
+        const task = await ctx.db
+          .query("followUps")
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
+            q.eq("opportunityId", deal._id).eq("status", "pending"),
+          )
+          .first();
+        return {
+          opportunityId: deal._id,
+          stage: deal.stage as OpenPipelineStage,
+          createdAt: deal.createdAt,
+          leadName:
+            lead?.tenantId === tenantId
+              ? (lead.fullName ?? "Unknown person")
+              : "Unknown person",
+          closerName: deal.assignedCloserId
+            ? (closers.get(deal.assignedCloserId) ?? null)
+            : null,
+          nextMeetingAt: deal.nextMeetingAt ?? null,
+          task:
+            task?.tenantId === tenantId
+              ? { at: task.reminderScheduledAt ?? null }
+              : null,
+        };
+      }),
+    );
+    return { ...result, page: rows };
+  },
+});
+
+export const listOwedCalls = query({
+  args: { paginationOpts: paginationOptsValidator, endedBy: v.number() },
+  returns: paginationResultValidator(
+    v.object({
+      meetingId: v.id("meetings"),
+      opportunityId: v.id("opportunities"),
+      scheduledAt: v.number(),
+      endsAt: v.number(),
+      closerId: v.id("users"),
+      closerName: v.string(),
+      leadName: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+    if (!Number.isFinite(args.endedBy))
+      throw new Error("endedBy must be finite.");
+    const result = await stream(ctx.db, schema)
+      .query("meetings")
+      .withIndex("by_tenantId_and_status_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("status", "scheduled")
+          .lte("scheduledAt", args.endedBy),
+      )
+      .order("asc")
+      .filterWith(
+        async (meeting) =>
+          meeting.scheduledAt + meeting.durationMinutes * 60_000 <= args.endedBy,
+      )
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.min(100, Math.max(1, args.paginationOpts.numItems)),
+        maximumRowsRead: 500,
+      });
+    const { facts } = await loadCallFacts(
+      ctx,
+      tenantId,
+      result.page,
+      args.endedBy,
+    );
+    const byMeeting = new Map(facts.map((fact) => [fact.meeting._id, fact]));
+    return {
+      ...result,
+      // Bounded enrichment can omit a call. Keep its cursor position and the
+      // source order, without guessing historical closer credit for that call.
+      page: result.page.flatMap((meeting) => {
+        const fact = byMeeting.get(meeting._id);
+        return fact
+          ? [
+            {
+              meetingId: meeting._id,
+              opportunityId: meeting.opportunityId,
+              scheduledAt: meeting.scheduledAt,
+              endsAt: meeting.scheduledAt + meeting.durationMinutes * 60_000,
+              closerId: fact.closerId,
+              closerName: fact.closerName,
+              leadName: fact.leadName,
+            },
+          ]
+          : [];
+      }),
+    };
+  },
 });
 
 async function readOwedTotal(
@@ -277,17 +421,16 @@ export const getPipelineNow = query({
           q.eq("opportunityId", deal._id).eq("status", "pending"),
         )
         .first();
-      const callAt = deal.nextMeetingAt;
-      const taskAt =
-        task?.tenantId === tenantId ? (task.reminderScheduledAt ?? null) : null;
-      const step =
-        callAt !== undefined &&
-        callAt >= now &&
-        (taskAt === null || callAt <= taskAt)
-          ? { kind: "call" as const, at: callAt }
-          : task?.tenantId === tenantId
-            ? { kind: "task" as const, at: taskAt }
-            : null;
+      const step = pipelineNextStep(
+        {
+          nextMeetingAt: deal.nextMeetingAt,
+          task:
+            task?.tenantId === tenantId
+              ? { at: task.reminderScheduledAt ?? null }
+              : null,
+        },
+        now,
+      );
       next.set(deal._id, step);
       if (!step) noNextStep++;
     }

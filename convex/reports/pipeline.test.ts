@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import aggregate from "@convex-dev/aggregate/test";
+import type { FunctionReturnType } from "convex/server";
 import { meetingsByStatus } from "../reporting/aggregates";
 import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
+import { OPEN_PIPELINE_STAGES } from "../reporting/pipelineHealth";
+import { pipelineNextStep } from "./lib/pipelineNextStep";
 import {
   callsReportFixture,
   from,
@@ -174,5 +178,282 @@ describe("Pipeline now", () => {
         .withIdentity({ subject: "reports_ana", org_id: identity.org_id })
         .query(api.reports.pipeline.getPipelineNow, {}),
     ).rejects.toThrow("Insufficient permissions");
+  });
+});
+
+describe("Pipeline pages", () => {
+  it("pages 25 mixed-stage open deals oldest first without gaps or duplicates", async () => {
+    const f = await callsReportFixture();
+    const expected = await f.t.run(async (ctx) => {
+      const original = (await ctx.db.get("opportunities", f.owedDeal))!;
+      const { _id, _creationTime, ...doc } = original;
+      void _id;
+      void _creationTime;
+      for (let index = 0; index < 23; index++)
+        await ctx.db.insert("opportunities", {
+          ...doc,
+          stage: OPEN_PIPELINE_STAGES[index % OPEN_PIPELINE_STAGES.length],
+          // Insert out of order, with ties across stages and page boundaries.
+          createdAt: from - Math.floor(((index * 7) % 23) / 3) * DAY,
+        });
+      await ctx.db.patch("opportunities", f.owedDeal, {
+        nextMeetingAt: now + DAY,
+      });
+      await ctx.db.insert("followUps", {
+        tenantId: f.tenantId,
+        opportunityId: f.owedDeal,
+        leadId: doc.leadId,
+        closerId: f.beto,
+        type: "manual_reminder",
+        status: "pending",
+        reason: "admin_initiated",
+        reminderScheduledAt: now + 2 * DAY,
+        createdAt: from,
+      });
+      return (await ctx.db.query("opportunities").take(100))
+        .filter((deal) => deal.outcome === "open")
+        .sort(
+          (a, b) =>
+            a.createdAt - b.createdAt ||
+            a._creationTime - b._creationTime ||
+            a._id.localeCompare(b._id),
+        );
+    });
+    const viewer = f.t.withIdentity(identity);
+    const pages = [];
+    let cursor: string | null = null;
+    for (let index = 0; index < 3; index++) {
+      const page: FunctionReturnType<typeof api.reports.pipeline.listOpenDeals> =
+        await viewer.query(api.reports.pipeline.listOpenDeals, {
+          paginationOpts: { numItems: 10, cursor },
+        });
+      pages.push(page);
+      cursor = page.continueCursor;
+    }
+    expect(pages.map((page) => page.page.length)).toEqual([10, 10, 5]);
+    expect(pages.map((page) => page.isDone)).toEqual([false, false, true]);
+    const rows = pages.flatMap((page) => page.page);
+    expect(rows.map((row) => row.opportunityId)).toEqual(
+      expected.map((deal) => deal._id),
+    );
+    expect(new Set(rows.map((row) => row.opportunityId)).size).toBe(25);
+    expect(rows.find((row) => row.opportunityId === f.owedDeal)).toEqual({
+      opportunityId: f.owedDeal,
+      stage: "follow_up",
+      createdAt: from - DAY,
+      leadName: "Person",
+      closerName: "Beto",
+      nextMeetingAt: now + DAY,
+      task: { at: now + 2 * DAY },
+    });
+  });
+
+  it("excludes won and lost deals", async () => {
+    const f = await callsReportFixture();
+    const lost = await f.t.run(async (ctx) => {
+      const original = (await ctx.db.get("opportunities", f.won))!;
+      const { _id, _creationTime, ...doc } = original;
+      void _id;
+      void _creationTime;
+      return await ctx.db.insert("opportunities", { ...doc, outcome: "lost" });
+    });
+    const answer = await f.t.withIdentity(identity).query(
+      api.reports.pipeline.listOpenDeals,
+      { paginationOpts: { numItems: 100, cursor: null } },
+    );
+    const ids = answer.page.map((row) => row.opportunityId);
+    expect(ids).toHaveLength(2);
+    expect(ids).not.toContain(f.won);
+    expect(ids).not.toContain(f.old);
+    expect(ids).not.toContain(lost);
+  });
+
+  it("isolates both pages and joined names and tasks from another tenant", async () => {
+    const f = await callsReportFixture();
+    const other = await f.t.run(async (ctx) => {
+      const tenant = (await ctx.db.get("tenants", f.tenantId))!;
+      const { _id, _creationTime, ...tenantDoc } = tenant;
+      void _id;
+      void _creationTime;
+      const tenantId = await ctx.db.insert("tenants", {
+        ...tenantDoc,
+        workosOrgId: "org_other_pipeline",
+      });
+      const closerId = await ctx.db.insert("users", {
+        tenantId,
+        workosUserId: "other_pipeline_closer",
+        role: "closer",
+        fullName: "Private closer",
+        email: "private@example.invalid",
+        isActive: true,
+      });
+      const original = (await ctx.db.get("opportunities", f.owedDeal))!;
+      const { _id: dealId, _creationTime: dealTime, ...deal } = original;
+      void dealId;
+      void dealTime;
+      const originalLead = (await ctx.db.get("leads", deal.leadId))!;
+      const { _id: personId, _creationTime: personTime, ...person } = originalLead;
+      void personId;
+      void personTime;
+      const leadId = await ctx.db.insert("leads", {
+        ...person,
+        tenantId,
+        fullName: "Private person",
+      });
+      const opportunityId = await ctx.db.insert("opportunities", {
+        ...deal,
+        tenantId,
+        leadId,
+        assignedCloserId: closerId,
+      });
+      const originalMeeting = (await ctx.db.get("meetings", f.owed))!;
+      const {
+        _id: meetingId,
+        _creationTime: meetingTime,
+        ...meeting
+      } = originalMeeting;
+      void meetingId;
+      void meetingTime;
+      const callId = await ctx.db.insert("meetings", {
+        ...meeting,
+        tenantId,
+        opportunityId,
+        assignedCloserId: closerId,
+        scheduledAt: from - DAY,
+      });
+      // Stale foreign references must not leak their names or task time.
+      await ctx.db.patch("opportunities", f.owedDeal, {
+        leadId,
+        assignedCloserId: closerId,
+      });
+      await ctx.db.insert("followUps", {
+        tenantId,
+        opportunityId: f.owedDeal,
+        leadId,
+        closerId,
+        type: "manual_reminder",
+        status: "pending",
+        reason: "admin_initiated",
+        reminderScheduledAt: now,
+        createdAt: from,
+      });
+      return { opportunityId, callId };
+    });
+    const viewer = f.t.withIdentity(identity);
+    const deals = await viewer.query(api.reports.pipeline.listOpenDeals, {
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(deals.page.map((row) => row.opportunityId)).not.toContain(
+      other.opportunityId,
+    );
+    expect(deals.page).toHaveLength(2);
+    expect(
+      deals.page.find((row) => row.opportunityId === f.owedDeal),
+    ).toMatchObject({
+      leadName: "Unknown person",
+      closerName: null,
+      task: null,
+    });
+    const calls = await viewer.query(api.reports.pipeline.listOwedCalls, {
+      endedBy: now,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(calls.page.map((row) => row.meetingId)).toEqual([f.owed]);
+    expect(calls.page.map((row) => row.meetingId)).not.toContain(other.callId);
+  });
+
+  it("fills an owed-call page after skipping a call that has started but not ended", async () => {
+    const f = await callsReportFixture();
+    const endedBy = from + 3 * 3_600_000;
+    const seeded = await f.t.run(async (ctx) => {
+      const original = (await ctx.db.get("meetings", f.owed))!;
+      const { _id, _creationTime, ...doc } = original;
+      void _id;
+      void _creationTime;
+      const started = await ctx.db.insert("meetings", {
+        ...doc,
+        scheduledAt: endedBy - 90 * 60_000,
+        durationMinutes: 120,
+      });
+      const ended: Id<"meetings">[] = [];
+      for (let index = 0; index < 10; index++)
+        ended.push(
+          await ctx.db.insert("meetings", {
+            ...doc,
+            scheduledAt: endedBy - (60 - index) * 60_000,
+            durationMinutes: 1,
+          }),
+        );
+      return { started, ended };
+    });
+    const answer = await f.t.withIdentity(identity).query(
+      api.reports.pipeline.listOwedCalls,
+      { endedBy, paginationOpts: { numItems: 10, cursor: null } },
+    );
+    expect(answer.page).toHaveLength(10);
+    expect(answer.page.map((row) => row.meetingId)).toEqual(seeded.ended);
+    expect(answer.page.map((row) => row.meetingId)).not.toContain(seeded.started);
+    expect(answer.page[0]).toEqual({
+      meetingId: seeded.ended[0],
+      opportunityId: f.owedDeal,
+      scheduledAt: endedBy - 60 * 60_000,
+      endsAt: endedBy - 59 * 60_000,
+      closerId: f.beto,
+      closerName: "Beto",
+      leadName: "Person",
+    });
+  });
+
+  it("removes a call from the owed page when it is marked held", async () => {
+    const f = await callsReportFixture();
+    const viewer = f.t.withIdentity(identity);
+    const args = { endedBy: now, paginationOpts: { numItems: 10, cursor: null } };
+    const before = await viewer.query(api.reports.pipeline.listOwedCalls, args);
+    expect(before.page.map((row) => row.meetingId)).toEqual([f.owed]);
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("meetings", f.owed, { status: "held", heldMarkedAt: now });
+    });
+    const after = await viewer.query(api.reports.pipeline.listOwedCalls, args);
+    expect(after.page).toEqual([]);
+    expect(after.isDone).toBe(true);
+  });
+
+  it("rejects a closer for both admin-only pages", async () => {
+    const f = await callsReportFixture();
+    const viewer = f.t.withIdentity({
+      subject: "reports_ana",
+      org_id: identity.org_id,
+    });
+    await expect(
+      viewer.query(api.reports.pipeline.listOpenDeals, {
+        paginationOpts: { numItems: 10, cursor: null },
+      }),
+    ).rejects.toThrow("Insufficient permissions");
+    await expect(
+      viewer.query(api.reports.pipeline.listOwedCalls, {
+        endedBy: now,
+        paginationOpts: { numItems: 10, cursor: null },
+      }),
+    ).rejects.toThrow("Insufficient permissions");
+  });
+});
+
+describe("pipelineNextStep", () => {
+  it("chooses a future call, otherwise a task, otherwise no next step", () => {
+    expect(
+      pipelineNextStep({ nextMeetingAt: now, task: { at: now } }, now),
+    ).toEqual({ kind: "call", at: now });
+    expect(
+      pipelineNextStep({ nextMeetingAt: now + DAY, task: { at: now } }, now),
+    ).toEqual({ kind: "task", at: now });
+    expect(
+      pipelineNextStep({ nextMeetingAt: now - 1, task: { at: null } }, now),
+    ).toEqual({ kind: "task", at: null });
+    expect(
+      pipelineNextStep({ nextMeetingAt: undefined, task: null }, now),
+    ).toBeNull();
+    expect(
+      pipelineNextStep({ nextMeetingAt: null, task: null }, now),
+    ).toBeNull();
   });
 });
