@@ -64,7 +64,7 @@ export async function redeemConfirmation(
   args: unknown,
 ): Promise<
   | { kind: "replay"; result: unknown }
-  | { kind: "fresh"; confirmationId: Id<"mcpConfirmations"> }
+  | { kind: "fresh"; confirmationId: Id<"mcpConfirmations">; preview: string }
 > {
   if (!token) {
     throw rejectRequest(
@@ -102,7 +102,7 @@ export async function redeemConfirmation(
   if (row.expiresAt < Date.now()) {
     throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask before committing.");
   }
-  return { kind: "fresh", confirmationId: row._id };
+  return { kind: "fresh", confirmationId: row._id, preview: row.preview };
 }
 
 export async function markConfirmationUsed(

@@ -213,7 +213,7 @@ function NoShowForm({
               htmlFor={`${ids}-note`}
               invalid={fieldState.invalid}
               error={fieldState.error}
-              description="Optional."
+              description="Lead generators who first captured this person can read this note."
             >
               <Textarea
                 {...field}

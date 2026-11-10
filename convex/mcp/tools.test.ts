@@ -503,11 +503,7 @@ describe("call notes", () => {
 describe("AI assistant access settings", () => {
   it("requires an admin and a role with permission and a toolset", async () => {
     const h = await mcpToolsFixture();
-    await expect(
-      h.owner.mutation(api.mcp.settings.setRoles, {
-        roles: ["lead_generator"],
-      }),
-    ).rejects.toThrow("no AI assistant tools yet");
+    await h.owner.mutation(api.mcp.settings.setRoles, { roles: ["lead_generator"] });
     await expect(
       h.closer.mutation(api.mcp.settings.setRoles, { roles: [] }),
     ).rejects.toThrow();
@@ -526,7 +522,7 @@ describe("AI assistant access settings", () => {
     });
     expect(
       await h.owner.query(api.mcp.settings.getAiAssistantSettings),
-    ).toMatchObject({ roles: ["closer"], availableRoles: ["closer", "tenant_master", "tenant_admin"] });
+    ).toMatchObject({ roles: ["closer"], availableRoles: ["closer", "tenant_master", "tenant_admin", "lead_generator"] });
     const tenant = await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId));
     expect(tenant?.mcpAccess?.changedByUserId).toBe(h.ownerId);
   });

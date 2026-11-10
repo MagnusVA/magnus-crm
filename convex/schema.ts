@@ -54,6 +54,8 @@ import { writeFamilyValidator } from "./mcp/families";
 import { fathomTables } from "./fathom/schema";
 import { secondOpinionTables } from "./secondOpinion/schema";
 import { endOfDayTables } from "./closer/endOfDaySchema";
+import { leadGenShiftTables } from "./leadGen/endOfShiftSchema";
+import { contactAgainValidator } from "./lib/contactAgain";
 
 export default defineSchema({
   ...pipelineTables,
@@ -66,6 +68,7 @@ export default defineSchema({
   ...fathomTables,
   ...secondOpinionTables,
   ...endOfDayTables,
+  ...leadGenShiftTables,
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
     // Set when the tenant moved to the booking coverage model: explicit Shared
@@ -544,6 +547,24 @@ export default defineSchema({
       "leadId",
     ]),
 
+  // A lead generator's flag on one of their own captures, for an admin to
+  // review (docs/plans/lead-gen-assistant.md, "Release 2"). One per capture,
+  // ever. A void closes it; an admin can dismiss it with a note.
+  leadGenCaptureFlags: defineTable({
+    tenantId: v.id("tenants"),
+    submissionId: v.id("leadGenSubmissions"),
+    workerId: v.id("leadGenWorkers"),
+    createdByUserId: v.id("users"),
+    reason: v.string(),
+    createdAt: v.number(),
+    state: v.union(v.literal("open"), v.literal("voided"), v.literal("dismissed")),
+    resolvedAt: v.optional(v.number()),
+    resolvedByUserId: v.optional(v.id("users")),
+    resolutionNote: v.optional(v.string()),
+  })
+    .index("by_tenantId_and_submissionId", ["tenantId", "submissionId"])
+    .index("by_tenantId_and_state_and_createdAt", ["tenantId", "state", "createdAt"]),
+
   leadGenCorrectionEvents: defineTable({
     tenantId: v.id("tenants"),
     targetType: v.union(
@@ -689,6 +710,11 @@ export default defineSchema({
     // The team of the first capture (2026-10-25): each lead gen team works
     // only its own people. None for people no team captured.
     resparkTeamId: v.optional(v.id("attributionTeams")),
+
+    // The date this person asked to be contacted again
+    // (convex/lib/contactAgain.ts). While it is ahead, no respark claim picks
+    // them. Cleared when they become a customer or do not contact.
+    contactAgain: v.optional(contactAgainValidator),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
@@ -707,6 +733,13 @@ export default defineSchema({
       "resparkTeamId",
       "resparkGroup",
       "lastTouch.occurredAt",
+    ])
+    // A team's people with a contact-again date, so the pool counts can
+    // leave out the ones whose date is still ahead.
+    .index("by_tenantId_and_resparkTeamId_and_contactAgainAt", [
+      "tenantId",
+      "resparkTeamId",
+      "contactAgain.at",
     ])
     .searchIndex("search_leads", {
       searchField: "searchText",

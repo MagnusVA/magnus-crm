@@ -28,6 +28,7 @@ const ADMIN_ROWS: { role: AdminRole; label: string }[] = [
 
 const ROLE_WORD: Record<string, string> = {
   closer: "closers",
+  lead_generator: "lead generators",
   tenant_master: "owner",
   tenant_admin: "admins",
 };
@@ -48,7 +49,7 @@ function AiAssistantsSettings() {
   const settings = useQuery(api.mcp.settings.getAiAssistantSettings, {});
   const setRoles = useMutation(api.mcp.settings.setRoles);
   const setWriteAccess = useMutation(api.mcp.settings.setWriteAccess);
-  const [confirmOn, setConfirmOn] = useState<null | "closer" | AdminRole>(null);
+  const [confirmOn, setConfirmOn] = useState<null | "closer" | "lead_generator" | AdminRole>(null);
   const [saving, setSaving] = useState(false);
 
   if (settings === undefined) {
@@ -59,9 +60,9 @@ function AiAssistantsSettings() {
   const closersOn = roles.includes("closer");
   const canManageAdmins = settings.canManageAdminAccess;
   const readingAdmins = ADMIN_ROWS.filter(({ role }) => roles.includes(role));
-  const onFor = (["closer", "tenant_master", "tenant_admin"] as const).filter((role) => roles.includes(role));
+  const onFor = (["closer", "tenant_master", "tenant_admin", "lead_generator"] as const).filter((role) => roles.includes(role));
 
-  async function turnOff(role: "closer" | AdminRole) {
+  async function turnOff(role: "closer" | "lead_generator" | AdminRole) {
     setSaving(true);
     try {
       await setRoles({ roles: roles.filter((r) => r !== role) });
@@ -91,6 +92,12 @@ function AiAssistantsSettings() {
           description:
             "Their AI agents can read their meetings, people and deals, and that data goes to whichever AI provider each closer uses.",
         }
+      : confirmOn === "lead_generator"
+        ? {
+            title: "Turn on for lead generators?",
+            description:
+              "Their AI agents can save captures, work their respark batch, save contact-again dates and post their end-of-shift report, and that data goes to whichever AI provider each lead generator uses.",
+          }
       : confirmOn
         ? {
             title: `Turn on for ${confirmOn === "tenant_master" ? "the owner" : "admins"}?`,
@@ -109,7 +116,8 @@ function AiAssistantsSettings() {
       <div className="border-b border-border px-4 py-2.5">
         <NoteLine>
           Your team can connect Claude, ChatGPT or a terminal agent to Magnus. Each agent signs in as its person and
-          sees only what they can: closers work their own day; the owner and admins read the whole workspace.
+          sees only what they can: closers work their own day; lead generators work their own captures and respark
+          batch; the owner and admins read the whole workspace.
         </NoteLine>
       </div>
       <ul className="border-b border-border last:border-b-0">
@@ -138,7 +146,17 @@ function AiAssistantsSettings() {
             }}
           />
         ))}
-        <RoleRow id="ai-lead-generators" label="Lead generators" description="No tools yet" checked={false} disabled />
+        <RoleRow
+          id="ai-lead-generators"
+          label="Lead generators"
+          description="12 tools · captures, respark, their own numbers and people, contact-again dates and the end of the shift"
+          checked={roles.includes("lead_generator")}
+          disabled={saving || !settings.availableRoles.includes("lead_generator")}
+          onCheckedChange={(on) => {
+            if (on) setConfirmOn("lead_generator");
+            else void turnOff("lead_generator");
+          }}
+        />
       </ul>
       {!canManageAdmins ? (
         <div className="border-b border-border px-4 py-2.5">

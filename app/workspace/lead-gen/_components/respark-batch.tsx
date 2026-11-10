@@ -100,6 +100,7 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
   const act = async (item: Item, action: Action) => {
     if (inFlightRef.current.has(item.itemId) || notAFitTaken(item.itemId) || item.result !== null) return;
     if (item.blockedReason && action !== "skipped") return;
+    if (item.resparkBlockedReason && action === "resparked") return;
     if (Date.now() >= batch.heldUntil) {
       toast.error(BATCH_ENDED_MESSAGE);
       return;
@@ -181,7 +182,7 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
         title="Respark batch"
         description={
           <>
-            {batch.size} people ·{" "}
+            {batch.size} {batch.size === 1 ? "person" : "people"} ·{" "}
             <HelpTip tip={`The end of the business day, ${timeZone} time. Then the batch ends.`}>
               held until {formatClock(batch.heldUntil, timeZone)}
             </HelpTip>
@@ -243,6 +244,7 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
                   {segment.map((row) => (
                     <WorkedLine
                       key={row.item.itemId}
+                      onView={() => setPanelItem({ itemId: row.item.itemId, bucket: row.item.bucket })}
                       handle={handleOf(row.item)}
                       result={row.kind === "sent" ? "not_a_fit" : (row.item.result ?? "not_a_fit")}
                     />
@@ -298,6 +300,20 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
   );
 }
 
+/** A completed batch remains readable until its hold ends, including its last person. */
+export function CompletedResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: string }) {
+  const [selected, setSelected] = useState<Item | null>(null);
+  return <>
+    <details className={RESPARK_CARD}>
+      <summary className="cursor-pointer px-4 py-3 text-sm">People in this batch</summary>
+      <ul>
+        {batch.items.map(item => <WorkedLine key={item.itemId} handle={handleOf(item)} result={item.result ?? "skipped"} onView={() => setSelected(item)} />)}
+      </ul>
+    </details>
+    {selected ? <ResparkPersonSheet itemId={selected.itemId} bucket={selected.bucket} timeZone={timeZone} onClose={() => setSelected(null)} /> : null}
+  </>;
+}
+
 /** A 36px action in the card's column (or its row on a narrow card). View joins the title row from @3xl. */
 
 function ResparkCard({
@@ -343,8 +359,8 @@ function ResparkCard({
           <Button
             variant={focused ? "default" : "outline"}
             className={cn(size, focused && "font-semibold")}
-            disabled={sending}
-            title="Counts as an entry"
+            disabled={sending || item.resparkBlockedReason !== null}
+            title={item.resparkBlockedReason ?? "Counts as an entry"}
             onClick={() => onAct("resparked")}
           >
             {sending ? <Spinner data-icon="inline-start" /> : null}
@@ -444,6 +460,7 @@ function ResparkCard({
               ) : null}
             </dl>
           ) : null}
+          {item.resparkBlockedReason ? <p className="text-sm text-muted-foreground">{item.resparkBlockedReason}</p> : null}
           {blocked ? (
             <p className="mt-1 text-[13px] leading-5 text-danger-ink">{item.blockedReason} Skip them instead.</p>
           ) : null}
@@ -480,12 +497,12 @@ function ResparkCard({
 }
 
 /** A worked person: one 40px ruled line, the result, then its status word. */
-function WorkedLine({ handle, result }: { handle: string; result: Action }) {
+function WorkedLine({ handle, result, onView }: { handle: string; result: Action; onView: () => void }) {
   const line = RESULT_LINES[result];
   return (
     <li className="flex min-h-10 items-center gap-3 border-b border-border px-4 py-1.5 last:border-b-0">
       <span className="min-w-0 truncate text-sm">
-        <span className="font-medium">{handle}</span>
+        <button type="button" className={detailLinkClass} onClick={onView}>{handle}</button>
         <span className="text-[13px] text-muted-foreground"> · {line.text}</span>
       </span>
       <span className={cn(STATUS_WORD, line.ink, "ml-auto")}>{line.word}</span>

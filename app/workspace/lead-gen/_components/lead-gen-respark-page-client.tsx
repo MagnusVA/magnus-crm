@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { useCurrentBusinessDate } from "@/hooks/use-current-business-date";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { getErrorMessage } from "@/lib/errors";
@@ -25,7 +26,7 @@ import { SectionEmpty, SectionError } from "@/app/workspace/closer/_components/s
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { LeadGenResparkSkeleton } from "./lead-gen-respark-skeleton";
-import { ResparkBatch } from "./respark-batch";
+import { CompletedResparkBatch, ResparkBatch } from "./respark-batch";
 import { formatClock } from "./respark-format";
 import {
   BandZones,
@@ -68,10 +69,11 @@ const START_LINE = "A second pass on people who stalled. Your batch comes from t
 // server; there is no filter and no bucket picker.
 export function LeadGenResparkPageClient() {
   usePageTitle("Respark");
-  const batch = useQuery(api.respark.queries.getMyResparkBatch, {});
+  const { setting } = useBusinessDay("lead-gen");
+  const currentBusinessDate = useCurrentBusinessDate(setting);
+  const batch = useQuery(api.respark.queries.getMyResparkBatch, { currentBusinessDate });
   // The query only re-runs on writes, so the hold's end is timed here.
   const ended = useHasPassed(batch ? batch.heldUntil : null);
-  const { setting } = useBusinessDay("lead-gen");
   const claim = useMutation(api.respark.batches.claimResparkBatch);
   const [claiming, setClaiming] = useState(false);
 
@@ -127,7 +129,7 @@ export function LeadGenResparkPageClient() {
         </SectionErrorBoundary>
       </PageBand>
 
-      {done ? <BatchDoneLine summary={done} /> : null}
+      {done ? <><BatchDoneLine summary={done} /><CompletedResparkBatch key={live!.batchId} batch={live!} timeZone={setting.timeZone} /></> : null}
 
       <section className={RESPARK_CARD} aria-labelledby="respark-next-batch">
         <SectionErrorBoundary sectionName="the respark pool" fallback={<NextBatchFailed />}>
@@ -153,13 +155,17 @@ function GetBatchButton({ again, claiming, onGetBatch }: { again: boolean; claim
  * the counts can lag and the claim decides.
  */
 function StartAction(props: { again: boolean; claiming: boolean; onGetBatch: () => void }) {
-  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
+  const { setting } = useBusinessDay("lead-gen");
+  const currentBusinessDate = useCurrentBusinessDate(setting);
+  const pool = useQuery(api.respark.queries.getResparkPoolCounts, { currentBusinessDate });
   if (pool?.noTeam) return null;
   return <GetBatchButton {...props} />;
 }
 
 function TodayZones() {
-  const today = useQuery(api.respark.queries.getMyResparkToday, {});
+  const { setting } = useBusinessDay("lead-gen");
+  const currentBusinessDate = useCurrentBusinessDate(setting);
+  const today = useQuery(api.respark.queries.getMyResparkToday, { currentBusinessDate });
   const figure = (value: number | undefined) =>
     value === undefined ? <ZoneBone /> : <p className={ZONE_FIGURE}>{countFormatter.format(value)}</p>;
 
@@ -220,7 +226,9 @@ function NextBatchFailed() {
 }
 
 function NextBatch({ timeZone }: { timeZone: string }) {
-  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
+  const { setting } = useBusinessDay("lead-gen");
+  const currentBusinessDate = useCurrentBusinessDate(setting);
+  const pool = useQuery(api.respark.queries.getResparkPoolCounts, { currentBusinessDate });
 
   if (pool?.noTeam) {
     return (
@@ -233,7 +241,7 @@ function NextBatch({ timeZone }: { timeZone: string }) {
     );
   }
 
-  if (pool && pool.buckets.every((bucket) => bucket.count === 0)) {
+  if (pool?.buckets && pool.buckets.every((bucket) => bucket.count === 0)) {
     return (
       <>
         <NextBatchHead />
@@ -258,6 +266,7 @@ function NextBatch({ timeZone }: { timeZone: string }) {
           )
         }
       />
+      {pool?.isPartial ? <p role="status" className="px-4 py-2 text-sm text-muted-foreground">Pool counts are unavailable. You can still get a batch.</p> : null}
       <p className={cn(LABEL, "flex min-h-7 items-end px-4 pt-2 pb-1.5")}>Fills in this order</p>
       <ol aria-label="Fills in this order" className="border-t border-border">
         {(pool?.buckets ?? [1, 2, 3, 4, 5].map((bucket) => ({ bucket, count: undefined }))).map(({ bucket, count }) => (
@@ -270,7 +279,7 @@ function NextBatch({ timeZone }: { timeZone: string }) {
               {bucket} · {resparkBucketLabel(bucket)}
             </span>
             {count === undefined ? (
-              <Skeleton className="h-4 w-10" />
+              pool?.isPartial ? <span aria-label="Count unavailable">Unavailable</span> : <Skeleton className="h-4 w-10" />
             ) : (
               <span className={cn(FIGURE, "text-right", count === 0 && "text-muted-foreground")}>
                 {countFormatter.format(count)}

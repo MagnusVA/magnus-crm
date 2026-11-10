@@ -21,7 +21,10 @@ import {
  * any tool (docs/plans/closer-assistant.md §6.1). Adding a role later means
  * writing its toolset and adding it here.
  */
-export const MCP_TOOLSET_ROLES = ["closer", "tenant_master", "tenant_admin"] as const satisfies readonly CrmRole[];
+export const MCP_TOOLSET_ROLES = ["closer", "tenant_master", "tenant_admin", "lead_generator"] as const satisfies readonly CrmRole[];
+
+/** The role each lead gen day tool allows. */
+export const LEAD_GEN_ROLES = ["lead_generator"] as const satisfies readonly CrmRole[];
 
 export function roleHasMcpToolset(role: CrmRole): boolean {
   return (MCP_TOOLSET_ROLES as readonly CrmRole[]).includes(role);

@@ -1,3 +1,4 @@
+import { captureFlag, findCaptureFlag } from "./captureFlags";
 import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -284,6 +285,7 @@ async function paginateSubmissionRows(
     source?: LeadGenSource;
     teamId?: LeadGenTeamId;
     workerId?: Id<"leadGenWorkers">;
+    descending?: boolean;
     paginationOpts: {
       numItems: number;
       cursor: string | null;
@@ -306,6 +308,7 @@ async function paginateSubmissionRows(
           .gte("submittedAt", args.startTimestamp)
           .lte("submittedAt", args.endTimestamp),
       )
+      .order(args.descending ? "desc" : "asc")
       .paginate(paginationOpts);
   }
 
@@ -319,6 +322,7 @@ async function paginateSubmissionRows(
           .gte("submittedAt", args.startTimestamp)
           .lte("submittedAt", args.endTimestamp),
       )
+      .order(args.descending ? "desc" : "asc")
       .paginate(paginationOpts);
   }
 
@@ -332,6 +336,7 @@ async function paginateSubmissionRows(
           .gte("submittedAt", args.startTimestamp)
           .lte("submittedAt", args.endTimestamp),
       )
+      .order(args.descending ? "desc" : "asc")
       .paginate(paginationOpts);
   }
 
@@ -343,6 +348,7 @@ async function paginateSubmissionRows(
         .gte("submittedAt", args.startTimestamp)
         .lte("submittedAt", args.endTimestamp),
     )
+    .order(args.descending ? "desc" : "asc")
     .paginate(paginationOpts);
 }
 
@@ -420,12 +426,14 @@ async function hydrateRawSubmissionRows(
     [...new Set(rows.map((row) => row.prospectId))],
   );
 
-  return rows.map((row) => {
+  return Promise.all(rows.map(async (row) => {
     const worker = workers.get(row.workerId);
     const team = row.teamId ? teams.get(row.teamId) : null;
     const prospect = prospects.get(row.prospectId);
+    const flag = await findCaptureFlag(ctx, tenantId, row._id);
 
     return {
+      ...(flag && { flag: captureFlag(flag) }),
       submissionId: row._id,
       prospectId: row.prospectId,
       submittedAt: row.submittedAt,
@@ -446,7 +454,7 @@ async function hydrateRawSubmissionRows(
       voidedAt: row.voidedAt ?? null,
       voidReason: row.voidReason ?? null,
     };
-  });
+  }));
 }
 
 async function hydrateSummaryExportRows(
@@ -662,30 +670,47 @@ export const listRawSubmissionExportPage = query({
       "tenant_master",
       "tenant_admin",
     ]);
-    await assertLeadGenBusinessDayReady(ctx, tenantId);
-
-    validateTimestampRange(args);
-    await validateFilterIds(ctx, { tenantId, ...args });
-    if (
-      !Number.isInteger(args.paginationOpts.numItems) ||
-      args.paginationOpts.numItems < 1 ||
-      args.paginationOpts.numItems > RAW_EXPORT_PAGE_LIMIT
-    ) {
-      throw new Error(
-        `Raw export page size must be between 1 and ${RAW_EXPORT_PAGE_LIMIT}`,
-      );
-    }
-
-    const page = await paginateSubmissionRows(ctx, { tenantId, ...args });
-
-    return {
-      ...page,
-      page: await hydrateRawSubmissionRows(
-        ctx,
-        tenantId,
-        page.page.filter((row) => filterSubmission(row, args)),
-      ),
-      maxExportRows: await getTenantRawExportLimit(ctx, tenantId),
-    };
+    return listRawSubmissionExportPageCore(ctx, { tenantId, ...args });
   },
 });
+
+/** One native page per execution; callers that accumulate pages must use an action. */
+export async function listRawSubmissionExportPageCore(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    startTimestamp: number;
+    endTimestamp: number;
+    teamId?: LeadGenTeamId;
+    workerId?: Id<"leadGenWorkers">;
+    source?: LeadGenSource;
+    descending?: boolean;
+    paginationOpts: { numItems: number; cursor: string | null };
+  },
+) {
+  await assertLeadGenBusinessDayReady(ctx, args.tenantId);
+
+  validateTimestampRange(args);
+  await validateFilterIds(ctx, { ...args });
+  if (
+    !Number.isInteger(args.paginationOpts.numItems) ||
+    args.paginationOpts.numItems < 1 ||
+    args.paginationOpts.numItems > RAW_EXPORT_PAGE_LIMIT
+  ) {
+    throw new Error(
+      `Raw export page size must be between 1 and ${RAW_EXPORT_PAGE_LIMIT}`,
+    );
+  }
+
+  const page = await paginateSubmissionRows(ctx, { ...args });
+
+  return {
+    ...page,
+    page: await hydrateRawSubmissionRows(
+      ctx,
+      args.tenantId,
+      page.page.filter((row) => filterSubmission(row, args)),
+    ),
+    maxExportRows: await getTenantRawExportLimit(ctx, args.tenantId),
+  };
+}

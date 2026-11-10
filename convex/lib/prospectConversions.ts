@@ -154,3 +154,11 @@ export async function countProspectConversions(
     },
   });
 }
+
+/** An aggregate entry ends with its stage; IDs themselves can contain colons. */
+export function decodeProspectConversionEntryId(value: string): { prospectId: string; stage: LifecycleStage } | null {
+  const separator = value.lastIndexOf(":");
+  const stage = value.slice(separator + 1);
+  if (separator <= 0 || !LIFECYCLE_STAGES.some(candidate => candidate === stage)) return null;
+  return { prospectId: value.slice(0, separator), stage: stage as LifecycleStage };
+}

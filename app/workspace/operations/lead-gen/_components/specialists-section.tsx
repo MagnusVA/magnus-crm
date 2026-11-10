@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { groupRowsByTeam } from "@/lib/lead-gen/team-rollup";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -30,42 +31,6 @@ type SpecialistRow = FunctionReturnType<typeof api.leadGen.reporting.listWorkerP
 type ConversionCounts = ConversionReport["rows"][number]["counts"];
 type TeamOption = { _id: Id<"attributionTeams">; name: string };
 
-type TeamGroup = {
-  key: string;
-  teamId: Id<"attributionTeams"> | null;
-  teamName: string;
-  rows: SpecialistRow[];
-  submissions: number;
-  scheduledHours: number;
-};
-
-const NO_TEAM_KEY = "no-team";
-
-function groupRowsByTeam(rows: SpecialistRow[], teams: TeamOption[] | undefined): TeamGroup[] {
-  const teamNameById = new Map((teams ?? []).map((team) => [team._id, team.name]));
-  const groups = new Map<string, TeamGroup>();
-  for (const row of rows) {
-    const key = row.teamId ?? NO_TEAM_KEY;
-    const group = groups.get(key) ?? {
-      key,
-      teamId: row.teamId ?? null,
-      teamName: row.teamId ? (teamNameById.get(row.teamId) ?? "Unknown team") : "No team",
-      rows: [],
-      submissions: 0,
-      scheduledHours: 0,
-    };
-    group.rows.push(row);
-    group.submissions += row.submissions;
-    group.scheduledHours += row.scheduledHours;
-    groups.set(key, group);
-  }
-  return [...groups.values()].sort((a, b) => {
-    if (a.key === NO_TEAM_KEY) return 1;
-    if (b.key === NO_TEAM_KEY) return -1;
-    if (a.submissions !== b.submissions) return b.submissions - a.submissions;
-    return a.teamName.localeCompare(b.teamName);
-  });
-}
 
 function Rate({ rate }: { rate: number | null }) {
   if (rate === null) return <span className="text-[13px] whitespace-nowrap text-muted-foreground">No schedule</span>;

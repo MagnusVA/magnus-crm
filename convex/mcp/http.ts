@@ -6,16 +6,18 @@ import { env, httpAction, type ActionCtx } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { gateway, mcpRateLimiter } from "./gateway";
 import { MCP_CLIENT_CLAIM } from "./guard";
-import { adminInstructions, closerInstructions } from "./instructions";
+import { instructionsFor } from "./instructions";
 import { adminTools } from "./toolsets/admin";
 import { closerTools } from "./toolsets/closer";
+import { leadGenTools } from "./toolsets/leadGen";
+import { leadGenAdminTools } from "./toolsets/leadGenAdmin";
 
 /**
  * One registered list for every role (docs/plans/admin-assistant.md §6). The
  * gateway deletes tools missing from a list, so two lists would overwrite each
  * other; `authorize` filters this one per caller instead.
  */
-const allTools = [...closerTools, ...adminTools];
+const allTools = [...closerTools, ...adminTools, ...leadGenTools, ...leadGenAdminTools];
 const isAdminRole = (role: string) => role === "tenant_master" || role === "tenant_admin";
 import { handleProofUpload } from "./uploads";
 
@@ -212,13 +214,13 @@ const handleMcp = httpAction(async (ctx, request) => {
 
   // Instructions follow the caller's role, on initialize and on stateless
   // discovery alike.
-  let instructions = closerInstructions(null);
+  let instructions = instructionsFor(null, null);
   if (rpc.method === "initialize" || rpc.method === "server/discover") {
     const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1];
     const identity = token ? await resolveIdentity(token) : null;
     const access = identity ? await accessFor(identity) : null;
     if (access?.ok) {
-      instructions = isAdminRole(access.role) ? adminInstructions(access) : closerInstructions(access);
+      instructions = instructionsFor(access.role, access);
     }
   }
 

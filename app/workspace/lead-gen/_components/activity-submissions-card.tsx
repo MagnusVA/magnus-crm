@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { useRole } from "@/components/auth/role-context";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
@@ -21,6 +23,9 @@ import {
 // newest first. The card is the container the rows fold by: from @3xl/subs
 // one line (WHEN · PROSPECT · WHAT · SOURCE · ORIGIN); narrower, two lines
 // (the handle and WHAT, then when · source · origin in slate).
+
+const CaptureFlagDialog = dynamic(() => import("./capture-flag-dialog").then(mod => mod.CaptureFlagDialog));
+const ContactAgainDialog = dynamic(() => import("./contact-again-dialog").then(mod => mod.ContactAgainDialog));
 
 export const ACTIVITY_PAGE_SIZE = 25;
 
@@ -114,7 +119,10 @@ function ActivityHeads() {
 
 function ActivityRowItem({ row, timeZone, singleDay }: { row: ActivityRow; timeZone: string; singleDay: boolean }) {
   const when = singleDay ? timeOfDay(row.submittedAt, timeZone) : dayAndTime(row.submittedAt, timeZone);
-  const what = whatWord(row.type);
+  const { role } = useRole();
+  const what = row.isVoided ? { word: "Voided", ink: "text-danger-ink" }
+    : row.flag ? { word: row.flag.state === "open" ? "Flagged" : row.flag.state === "dismissed" ? "Dismissed" : "Voided", ink: "text-muted-foreground" }
+    : whatWord(row.type);
   const source = sourceName(row.source);
   const origin = originWords(row);
   const originTitle = origin.href ?? origin.text;
@@ -160,6 +168,23 @@ function ActivityRowItem({ row, timeZone, singleDay }: { row: ActivityRow; timeZ
           </span>
         )}
       </span>
+      {row.submissionId ? (
+        <div className="col-span-full flex min-w-0 flex-wrap items-start justify-end gap-x-3 gap-y-2">
+          {row.flag ? (
+            <details className="mr-auto min-w-0 flex-1 text-[13px] text-muted-foreground">
+              <summary className="min-h-6 w-fit cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">Flag details</summary>
+              <p className="whitespace-pre-wrap break-words">{role === "lead_generator" ? "Your reason" : "Flag reason"}: {row.flag.reason}</p>
+              {row.flag.dismissal?.note ? <p className="whitespace-pre-wrap break-words">Admin note: {row.flag.dismissal.note.text}</p> : null}
+              {row.flag.dismissal?.withheld ? <p>The admin note could not be shown safely.</p> : null}
+            </details>
+          ) : null}
+          {/* A person captured today who says "next month" isn't in a respark batch yet, so the date is saved here. */}
+          {role === "lead_generator" && !row.isVoided ? <ContactAgainDialog submissionId={row.submissionId} /> : null}
+          {role === "lead_generator" && !row.isVoided && !row.flag ? (
+            <CaptureFlagDialog kind="flag" submissionId={row.submissionId} prospectLabel={row.prospect?.normalizedHandle ? `@${row.prospect.normalizedHandle}` : "this person"} />
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -50,6 +51,9 @@ import {
 } from "../../_components/use-operations-report-job";
 import { LeadGenBand } from "./lead-gen-band";
 import { ProspectConversionSection } from "./prospect-conversion-section";
+import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { SectionError } from "@/app/workspace/closer/_components/section-state";
 import { RawSubmissionsCard } from "./raw-submissions-card";
 import { ResparkSection } from "./respark-section";
 import { SpecialistsSection } from "./specialists-section";
@@ -67,6 +71,8 @@ export type LeadGenFilters = {
 const PRESET_WORDS = { today: "Today", this_week: "This week", this_month: "This month" } as const;
 
 const asOfFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+
+const CaptureFlagsCard = dynamic(() => import("./capture-flags-card").then(mod => mod.CaptureFlagsCard));
 
 export function LeadGenAdminPageClient() {
 	usePageTitle("Lead Gen");
@@ -327,7 +333,13 @@ export function LeadGenAdminPageClient() {
 				reloading={shownResparks.reloading}
 			/>
 
-			<RawSubmissionsCard filters={filters} />
+			<SectionErrorBoundary
+                sectionName="lead_gen_capture_flags"
+                fallback={<DetailCard title="Flagged captures"><SectionError what="flagged captures" /></DetailCard>}
+            >
+                <CaptureFlagsCard />
+            </SectionErrorBoundary>
+            <RawSubmissionsCard filters={filters} />
 		</div>
 	);
 }

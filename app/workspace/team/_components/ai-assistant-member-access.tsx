@@ -15,7 +15,7 @@ const AccessConfirmDialog = dynamic(() => import("@/components/ai-assistants/acc
 /**
  * The member card's AI assistant row (docs/plans/closer-assistant.md §7):
  * whether this login's connected agents may use Magnus, and Block or
- * Unblock. Shown for closers, the owner and admins (the roles with tools),
+ * Unblock. Shown for closers, lead generators, the owner and admins (the roles with tools),
  * and for anyone already blocked. Blocking an admin or the owner is the
  * owner's (docs/plans/admin-assistant.md §4).
  */
@@ -38,10 +38,9 @@ export function AiAssistantAccessRow({
   const setBlocked = useMutation(api.mcp.settings.setUserBlocked);
   const [confirm, setConfirm] = useState(false);
   const adminTarget = role === "tenant_master" || role === "tenant_admin";
-  if (role !== "closer" && !adminTarget && !blocked) return null;
   const canChange = active && hasPermission("settings:manage");
   const ownerOnly = adminTarget && !hasPermission("mcp:manage-admin-access");
-  const roleWord = role === "tenant_master" ? "the owner" : role === "tenant_admin" ? "admins" : "closers";
+  const roleWord = role === "tenant_master" ? "the owner" : role === "tenant_admin" ? "admins" : role === "lead_generator" ? "lead generators" : "closers";
 
   return (
     <>

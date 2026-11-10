@@ -114,6 +114,82 @@ export async function seedTenantWithCloser(
   });
 }
 
+/**
+ * A tenant with the lead gen and admin toolsets switched on: an owner, an
+ * admin, two lead gens on one team (Sofia and Dani), each with an active
+ * worker row, and one closer. Admin reading is on and changes are off. `sub` values are `user_owner`, `user_admin`,
+ * `user_sofia`, `user_dani` and `user_alex`.
+ */
+export async function seedTenantWithLeadGen(
+  t: McpHarness["t"],
+  options: {
+    mcpRoles?: Array<"closer" | "lead_generator" | "tenant_admin" | "tenant_master">;
+    orgId?: string;
+    slug?: string;
+  } = {},
+) {
+  return await t.run(async (ctx) => {
+    const orgId = options.orgId ?? "org_test";
+    const slug = options.slug ?? "northwind";
+    const now = Date.now();
+    const tenantId = await ctx.db.insert("tenants", {
+      companyName: "Northwind Coaching",
+      contactEmail: `owner@${slug}.example`,
+      workosOrgId: orgId,
+      status: "active",
+      inviteExpiresAt: 0,
+      createdBy: "test",
+    });
+    const user = (sub: string, fullName: string, role: "tenant_master" | "tenant_admin" | "closer" | "lead_generator") =>
+      ctx.db.insert("users", {
+        tenantId,
+        workosUserId: `${UM}|${slug === "northwind" ? "" : `${slug}_`}${sub}`,
+        email: `${sub.replace("user_", "")}@${slug}.example`,
+        fullName,
+        role,
+        isActive: true,
+        timezone: "America/Tegucigalpa",
+      });
+    const ownerId = await user("user_owner", "Morgan Lee", "tenant_master");
+    const adminId = await user("user_admin", "Jordan Park", "tenant_admin");
+    const closerId = await user("user_alex", "Alex Rivera", "closer");
+    const sofiaId = await user("user_sofia", "Sofia Mendez", "lead_generator");
+    const daniId = await user("user_dani", "Dani Cruz", "lead_generator");
+    const teamId = await ctx.db.insert("attributionTeams", {
+      tenantId,
+      slug: "team-a",
+      displayName: "Team A",
+      utmSource: "team-a",
+      normalizedUtmSource: "team-a",
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const worker = (userId: Id<"users">, sub: string, displayName: string) =>
+      ctx.db.insert("leadGenWorkers", {
+        tenantId,
+        userId,
+        workosUserId: `${UM}|${slug === "northwind" ? "" : `${slug}_`}${sub}`,
+        displayName,
+        email: `${sub.replace("user_", "")}@${slug}.example`,
+        teamId,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const sofiaWorkerId = await worker(sofiaId, "user_sofia", "Sofia Mendez");
+    const daniWorkerId = await worker(daniId, "user_dani", "Dani Cruz");
+    await ctx.db.patch("tenants", tenantId, {
+      mcpAccess: {
+        roles: options.mcpRoles ?? ["closer", "lead_generator", "tenant_admin", "tenant_master"],
+        changedAt: 0,
+        changedByUserId: ownerId,
+      },
+    });
+    return { tenantId, orgId, ownerId, adminId, closerId, sofiaId, daniId, teamId, sofiaWorkerId, daniWorkerId };
+  });
+}
+
 let rpcId = 0;
 
 /** One JSON-RPC call to /mcp. Parses a JSON or SSE response body. */

@@ -1,3 +1,4 @@
+import { contactAgainForbidden } from "../lib/contactAgain";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -660,6 +661,10 @@ export async function executeMerge(
   // The moved prospects now count toward the target's stages.
   const mergedTarget = await ctx.db.get("leads", targetLeadId);
   if (mergedTarget) {
+    const sourceDate = sourceLead.contactAgain;
+    const targetDate = targetLead.contactAgain;
+    const later = sourceDate && (!targetDate || sourceDate.at > targetDate.at) ? sourceDate : targetDate;
+    await ctx.db.patch("leads", targetLeadId, { contactAgain: contactAgainForbidden(mergedTarget) ? undefined : later });
     await syncPersonProspectConversions(ctx, mergedTarget);
     // The earlier first touch and the later latest touch of the two. Deals
     // keep their IDs, so their attribution rows moved with them.
@@ -670,6 +675,7 @@ export async function executeMerge(
   }
   await ctx.db.patch("leads", sourceLeadId, {
     status: "merged",
+    contactAgain: undefined,
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });

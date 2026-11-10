@@ -34,6 +34,12 @@ const ADMIN_LAST_STEP: Record<keyof typeof STEPS, string> = {
   terminal: "Ask the agent how the floor did today.",
 };
 
+const LEAD_GEN_LAST_STEP: Record<keyof typeof STEPS, string> = {
+  claude: 'Ask "What does my lead gen shift look like in Magnus?"',
+  chatgpt: "Select Magnus in a chat and ask for your shift.",
+  terminal: "Ask the agent to call magnus_lead_gen_today.",
+};
+
 const ADMIN_PROMPTS = [
   "How did the floor do today?",
   "Which payments are waiting for review?",
@@ -48,7 +54,7 @@ const ADMIN_PROMPTS = [
  */
 export function ConnectAiAssistantCard() {
   const access = useQuery(api.mcp.settings.getMyAiAssistantAccess);
-  const { isAdmin } = useRole();
+  const { isAdmin, role } = useRole();
   if (!access?.roleEnabled) return null;
   return (
     <section aria-label="AI assistant" className={CARD}>
@@ -104,7 +110,11 @@ export function ConnectAiAssistantCard() {
         {(Object.keys(STEPS) as (keyof typeof STEPS)[]).map((client) => (
           <TabsContent key={client} value={client}>
             <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[13px] leading-[1.45] text-muted-foreground">
-              {(isAdmin ? [...STEPS[client].slice(0, -1), ADMIN_LAST_STEP[client]] : STEPS[client]).map((step) => (
+              {(isAdmin
+                ? [...STEPS[client].slice(0, -1), ADMIN_LAST_STEP[client]]
+                : role === "lead_generator"
+                  ? [...STEPS[client].slice(0, -1), LEAD_GEN_LAST_STEP[client]]
+                  : STEPS[client]).map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ol>

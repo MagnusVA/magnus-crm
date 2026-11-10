@@ -98,6 +98,8 @@ Closers, owners and admins connect Claude, ChatGPT, Hermes and other MCP clients
 - **Upkeep**: the daily `mcp-prune` cron prunes idle gateway sessions, audit rows after 90 days, used preview tokens, admin receipts past their `keepUntil` (365 days) and expired `mcpReportRequests`.
 - **Reports for assistants** run through their own runner and `mcpReportRequests`, never `registerRequest`, so they never take a web cache key or refresh slot (`convex/mcp/reports/`).
 
+Lead generators use `convex/mcp/toolsets/leadGen.ts`, with their own role switch and instructions; the retained lead gen admin reads use `requireMcpAdmin` with `lead-gen:view-all`. Lead gen list writes rebuild their stored preview before committing in one transaction; if any line changed, nothing is saved and the token stays unused.
+
 Tests use `tests/mcpHarness.ts` (and `tests/mcpAdminFixtures.ts` for an owner, an admin and a closer), which signs AuthKit-shaped tokens with a local key and calls `/mcp` through `t.fetch`.
 
 ## Convex AI Gateway

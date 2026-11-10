@@ -1,3 +1,7 @@
+import { loadStaffRedactor, type StaffRedactor } from "../leadGen/assistantText";
+import { projectContactAgain } from "../leadGen/contactAgain";
+import { contactAgainForbidden, contactAgainWaitReason } from "../lib/contactAgain";
+import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { v } from "convex/values";
 import { businessDateForInstant, businessDayRange } from "../../lib/businessDay";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -56,183 +60,252 @@ async function cardTimeZone(ctx: QueryCtx, person: Doc<"leads">, opportunityId: 
 }
 
 export const getMyResparkBatch = query({
-  args: {},
+  args: { currentBusinessDate: v.optional(v.string()) },
   returns: v.union(v.null(), batchValidator),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
-    const worker = await requireActiveLeadGenWorker(ctx, access);
-    const { tenantId, userId } = access;
-    const now = Date.now();
-    const batch = await ctx.db.query("resparkBatches")
-      .withIndex("by_tenantId_and_userId_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("userId", userId))
-      .order("desc").first();
-    if (!batch || batch.heldUntil <= now) return null;
-    // Only a batch from the caller's team's pool; asking for a batch ends any other.
-    const teamId = worker?.teamId;
-    if (!teamId || batch.teamId !== teamId) return null;
-    const items = await ctx.db.query("resparkBatchItems")
-      .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batch._id)).take(100);
-    const state = createLiveReadState();
-    const cards = [];
-    for (const item of items) {
-      if (item.tenantId !== tenantId || item.userId !== userId) throw new Error("Respark item ownership mismatch");
-      const lead = await ctx.db.get("leads", item.leadId);
-      const person = lead?.tenantId === tenantId ? lead : null;
-      const base = person ? await personCard(ctx, person, state) : null;
-      const card = person && base
-        ? { ...base, timeZone: await cardTimeZone(ctx, person, base.newestDeal?.opportunityId) } : null;
-      cards.push({ itemId: item._id, position: item.position, bucket: item.bucket,
-        result: item.result ?? null, workedAt: item.workedAt ?? null,
-        person: card,
-        blockedReason: (await leftPoolReason(ctx, person)) ??
-          (person?.resparkTeamId === teamId ? null : "This person is now in another team's pool.") });
-    }
-    return { batchId: batch._id, heldUntil: batch.heldUntil, size: batch.size,
-      createdAt: batch.createdAt, items: cards, capped: state.capped || cards.some((card) => card.person?.capped) };
+    return await getMyResparkBatchCore(ctx, access);
   },
 });
 
+/** Shared reader; caller authorization stays in the web/MCP wrapper. */
+export async function getMyResparkBatchCore(ctx: QueryCtx, access: TenantUserResult) {
+  const worker = await requireActiveLeadGenWorker(ctx, access);
+  const { tenantId, userId } = access;
+  const now = Date.now();
+  const batch = await ctx.db.query("resparkBatches")
+    .withIndex("by_tenantId_and_userId_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("userId", userId))
+    .order("desc").first();
+  if (!batch || batch.heldUntil <= now) return null;
+  // Only a batch from the caller's team's pool; asking for a batch ends any other.
+  const teamId = worker?.teamId;
+  if (!teamId || batch.teamId !== teamId) return null;
+  const items = await ctx.db.query("resparkBatchItems")
+    .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batch._id)).take(100);
+  const state = createLiveReadState();
+  const redactor = access.role === "lead_generator" ? await loadStaffRedactor(ctx, tenantId) : undefined;
+  const cards = [];
+  for (const item of items) {
+    cards.push(await resparkBatchCardCore(ctx, access, teamId, item, state, false, redactor));
+  }
+  return { batchId: batch._id, heldUntil: batch.heldUntil, size: batch.size,
+    createdAt: batch.createdAt, items: cards, capped: state.capped || cards.some((card) => card.person?.capped) };
+}
+
 export const getResparkPoolCounts = query({
-  args: {},
-  returns: v.object({ buckets: v.array(v.object({ bucket: v.number(), count: v.number() })),
+  args: { currentBusinessDate: v.optional(v.string()) },
+  returns: v.object({ buckets: v.union(v.array(v.object({ bucket: v.number(), count: v.number() })), v.null()),
+    isPartial: v.boolean(), unavailableReason: v.union(v.string(), v.null()),
     batchSize: v.number(), heldUntil: v.number(), noTeam: v.boolean() }),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
-    const worker = await requireActiveLeadGenWorker(ctx, access);
-    const { tenantId } = access;
-    // The caller's team's pool (2026-10-25); no team, no pool.
-    const teamId = worker?.teamId;
-    const now = Date.now();
-    const tenant = await ctx.db.get("tenants", tenantId);
-    if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
-    const settings = readResparkSettings(tenant);
-    const businessDay = await getTenantBusinessDay(ctx, tenantId);
-    const counts = teamId ? await resparkTeamPool.countBatch(ctx, RESPARK_BUCKETS.map((bucket) => {
-      const range = bucketRange(bucket, now, settings.inactiveAfterDays);
-      type Key = [Id<"attributionTeams">, typeof range.group, number];
-      return { namespace: tenantId, bounds: {
-        lower: { key: [teamId, range.group, range.after ?? Number.NEGATIVE_INFINITY] as Key,
-          inclusive: range.after === undefined },
-        upper: { key: [teamId, range.group, range.atOrBefore] as Key, inclusive: true },
-      } };
-    })) : RESPARK_BUCKETS.map(() => 0);
-    return { buckets: RESPARK_BUCKETS.map((bucket, index) => ({ bucket, count: counts[index] })),
-      batchSize: settings.batchSize,
-      heldUntil: businessDayRange(businessDateForInstant(now, businessDay), businessDay).end,
-      noTeam: !teamId };
+    return await getResparkPoolCountsCore(ctx, access);
   },
 });
 
+/** Shared reader; caller authorization stays in the web/MCP wrapper. */
+export async function getResparkPoolCountsCore(ctx: QueryCtx, access: TenantUserResult) {
+  const worker = await requireActiveLeadGenWorker(ctx, access);
+  const { tenantId } = access;
+  // The caller's team's pool (2026-10-25); no team, no pool.
+  const teamId = worker?.teamId;
+  const now = Date.now();
+  const tenant = await ctx.db.get("tenants", tenantId);
+  if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
+  const settings = readResparkSettings(tenant);
+  const businessDay = await getTenantBusinessDay(ctx, tenantId);
+  const counts = teamId ? await resparkTeamPool.countBatch(ctx, RESPARK_BUCKETS.map((bucket) => {
+    const range = bucketRange(bucket, now, settings.inactiveAfterDays);
+    type Key = [Id<"attributionTeams">, typeof range.group, number];
+    return { namespace: tenantId, bounds: {
+      lower: { key: [teamId, range.group, range.after ?? Number.NEGATIVE_INFINITY] as Key,
+        inclusive: range.after === undefined },
+      upper: { key: [teamId, range.group, range.atOrBefore] as Key, inclusive: true },
+    } };
+  })) : RESPARK_BUCKETS.map(() => 0);
+  // The aggregates include holds and skips. Only remove future-dated people
+  // whose stored group/time actually contributes to one of those ranges.
+  const future = teamId ? await readLiveQueryRows(ctx.db.query("leads")
+    .withIndex("by_tenantId_and_resparkTeamId_and_contactAgainAt", q => q.eq("tenantId", tenantId)
+      .eq("resparkTeamId", teamId).gt("contactAgain.at", now)), 512) : { rows: [], capped: false };
+  let unavailableReason: string | null = future.capped ? "future_date_limit" : null;
+  if (!unavailableReason) for (const person of future.rows) {
+    if (contactAgainForbidden(person) || !person.lastTouch || !person.resparkGroup || person.resparkGroup === "out") continue;
+    const index = RESPARK_BUCKETS.findIndex(bucket => {
+      const range = bucketRange(bucket, now, settings.inactiveAfterDays);
+      return person.resparkGroup === range.group && person.lastTouch!.occurredAt <= range.atOrBefore &&
+        (range.after === undefined || person.lastTouch!.occurredAt > range.after);
+    });
+    if (index !== -1) {
+      counts[index] -= 1;
+      if (counts[index] < 0) { unavailableReason = "inconsistent_pool"; break; }
+    }
+  }
+  return { buckets: unavailableReason ? null : RESPARK_BUCKETS.map((bucket, index) => ({ bucket, count: counts[index] })),
+    isPartial: unavailableReason !== null, unavailableReason,
+    batchSize: settings.batchSize,
+    heldUntil: businessDayRange(businessDateForInstant(now, businessDay), businessDay).end,
+    noTeam: !teamId };
+}
+
 export const getMyResparkToday = query({
-  args: {},
+  args: { currentBusinessDate: v.optional(v.string()) },
   returns: v.object({ batchesDone: v.number(), resparks: v.number(), notAFits: v.number(),
     start: v.number(), end: v.number() }),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
-    await requireActiveLeadGenWorker(ctx, access);
-    const { tenantId, userId } = access;
-    const businessDay = await getTenantBusinessDay(ctx, tenantId);
-    const { start, end } = businessDayRange(businessDateForInstant(Date.now(), businessDay), businessDay);
-    const batches = await ctx.db.query("resparkBatches")
-      .withIndex("by_tenantId_and_userId_and_createdAt", (q) => q.eq("tenantId", tenantId)
-        .eq("userId", userId).gte("createdAt", start).lt("createdAt", end)).take(1001);
-    // A runaway should fail visibly rather than report an approximate count.
-    if (batches.length > 1000) throw new Error("More than 1000 respark batches in one business day");
-    const worker = await ctx.db.query("leadGenWorkers")
-      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId).eq("userId", userId)).unique();
-    const counts = worker ? await resparkResultsByWorker.countBatch(ctx,
-      (["resparked", "not_a_fit"] as const).map((result) => ({ namespace: tenantId, bounds: {
-        lower: { key: [worker._id, result, start], inclusive: true },
-        upper: { key: [worker._id, result, end], inclusive: false },
-      } }))) : [0, 0];
-    // A batch is done when every person in it was worked (plan §6.1).
-    const batchesDone = batches.filter((batch) => batch.completedAt !== undefined).length;
-    return { batchesDone, resparks: counts[0], notAFits: counts[1], start, end };
+    return await getMyResparkTodayCore(ctx, access);
   },
 });
 
+/** Shared reader; caller authorization stays in the web/MCP wrapper. */
+export async function getMyResparkTodayCore(ctx: QueryCtx, access: TenantUserResult) {
+  await requireActiveLeadGenWorker(ctx, access);
+  const { tenantId, userId } = access;
+  const businessDay = await getTenantBusinessDay(ctx, tenantId);
+  const { start, end } = businessDayRange(businessDateForInstant(Date.now(), businessDay), businessDay);
+  const batches = await ctx.db.query("resparkBatches")
+    .withIndex("by_tenantId_and_userId_and_createdAt", (q) => q.eq("tenantId", tenantId)
+      .eq("userId", userId).gte("createdAt", start).lt("createdAt", end)).take(1001);
+  // A runaway should fail visibly rather than report an approximate count.
+  if (batches.length > 1000) throw new Error("More than 1000 respark batches in one business day");
+  const worker = await ctx.db.query("leadGenWorkers")
+    .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId).eq("userId", userId)).unique();
+  const counts = worker ? await resparkResultsByWorker.countBatch(ctx,
+    (["resparked", "not_a_fit"] as const).map((result) => ({ namespace: tenantId, bounds: {
+      lower: { key: [worker._id, result, start], inclusive: true },
+      upper: { key: [worker._id, result, end], inclusive: false },
+    } }))) : [0, 0];
+  // A batch is done when every person in it was worked (plan §6.1).
+  const batchesDone = batches.filter((batch) => batch.completedAt !== undefined).length;
+  return { batchesDone, resparks: counts[0], notAFits: counts[1], start, end };
+}
+
 /** Missing, foreign and expired items all return null. Worked items remain readable. */
 export const getResparkPersonPanel = query({
-  args: { itemId: v.id("resparkBatchItems") },
+  args: { itemId: v.id("resparkBatchItems"), currentBusinessDate: v.optional(v.string()) },
   returns: v.union(v.null(), panelValidator),
   handler: async (ctx, { itemId }) => {
     const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
-    const worker = await requireActiveLeadGenWorker(ctx, access);
-    const { tenantId, userId } = access;
-    const item = await ctx.db.get("resparkBatchItems", itemId);
-    if (!item || item.tenantId !== tenantId || item.userId !== userId) return null;
-    const batch = await ctx.db.get("resparkBatches", item.batchId);
-    if (!batch || batch.tenantId !== tenantId || batch.userId !== userId || batch.heldUntil <= Date.now()) return null;
-    // Only people in the caller's team's pool, from a batch of that pool.
-    const teamId = worker?.teamId;
-    if (!teamId || batch.teamId !== teamId) return null;
-    const lead = await ctx.db.get("leads", item.leadId);
-    if (!lead || lead.tenantId !== tenantId || lead.resparkTeamId !== teamId) return null;
-    const ids = await mergedLeadIds(ctx, tenantId, lead._id);
-    const people: Doc<"leads">[] = [lead];
-    for (const id of ids.slice(1)) {
-      const person = await ctx.db.get("leads", id);
-      if (person?.tenantId === tenantId) people.push(person);
-    }
-    const safe = (value: string) => maskContactText(value, people);
-    const state = createLiveReadState();
-    const history = await personEvents(ctx, tenantId, ids, PANEL_EVENT_LIMIT, state);
-    let capped = history.capped;
-    const deals: Doc<"opportunities">[] = [];
-    const notes: Doc<"leadNotes">[] = [];
-    for (const leadId of ids) {
-      const dealRead = await readPersonRows(ctx.db.query("opportunities")
-        .withIndex("by_tenantId_and_leadId_and_createdAt", (q) => q.eq("tenantId", tenantId)
-          .eq("leadId", leadId)).order("desc"), Math.max(0, PERSON_DEAL_LIMIT - deals.length), state);
-      deals.push(...dealRead.rows);
-      const noteRead = await readPersonRows(ctx.db.query("leadNotes")
-        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-        .order("desc"), Math.max(0, PERSON_NOTE_LIMIT - notes.length), state);
-      notes.push(...noteRead.rows);
-      capped ||= dealRead.capped || noteRead.capped;
-      if (state.capped) break;
-    }
-    const calls: { meetingId: Doc<"meetings">["_id"]; opportunityId: Doc<"opportunities">["_id"];
-      scheduledAt: number; durationMinutes: number; status: Doc<"meetings">["status"];
-      bookingAnswers: { question: string; answer: string }[] }[] = [];
-    let timeZone: string | null = null;
-    for (const deal of deals.sort((a, b) => b.createdAt - a.createdAt)) {
-      const read = await readPersonRows(ctx.db.query("meetings")
-        .withIndex("by_opportunityId_and_scheduledAt", (q) => q.eq("opportunityId", deal._id))
-        .order("desc"), Math.max(0, PERSON_CALL_LIMIT - calls.length), state);
-      capped ||= read.capped;
-      for (const call of read.rows) {
-        if (call.tenantId !== tenantId) continue;
-        const answers = await readPersonRows(ctx.db.query("meetingFormResponses")
-          .withIndex("by_meetingId", (q) => q.eq("meetingId", call._id)), 100, state);
-        capped ||= answers.capped;
-        timeZone ??= await bookingTimeZone(ctx, call, state);
-        calls.push({ meetingId: call._id, opportunityId: deal._id, scheduledAt: call.scheduledAt,
-          durationMinutes: call.durationMinutes, status: call.status,
-          bookingAnswers: answers.rows.filter((answer) => answer.tenantId === tenantId).map((answer) => ({
-            question: safe(answer.questionLabelSnapshot), answer: safe(answer.answerText),
-          })) });
-      }
-      if (state.capped) break;
-    }
-    const resparks = await personResparkItems(ctx, tenantId, lead._id);
-    return {
-      handle: safe(instagramHandle(lead) ?? "") || null,
-      stage: lead.lifecycleStage, disposition: lead.disposition,
-      dispositionReason: lead.dispositionReason ? safe(lead.dispositionReason) : null,
-      identity: { name: lead.fullName ? safe(lead.fullName) : null,
-        phone: maskPhone(lead.phone), email: maskEmail(lead.email) },
-      timeZone: timeZone ? safe(timeZone) : null,
-      timeline: history.events.filter((event) => event.entityType !== "payment" &&
-        !event.eventType.startsWith("payment.")).map(touchSummary),
-      deals: deals.map((deal) => ({ opportunityId: deal._id, stage: deal.stage, outcome: deal.outcome,
-        lostReason: deal.lostReason ? safe(deal.lostReason) : null, createdAt: deal.createdAt })),
-      calls,
-      notes: notes.filter((note) => note.deletedAt === undefined).map((note) => ({ noteId: note._id,
-        content: safe(note.content), createdAt: note.createdAt })),
-      resparkHistory: resparks.map((entry) => ({ itemId: entry._id, result: entry.result ?? null,
-        workedAt: entry.workedAt ?? null, bucket: entry.bucket })),
-      capped: capped || state.capped,
-    };
+    return await getResparkPersonPanelCore(ctx, access, itemId);
   },
 });
+
+/** Shared reader; caller authorization stays in the web/MCP wrapper. */
+export async function getResparkPersonPanelCore(ctx: QueryCtx, access: TenantUserResult, itemId: Id<"resparkBatchItems">, redactor?: StaffRedactor) {
+  const worker = await requireActiveLeadGenWorker(ctx, access);
+  const { tenantId, userId } = access;
+  const item = await ctx.db.get("resparkBatchItems", itemId);
+  if (!item || item.tenantId !== tenantId || item.userId !== userId) return null;
+  const batch = await ctx.db.get("resparkBatches", item.batchId);
+  if (!batch || batch.tenantId !== tenantId || batch.userId !== userId || batch.heldUntil <= Date.now()) return null;
+  // Only people in the caller's team's pool, from a batch of that pool.
+  const teamId = worker?.teamId;
+  if (!teamId || batch.teamId !== teamId) return null;
+  const lead = await ctx.db.get("leads", item.leadId);
+  if (!lead || lead.tenantId !== tenantId || lead.resparkTeamId !== teamId) return null;
+  const ids = await mergedLeadIds(ctx, tenantId, lead._id);
+  const people: Doc<"leads">[] = [lead];
+  for (const id of ids.slice(1)) {
+    const person = await ctx.db.get("leads", id);
+    if (person?.tenantId === tenantId) people.push(person);
+  }
+  const safe = (value: string) => maskContactText(value, people);
+  const state = createLiveReadState();
+  const history = await personEvents(ctx, tenantId, ids, PANEL_EVENT_LIMIT, state);
+  let capped = history.capped;
+  const deals: Doc<"opportunities">[] = [];
+  const notes: Doc<"leadNotes">[] = [];
+  for (const leadId of ids) {
+    const dealRead = await readPersonRows(ctx.db.query("opportunities")
+      .withIndex("by_tenantId_and_leadId_and_createdAt", (q) => q.eq("tenantId", tenantId)
+        .eq("leadId", leadId)).order("desc"), Math.max(0, PERSON_DEAL_LIMIT - deals.length), state);
+    deals.push(...dealRead.rows);
+    const noteRead = await readPersonRows(ctx.db.query("leadNotes")
+      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+      .order("desc"), Math.max(0, PERSON_NOTE_LIMIT - notes.length), state);
+    notes.push(...noteRead.rows);
+    capped ||= dealRead.capped || noteRead.capped;
+    if (state.capped) break;
+  }
+  const calls: { meetingId: Doc<"meetings">["_id"]; opportunityId: Doc<"opportunities">["_id"];
+    scheduledAt: number; durationMinutes: number; status: Doc<"meetings">["status"];
+    bookingAnswers: { question: string; answer: string }[] }[] = [];
+  let timeZone: string | null = null;
+  for (const deal of deals.sort((a, b) => b.createdAt - a.createdAt)) {
+    const read = await readPersonRows(ctx.db.query("meetings")
+      .withIndex("by_opportunityId_and_scheduledAt", (q) => q.eq("opportunityId", deal._id))
+      .order("desc"), Math.max(0, PERSON_CALL_LIMIT - calls.length), state);
+    capped ||= read.capped;
+    for (const call of read.rows) {
+      if (call.tenantId !== tenantId) continue;
+      const answers = await readPersonRows(ctx.db.query("meetingFormResponses")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", call._id)), 100, state);
+      capped ||= answers.capped;
+      timeZone ??= await bookingTimeZone(ctx, call, state);
+      calls.push({ meetingId: call._id, opportunityId: deal._id, scheduledAt: call.scheduledAt,
+        durationMinutes: call.durationMinutes, status: call.status,
+        bookingAnswers: answers.rows.filter((answer) => answer.tenantId === tenantId).map((answer) => ({
+          question: safe(answer.questionLabelSnapshot), answer: safe(answer.answerText),
+        })) });
+    }
+    if (state.capped) break;
+  }
+  const resparks = await personResparkItems(ctx, tenantId, lead._id);
+  return {
+    canSetContactAgain: contactAgainForbidden(lead) === null,
+    contactAgain: projectContactAgain(lead, redactor ?? (access.role === "lead_generator" ? await loadStaffRedactor(ctx, tenantId) : undefined)),
+    resparkBlockedReason: contactAgainWaitReason(lead),
+    handle: safe(instagramHandle(lead) ?? "") || null,
+    stage: lead.lifecycleStage, disposition: lead.disposition,
+    dispositionReason: lead.dispositionReason ? safe(lead.dispositionReason) : null,
+    identity: { name: lead.fullName ? safe(lead.fullName) : null,
+      phone: maskPhone(lead.phone), email: maskEmail(lead.email) },
+    timeZone: timeZone ? safe(timeZone) : null,
+    timeline: history.events.filter((event) => event.entityType !== "payment" &&
+      !event.eventType.startsWith("payment.")).map(touchSummary),
+    deals: deals.map((deal) => ({ opportunityId: deal._id, stage: deal.stage, outcome: deal.outcome,
+      lostReason: deal.lostReason ? safe(deal.lostReason) : null, createdAt: deal.createdAt })),
+    calls,
+    notes: notes.filter((note) => note.deletedAt === undefined).map((note) => ({ noteId: note._id,
+      content: safe(note.content), createdAt: note.createdAt })),
+    resparkHistory: resparks.map((entry) => ({ itemId: entry._id, result: entry.result ?? null,
+      workedAt: entry.workedAt ?? null, bucket: entry.bucket })),
+    capped: capped || state.capped,
+  };
+}
+
+export async function resparkBatchCardCore(
+  ctx: QueryCtx, access: TenantUserResult, teamId: Id<"attributionTeams">,
+  item: Doc<"resparkBatchItems">, state: ReturnType<typeof createLiveReadState>, mcp = false, redactor?: StaffRedactor,
+) {
+  const { tenantId, userId } = access;
+  if (item.tenantId !== tenantId || item.userId !== userId) throw new Error("Respark item ownership mismatch");
+  const lead = await ctx.db.get("leads", item.leadId);
+  const person = lead?.tenantId === tenantId ? lead : null;
+  const base = person ? await personCard(ctx, person, state, mcp ? { viewerUserId: userId } : undefined) : null;
+  const card = person && base
+    ? { ...base, contactAgain: projectContactAgain(person, redactor), timeZone: await cardTimeZone(ctx, person, base.newestDeal?.opportunityId) } : null;
+  return { itemId: item._id, position: item.position, bucket: item.bucket,
+    result: item.result ?? null, workedAt: item.workedAt ?? null,
+    person: card,
+    resparkBlockedReason: person ? contactAgainWaitReason(person) : null,
+    blockedReason: (await leftPoolReason(ctx, person)) ??
+      (person?.resparkTeamId === teamId ? null : "This person is now in another team's pool.") };
+}
+
+/** Counts only: no person/card hydration for the shift summary. */
+export async function getHeldResparkBatchCore(ctx: QueryCtx, access: TenantUserResult) {
+  const worker = await requireActiveLeadGenWorker(ctx, access);
+  const batch = await ctx.db.query("resparkBatches")
+    .withIndex("by_tenantId_and_userId_and_createdAt", q => q.eq("tenantId", access.tenantId).eq("userId", access.userId))
+    .order("desc").first();
+  if (!batch || batch.heldUntil <= Date.now() || !worker?.teamId || batch.teamId !== worker.teamId) return null;
+  const items = await ctx.db.query("resparkBatchItems")
+    .withIndex("by_batchId_and_position", q => q.eq("batchId", batch._id)).take(101);
+  if (items.length > 100) throw new Error("Respark batch exceeds 100 items");
+  if (items.some(item => item.tenantId !== access.tenantId || item.userId !== access.userId))
+    throw new Error("Respark item ownership mismatch");
+  return { batch, progress: { total: batch.size, worked: items.filter(item => item.result !== undefined).length,
+    remaining: items.filter(item => item.result === undefined).length } };
+}

@@ -1,3 +1,4 @@
+import type { ContactAgainView } from "@/convex/leadGen/contactAgain";
 import type { ReactNode } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -122,4 +123,12 @@ export function KeyHints({ className }: { className?: string }) {
       ))}
     </p>
   );
+}
+
+export function ContactAgainNote({ saved }: { saved: ContactAgainView | null }) {
+  if (!saved) return null;
+  return <div className="flex min-w-0 flex-col gap-1 text-sm">
+    <p>Contact again on <time dateTime={saved.date}>{saved.date}</time></p>
+    <p className="whitespace-pre-wrap wrap-break-word text-muted-foreground">{saved.note?.text ?? "Note hidden because the staff list is too large to check."}</p>
+  </div>;
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonContactAgain } from "@/app/workspace/_components/person-contact-again";
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery } from "convex/react";
@@ -164,6 +165,7 @@ export function PersonCard() {
         <dl>
           <StageFacts />
         </dl>
+        <PersonContactAgain lead={lead} />
 
         {enrollments.length > 0 ? (
           <dl>

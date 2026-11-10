@@ -139,6 +139,7 @@ async function writeLifecycle(
     lifecycleStage: after.stage,
     lifecycleStageEnteredAt: after.enteredAt,
     ...write.extraPatch,
+    ...(after.stage === "customer" && { contactAgain: undefined }),
   });
   await syncLeadStageEntries(ctx, lead.tenantId, lead._id, before, after);
   await syncPersonProspectConversions(ctx, {
@@ -840,6 +841,7 @@ export async function adminSetDisposition(
     dispositionSetAt: write.at,
     dispositionSource: "admin",
     dispositionReason: write.reason,
+    ...(disposition === "do_not_contact" && { contactAgain: undefined }),
   });
   await emitDomainEvent(ctx, {
     tenantId: lead.tenantId,

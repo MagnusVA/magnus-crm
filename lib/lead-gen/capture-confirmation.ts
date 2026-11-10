@@ -1,11 +1,12 @@
-import type { FunctionReturnType } from "convex/server";
-import type { api } from "@/convex/_generated/api";
+// Relative imports: the agent's capture tool in convex/ reads this file too,
+// and Convex's bundler doesn't resolve the "@/" alias.
+import type { SubmitCaptureResult } from "../../convex/leadGen/capture";
 import {
   LIFECYCLE_STAGE_LABELS,
   stageIndex,
-} from "@/convex/leads/lifecycle";
+} from "../../convex/leads/lifecycle";
 
-export type CaptureResult = FunctionReturnType<typeof api.leadGen.capture.submit>;
+export type CaptureResult = SubmitCaptureResult;
 
 /**
  * What the last capture was, for its status word: a new person, a capture of

@@ -169,6 +169,13 @@ export const listProspectConversions = query({
   }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
+    return await readProspectConversions(ctx, tenantId, args);
+  },
+});
+
+
+/** Shared read core; callers authorize the tenant before entering. */
+export async function readProspectConversions(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string }) {
     if (args.startDayKey > args.endDayKey) {
       throw new Error("Start date must be on or before end date");
     }
@@ -187,5 +194,4 @@ export const listProspectConversions = query({
       counts.set(workerId, workerCounts);
     }
     return await buildProspectConversions(ctx, workers, { counts, deals });
-  },
-});
+}

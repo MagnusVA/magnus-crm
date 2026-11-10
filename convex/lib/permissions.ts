@@ -55,7 +55,7 @@ export const PERMISSIONS = {
   // Connect an AI client over MCP. A role also needs a toolset and the
   // tenant's switch (§6.1). Admins have their own toolset
   // (docs/plans/admin-assistant.md), which only the owner switches on.
-  "mcp:connect": ["closer", "tenant_master", "tenant_admin"],
+  "mcp:connect": ["closer", "tenant_master", "tenant_admin", "lead_generator"],
   // Switch AI assistants on or off for the admin roles, choose which kinds of
   // change their assistants may make, and block or unblock an admin. Owner
   // only: an admin must never widen its own access.

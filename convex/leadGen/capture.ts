@@ -5,6 +5,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx } from "../_generated/server";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { CrmRole } from "../lib/roleMapping";
+import type { Provenance } from "../mcp/guard";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   isRankableLeadGenOrigin,
@@ -82,227 +83,262 @@ export const submit = mutation({
     ]);
     const now = Date.now();
     const worker = await requireOperationalLeadGenWorker(ctx, access, now);
-    const clientSubmissionKey = normalizeClientSubmissionKey(
-      args.clientSubmissionKey,
-    );
+    return await submitCaptureCore(ctx, access, worker, args, now);
+  },
+});
 
-    if (clientSubmissionKey) {
-      const existingSubmission = await ctx.db
-        .query("leadGenSubmissions")
-        .withIndex("by_tenantId_and_workerId_and_clientSubmissionKey", (q) =>
-          q
-            .eq("tenantId", access.tenantId)
-            .eq("workerId", worker._id)
-            .eq("clientSubmissionKey", clientSubmissionKey),
-        )
-        .unique();
+export type SubmitCaptureArgs = {
+  source: LeadGenSource;
+  rawHandleOrProfileUrl: string;
+  originKind: LeadGenOriginKind;
+  originUrlOrLabel?: string;
+  clientSubmissionKey?: string;
+};
 
-      if (existingSubmission) {
-        log.info("lead_gen.submission.duplicate_retry", {
-          reason: "client_submission_key_match",
-          tenantId: access.tenantId,
-          workerId: worker._id,
-          submissionId: existingSubmission._id,
-        });
-        const existingProspect = await ctx.db.get("leadGenProspects", existingSubmission.prospectId);
-        return {
-          submissionId: existingSubmission._id,
-          prospectId: existingSubmission.prospectId,
-          leadId: existingProspect?.leadId,
-          duplicateRetry: true,
-          duplicateProspect: false,
-          inactiveAfterDays: inactiveAfterDays(await ctx.db.get("tenants", access.tenantId)),
-        };
-      }
-    }
+export type SubmitCaptureResult = {
+  submissionId: Id<"leadGenSubmissions">;
+  prospectId: Id<"leadGenProspects">;
+  leadId?: Id<"leads">;
+  duplicateRetry: boolean;
+  duplicateProspect: boolean;
+  person?: CapturedPerson;
+  inactiveAfterDays: number;
+};
 
-    const normalized = normalizeLeadGenProspectInput({
-      source: args.source,
-      rawHandleOrProfileUrl: args.rawHandleOrProfileUrl,
-    });
-    const submittedOrigin = resolveCaptureOrigin(args);
-    const origin = normalizeLeadGenOrigin({
-      originKind: submittedOrigin.originKind,
-      originUrlOrLabel: submittedOrigin.originUrlOrLabel,
-    });
+/**
+ * One capture, for the web and for the agent's list
+ * (docs/plans/lead-gen-assistant.md §3). The caller resolves the user and
+ * their worker; the agent's captures carry where they came from on the
+ * capture touch.
+ */
+export async function submitCaptureCore(
+  ctx: MutationCtx,
+  access: { tenantId: Id<"tenants">; userId: Id<"users"> },
+  worker: Doc<"leadGenWorkers">,
+  args: SubmitCaptureArgs,
+  now: number,
+  provenance: Provenance = { via: "web" },
+): Promise<SubmitCaptureResult> {
+  const clientSubmissionKey = normalizeClientSubmissionKey(
+    args.clientSubmissionKey,
+  );
 
-    let prospect = await ctx.db
-      .query("leadGenProspects")
-      .withIndex("by_tenantId_and_dedupeKey", (q) =>
+  if (clientSubmissionKey) {
+    const existingSubmission = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_workerId_and_clientSubmissionKey", (q) =>
         q
           .eq("tenantId", access.tenantId)
-          .eq("dedupeKey", normalized.dedupeKey),
+          .eq("workerId", worker._id)
+          .eq("clientSubmissionKey", clientSubmissionKey),
       )
       .unique();
 
-    // The prospect is a person, found by handle or created at Prospect
-    // (docs/plans/phase-2-person-first.md §4.1).
-    let createdLeadId: Id<"leads"> | undefined;
-    // Read before the capture's stage move and touch.
-    let personBefore: CapturedPerson | undefined;
-    if (prospect) {
-      personBefore = await capturedPersonBefore(
-        ctx,
-        await ctx.db.get("leads", prospect.leadId),
-        false,
-        now,
-      );
-    } else {
-      const person = await findOrCreateCapturePerson(ctx, {
+    if (existingSubmission) {
+      log.info("lead_gen.submission.duplicate_retry", {
+        reason: "client_submission_key_match",
         tenantId: access.tenantId,
-        normalizedHandle: normalized.normalizedHandle,
-        capturedAt: now,
+        workerId: worker._id,
+        submissionId: existingSubmission._id,
       });
-      createdLeadId = person.created ? person.lead._id : undefined;
-      personBefore = await capturedPersonBefore(ctx, person.lead, person.created, now);
-      const prospectId = await ctx.db.insert("leadGenProspects", {
-        tenantId: access.tenantId,
-        leadId: person.lead._id,
-        firstSource: args.source,
-        latestSource: args.source,
-        dedupeKey: normalized.dedupeKey,
-        normalizedHandle: normalized.normalizedHandle,
-        rawHandle: args.rawHandleOrProfileUrl.trim(),
-        profileUrl: normalized.profileUrl,
-        firstCapturedByWorkerId: worker._id,
-        firstCapturedAt: now,
-        lastSubmittedByWorkerId: worker._id,
-        lastSubmittedAt: now,
-        latestOriginKind: submittedOrigin.originKind,
-        latestOriginValue: origin.originValue,
-        contactAttemptCount: 0,
-        distinctWorkerCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      prospect = await ctx.db.get("leadGenProspects", prospectId);
-      if (!prospect) {
-        throw new Error("Prospect insert failed");
-      }
-      await settleProspectPerson(ctx, prospect);
+      const existingProspect = await ctx.db.get("leadGenProspects", existingSubmission.prospectId);
+      return {
+        submissionId: existingSubmission._id,
+        prospectId: existingSubmission.prospectId,
+        leadId: existingProspect?.leadId,
+        duplicateRetry: true,
+        duplicateProspect: false,
+        inactiveAfterDays: inactiveAfterDays(await ctx.db.get("tenants", access.tenantId)),
+      };
     }
+  }
 
-    const priorWorkerSubmission = await ctx.db
-      .query("leadGenSubmissions")
-      .withIndex("by_tenantId_and_prospectId_and_workerId", (q) =>
-        q
-          .eq("tenantId", access.tenantId)
-          .eq("prospectId", prospect._id)
-          .eq("workerId", worker._id),
-      )
-      .take(1);
+  const normalized = normalizeLeadGenProspectInput({
+    source: args.source,
+    rawHandleOrProfileUrl: args.rawHandleOrProfileUrl,
+  });
+  const submittedOrigin = resolveCaptureOrigin(args);
+  const origin = normalizeLeadGenOrigin({
+    originKind: submittedOrigin.originKind,
+    originUrlOrLabel: submittedOrigin.originUrlOrLabel,
+  });
 
-    const duplicateProspect = prospect.contactAttemptCount > 0;
-    const isDistinctWorker = priorWorkerSubmission.length === 0;
-    const originRankable = isRankableLeadGenOrigin(
-      submittedOrigin.originKind,
+  let prospect = await ctx.db
+    .query("leadGenProspects")
+    .withIndex("by_tenantId_and_dedupeKey", (q) =>
+      q
+        .eq("tenantId", access.tenantId)
+        .eq("dedupeKey", normalized.dedupeKey),
+    )
+    .unique();
+
+  // The prospect is a person, found by handle or created at Prospect
+  // (docs/plans/phase-2-person-first.md §4.1).
+  let createdLeadId: Id<"leads"> | undefined;
+  // Read before the capture's stage move and touch.
+  let personBefore: CapturedPerson | undefined;
+  if (prospect) {
+    personBefore = await capturedPersonBefore(
+      ctx,
+      await ctx.db.get("leads", prospect.leadId),
+      false,
+      now,
     );
-
-    const submissionId = await ctx.db.insert("leadGenSubmissions", {
+  } else {
+    const person = await findOrCreateCapturePerson(ctx, {
       tenantId: access.tenantId,
-      prospectId: prospect._id,
-      workerId: worker._id,
-      userId: access.userId,
-      teamId: worker.teamId,
-      source: args.source,
-      originKind: submittedOrigin.originKind,
-      originValue: origin.originValue,
-      originRankable,
-      clientSubmissionKey,
-      submittedAt: now,
-      createdAt: now,
+      normalizedHandle: normalized.normalizedHandle,
+      capturedAt: now,
     });
-
-    // Each submission is a touch on the person's timeline.
-    if (createdLeadId) {
-      await emitLeadCreated(ctx, access.tenantId, createdLeadId, access.userId, now);
-    }
-    const submission = await ctx.db.get("leadGenSubmissions", submissionId);
-    if (!submission) {
-      throw new Error("Submission insert failed");
-    }
-    await emitCaptureEvent(ctx, submission, prospect.leadId);
-
-    await ctx.db.patch("leadGenProspects", prospect._id, {
+    createdLeadId = person.created ? person.lead._id : undefined;
+    personBefore = await capturedPersonBefore(ctx, person.lead, person.created, now);
+    const prospectId = await ctx.db.insert("leadGenProspects", {
+      tenantId: access.tenantId,
+      leadId: person.lead._id,
+      firstSource: args.source,
+      latestSource: args.source,
+      dedupeKey: normalized.dedupeKey,
+      normalizedHandle: normalized.normalizedHandle,
+      rawHandle: args.rawHandleOrProfileUrl.trim(),
+      profileUrl: normalized.profileUrl,
+      firstCapturedByWorkerId: worker._id,
+      firstCapturedAt: now,
       lastSubmittedByWorkerId: worker._id,
       lastSubmittedAt: now,
       latestOriginKind: submittedOrigin.originKind,
       latestOriginValue: origin.originValue,
-      latestSource: args.source,
-      contactAttemptCount: prospect.contactAttemptCount + 1,
-      distinctWorkerCount:
-        prospect.distinctWorkerCount + (isDistinctWorker ? 1 : 0),
+      contactAttemptCount: 0,
+      distinctWorkerCount: 0,
+      createdAt: now,
       updatedAt: now,
     });
 
-    await updateLeadGenDailyStats(ctx, {
+    prospect = await ctx.db.get("leadGenProspects", prospectId);
+    if (!prospect) {
+      throw new Error("Prospect insert failed");
+    }
+    await settleProspectPerson(ctx, prospect);
+  }
+
+  const priorWorkerSubmission = await ctx.db
+    .query("leadGenSubmissions")
+    .withIndex("by_tenantId_and_prospectId_and_workerId", (q) =>
+      q
+        .eq("tenantId", access.tenantId)
+        .eq("prospectId", prospect._id)
+        .eq("workerId", worker._id),
+    )
+    .take(1);
+
+  const duplicateProspect = prospect.contactAttemptCount > 0;
+  const isDistinctWorker = priorWorkerSubmission.length === 0;
+  const originRankable = isRankableLeadGenOrigin(
+    submittedOrigin.originKind,
+  );
+
+  const submissionId = await ctx.db.insert("leadGenSubmissions", {
+    tenantId: access.tenantId,
+    prospectId: prospect._id,
+    workerId: worker._id,
+    userId: access.userId,
+    teamId: worker.teamId,
+    source: args.source,
+    originKind: submittedOrigin.originKind,
+    originValue: origin.originValue,
+    originRankable,
+    clientSubmissionKey,
+    submittedAt: now,
+    createdAt: now,
+  });
+
+  // Each submission is a touch on the person's timeline.
+  if (createdLeadId) {
+    await emitLeadCreated(ctx, access.tenantId, createdLeadId, access.userId, now);
+  }
+  const submission = await ctx.db.get("leadGenSubmissions", submissionId);
+  if (!submission) {
+    throw new Error("Submission insert failed");
+  }
+  await emitCaptureEvent(ctx, submission, prospect.leadId, { provenance });
+
+  await ctx.db.patch("leadGenProspects", prospect._id, {
+    lastSubmittedByWorkerId: worker._id,
+    lastSubmittedAt: now,
+    latestOriginKind: submittedOrigin.originKind,
+    latestOriginValue: origin.originValue,
+    latestSource: args.source,
+    contactAttemptCount: prospect.contactAttemptCount + 1,
+    distinctWorkerCount:
+      prospect.distinctWorkerCount + (isDistinctWorker ? 1 : 0),
+    updatedAt: now,
+  });
+
+  await updateLeadGenDailyStats(ctx, {
+    tenantId: access.tenantId,
+    worker,
+    source: args.source,
+    submittedAt: now,
+    duplicateProspectSubmission: duplicateProspect,
+    prospectId: prospect._id,
+  });
+
+  if (originRankable && origin.originKey && origin.originValue) {
+    await updateLeadGenOriginStats(ctx, {
       tenantId: access.tenantId,
-      worker,
       source: args.source,
-      submittedAt: now,
-      duplicateProspectSubmission: duplicateProspect,
+      originKind: submittedOrigin.originKind,
+      originKey: origin.originKey,
+      originValue: origin.originValue,
       prospectId: prospect._id,
+      submittedAt: now,
     });
 
-    if (originRankable && origin.originKey && origin.originValue) {
-      await updateLeadGenOriginStats(ctx, {
-        tenantId: access.tenantId,
-        source: args.source,
-        originKind: submittedOrigin.originKind,
-        originKey: origin.originKey,
-        originValue: origin.originValue,
-        prospectId: prospect._id,
-        submittedAt: now,
-      });
-
-      await ensureOriginPreview(ctx, {
-        tenantId: access.tenantId,
-        originKey: origin.originKey,
-        url: origin.originValue,
-      });
-
-      await updateLeadGenTeamOriginStats(ctx, {
-        tenantId: access.tenantId,
-        teamId: worker.teamId,
-        source: args.source,
-        originKind: submittedOrigin.originKind,
-        originKey: origin.originKey,
-        originValue: origin.originValue,
-        prospectId: prospect._id,
-        submittedAt: now,
-      });
-    }
-
-    log.info("lead_gen.submission.created", {
+    await ensureOriginPreview(ctx, {
       tenantId: access.tenantId,
-      submissionId,
-      prospectId: prospect._id,
-      workerId: worker._id,
+      originKey: origin.originKey,
+      url: origin.originValue,
+    });
+
+    await updateLeadGenTeamOriginStats(ctx, {
+      tenantId: access.tenantId,
       teamId: worker.teamId,
       source: args.source,
       originKind: submittedOrigin.originKind,
-      originRankable,
-      duplicateProspect,
-      isDistinctWorker,
-    });
-
-    await scheduleSlackLeadGenNotification(ctx, {
-      tenantId: access.tenantId,
-      submissionId,
-    });
-
-    return {
-      submissionId,
+      originKey: origin.originKey,
+      originValue: origin.originValue,
       prospectId: prospect._id,
-      leadId: prospect.leadId,
-      duplicateRetry: false,
-      duplicateProspect,
-      person: personBefore,
-      inactiveAfterDays: inactiveAfterDays(await ctx.db.get("tenants", access.tenantId)),
-    };
-  },
-});
+      submittedAt: now,
+    });
+  }
+
+  log.info("lead_gen.submission.created", {
+    tenantId: access.tenantId,
+    submissionId,
+    prospectId: prospect._id,
+    workerId: worker._id,
+    teamId: worker.teamId,
+    source: args.source,
+    originKind: submittedOrigin.originKind,
+    originRankable,
+    duplicateProspect,
+    isDistinctWorker,
+  });
+
+  await scheduleSlackLeadGenNotification(ctx, {
+    tenantId: access.tenantId,
+    submissionId,
+  });
+
+  return {
+    submissionId,
+    prospectId: prospect._id,
+    leadId: prospect.leadId,
+    duplicateRetry: false,
+    duplicateProspect,
+    person: personBefore,
+    inactiveAfterDays: inactiveAfterDays(await ctx.db.get("tenants", access.tenantId)),
+  };
+}
 
 /**
  * Where the person stood before this capture. A new person has no last
@@ -450,7 +486,7 @@ async function scheduleSlackLeadGenNotification(
   }
 }
 
-function resolveCaptureOrigin(args: {
+export function resolveCaptureOrigin(args: {
   source: LeadGenSource;
   originKind: LeadGenOriginKind;
   originUrlOrLabel?: string;
