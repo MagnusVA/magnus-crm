@@ -1,3 +1,4 @@
+import { peopleSlot } from "./peopleServing";
 import type { Id } from "../../_generated/dataModel";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { MEMBER_REPORT_ROLES, resolveMemberFilter } from "../../reports/lib/access";
@@ -151,7 +152,7 @@ function options(role: PeopleRole, name: string) {
       input.filters.memberId, { ...input.context.hours, byKey: new Map(input.context.hours.byKey) }, Date.now()),
   };
   return {
-    page: "people" as const, roles: MEMBER_REPORT_ROLES, day: "business" as const,
+    roles: MEMBER_REPORT_ROLES, day: "business" as const,
     parseFilters: resolveFilters,
     sql: (input: ReportInput<PeopleRoleFilters>, context?: PeopleRoleContext) => peopleRoleSql(input.range, role, input.filters.memberId, context),
     node, finalize: nodeFinalize(node),
@@ -163,7 +164,7 @@ const resolveFilters: ReportDefinition<PeopleRoleFilters, unknown>["parseFilters
   ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) });
 
 export const peopleRoleReports = [
-  defineReport<typeof getSetters, PeopleRoleFilters, PeopleRoleContext>({ id: "people.setters", ...options("setter", "reports/peopleRoles:getSetters") }),
-  defineReport<typeof getDmClosers, PeopleRoleFilters, PeopleRoleContext>({ id: "people.dm_closers", ...options("dm_closer", "reports/peopleRoles:getDmClosers") }),
-  defineReport<typeof getLeadGen, PeopleRoleFilters, PeopleRoleContext>({ id: "people.lead_gen", ...options("lead_gen", "reports/peopleRoles:getLeadGen") }),
+  defineReport<typeof getSetters, PeopleRoleFilters, PeopleRoleContext>({ ...peopleSlot("setters", "raw"), ...options("setter", "reports/peopleRoles:getSetters") }),
+  defineReport<typeof getDmClosers, PeopleRoleFilters, PeopleRoleContext>({ ...peopleSlot("dm_closers", "raw"), ...options("dm_closer", "reports/peopleRoles:getDmClosers") }),
+  defineReport<typeof getLeadGen, PeopleRoleFilters, PeopleRoleContext>({ ...peopleSlot("lead_gen", "raw"), ...options("lead_gen", "reports/peopleRoles:getLeadGen") }),
 ];

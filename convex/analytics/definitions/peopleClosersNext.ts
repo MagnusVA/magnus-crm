@@ -1,3 +1,4 @@
+import { peopleSlot } from "./peopleServing";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
   emptyCloserTotals, finishPeopleClosers,
@@ -174,7 +175,7 @@ const closerAggregateNode: NodeBuild<PeopleCloserFilters, ReaderOutput<typeof ge
   },
 };
 export const peopleClosersNext = defineReport<typeof getPeopleClosers, PeopleCloserFilters, Context>({
-  id: "people.closers.next", page: null, roles: MEMBER_REPORT_ROLES, day: "business",
+  ...peopleSlot("closers", "aggregate"), roles: MEMBER_REPORT_ROLES, day: "business",
   parseFilters: async (ctx, raw, viewer) => ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) }),
   sql: (input, context) => {
     if (!context) throw new Error("Closer aggregate context must load before SQL.");

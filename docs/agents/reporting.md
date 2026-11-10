@@ -108,7 +108,8 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 | Task | Command |
 | --- | --- |
 | Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`). Any SKIP or missing required comparison fails as incomplete verification; use shorter ranges for capped live readers |
-| Compare candidate and active definitions (read-only) | `pnpm analytics:parity people --tenant <tenantId> --active people.closers --candidate people.closers.next --range last_month` (use registered definition IDs). Both build sequentially in one Node action; no answers are saved |
+| Compare candidate and active definitions (read-only) | `pnpm analytics:parity people --tenant <tenantId> --active people.closers --candidate people.closers.raw --range last_month` (use registered definition IDs). Both build sequentially in one Node action; no answers are saved |
+| Choose which build answers a People panel | Set the panel in `PEOPLE_SERVING` (`convex/analytics/definitions/peopleServing.ts`) to `aggregate` (per-person totals) or `raw` (every row; stops near a month), then deploy. The other build stays registered as `people.<panel>.next` or `.raw` for parity. Cached answers keep their keys and are rebuilt by the next post-sync batch |
 | Switch a page to ClickHouse | `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'` |
 | Roll a page back | `npx convex run --prod analytics/switch:disable '{"tenantId":"…","page":"revenue"}'` |
 | Rerun the batch by hand | `npx convex run --prod analytics/run:runPostSyncBatch '{"force":true}'` |

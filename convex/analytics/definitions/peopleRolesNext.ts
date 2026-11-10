@@ -1,3 +1,4 @@
+import { peopleSlot } from "./peopleServing";
 import type { Id } from "../../_generated/dataModel";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { MEMBER_REPORT_ROLES, resolveMemberFilter } from "../../reports/lib/access";
@@ -266,7 +267,7 @@ export function roleAggregateNode(role: PeopleRole): NodeBuild<PeopleRoleFilters
 }
 const leadGenNode = roleAggregateNode("lead_gen");
 export const peopleLeadGenNext = defineReport<typeof getLeadGen, PeopleRoleFilters, Context>({
-  id: "people.lead_gen.next", page: null, roles: MEMBER_REPORT_ROLES, day: "business",
+  ...peopleSlot("lead_gen", "aggregate"), roles: MEMBER_REPORT_ROLES, day: "business",
   parseFilters: async (ctx, raw, viewer) => ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) }),
   sql: (input, context) => {
     if (!context) throw new Error("Role aggregate context must load before SQL.");
@@ -279,7 +280,7 @@ export const peopleLeadGenNext = defineReport<typeof getLeadGen, PeopleRoleFilte
 
 const setterNode = roleAggregateNode("setter");
 export const peopleSettersNext = defineReport<typeof getSetters, PeopleRoleFilters, Context>({
-  id: "people.setters.next", page: null, roles: MEMBER_REPORT_ROLES, day: "business",
+  ...peopleSlot("setters", "aggregate"), roles: MEMBER_REPORT_ROLES, day: "business",
   parseFilters: async (ctx, raw, viewer) => ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) }),
   sql: (input, context) => {
     if (!context) throw new Error("Role aggregate context must load before SQL.");
@@ -292,7 +293,7 @@ export const peopleSettersNext = defineReport<typeof getSetters, PeopleRoleFilte
 
 const dmNode = roleAggregateNode("dm_closer");
 export const peopleDmClosersNext = defineReport<typeof getDmClosers, PeopleRoleFilters, Context>({
-  id: "people.dm_closers.next", page: null, roles: MEMBER_REPORT_ROLES, day: "business",
+  ...peopleSlot("dm_closers", "aggregate"), roles: MEMBER_REPORT_ROLES, day: "business",
   parseFilters: async (ctx, raw, viewer) => ({ memberId: await resolveMemberFilter(ctx, raw.memberId, viewer) }),
   sql: (input, context) => {
     if (!context) throw new Error("Role aggregate context must load before SQL.");

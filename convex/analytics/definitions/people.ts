@@ -1,3 +1,4 @@
+import { peopleSlot } from "./peopleServing";
 import { peopleClosersNext } from "./peopleClosersNext";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
@@ -101,8 +102,7 @@ export const peopleClosers = defineReport<
   PeopleCloserFilters,
   CloserContext
 >({
-  id: "people.closers",
-  page: "people",
+  ...peopleSlot("closers", "raw"),
   roles: MEMBER_REPORT_ROLES,
   day: "business",
   parseFilters: async (ctx, raw, viewer) => ({

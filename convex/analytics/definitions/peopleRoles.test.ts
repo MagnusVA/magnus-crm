@@ -13,6 +13,7 @@ import { mergeAttributionLanes, mergeAttributionPaths } from "../merge/attributi
 import { mergeSetters, mergeDmClosers, mergeLeadGen } from "../merge/peopleRoles";
 import { attributionReports } from "./attribution";
 import { peopleRoleReports, PEOPLE_ROLE_COLUMNS, PEOPLE_ROLE_CREDIT_ROLES, PEOPLE_ROLE_QUERY_NAMES, DM_DEAL_COLUMNS, ROLE_PEOPLE_COLUMNS, type PeopleRoleContext } from "./peopleRoles";
+import { peopleSlot } from "./peopleServing";
 
 // The lead owns registry wiring. Exercise the existing parity harness with
 // these definitions registered only inside this test module.
@@ -133,7 +134,7 @@ async function createFixture() {
 
 async function warehouseRows(fixture: Awaited<ReturnType<typeof createFixture>>, role?: PeopleRole, memberId: Id<"teamMembers"> | null = null) {
   const facts = await fixture.t.run(ctx => loadCreditFacts(ctx, fixture.tenantId, range, role));
-  const definition = role ? peopleRoleReports.find(report => report.id === `people.${role === "setter" ? "setters" : role === "dm_closer" ? "dm_closers" : "lead_gen"}`)! : null;
+  const definition = role ? peopleRoleReports.find(report => report.id === peopleSlot(role === "setter" ? "setters" : role === "dm_closer" ? "dm_closers" : "lead_gen", "raw").id)! : null;
   const context = definition ? await fixture.t.run(ctx => definition.node!.context(ctx, { tenantId: fixture.tenantId, range, filters: { memberId } }, [])) as PeopleRoleContext : null;
   const detailWorkers = context?.dimensions.workers.filter(worker => worker.teamMemberId === memberId).map(worker => worker._id) ?? [];
   const captures = facts.captures.filter(capture => capture.voidedAt === undefined && detailWorkers.includes(capture.workerId))
@@ -163,9 +164,9 @@ async function warehouseRows(fixture: Awaited<ReturnType<typeof createFixture>>,
 }
 
 const peopleCases = [
-  { id: "people.setters", role: "setter", live: api.reports.peopleRoles.getSetters, merge: mergeSetters },
-  { id: "people.dm_closers", role: "dm_closer", live: api.reports.peopleRoles.getDmClosers, merge: mergeDmClosers },
-  { id: "people.lead_gen", role: "lead_gen", live: api.reports.peopleRoles.getLeadGen, merge: mergeLeadGen },
+  { id: peopleSlot("setters", "raw").id, role: "setter", live: api.reports.peopleRoles.getSetters, merge: mergeSetters },
+  { id: peopleSlot("dm_closers", "raw").id, role: "dm_closer", live: api.reports.peopleRoles.getDmClosers, merge: mergeDmClosers },
+  { id: peopleSlot("lead_gen", "raw").id, role: "lead_gen", live: api.reports.peopleRoles.getLeadGen, merge: mergeLeadGen },
 ] as const;
 const attributionCases = [
   { id: "attribution.lanes", live: api.reports.attribution.getLanes, merge: mergeAttributionLanes },
@@ -176,7 +177,7 @@ describe("new report parity and merges", () => {
   for (const role of ["dm_closer", "lead_gen"] as const) {
     it(`${role} selects the first indexed payment per status before breaking status ties by id`, async () => {
       const f = await createFixture();
-      const definition = peopleRoleReports.find(report => report.id === `people.${role === "dm_closer" ? "dm_closers" : role}`)!;
+      const definition = peopleRoleReports.find(report => report.id === peopleSlot(role === "dm_closer" ? "dm_closers" : role, "raw").id)!;
       const sql = definition.sql({ tenantId: f.tenantId, range, filters: { memberId: null } }).firstPayments.sql;
       const payments = await f.t.run(async ctx => {
         const existing = await ctx.db.query("paymentRecords").take(100);
@@ -215,7 +216,7 @@ describe("new report parity and merges", () => {
       const answer = await expectSameAnswer({ t: fixture.t, identity, tenantId: fixture.tenantId, range, reportId: report.id,
         live: report.live, liveArgs: { startDate: from, endDate: to }, filters: "role" in report ? { memberId: null } : {},
         rows: await warehouseRows(fixture, "role" in report ? report.role : undefined) });
-      if (report.id === "people.setters" && "rows" in answer) expect(answer.rows.find((row: { teamMemberId: Id<"teamMembers"> | null; scheduledHours: number }) => row.teamMemberId === fixture.memberA)?.scheduledHours).toBe(14);
+      if (report.id === peopleSlot("setters", "raw").id && "rows" in answer) expect(answer.rows.find((row: { teamMemberId: Id<"teamMembers"> | null; scheduledHours: number }) => row.teamMemberId === fixture.memberA)?.scheduledHours).toBe(14);
     });
   }
   for (const report of peopleCases) {
@@ -245,7 +246,7 @@ describe("new report parity and merges", () => {
     const rows = await warehouseRows(f, "lead_gen", f.memberA);
     expect(rows.captureWorkers).toHaveLength(2);
     const answer = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range,
-      reportId: "people.lead_gen", live: api.reports.peopleRoles.getLeadGen,
+      reportId: peopleSlot("lead_gen", "raw").id, live: api.reports.peopleRoles.getLeadGen,
       liveArgs: { startDate: from, endDate: to, memberId: f.memberA }, filters: { memberId: f.memberA }, rows });
     expect(answer.rows[0]).toMatchObject({ captures: 3, uniquePeople: 1 });
     expect(answer.items).toHaveLength(3);
@@ -262,7 +263,7 @@ describe("new report parity and merges", () => {
       const { _id, _creationTime, ...fields } = capture;
       await ctx.db.insert("leadGenSubmissions", { ...fields, workerId: f.workerB, submittedAt: split + 500 });
     });
-    const definition = peopleRoleReports.find(report => report.id === "people.lead_gen")!;
+    const definition = peopleRoleReports.find(report => report.id === peopleSlot("lead_gen", "raw").id)!;
     const input = { tenantId: f.tenantId, range, filters: { memberId: f.memberB } };
     const context = await f.t.run(ctx => definition.node!.context(ctx, input, [])) as PeopleRoleContext;
     const queries = definition.sql(input, context);
@@ -289,7 +290,7 @@ describe("new report parity and merges", () => {
       }
     });
     const answer = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range,
-      reportId: "people.dm_closers", live: api.reports.peopleRoles.getDmClosers,
+      reportId: peopleSlot("dm_closers", "raw").id, live: api.reports.peopleRoles.getDmClosers,
       liveArgs: { startDate: from, endDate: to }, filters: { memberId: null }, rows: await warehouseRows(f, "dm_closer") });
     expect(answer.rows.find((row: { teamId: Id<"attributionTeams"> | null }) => row.teamId === f.teamId)).toMatchObject({ dealsCredited: 1, bookings: 1 });
     expect(answer.rows.find((row: { teamMemberId: Id<"teamMembers"> | null }) => row.teamMemberId === f.memberA)?.byCurrency)
@@ -301,7 +302,7 @@ describe("new report parity and merges", () => {
       for (const meeting of await ctx.db.query("meetings").take(100)) await ctx.db.delete("meetings", meeting._id);
     });
     const answer = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range,
-      reportId: "people.setters", live: api.reports.peopleRoles.getSetters,
+      reportId: peopleSlot("setters", "raw").id, live: api.reports.peopleRoles.getSetters,
       liveArgs: { startDate: from, endDate: to, memberId: f.memberA }, filters: { memberId: f.memberA },
       rows: await warehouseRows(f, "setter", f.memberA) });
     expect(answer.rows[0]).toMatchObject({ booked: 1, held: 0, won: 1 });
@@ -313,7 +314,7 @@ describe("new report parity and merges", () => {
       await ctx.db.patch("leads", deal.leadId, { fullName: undefined });
     });
     const answer = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range,
-      reportId: "people.dm_closers", live: api.reports.peopleRoles.getDmClosers,
+      reportId: peopleSlot("dm_closers", "raw").id, live: api.reports.peopleRoles.getDmClosers,
       liveArgs: { startDate: from, endDate: to, memberId: f.memberA }, filters: { memberId: f.memberA },
       rows: await warehouseRows(f, "dm_closer", f.memberA) });
     expect(answer.items.every((item: { personName: string }) => item.personName === "Booking person")).toBe(true);

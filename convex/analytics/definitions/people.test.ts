@@ -14,6 +14,7 @@ import { projectWarehouseRows, expectProjectionValues } from "../../../tests/ana
 
 import { CALL_COLUMNS } from "./calls";
 import { peopleClosers, CLOSER_QUERY_NAMES } from "./people";
+import { peopleSlot } from "./peopleServing";
 
 vi.mock("../registry", async () => {
   const { peopleCloserReports } = await import("./people");
@@ -40,7 +41,7 @@ describe("People closers warehouse parity", () => {
       internal.analytics.results.previewFinalize,
       {
         tenantId: f.tenantId,
-        reportId: "people.closers",
+        reportId: peopleSlot("closers", "raw").id,
         range,
         filtersJson: JSON.stringify({ memberId: f.memberA }),
         rowsJson: JSON.stringify({
@@ -79,7 +80,7 @@ describe("People closers warehouse parity", () => {
         startDate: from, endDate: to, ...(memberId ? { memberId } : {}),
       });
       const raw = await f.t.query(internal.analytics.results.previewFinalize, {
-        tenantId: f.tenantId, reportId: "people.closers", range,
+        tenantId: f.tenantId, reportId: peopleSlot("closers", "raw").id, range,
         filtersJson: JSON.stringify({ memberId }),
         rowsJson: JSON.stringify(projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS, payments: null, callPayments: null, firstPayments: null, cohort: null, firstPaymentDeals: null })),
       });

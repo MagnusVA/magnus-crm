@@ -10,6 +10,7 @@ import { callsReportFixture, DAY, from, identity, now, range, to } from "../../.
 import { callEvidenceJoinsSql, callFactsSql } from "./calls";
 import { peopleClosers } from "./people";
 import { peopleClosersNext } from "./peopleClosersNext";
+import { PEOPLE_SERVING, peopleSlot } from "./peopleServing";
 import { getReportDefinition, listReportDefinitions } from "../registry";
 import { REPORT_PANELS } from "../../mcp/reports/catalog";
 
@@ -17,15 +18,23 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(now); });
 afterEach(() => vi.useRealTimers());
 
 describe("People closers aggregate candidate", () => {
-  it("keeps calls.summary's exact SQL and hides the shadow from page, assistant and ordinary enumeration", () => {
+  it("keeps calls.summary's exact SQL and serves the panel from the switch's build only", () => {
     // Captured before exporting the shared fragment, so formatting changes fail too.
     expect(createHash("sha256").update(callFactsSql).digest("hex")).toBe("da7d3c8a62bb99b69a4b1adb8a6ff1f4159e1bdf7558a44e334233b02a8ab970");
     expect(callFactsSql).toContain(callEvidenceJoinsSql);
     expect(peopleClosers.sql({ tenantId: "test" as Id<"tenants">, filters: { memberId: null }, range }).meetings.sql).toBe(callFactsSql);
-    expect(peopleClosersNext.page).toBeNull();
-    expect(getReportDefinition("people.closers.next")).toBe(peopleClosersNext);
+    expect(getReportDefinition(peopleSlot("closers", "aggregate").id)).toBe(peopleClosersNext);
+    expect(getReportDefinition(peopleSlot("closers", "raw").id)).toBe(peopleClosers);
+    expect(getReportDefinition("people.closers")).toMatchObject({ page: "people" });
     expect(listReportDefinitions().some(r => /\.(next|raw)$/.test(r.id))).toBe(false);
-    expect(Object.values(REPORT_PANELS).flat()).not.toContain("people.closers.next");
+    expect(Object.values(REPORT_PANELS).flat()).toContain("people.closers");
+    // Either setting serves people.closers from exactly one build; the other keeps its twin id.
+    for (const build of ["aggregate", "raw"] as const) {
+      const serving = { ...PEOPLE_SERVING, closers: build };
+      expect(peopleSlot("closers", build, serving)).toEqual({ id: "people.closers", page: "people" });
+      expect(peopleSlot("closers", build === "raw" ? "aggregate" : "raw", serving))
+        .toEqual({ id: build === "raw" ? "people.closers.next" : "people.closers.raw", page: null });
+    }
   });
   it("matches the live roster and member answers with signed gaps, payment-only closers, ties and case-sensitive currencies", async () => {
     const f = await callsReportFixture();
@@ -64,7 +73,7 @@ describe("People closers aggregate candidate", () => {
       // JSONEachRow can encode Int64 as strings.
       rows.totals.forEach(row => { row.due = String(row.due); row.record_minutes = (row.record_minutes as number[]).map(String); });
       const answer: PeopleClosers = await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId,
-        reportId: "people.closers.next", live: api.reports.people.getPeopleClosers,
+        reportId: peopleSlot("closers", "aggregate").id, live: api.reports.people.getPeopleClosers,
         liveArgs: { startDate: from, endDate: to, ...(memberId ? { memberId } : {}) }, filters: { memberId }, range, rows });
       if (!memberId) {
         expect(answer.rows.find(r => r.userId === f.ana)?.recordMinutes).toContain(-1);
@@ -107,7 +116,7 @@ describe("People closers aggregate candidate", () => {
         scheduled_at_ms: f.meeting.scheduledAt, lead_name: f.leadName, program_name: f.programName, call_status: f.status,
         call_type: f.callType, deal_outcome: f.dealOutcome, paid_minor: [] })), firstPaymentDeals: [],
       callDays: [{ day_key: "2026-09-02", held: 302, no_show: 0, not_recorded: 0 }] };
-    const payload = await f.t.query(internal.analytics.results.previewFinalize, { reportId: "people.closers.next", tenantId: f.tenantId,
+    const payload = await f.t.query(internal.analytics.results.previewFinalize, { reportId: peopleSlot("closers", "aggregate").id, tenantId: f.tenantId,
       filtersJson: JSON.stringify({ memberId: f.memberA }), range, rowsJson: JSON.stringify(rows) });
     expect(JSON.parse(payload)).toEqual(JSON.parse(JSON.stringify(live)));
     expect(live.calls).toHaveLength(300);

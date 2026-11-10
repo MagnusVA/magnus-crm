@@ -15,11 +15,11 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(to + DAY); });
 afterEach(() => vi.useRealTimers());
 const cases = [{ definition: peopleDmClosersNext, role: "dm_closer", live: api.reports.peopleRoles.getDmClosers }, { definition: peopleSettersNext, role: "setter", live: api.reports.peopleRoles.getSetters }, { definition: peopleLeadGenNext, role: "lead_gen", live: api.reports.peopleRoles.getLeadGen }] as const;
 for (const { definition, role, live } of cases) describe(definition.id, () => {
-  it("is dormant and requires context before SQL", async () => {
-    expect(definition.page).toBeNull();
+  it("is listed only while it serves its panel, and requires context before SQL", async () => {
+    const serving = definition.page !== null;
     expect(getReportDefinition(definition.id)).toBe(definition);
-    expect(listReportDefinitions().map(d => d.id)).not.toContain(definition.id);
-    expect(Object.values(REPORT_PANELS).flat()).not.toContain(definition.id);
+    expect(listReportDefinitions().map(d => d.id).includes(definition.id)).toBe(serving);
+    expect((Object.values(REPORT_PANELS).flat() as string[]).includes(definition.id)).toBe(serving);
     expect(definition.node?.keys).toBeUndefined();
     const f = await createRoleFixture();
     const input = { tenantId: f.tenantId, range, filters: { memberId: f.memberA } };
