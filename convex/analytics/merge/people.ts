@@ -56,8 +56,19 @@ export function mergePeopleClosers(
     (a, b) =>
       b.scheduledAt - a.scheduledAt || a.meetingId.localeCompare(b.meetingId),
   );
+  // Old caches retain scalar addition. Only reconcile when both complete sets
+  // are present; newer windows invalidate older recipients even if unattributed.
+  const reconcile = history.firstPaymentDealIds !== undefined && today.firstPaymentDealIds !== undefined
+    && history.rows.every(r => r.wonDealIds !== undefined) && today.rows.every(r => r.wonDealIds !== undefined);
+  const newer = new Set(today.firstPaymentDealIds);
+  const olderRows = reconcile ? history.rows.map(r => ({ ...r, wonDealIds: r.wonDealIds!.filter(id => !newer.has(id)) })) : history.rows;
+  const rows = mergeRows(olderRows, today.rows, r => r.userId, (a, b) => ({ ...row(a, b),
+    ...(reconcile ? { wonDealIds: [...new Set([...a.wonDealIds!, ...b.wonDealIds!])].sort() } : {}),
+  }));
+  if (reconcile) for (const r of rows) r.dealsWon = r.wonDealIds!.length;
   return {
-    rows: mergeRows(history.rows, today.rows, (r) => r.userId, row).sort(
+    ...(reconcile ? { firstPaymentDealIds: [...new Set([...history.firstPaymentDealIds!, ...today.firstPaymentDealIds!])].sort() } : {}),
+    rows: rows.sort(
       (a, b) =>
         a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId),
     ),

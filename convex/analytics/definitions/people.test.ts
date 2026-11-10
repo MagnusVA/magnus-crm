@@ -10,7 +10,7 @@ import {
   range,
   to,
 } from "../../../tests/callsReportFixtures";
-import { expectSameAnswer, projectWarehouseRows, expectProjectionValues } from "../../../tests/analyticsParity";
+import { projectWarehouseRows, expectProjectionValues } from "../../../tests/analyticsParity";
 
 import { CALL_COLUMNS } from "./calls";
 import { peopleClosers, CLOSER_QUERY_NAMES } from "./people";
@@ -75,21 +75,18 @@ describe("People closers warehouse parity", () => {
     const f = await callsReportFixture();
     expectProjectionValues(f.rows, { meetings: CALL_COLUMNS });
     for (const memberId of [null, f.memberA, f.memberB]) {
-      await expectSameAnswer({
-        t: f.t,
-        identity,
-        tenantId: f.tenantId,
-        reportId: "people.closers",
-        live: api.reports.people.getPeopleClosers,
-        liveArgs: {
-          startDate: from,
-          endDate: to,
-          ...(memberId ? { memberId } : {}),
-        },
-        filters: { memberId },
-        range,
-        rows: projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS, payments: null, callPayments: null, firstPayments: null, cohort: null }),
+      const live = await f.t.withIdentity(identity).query(api.reports.people.getPeopleClosers, {
+        startDate: from, endDate: to, ...(memberId ? { memberId } : {}),
       });
+      const raw = await f.t.query(internal.analytics.results.previewFinalize, {
+        tenantId: f.tenantId, reportId: "people.closers", range,
+        filtersJson: JSON.stringify({ memberId }),
+        rowsJson: JSON.stringify(projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS, payments: null, callPayments: null, firstPayments: null, cohort: null })),
+      });
+      // The unchanged raw SQL deliberately omits the new lifetime participation
+      // metadata. All original figures and the per-closer win sets still match.
+      const { firstPaymentDealIds, ...legacy } = live; void firstPaymentDealIds;
+      expect(JSON.parse(raw)).toEqual(JSON.parse(JSON.stringify(legacy)));
     }
   });
 });

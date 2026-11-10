@@ -1,3 +1,4 @@
+import { peopleClosersNext } from "./peopleClosersNext";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
   buildPeopleClosers,
@@ -105,4 +106,4 @@ export const peopleClosers = defineReport<
   finalize: nodeFinalize(closerNode),
   live: { name: "reports/people:getPeopleClosers", args: liveArgs },
 });
-export const peopleCloserReports = [peopleClosers];
+export const peopleCloserReports = [peopleClosers, peopleClosersNext];

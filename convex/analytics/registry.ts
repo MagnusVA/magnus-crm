@@ -40,5 +40,5 @@ export function getReportDefinition(reportId: string): AnyReportDefinition {
 }
 
 export function listReportDefinitions(): readonly AnyReportDefinition[] {
-  return definitions;
+  return definitions.filter(definition => !/\.(next|raw)$/.test(definition.id));
 }
