@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { dashboardRangePlan, resolveAnalyticsRange, settledThroughDate } from "../../../lib/analyticsRange";
 import { planAssistantSources, cachedWindowFits, assertReportCells } from "../../../lib/assistantReportPlan";
 import { shedDetail } from "./tools";
+import type { Json } from "./output";
 import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES, type MetricRow } from "../../../lib/assistantReportMerge";
 import { businessDayStart } from "../../../lib/businessDay";
 import { currencySafe, mergePanel, incomplete, safeText, capAnswer, boundPanel } from "./output";
@@ -129,7 +130,7 @@ describe("answer size", () => {
     it("sheds remainders, then raw page data, before refusing an answer that is too big", () => {
         const base = { isPartial: false, reasons: [] as string[] };
         const big = "y".repeat(MAX_ASSISTANT_ANSWER_BYTES);
-        const omitted = [{ scope: "/data/rows", rows: 9, remainder: { cashMinor: 5 } }, { scope: "/data/origins", rows: null, remainder: null, nullReason: "incomplete_input" }];
+        const omitted: Json[] = [{ scope: "/data/rows", rows: 9, remainder: { cashMinor: 5 } }, { scope: "/data/origins", rows: null, remainder: null, nullReason: "incomplete_input" }];
         const shed = shedDetail(base, [{ id: "attribution.lanes", data: { blob: big }, figures: { cash: 1 } }], omitted);
         expect(shed.panels).toEqual([{ id: "attribution.lanes", figures: { cash: 1 }, dataOmitted: true }]);
         expect(shed.omitted).toEqual([{ scope: "/data/rows", rows: 9 }, { scope: "/data/origins", rows: null, nullReason: "incomplete_input" }]);
