@@ -691,7 +691,12 @@ describe("report templates", () => {
   };
   // Context a definition's SQL reads before running (people.closers.next: the member's user ids).
   const sampleContext: Record<string, unknown> = {
-    "people.closers.next": { users: [] },
+    "people.closers.next": { users: [], nowMs: 0 },
+    ...Object.fromEntries(["people.lead_gen.next", "people.setters.next", "people.dm_closers.next"].map(id => [id, {
+      dimensions: { members: [], users: [], slackUsers: [], dmClosers: [], workers: [], teams: [] },
+      hours: { byKey: [], isTruncated: false },
+      nowMs: 0,
+    }])),
   };
 
   // Shadow and rollback twins too: they run on production during comparisons.

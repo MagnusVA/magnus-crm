@@ -169,7 +169,7 @@ export const prepare = internalQuery({ args: { caller: mcpCallerValidator, reque
 /** Where a ready answer's JSON lives; read one at a time through jobAnswer. */
 // Pinned to the answer polling approved: a web row can be refreshed for
 // another window, and an assistant row republished by a later run.
-export type AnswerSource = { kind: "web"; resultId: string; startDate: string; endDateInclusive: string; watermark: number } | { kind: "mcp"; requestId: string; runToken: string | null };
+export type AnswerSource = { kind: "budget"; requestId: string; runToken: string | null; finishedAt: number } | { kind: "web"; resultId: string; startDate: string; endDateInclusive: string; watermark: number } | { kind: "mcp"; requestId: string; runToken: string | null };
 export type JobAnswer = {
     status: "ready" | "pending" | "failed" | "unavailable";
     source?: AnswerSource;
@@ -193,8 +193,14 @@ export async function readJob(ctx: QueryCtx, tenantId: Parameters<typeof findRes
         return { status: "pending" };
     if (row.status === "ready" && (row.resultJson !== undefined || row.payloadParts !== undefined))
         return { status: "ready", source: { kind: "mcp", requestId: row._id, runToken: row.payloadRunToken ?? null }, watermark: row.watermark };
-    if (row.status === "failed")
-        return failedJobRetryable(row, Date.now()) ? { status: "pending" } : { status: "failed", reason: row.error ?? "warehouse_failed" };
+    if (row.status === "failed") {
+        if (failedJobRetryable(row, Date.now())) return { status: "pending" };
+        // People currency selection loads all four money panels. One panel
+        // exceeding its budget must not hide the other, complete panels.
+        if (row.error === "range_too_large" && budgetLimitedPeopleAnswer(row.report, job.filtersJson) !== null)
+            return { status: "ready", source: { kind: "budget", requestId: row._id, runToken: row.runToken ?? null, finishedAt: row.finishedAt ?? row.createdAt } };
+        return { status: "failed", reason: row.error ?? "warehouse_failed" };
+    }
     return { status: "pending" };
 }
 export const jobStates = internalQuery({ args: { caller: mcpCallerValidator, jobs: v.array(jobValidator) }, returns: v.string(), handler: async (ctx, args) => {
@@ -204,12 +210,20 @@ export const jobStates = internalQuery({ args: { caller: mcpCallerValidator, job
             answers.push(await readJob(ctx, me.tenantId, job));
         return JSON.stringify(answers);
     } });
+/** Empty, explicitly partial input; never invent figures for a failed panel. */
+function budgetLimitedPeopleAnswer(report: string, filtersJson: string): object | null {
+    if (report === "people.closers") return { rows: [], unattributedCash: [], days: [], calls: [],
+        callsPartial: true, partial: true, cohortPartial: true, paymentsPartial: true };
+    const role = ({ "people.setters": "setter", "people.dm_closers": "dm_closer", "people.lead_gen": "lead_gen" } as Record<string, string>)[report];
+    return role ? { role, memberId: JSON.parse(filtersJson).memberId ?? null, rows: [], days: [], items: [], isTruncated: true } : null;
+}
+
 /**
  * One ready answer's JSON text, or null when it is not complete: a part is
  * missing (deleted, or a re-admitted run), or the row moved on. Callers treat
  * null as pending. Returned as text so its arrays never cross as Convex arrays.
  */
-export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, source: v.union(v.object({ kind: v.literal("web"), resultId: v.string(), startDate: v.string(), endDateInclusive: v.string(), watermark: v.number() }), v.object({ kind: v.literal("mcp"), requestId: v.string(), runToken: v.union(v.string(), v.null()) })) }, returns: v.union(v.string(), v.null()), handler: async (ctx, args) => {
+export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, source: v.union(v.object({ kind: v.literal("budget"), requestId: v.string(), runToken: v.union(v.string(), v.null()), finishedAt: v.number() }), v.object({ kind: v.literal("web"), resultId: v.string(), startDate: v.string(), endDateInclusive: v.string(), watermark: v.number() }), v.object({ kind: v.literal("mcp"), requestId: v.string(), runToken: v.union(v.string(), v.null()) })) }, returns: v.union(v.string(), v.null()), handler: async (ctx, args) => {
         const me = await requireMcpAdmin(ctx, args.caller, { permission: "reports:view" });
         if (args.source.kind === "web") {
             const id = ctx.db.normalizeId("analyticsResults", args.source.resultId);
@@ -221,8 +235,15 @@ export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, sou
         }
         const id = ctx.db.normalizeId("mcpReportRequests", args.source.requestId);
         const row = id ? await ctx.db.get("mcpReportRequests", id) : null;
-        if (!row || row.tenantId !== me.tenantId || row.status !== "ready")
-            return null;
+        if (!row || row.tenantId !== me.tenantId) return null;
+        if (args.source.kind === "budget") {
+            if (row.status !== "failed" || row.error !== "range_too_large" || row.expiresAt <= Date.now()
+                || (row.runToken ?? null) !== args.source.runToken || (row.finishedAt ?? row.createdAt) !== args.source.finishedAt) return null;
+            const job = JSON.parse(row.paramsJson) as ReportJob;
+            const partial = budgetLimitedPeopleAnswer(row.report, job.filtersJson);
+            return partial === null ? null : JSON.stringify(partial);
+        }
+        if (row.status !== "ready") return null;
         if (row.resultJson !== undefined)
             return args.source.runToken === null ? row.resultJson : null;
         if (row.payloadParts === undefined || row.payloadRunToken === undefined || row.payloadRunToken !== args.source.runToken)

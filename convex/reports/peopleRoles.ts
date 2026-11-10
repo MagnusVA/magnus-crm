@@ -40,6 +40,7 @@ export const peopleRoleItemValidator = v.object({
 });
 export const peopleRoleReportValidator = v.object({
   role: roleValidator, memberId: v.union(v.id("teamMembers"), v.null()), rows: v.array(peopleRoleRowValidator),
+  firstPaymentDealIds: v.optional(ids),
   days: v.array(peopleRoleDayValidator), items: v.array(peopleRoleItemValidator), isTruncated: v.boolean(),
 });
 export type PeopleRoleRow = Infer<typeof peopleRoleRowValidator>;
@@ -48,7 +49,7 @@ export type PeopleRoleItem = Infer<typeof peopleRoleItemValidator>;
 export type PeopleRoleReport = Infer<typeof peopleRoleReportValidator>;
 export type RoleHours = { byKey: Map<string, number>; isTruncated: boolean };
 
-function newRow(identity: CreditIdentity): PeopleRoleRow {
+export function emptyPeopleRoleRow(identity: CreditIdentity): PeopleRoleRow {
   return { ...identity, teams: [], qualifications: 0, qualificationsByResult: {}, dealsCredited: 0,
     dealIds: [], booked: 0, bookedDealIds: [], held: 0, heldDealIds: [], won: 0, wonDealIds: [],
     bookRate: { numerator: 0, denominator: 0, rate: null }, bookings: 0, noShow: 0, notRecorded: 0, dealsWon: 0,
@@ -103,17 +104,9 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
     return role === "dm_closer" && people.length === 0 ? creditsForPayment(payment, "dm_team") : people;
   };
   function row(identity: CreditIdentity) {
-    const found = rows.get(identity.key) ?? newRow(identity);
+    const found = rows.get(identity.key) ?? emptyPeopleRoleRow(identity);
     rows.set(identity.key, found);
     return found;
-  }
-  const roleRecords = role === "setter" ? dimensions.slackUsers : role === "dm_closer" ? dimensions.dmClosers : dimensions.workers;
-  for (const record of roleRecords) {
-    const person = row(memberIdentity(dimensions, record.teamMemberId));
-    if ("teamId" in record && record.teamId) {
-      const team = dimensions.teams.find(team => team._id === record.teamId);
-      if (team && !person.teams.some(t => t.id === team._id)) person.teams.push({ id: team._id, name: team.displayName });
-    }
   }
   const days = new Map<string, PeopleRoleDay>();
   const items: PeopleRoleItem[] = [];
@@ -234,7 +227,35 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
       if (own(identity)) day(respark.workedAt).resparks++;
     }
   }
-  return { role, memberId,
+  const firstPaymentDealIds = facts.firstPayments.filter(payment => inRange(payment.recordedAt, range) && payment.status !== "disputed" && payment.opportunityId)
+    .flatMap(payment => payment.opportunityId && (memberId === null || facts.attributions.some(credit =>
+      credit.opportunityId === payment.opportunityId && credit.role === role && attributionIdentity(dimensions, credit).teamMemberId === memberId))
+      ? [payment.opportunityId] : []);
+  return finishPeopleRoleReport(dimensions, { rows: [...rows.values()], days: [...days.values()], items,
+    firstPaymentDealIds, isTruncated: facts.isTruncated }, role, memberId, hours);
+}
+
+/** Shared presentation only. Warehouse builds pass aggregate rows, never documents. */
+export function finishPeopleRoleReport(dimensions: CreditDimensions,
+  facts: { rows: PeopleRoleRow[]; days: PeopleRoleDay[]; items: PeopleRoleItem[]; firstPaymentDealIds: string[]; isTruncated: boolean },
+  role: PeopleRole, memberId: Id<"teamMembers"> | null, hours: RoleHours): PeopleRoleReport {
+  const rows = new Map(facts.rows.map(row => [row.key, row]));
+  function row(identity: CreditIdentity) {
+    const found = rows.get(identity.key) ?? emptyPeopleRoleRow(identity);
+    rows.set(identity.key, found);
+    return found;
+  }
+  const roleRecords = role === "setter" ? dimensions.slackUsers : role === "dm_closer" ? dimensions.dmClosers : dimensions.workers;
+  for (const record of roleRecords) {
+    const person = row(memberIdentity(dimensions, record.teamMemberId));
+    if ("teamId" in record && record.teamId) {
+      const team = dimensions.teams.find(team => team._id === record.teamId);
+      if (team && !person.teams.some(t => t.id === team._id)) person.teams.push({ id: team._id, name: team.displayName });
+    }
+  }
+  const days = new Map(facts.days.map(day => [day.dayKey, day]));
+  const items = facts.items;
+  return { role, memberId, ...(role !== "setter" ? { firstPaymentDealIds: uniqueIds(facts.firstPaymentDealIds) } : {}),
     rows: [...rows.values()].filter(row => memberId === null || row.teamMemberId === memberId)
       .map(row => finishPeopleRoleRow({ ...row, scheduledHours: hours.byKey.get(row.key) ?? 0,
         teams: row.teams.sort((a, b) => a.id.localeCompare(b.id)) }, role)).sort((a, b) => a.key.localeCompare(b.key)),
