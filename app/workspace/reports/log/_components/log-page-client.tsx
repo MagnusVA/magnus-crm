@@ -12,6 +12,7 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { cn } from "@/lib/utils";
 import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu, useRowsExport } from "../../_components/report-export-menu";
+import { useCursorPages, useKeptCursorList } from "../../_components/report-paging";
 import { BAND_SELECT, REPORT_PAGE, ReportBand } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
 import { LogFeed } from "./log-feed";
@@ -20,9 +21,9 @@ import { useTeamMembers } from "./use-team-members";
 
 // The Log (docs/reviews/reports-overhaul.html §12): the audit trail for a
 // range, newest first, filtered by member and record type. It reads Convex
-// live and pages, so it has no ClickHouse source.
+// live a page at a time, so it has no ClickHouse source.
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
 const ALL = "__all__";
 const LIVE: FreshnessSummary = { kind: "line", label: "Live", live: true, delayedSince: null };
 
@@ -48,13 +49,15 @@ export function LogPageClient() {
           ...(entityType ? { entityType } : {}),
         }
       : "skip",
-    { initialNumItems: PAGE_SIZE },
+    { initialNumItems: 2 * PAGE_SIZE },
   );
   const filterKey = `${range.phrase}|${range.window.startDate}|${teamMemberId ?? ""}|${entityType ?? ""}`;
   const firstPage = feed.status === "LoadingFirstPage" ? undefined : feed.results;
   // New filters keep the last rows on screen, dimmed, until the first page lands.
   const kept = useKeptWhileLoading(firstPage, filterKey);
   const entries = kept.data;
+  // The page shown: a window of the loaded events, kept through a filter change.
+  const { rows, pager } = useCursorPages(useKeptCursorList(feed), { pageSize: PAGE_SIZE, resetKey: filterKey });
   const filtered = teamMemberId !== undefined || entityType !== undefined;
   const memberName = teamMemberId ? team?.members.find((member) => member.teamMemberId === teamMemberId)?.name : undefined;
   const entityLabel = entityType ? ENTITY_TYPES.find((type) => type.value === entityType)?.label : undefined;
@@ -134,11 +137,10 @@ export function LogPageClient() {
       <ReportRangeMessage range={range} />
 
       <LogFeed
-        entries={entries}
-        hasMore={feed.status === "CanLoadMore" || feed.status === "LoadingMore"}
+        rows={entries === undefined ? undefined : rows}
+        pager={pager}
         loadingMore={feed.status === "LoadingMore"}
-        onLoadMore={() => feed.loadMore(PAGE_SIZE)}
-        pageSize={PAGE_SIZE}
+        onLookFurther={() => feed.loadMore(PAGE_SIZE)}
         reloading={kept.reloading}
         oneDay={range.dates.startBusinessDate === range.dates.endBusinessDateInclusive}
         phrase={range.phrase}

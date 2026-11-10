@@ -7,7 +7,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
-import { DetailCardFooter, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { HelpTip } from "@/app/workspace/team/_components/team-ui";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,6 +21,7 @@ import {
   RowsSkeleton,
   SINGLE_SERIES,
 } from "../../_components/report-ui";
+import { PageRows, ReportPager, usePagedRows } from "../../_components/report-paging";
 import { memberReportHref } from "../../log/_components/use-team-members";
 import { formatCount, formatMoney } from "../../scorecard/_components/report-money";
 import {
@@ -88,59 +89,66 @@ function DealButtons({ dealIds, onOpenDeal }: { dealIds: readonly string[]; onOp
 
 // ─── Lanes ───────────────────────────────────────────────────────────────────
 
-function LaneRow({ view, currency }: { view: LaneView; currency: string }) {
+/**
+ * One role's lane as a column: the role and its coverage, the lane's bar,
+ * the five people credited with the most, and what the lane leaves out.
+ */
+function LaneColumn({ view, currency, onShowRole }: { view: LaneView; currency: string; onShowRole: (role: CreditRole) => void }) {
   const scale = (amount: number) => (view.totalMinor > 0 ? `${Math.min((amount / view.totalMinor) * 100, 100)}%` : "0%");
   const shown = view.people.slice(0, SHOWN_PEOPLE_PER_LANE);
+  const more = view.people.length - shown.length;
   return (
-    <li className="flex flex-col gap-2 border-b px-4 py-3 last:border-b-0">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
-        <p className="font-semibold">{ROLE_LABELS[view.role]}</p>
-        <p className="text-[13px] text-muted-foreground">
-          <span className={cn(FIGURE_15, "text-foreground")}>{formatCoverage(view.coverage)}</span> covered ·{" "}
-          {formatMoney(view.laneMinor, currency)} with a credit
+    <li className="flex min-w-0 flex-col gap-2 bg-card px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="truncate font-semibold">{ROLE_LABELS[view.role]}</p>
+        <p className={cn(FIGURE_15, "shrink-0")}>
+          {formatCoverage(view.coverage)}
+          <span className="sr-only"> covered</span>
         </p>
       </div>
-      <div aria-hidden="true" className="flex h-3 overflow-hidden rounded-[3px] bg-muted">
+      <div aria-hidden="true" className="flex h-2 overflow-hidden rounded-[3px] bg-muted">
         <div className="h-full" style={{ width: scale(view.laneMinor), background: SINGLE_SERIES }} />
         <div className="h-full flex-1" style={{ background: view.uncreditedMinor > 0 ? UNCREDITED_FILL : undefined }} />
       </div>
       {shown.length > 0 ? (
         <ul aria-label={`${ROLE_LABELS[view.role]} credited cash by person`} className="flex flex-col">
           {shown.map((person) => (
-            <li
-              key={person.key}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-1 @xl/lanes:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]"
-            >
-              <div className="min-w-0 text-[14px]">
+            <li key={person.key} className="flex min-h-7 items-baseline justify-between gap-3 py-0.5 text-[14px]">
+              <span className="min-w-0">
                 <PersonName person={person} />
-              </div>
-              <div aria-hidden="true" className="order-last col-span-2 h-1.5 overflow-hidden rounded-[3px] bg-muted @xl/lanes:order-none @xl/lanes:col-span-1">
-                <div className="h-full rounded-[3px]" style={{ width: scale(person.amountMinor), background: SINGLE_SERIES }} />
-              </div>
-              <p className={cn(FIGURE_15, "text-right whitespace-nowrap")}>{formatMoney(person.amountMinor, currency)}</p>
+              </span>
+              <span className={cn(FIGURE_15, "shrink-0 whitespace-nowrap")}>{formatMoney(person.amountMinor, currency)}</span>
             </li>
           ))}
         </ul>
-      ) : null}
-      <p className="flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] text-muted-foreground">
-        {view.people.length > SHOWN_PEOPLE_PER_LANE ? (
-          <span>
-            {formatCount(view.people.length - SHOWN_PEOPLE_PER_LANE)} more in the table below
-          </span>
-        ) : null}
+      ) : (
+        <p className="text-[13px] text-muted-foreground">No one credited in this role.</p>
+      )}
+      <dl className="mt-auto flex flex-col gap-0.5 border-t pt-2 text-[13px] text-muted-foreground">
         {view.sharedMinor > 0 ? (
-          <span>
-            <HelpTip tip={termHelp("shared")}>{REPORT_TERMS.shared.label}</HelpTip>{" "}
-            <span className={cn(FIGURE_15, "text-foreground")}>{formatMoney(view.sharedMinor, currency)}</span>
-          </span>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt>
+              <HelpTip tip={termHelp("shared")}>{REPORT_TERMS.shared.label}</HelpTip>
+            </dt>
+            <dd className={cn(FIGURE_15, "text-foreground")}>{formatMoney(view.sharedMinor, currency)}</dd>
+          </div>
         ) : null}
-        <span>
-          No credit in this role{" "}
-          <span className={cn(FIGURE_15, view.uncreditedMinor > 0 ? "text-foreground" : undefined)}>
-            {formatMoney(view.uncreditedMinor, currency)}
-          </span>
-        </span>
-      </p>
+        <div className="flex items-baseline justify-between gap-3">
+          <dt>No credit in this role</dt>
+          <dd className={cn(FIGURE_15, view.uncreditedMinor > 0 ? "text-foreground" : undefined)}>{formatMoney(view.uncreditedMinor, currency)}</dd>
+        </div>
+        {more > 0 ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => onShowRole(view.role)}
+              className={cn(detailLinkClass, "text-[13px] font-medium")}
+            >
+              {formatCount(more)} more in the table
+            </button>
+          </div>
+        ) : null}
+      </dl>
     </li>
   );
 }
@@ -151,12 +159,15 @@ export function LanesCard({
   isTruncated,
   reloading,
   phrase,
+  onShowRole,
 }: {
   views: LaneView[] | undefined;
   currency: string;
   isTruncated: boolean;
   reloading: boolean;
   phrase: string;
+  /** Filters the people table to a role and brings it into view. */
+  onShowRole: (role: CreditRole) => void;
 }) {
   const total = views?.[0]?.totalMinor ?? 0;
   return (
@@ -170,7 +181,7 @@ export function LanesCard({
         Attribution records who contributed to each deal. It is never commission or what anyone is owed.
       </ReportNote>
       {views === undefined ? (
-        <RowsSkeleton rows={5} rowHeight="h-24" label="Loading cash by role" />
+        <RowsSkeleton rows={5} label="Loading cash by role" />
       ) : total === 0 ? (
         <SectionEmpty title={`No cash in ${currency} ${phrase}.`}>Lanes fill as payments are recorded.</SectionEmpty>
       ) : (
@@ -182,10 +193,12 @@ export function LanesCard({
             A person&apos;s row counts each payment in full, so two people in one role can add up to more than the lane. The
             overlap is Shared. The hatched end is cash with no one credited in that role.
           </ReportNote>
-          <ul aria-label="Cash by role">
+          {/* The chain left to right, a lane per role; a spare cell squares the grid at two and three columns. */}
+          <ul aria-label="Cash by role" className="grid gap-px bg-border @xl/lanes:grid-cols-2 @3xl/lanes:grid-cols-3 @5xl/lanes:grid-cols-5">
             {views.map((view) => (
-              <LaneRow key={view.role} view={view} currency={currency} />
+              <LaneColumn key={view.role} view={view} currency={currency} onShowRole={onShowRole} />
             ))}
+            {views.length % 2 === 1 ? <li aria-hidden="true" className="hidden bg-card @xl/lanes:block @5xl/lanes:hidden" /> : null}
           </ul>
         </>
       )}
@@ -195,8 +208,10 @@ export function LanesCard({
 
 // ─── Who is responsible ──────────────────────────────────────────────────────
 
-const ALL_ROLES = "__all__";
-const SHOWN_ROWS = 25;
+export const ALL_ROLES = "__all__";
+export type RoleFilter = CreditRole | typeof ALL_ROLES;
+/** The people table's id, so a lane's "more" link can bring it into view. */
+export const RESPONSIBLE_CARD_ID = "attribution-people";
 const RESPONSIBLE_COLUMNS =
   "grid-cols-[minmax(0,1fr)_4rem_7rem] @2xl/responsible:grid-cols-[minmax(0,1fr)_7rem_4.5rem_8rem]";
 
@@ -205,26 +220,30 @@ export function ResponsibleCard({
   currency,
   reloading,
   phrase,
+  role,
+  onRoleChange,
   onOpenDeal,
 }: {
   rows: ResponsibleRow[] | undefined;
   currency: string;
   reloading: boolean;
   phrase: string;
+  role: RoleFilter;
+  onRoleChange: (role: RoleFilter) => void;
   onOpenDeal: (id: Id<"opportunities">) => void;
 }) {
-  const [role, setRole] = useState<CreditRole | typeof ALL_ROLES>(ALL_ROLES);
   const [open, setOpen] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
   const filtered = (rows ?? []).filter((row) => role === ALL_ROLES || row.role === role);
-  const shown = showAll ? filtered : filtered.slice(0, SHOWN_ROWS);
+  const { rows: shown, pager } = usePagedRows(filtered, { resetKey: `${role}|${currency}|${phrase}` });
   return (
     <ReportCard
       title="Who is responsible for how much"
       container="@container/responsible"
       reloading={reloading}
+      id={RESPONSIBLE_CARD_ID}
+      className="scroll-mt-4"
       meta={
-        <Select value={role} onValueChange={(next) => setRole(next as CreditRole | typeof ALL_ROLES)}>
+        <Select value={role} onValueChange={(next) => onRoleChange(next as RoleFilter)}>
           <SelectTrigger aria-label="Role" className="h-[30px]! w-[9.5rem] rounded-[7px] bg-background text-[13px] text-foreground">
             <SelectValue />
           </SelectTrigger>
@@ -238,18 +257,7 @@ export function ResponsibleCard({
           </SelectContent>
         </Select>
       }
-      footer={
-        filtered.length > SHOWN_ROWS ? (
-          <DetailCardFooter className="font-normal">
-            <span className="text-[13px]">
-              {showAll ? `All ${formatCount(filtered.length)} people` : `Showing ${SHOWN_ROWS} of ${formatCount(filtered.length)}`}
-            </span>
-            <Button variant="outline" size="sm" onClick={() => setShowAll(!showAll)}>
-              {showAll ? "Show fewer" : `Show all ${formatCount(filtered.length)}`}
-            </Button>
-          </DetailCardFooter>
-        ) : undefined
-      }
+      footer={rows === undefined ? undefined : <ReportPager pager={pager} noun="people" />}
     >
       {rows === undefined ? (
         <RowsSkeleton rows={6} label="Loading who is responsible" />
@@ -261,60 +269,62 @@ export function ResponsibleCard({
             <HelpTip tip={termHelp("creditedCash")}>{REPORT_TERMS.creditedCash.label}</HelpTip> counts each deal once per role,
             in {currency}. Open a person&apos;s deals to see each one&apos;s chain.
           </ReportNote>
-          <div role="table" aria-label="Credited cash by person and role">
-            <div role="row" className={cn("grid border-b", RESPONSIBLE_COLUMNS)}>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "pl-4")}>
-                Name
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "hidden @2xl/responsible:block")}>
-                Role
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "text-right")}>
-                Deals
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
-                Credited
-              </span>
-            </div>
-            {shown.map((row) => {
-              const expanded = open === row.rowKey;
-              return (
-                <div key={row.rowKey} role="rowgroup">
-                  <div role="row" className={cn("grid min-h-11 items-center border-b py-1.5", RESPONSIBLE_COLUMNS, expanded && "bg-accent/40")}>
-                    <span role="cell" className="min-w-0 pr-3 pl-4">
-                      <PersonName person={row} />
-                      <span className="block text-[13px] text-muted-foreground @2xl/responsible:hidden">{ROLE_LABELS[row.role]}</span>
-                    </span>
-                    <span role="cell" className="hidden text-[13px] text-muted-foreground @2xl/responsible:block">
-                      {ROLE_LABELS[row.role]}
-                    </span>
-                    <span role="cell" className="px-2.5 text-right">
-                      <button
-                        type="button"
-                        aria-expanded={expanded}
-                        onClick={() => setOpen(expanded ? null : row.rowKey)}
-                        className={cn(FIGURE_15, "inline-flex items-center gap-1 rounded-sm underline decoration-foreground/40 underline-offset-[3px] hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
-                      >
-                        {formatCount(row.dealIds.length)}
-                        <ChevronDownIcon aria-hidden="true" className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
-                        <span className="sr-only"> deals, {expanded ? "hide" : "show"} them</span>
-                      </button>
-                    </span>
-                    <span role="cell" className={cn(FIGURE_15, "pr-4 pl-2.5 text-right whitespace-nowrap", row.amountMinor === 0 && "text-muted-foreground")}>
-                      {formatMoney(row.amountMinor, currency)}
-                    </span>
-                  </div>
-                  {expanded ? (
-                    <div role="row">
-                      <div role="cell">
-                        <DealButtons dealIds={row.dealIds} onOpenDeal={onOpenDeal} />
-                      </div>
+          <PageRows pager={pager}>
+            <div role="table" aria-label="Credited cash by person and role">
+              <div role="row" className={cn("grid border-b", RESPONSIBLE_COLUMNS)}>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "pl-4")}>
+                  Name
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "hidden @2xl/responsible:block")}>
+                  Role
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "text-right")}>
+                  Deals
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
+                  Credited
+                </span>
+              </div>
+              {shown.map((row) => {
+                const expanded = open === row.rowKey;
+                return (
+                  <div key={row.rowKey} role="rowgroup">
+                    <div role="row" className={cn("grid min-h-11 items-center border-b py-1.5", RESPONSIBLE_COLUMNS, expanded && "bg-accent/40")}>
+                      <span role="cell" className="min-w-0 pr-3 pl-4">
+                        <PersonName person={row} />
+                        <span className="block text-[13px] text-muted-foreground @2xl/responsible:hidden">{ROLE_LABELS[row.role]}</span>
+                      </span>
+                      <span role="cell" className="hidden text-[13px] text-muted-foreground @2xl/responsible:block">
+                        {ROLE_LABELS[row.role]}
+                      </span>
+                      <span role="cell" className="px-2.5 text-right">
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => setOpen(expanded ? null : row.rowKey)}
+                          className={cn(FIGURE_15, "inline-flex items-center gap-1 rounded-sm underline decoration-foreground/40 underline-offset-[3px] hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+                        >
+                          {formatCount(row.dealIds.length)}
+                          <ChevronDownIcon aria-hidden="true" className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
+                          <span className="sr-only"> deals, {expanded ? "hide" : "show"} them</span>
+                        </button>
+                      </span>
+                      <span role="cell" className={cn(FIGURE_15, "pr-4 pl-2.5 text-right whitespace-nowrap", row.amountMinor === 0 && "text-muted-foreground")}>
+                        {formatMoney(row.amountMinor, currency)}
+                      </span>
                     </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+                    {expanded ? (
+                      <div role="row">
+                        <div role="cell">
+                          <DealButtons dealIds={row.dealIds} onOpenDeal={onOpenDeal} />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </PageRows>
         </>
       )}
     </ReportCard>
@@ -340,8 +350,15 @@ export function PathsCard({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const max = Math.max(...(rows ?? []).map((row) => row.amountMinor), 0);
+  const { rows: shown, pager } = usePagedRows(rows ?? [], { resetKey: `${currency}|${phrase}` });
   return (
-    <ReportCard title="Paths that paid" meta="Which roles touched each paid deal" container="@container/paths" reloading={reloading}>
+    <ReportCard
+      title="Paths that paid"
+      meta="Which roles touched each paid deal"
+      container="@container/paths"
+      reloading={reloading}
+      footer={rows === undefined ? undefined : <ReportPager pager={pager} noun="paths" />}
+    >
       {rows === undefined ? (
         <RowsSkeleton rows={5} label="Loading paths that paid" />
       ) : rows.length === 0 ? (
@@ -349,40 +366,42 @@ export function PathsCard({
       ) : (
         <>
           {isTruncated ? <ReportNote lead="Partial.">Some payments in the range weren&apos;t read.</ReportNote> : null}
-          <ul aria-label="Paths that paid">
-            {rows.map((row) => {
-              const expanded = open === row.key;
-              return (
-                <li key={row.key} className="border-b last:border-b-0">
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    onClick={() => setOpen(expanded ? null : row.key)}
-                    className={cn(
-                      "grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2 text-left hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
-                      expanded && "bg-accent/40",
-                    )}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">{pathLabel(row.roles)}</span>
-                      <span className="block text-[13px] text-muted-foreground">
-                        {formatCount(row.dealIds.length)} deal{row.dealIds.length === 1 ? "" : "s"}
+          <PageRows pager={pager}>
+            <ul aria-label="Paths that paid">
+              {shown.map((row) => {
+                const expanded = open === row.key;
+                return (
+                  <li key={row.key} className="border-b last:border-b-0">
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() => setOpen(expanded ? null : row.key)}
+                      className={cn(
+                        "grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2 text-left hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
+                        expanded && "bg-accent/40",
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{pathLabel(row.roles)}</span>
+                        <span className="block text-[13px] text-muted-foreground">
+                          {formatCount(row.dealIds.length)} deal{row.dealIds.length === 1 ? "" : "s"}
+                        </span>
                       </span>
-                    </span>
-                    <span className={cn(FIGURE_15, "text-right whitespace-nowrap")}>{formatMoney(row.amountMinor, currency)}</span>
-                    <ChevronDownIcon aria-hidden="true" className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
-                    <span aria-hidden="true" className="col-span-3 h-1.5 overflow-hidden rounded-[3px] bg-muted">
-                      <span
-                        className="block h-full rounded-[3px]"
-                        style={{ width: max > 0 ? `${(row.amountMinor / max) * 100}%` : 0, background: SINGLE_SERIES }}
-                      />
-                    </span>
-                  </button>
-                  {expanded ? <DealButtons dealIds={row.dealIds} onOpenDeal={onOpenDeal} /> : null}
-                </li>
-              );
-            })}
-          </ul>
+                      <span className={cn(FIGURE_15, "text-right whitespace-nowrap")}>{formatMoney(row.amountMinor, currency)}</span>
+                      <ChevronDownIcon aria-hidden="true" className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+                      <span aria-hidden="true" className="col-span-3 h-1.5 overflow-hidden rounded-[3px] bg-muted">
+                        <span
+                          className="block h-full rounded-[3px]"
+                          style={{ width: max > 0 ? `${(row.amountMinor / max) * 100}%` : 0, background: SINGLE_SERIES }}
+                        />
+                      </span>
+                    </button>
+                    {expanded ? <DealButtons dealIds={row.dealIds} onOpenDeal={onOpenDeal} /> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </PageRows>
         </>
       )}
     </ReportCard>

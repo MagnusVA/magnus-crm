@@ -126,7 +126,7 @@ export function CallsPageClient() {
           </>
         }
         figures={
-          <ReportFigures columns="grid-cols-2 @3xl:grid-cols-4 @6xl:grid-cols-7" reloading={kept.reloading}>
+          <ReportFigures columns="grid-cols-2 @3xl:grid-cols-4 @5xl:grid-cols-7" reloading={kept.reloading}>
             <FigureZone
               label="Calls scheduled"
               help={termHelp("callsScheduled")}
@@ -181,7 +181,7 @@ export function CallsPageClient() {
             <FigureZone
               label="Canceled"
               help={termHelp("canceled")}
-              className="col-span-2 @6xl:col-span-1"
+              className="col-span-2 @5xl:col-span-1"
               figure={counts ? formatCount(counts.canceled) : undefined}
               proof={counts ? "Canceled and not moved" : undefined}
             />
@@ -242,19 +242,24 @@ export function CallsPageClient() {
       <ReportRangeMessage range={range} />
       <AnalyticsFreshnessAlert summary={freshness} />
 
+      {/* Each row pairs cards of about one height: the ledger beside the two
+          short rate cards, then the two bar lists, then the chart beside the
+          narrow mode table. */}
       <div className={cn(REPORT_PAIR, "@5xl:grid-cols-[1.15fr_1fr]")}>
         <LedgerCard {...props} />
-        <ShowRateCard {...props} />
+        <div className="flex min-w-0 flex-col gap-3.5 short:gap-3">
+          <ShowRateCard {...props} />
+          <HabitsCard {...props} />
+        </div>
       </div>
       <div className={REPORT_PAIR}>
         <LeadTimeCard {...props} />
         <NoShowCard {...props} />
       </div>
-      <div className={REPORT_PAIR}>
+      <div className={cn(REPORT_PAIR, "@5xl:grid-cols-[2fr_1fr]")}>
+        <ByDayCard {...props} />
         <ModeCard {...props} />
-        <HabitsCard {...props} />
       </div>
-      <ByDayCard {...props} />
       <OwedCard {...props} now={now} />
       <DefinitionsCard terms={CALLS_TERMS} />
     </div>
