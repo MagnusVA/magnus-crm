@@ -776,22 +776,7 @@ export const getOverview = query({
       "tenant_master",
       "tenant_admin",
     ]);
-
-    await assertLeadGenBusinessDayReady(ctx, tenantId);
-    validateDayRange(args);
-    await validateFilterIds(ctx, { tenantId, ...args });
-    const [dailyResult, originsCapped] = await Promise.all([
-      readDailyStatsRowsBounded(ctx, {
-        tenantId,
-        ...args,
-        limit: DAILY_STATS_READ_LIMIT,
-      }),
-      isTopOriginsReadCapped(ctx, { tenantId, ...args }),
-    ]);
-    return await buildLeadGenOverview(ctx, tenantId, {
-      rows: dailyResult.rows,
-      capped: dailyResult.capped || originsCapped,
-    });
+    return await readLeadGenOverview(ctx, tenantId, args);
   },
 });
 
@@ -874,16 +859,7 @@ export const listWorkerPerformance = query({
       "tenant_master",
       "tenant_admin",
     ]);
-
-    await assertLeadGenBusinessDayReady(ctx, tenantId);
-    validateDayRange(args);
-    await validateFilterIds(ctx, { tenantId, ...args });
-    const rows = await readDailyStatsRows(ctx, {
-      tenantId,
-      ...args,
-      limit: DAILY_STATS_READ_LIMIT,
-    });
-    return await buildWorkerPerformance(ctx, tenantId, rows);
+    return await readWorkerPerformance(ctx, tenantId, args);
   },
 });
 
@@ -1248,6 +1224,49 @@ export const listTopOriginsByTeam = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    return await readTopOriginsByTeam(ctx, tenantId, args);
+  },
+});
+
+
+/** Shared read core; callers authorize the tenant before entering. */
+export async function readLeadGenOverview(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string; source?: LeadGenSource; teamId?: LeadGenTeamId; workerId?: Id<"leadGenWorkers"> }) {
+
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
+    validateDayRange(args);
+    await validateFilterIds(ctx, { tenantId, ...args });
+    const [dailyResult, originsCapped] = await Promise.all([
+      readDailyStatsRowsBounded(ctx, {
+        tenantId,
+        ...args,
+        limit: DAILY_STATS_READ_LIMIT,
+      }),
+      isTopOriginsReadCapped(ctx, { tenantId, ...args }),
+    ]);
+    return await buildLeadGenOverview(ctx, tenantId, {
+      rows: dailyResult.rows,
+      capped: dailyResult.capped || originsCapped,
+    });
+}
+
+
+/** Shared read core; callers authorize the tenant before entering. */
+export async function readWorkerPerformance(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string; source?: LeadGenSource; teamId?: LeadGenTeamId; workerId?: Id<"leadGenWorkers"> }) {
+
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
+    validateDayRange(args);
+    await validateFilterIds(ctx, { tenantId, ...args });
+    const rows = await readDailyStatsRows(ctx, {
+      tenantId,
+      ...args,
+      limit: DAILY_STATS_READ_LIMIT,
+    });
+    return await buildWorkerPerformance(ctx, tenantId, rows);
+}
+
+
+/** Shared read core; callers authorize the tenant before entering. */
+export async function readTopOriginsByTeam(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string; source?: LeadGenSource; teamId?: LeadGenTeamId; workerId?: Id<"leadGenWorkers">; limitPerTeam?: number; sortBy?: "uniqueProspects" | "submissions" }) {
     const limitPerTeam = normalizeLimit(
       args.limitPerTeam,
       MAX_TOP_ORIGINS_PER_TEAM,
@@ -1280,5 +1299,4 @@ export const listTopOriginsByTeam = query({
       limitPerTeam,
       sortBy: args.sortBy,
     });
-  },
-});
+}
