@@ -263,5 +263,5 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         throw error;
     }
 }
-export const numbers = internalAction({ args: { caller: mcpCallerValidator, ...numbersArgs }, returns: v.any(), handler: async (ctx, { caller, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "numbers", ...args }) });
-export const report = internalAction({ args: { caller: mcpCallerValidator, ...reportArgs }, returns: v.any(), handler: async (ctx, { caller, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "report", ...args }) });
+export const numbers = internalAction({ args: { caller: mcpCallerValidator, ...numbersArgs }, returns: v.any(), handler: async (ctx, { caller, memberId, programId, closerId, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "numbers", ...args, ...await ctx.runQuery(internal.mcp.reports.planning.normalizeRequestIds, { memberId, programId, closerId }) }) });
+export const report = internalAction({ args: { caller: mcpCallerValidator, ...reportArgs }, returns: v.any(), handler: async (ctx, { caller, memberId, programId, closerId, teamId, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "report", ...args, ...await ctx.runQuery(internal.mcp.reports.planning.normalizeRequestIds, { memberId, programId, closerId, teamId }) }) });

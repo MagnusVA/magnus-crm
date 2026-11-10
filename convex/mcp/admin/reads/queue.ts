@@ -14,7 +14,12 @@ import { internalQuery, type QueryCtx } from "../../../_generated/server";
 import { readLiveQueryRows } from "../../../lib/liveQueryBounds";
 import { isMissedMeetingLoss } from "../../../opportunities/dealState";
 import { buildTeamReview } from "../../../team/reviewCore";
-import { mcpCallerValidator, requireMcpAdmin, loadInTenant } from "../../guard";
+import {
+  mcpCallerValidator,
+  requireMcpAdmin,
+  loadInTenant,
+  normalizeMcpId,
+} from "../../guard";
 import { rejectRequest } from "../../../lib/observability/errors";
 import { formatLocal } from "../../time";
 import { appLink } from "../prepare";
@@ -56,7 +61,8 @@ export type Queue =
 export const queueArgs = {
   queue: queueValidator,
   itemId: v.optional(v.string()),
-  closerId: v.optional(v.id("users")),
+  // A string, so a malformed or wrong-table ID gets a readable error.
+  closerId: v.optional(v.string()),
   cursor: v.optional(v.string()),
   limit: v.optional(v.number()),
 };
@@ -960,8 +966,13 @@ export const run = internalQuery({
     reason: v.union(v.string(), v.null()),
     timeZone: v.string(),
   }),
-  handler: async (ctx, { caller, ...args }) => {
+  handler: async (ctx, { caller, closerId, ...args }) => {
     const me = await requireMcpAdmin(ctx, caller);
-    return await buildQueue(ctx, me, args);
+    return await buildQueue(ctx, me, {
+      ...args,
+      ...(closerId === undefined
+        ? {}
+        : { closerId: normalizeMcpId(ctx, "users", closerId, "closerId") }),
+    });
   },
 });

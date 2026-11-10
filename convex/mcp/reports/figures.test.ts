@@ -331,6 +331,23 @@ describe("admin report regressions", () => {
       expect(String(error)).toMatch(/XYZ.*Available currencies:.*USD/);
     }
   });
+  it("accepts any currency for a selected panel without money inputs", async () => {
+    const f = await fixture();
+    const answer = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", panel: "follow_through", currency: "EUR", range });
+    expect(answer.status).not.toBe("unavailable");
+  });
+  it("answers malformed and wrong-table report IDs with a readable error", async () => {
+    const f = await fixture();
+    for (const call of [
+      () => f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["cash"], programId: "not-an-id", range }),
+      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "lead_gen", teamId: f.memberId, range }),
+      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", closerId: f.memberId, range }),
+    ]) {
+      const error = await call().catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toContain("mcp.invalid_argument");
+    }
+  });
   it("refuses unknown and malformed field keys with a readable report error", async () => {
     const f = await fixture();
     for (const fieldKey of ["unknown", "   ", "x".repeat(501)]) {

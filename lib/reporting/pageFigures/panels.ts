@@ -20,8 +20,9 @@ export function roleReports(answers: PageAnswers): Partial<RoleReports> {
 export function pageCurrency(answers: PageAnswers, page: string, requested?: string): string {
   const weights = page === "attribution" ? attributionCurrencyWeights(answer(answers, "attribution.lanes")) : scorecardCurrencyWeights(answer(answers, "scorecard.cash"), answer(answers, "scorecard.funnel"), answer(answers, "scorecard.origins"));
   const currencies = page === "people" ? rosterCurrencies(roleReports(answers)) : weights.map(w => w.currency);
-  const available = currencies.length ? currencies : ["USD"];
-  if (requested !== undefined && ["people", "scorecard", "attribution"].includes(page) && !available.includes(requested.toUpperCase())) throw new ReportRequestError(`Unknown currency ${requested}. Available currencies: ${available.join(", ")}.`);
+  // Only an answer that carries money can say a currency is missing; a
+  // selected panel without money inputs has none to check against.
+  if (requested !== undefined && currencies.length && ["people", "scorecard", "attribution"].includes(page) && !currencies.includes(requested.toUpperCase())) throw new ReportRequestError(`Unknown currency ${requested}. Available currencies: ${currencies.join(", ")}.`);
   if (page === "people") return pickCurrency(currencies, requested?.toUpperCase() ?? null);
   return shownCurrency(requested?.toUpperCase() ?? null, currencies, pickMainCurrency(weights));
 }

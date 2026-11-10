@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { rejectRequest } from "../../lib/observability/errors";
 import type { QueryCtx } from "../../_generated/server";
 import { internalQuery } from "../../_generated/server";
-import { requireMcpAdmin, loadInTenant, mcpCallerValidator } from "../guard";
+import { requireMcpAdmin, loadInTenant, mcpCallerValidator, normalizeMcpId } from "../guard";
 import { analyticsArgsKey, canonicalJson } from "../../analytics/keys";
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { findResult, readSyncRow, resultState } from "../../analytics/results";
@@ -11,7 +11,7 @@ import { ReportRequestError, planAssistantSources, cachedWindowFits, assertRepor
 import { settledThroughDate, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { addBusinessDays, businessDateForInstant, businessDayStart } from "../../../lib/businessDay";
 import type { AnalyticsFilters } from "../../analytics/definition";
-import { requestValidator, jobValidator, failedJobRetryable, type ToolRequest, type ReportJob } from "./contracts";
+import { requestValidator, requestIdArgs, requestIdsValidator, jobValidator, failedJobRetryable, type ToolRequest, type ReportJob } from "./contracts";
 import { assistantDefinition, REPORT_PANELS, CURRENT_REPORT_PAGES, LIVE_PANELS } from "./catalog";
 import { creditRole, metricPanels, validateNumbers } from "./metrics";
 import { readFieldCatalog } from "../../reports/formFields";
@@ -199,3 +199,11 @@ export const jobStates = internalQuery({ args: { caller: mcpCallerValidator, job
             answers.push(await readJob(ctx, me.tenantId, job));
         return JSON.stringify(answers);
     } });
+
+/** Tool IDs arrive as strings; the planner loads each one in the tenant. */
+export const normalizeRequestIds = internalQuery({ args: requestIdArgs, returns: requestIdsValidator, handler: async (ctx, args) => ({
+    ...(args.memberId === undefined ? {} : { memberId: normalizeMcpId(ctx, "teamMembers", args.memberId, "memberId") }),
+    ...(args.programId === undefined ? {} : { programId: normalizeMcpId(ctx, "tenantPrograms", args.programId, "programId") }),
+    ...(args.closerId === undefined ? {} : { closerId: normalizeMcpId(ctx, "users", args.closerId, "closerId") }),
+    ...(args.teamId === undefined ? {} : { teamId: normalizeMcpId(ctx, "attributionTeams", args.teamId, "teamId") }),
+}) });

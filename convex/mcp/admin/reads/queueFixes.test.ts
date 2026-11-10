@@ -227,6 +227,17 @@ describe("queue pages and summaries", () => {
     expect(page.cursor).toBeNull();
   });
 
+  it("answers a wrong-table closerId with a readable error", async () => {
+    const f = await fixture();
+    await expect(
+      f.t.query(reads.queue.run, {
+        caller: f.caller,
+        queue: "not_recorded",
+        closerId: f.tenantId,
+      }),
+    ).rejects.toThrow("mcp.invalid_argument");
+  });
+
   it("refuses a page size the answer can't hold", async () => {
     const f = await fixture();
     await expect(
