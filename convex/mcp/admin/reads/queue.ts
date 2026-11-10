@@ -459,6 +459,8 @@ async function bookedAgain(ctx: QueryCtx, deal: Doc<"opportunities">) {
 }
 /** Missed-meeting losses the queue shows: the web list's default window. */
 export const MISSED_MEETINGS_DAYS = 30;
+const MISSED_SUMMARY_ROWS = 1_000,
+  MISSED_SUMMARY_BYTES = 4 * 1024 * 1024;
 async function missedWindow(ctx: QueryCtx, me: Admin, asOf: number) {
   const day = await getTenantBusinessDay(ctx, me.tenantId);
   const today = businessDateForInstant(asOf, day);
@@ -903,7 +905,12 @@ export async function buildQueueSummary(
               .eq("outcome", "lost")
               .gte("latestActivityAt", start),
         ),
-      500,
+      // Its own budget: the 30-day window bounds the deals (474 on
+      // production) and so the booked-again lookups, one per deal. Deal
+      // documents are large, so the shared 512 KB budget stopped near 400.
+      MISSED_SUMMARY_ROWS,
+      undefined,
+      MISSED_SUMMARY_BYTES,
     );
     const open = await Promise.all(
       s.rows.map((r) => isOpenMissedMeeting(ctx, r, start, now)),

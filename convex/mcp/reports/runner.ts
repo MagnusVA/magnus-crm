@@ -4,6 +4,7 @@ import { internal } from "../../_generated/api";
 import { fetchReportRows } from "../../analytics/run";
 import { queryWatermark } from "../../analytics/clickhouse";
 import { assistantDefinition } from "./catalog";
+import { reportError } from "../../lib/observability/log";
 export const run = internalAction({
     args: { requestId: v.id("mcpReportRequests"), runToken: v.string() }, returns: v.null(),
     handler: async (ctx, args) => {
@@ -27,8 +28,12 @@ export const run = internalAction({
             const resultJson = rawJson;
             await ctx.runMutation(internal.mcp.reports.admission.finish, { ...args, resultJson, watermark });
         }
-        catch {
-            await ctx.runMutation(internal.mcp.reports.admission.finish, { ...args, error: "warehouse_failed" });
+        catch (error) {
+            // The agent sees a code; the cause goes to the logs, as the web runner does.
+            const waiting = error instanceof Error && error.message === "waiting_for_first_sync";
+            if (!waiting)
+                reportError("mcp.report_failed", error, { reportId: admitted.job.report, tenantId: admitted.tenantId, fingerprint: `mcp.report_failed:${admitted.job.report}` });
+            await ctx.runMutation(internal.mcp.reports.admission.finish, { ...args, error: waiting ? "waiting_for_first_sync" : "warehouse_failed" });
         }
         return null;
     },

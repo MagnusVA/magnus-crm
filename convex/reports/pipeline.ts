@@ -327,17 +327,30 @@ export async function readOwedTotal(
       ),
     PIPELINE_CAP,
   );
-  const users = await readLiveQueryRows(
-    ctx.db
-      .query("users")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
-    500,
-  );
-  if (recent.capped || users.capped) return null;
-  // Include inactive and former closers: ownership keys use users, not roles.
-  const keys = users.rows.flatMap((user) =>
+  if (recent.capped) return null;
+  // Every closer a meeting names, deleted users included: the check below
+  // needs all of the aggregate's keys. One index range per closer, skipping
+  // from each closer's meetings to the next closer's.
+  const closers: Id<"users">[] = [];
+  for (;;) {
+    const last = closers.at(-1);
+    const next = await ctx.db
+      .query("meetings")
+      .withIndex(
+        "by_tenantId_and_assignedCloserId_and_status_and_scheduledAt",
+        (q) =>
+          last === undefined
+            ? q.eq("tenantId", tenantId)
+            : q.eq("tenantId", tenantId).gt("assignedCloserId", last),
+      )
+      .first();
+    if (!next) break;
+    closers.push(next.assignedCloserId);
+    if (closers.length > 300) return null;
+  }
+  const keys = closers.flatMap((closerId) =>
     (["new", "follow_up"] as const).map(
-      (classification) => [user._id, classification, "scheduled"] as const,
+      (classification) => [closerId, classification, "scheduled"] as const,
     ),
   );
   // Reserve the transaction's remaining index ranges for the other panels.

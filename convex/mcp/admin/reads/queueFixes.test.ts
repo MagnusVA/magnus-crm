@@ -195,6 +195,33 @@ describe("missed_meetings queue", () => {
   });
 });
 
+describe("missed_meetings summary", () => {
+  it("counts a full window exactly past the shared read budget", async () => {
+    const f = await fixture();
+    for (let batch = 0; batch < 6; batch++)
+      await f.t.run(async (ctx) => {
+        for (let i = 0; i < 100; i++) {
+          const at = f.now - DAY - (batch * 100 + i) * 60_000;
+          await insertDeal(ctx, {
+            tenantId: f.tenantId,
+            status: "no_show",
+            fields: {
+              assignedCloserId: f.closerId,
+              lostReason: "no_show",
+              lostAt: at,
+              latestActivityAt: at,
+              createdAt: at - DAY,
+            },
+          });
+        }
+      });
+    const brief = await f.t.query(reads.brief.run, { caller: f.caller });
+    expect(
+      brief.queues.find((q) => q.queue === "missed_meetings"),
+    ).toMatchObject({ count: 600, isPartial: false });
+  }, 30_000);
+});
+
 describe("queue pages and summaries", () => {
   it("fills a failed-work page from a later source", async () => {
     const f = await fixture();
