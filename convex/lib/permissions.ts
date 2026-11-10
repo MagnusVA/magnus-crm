@@ -30,6 +30,8 @@ export const PERMISSIONS = {
   // === End Feature D ===
   // === v0.6b Reporting ===
   "reports:view": ["tenant_master", "tenant_admin"],
+  // A closer's or lead generator's own member report (reports-decisions D10).
+  "reports:view-own": ["tenant_master", "tenant_admin", "closer", "lead_generator"],
   // === End v0.6b Reporting ===
   // === Lead Gen Ops ===
   "lead-gen:capture": ["lead_generator", "tenant_master", "tenant_admin"],

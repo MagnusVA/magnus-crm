@@ -21,7 +21,8 @@ type OperationsTotals = {
   scheduled: number;
   held: number;
   noShows: number;
-  reviewRequired: number;
+  canceled: number;
+  moved: number;
   notRecorded: number;
 };
 
@@ -30,7 +31,8 @@ function emptyOperationsTotals(): OperationsTotals {
     scheduled: 0,
     held: 0,
     noShows: 0,
-    reviewRequired: 0,
+    canceled: 0,
+    moved: 0,
     notRecorded: 0,
   };
 }
@@ -39,10 +41,14 @@ function addOperationRow(
   totals: OperationsTotals,
   row: OperationsStatsRow & { notRecorded: number },
 ) {
-  totals.scheduled += row.count;
+  // A moved slot isn't a call (dictionary D9): it counts only as moved,
+  // apart from canceled, and stays out of `scheduled`.
+  if (row.meetingStatus !== "moved") totals.scheduled += row.count;
   totals.notRecorded += row.notRecorded;
   if (isHeldStatus(row.meetingStatus)) totals.held += row.count;
   if (row.meetingStatus === "no_show") totals.noShows += row.count;
+  if (row.meetingStatus === "canceled") totals.canceled += row.count;
+  if (row.meetingStatus === "moved") totals.moved += row.count;
 }
 
 function toRate(numerator: number, denominator: number): number | null {
@@ -167,7 +173,8 @@ export async function buildPhoneCloserOperationsOverviewSection(
       scheduled: acc.scheduled + totals.scheduled,
       held: acc.held + totals.held,
       noShows: acc.noShows + totals.noShows,
-      reviewRequired: acc.reviewRequired + totals.reviewRequired,
+      canceled: acc.canceled + totals.canceled,
+      moved: acc.moved + totals.moved,
       notRecorded: acc.notRecorded + totals.notRecorded,
     }),
     emptyOperationsTotals(),
@@ -181,7 +188,8 @@ export async function buildPhoneCloserOperationsOverviewSection(
         scheduled: operationTotals.scheduled,
         held: operationTotals.held,
         noShows: operationTotals.noShows,
-        reviewRequired: operationTotals.reviewRequired,
+        canceled: operationTotals.canceled,
+        moved: operationTotals.moved,
         resultsRecorded: operationTotals.held + operationTotals.noShows,
         pastCalls: operationTotals.held + operationTotals.noShows + operationTotals.notRecorded,
         showRate: toRate(operationTotals.held, operationTotals.held + operationTotals.noShows),

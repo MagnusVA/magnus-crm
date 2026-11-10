@@ -56,7 +56,7 @@ describe("Booked Calls", () => {
     expect(dashboard.window).toEqual(BOOKED_CALLS_WINDOW);
     const booked = Object.fromEntries(dashboard.dmClosers.map((row) => [row.key, row.booked]));
     // A and A2 are two records of one team member; each keeps its own count.
-    // B's rebook is a follow-up and its other booking is outside the window.
+    // B's rebook replaces a booking, and its other booking is outside the window.
     expect(booked).toEqual({
       [fixture.dmClosers.northA]: 1,
       [fixture.dmClosers.northA2]: 1,
@@ -190,7 +190,7 @@ describe("Booked Calls", () => {
       dmCloserId: fixture.dmClosers.northB,
       dmCloserLabel: "Blake North",
     });
-    // Deal A's rebook went through Blake, but it is a follow-up.
+    // Deal A's rebook went through Blake, but it replaces a booking.
     expect((await search("alpha", fixture.dmClosers.northB)).map((row) => row.meetingId)).toEqual([]);
     expect((await search("alpha", fixture.dmClosers.northA)).map((row) => row.meetingId)).toEqual([
       fixture.meetings.firstNorthA,

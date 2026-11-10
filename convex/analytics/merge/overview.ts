@@ -62,7 +62,9 @@ function phoneCounts<Row extends PhoneCloserOperations["totals"]>(past: Row, cur
     scheduled: past.scheduled + current.scheduled,
     held,
     noShows,
-    reviewRequired: past.reviewRequired + current.reviewRequired,
+    // An answer cached before these counters existed lacks them.
+    canceled: (past.canceled ?? 0) + (current.canceled ?? 0),
+    moved: (past.moved ?? 0) + (current.moved ?? 0),
     resultsRecorded: past.resultsRecorded + current.resultsRecorded,
     pastCalls: past.pastCalls + current.pastCalls,
     // The reader spreads this counter onto rows, though its public row type

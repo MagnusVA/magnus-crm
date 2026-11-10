@@ -56,7 +56,7 @@ describe("booked meetings report source", () => {
         [row.attributionTeamId, row.attributionTeamLabel, row.dmCloserId, row.dmCloserLabel],
       ]),
     );
-    // The rebook is a follow-up, two bookings credit no one, and one is
+    // The rebook replaces a booking, two bookings credit no one, and one is
     // outside the window. The team-only booking is read for its team's goal.
     expect(byMeeting).toEqual({
       [fixture.meetings.firstNorthA]: [fixture.teams.north, "North Team", fixture.dmClosers.northA, "Avery North"],

@@ -17,6 +17,9 @@ function camel(snake: string) {
 export function docFromRow<Table extends TableNames>(row: SqlRow): Doc<Table> {
   const doc: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(row)) {
+    // ClickHouse names a column `alias.column` when a join brings in another
+    // column of the same name. Fail rather than drop the field.
+    if (key.includes(".")) throw new Error(`Report SQL returned the column ${key}; give the joined column its own name.`);
     if (value === null || value === undefined) continue;
     if (key === "id") {
       doc._id = value;

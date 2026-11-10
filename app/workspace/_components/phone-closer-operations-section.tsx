@@ -11,6 +11,8 @@ import { ATTENDANCE_COUNTS_PARTIAL_HELP } from "./results-recorded";
 // ruled table with a Total row. Below @xl/closers each closer folds to two
 // lines: the name, then the counts in words. When attendance counts are
 // partial, one note above the rows says why, for the table and the list.
+// Canceled and moved slots (a call rescheduled to another time) are counted
+// apart, under each name, so the six figure columns still fit.
 
 type ReadyData = Extract<PhoneCloserOperationsSectionData, { status: "ready" }>["data"];
 type Counts = ReadyData["totals"];
@@ -25,6 +27,27 @@ function resultsLine(counts: Counts, partial: boolean) {
   return `${formatWholeNumber(counts.resultsRecorded)} of ${formatWholeNumber(counts.pastCalls)} past calls have a result${partial ? " (partial)" : ""}`;
 }
 
+/** Calls due with no held or no-show result yet. */
+function notRecorded(counts: Counts) {
+  return counts.pastCalls - counts.resultsRecorded;
+}
+
+/**
+ * Canceled and moved, or null when the answer has neither. The type says
+ * they're always there, but an Overview answer saved before they were added
+ * lacks them until the next sync reruns it; leave them out rather than show
+ * NaN or a made-up 0.
+ */
+function slotCounts(counts: Counts): { canceled: number; moved: number } | null {
+  const { canceled, moved } = counts as Partial<Pick<Counts, "canceled" | "moved">>;
+  return typeof canceled === "number" && typeof moved === "number" ? { canceled, moved } : null;
+}
+
+function slotsLine(counts: Counts) {
+  const slots = slotCounts(counts);
+  return slots ? `${formatWholeNumber(slots.canceled)} canceled · ${formatWholeNumber(slots.moved)} moved` : null;
+}
+
 const figure = "font-condensed text-[15px] font-semibold tabular-nums";
 // Two-word heads ("Show rate") break onto two lines, so all six figure columns fit a half-width card.
 const head = "min-h-7 px-2.5 py-1 text-right align-bottom font-condensed text-[11px] leading-tight font-semibold tracking-[0.14em] text-muted-foreground uppercase";
@@ -37,8 +60,8 @@ function Figures({ counts, strong = false }: { counts: Counts; strong?: boolean 
       <td className={cn("px-2.5 text-right", figure, counts.noShows === 0 && !strong && "text-muted-foreground")}>
         {formatWholeNumber(counts.noShows)}
       </td>
-      <td className={cn("px-2.5 text-right", figure, counts.reviewRequired === 0 && !strong && "text-muted-foreground")}>
-        {formatWholeNumber(counts.reviewRequired)}
+      <td className={cn("px-2.5 text-right", figure, notRecorded(counts) === 0 && !strong && "text-muted-foreground")}>
+        {formatWholeNumber(notRecorded(counts))}
       </td>
       <td className={cn("px-2.5 text-right", figure)}>{formatShowRate(counts.showRate)}</td>
       <td className={cn("pr-4 pl-2.5 text-right", figure)}>{formatShowRate(counts.noShowRate)}</td>
@@ -47,11 +70,18 @@ function Figures({ counts, strong = false }: { counts: Counts; strong?: boolean 
 }
 
 function CountWords({ counts }: { counts: Counts }) {
+  const slots = slotCounts(counts);
   const facts: Array<[string, string]> = [
     [formatWholeNumber(counts.scheduled), "booked"],
     [formatWholeNumber(counts.held), "held"],
     [formatWholeNumber(counts.noShows), "no-show"],
-    [formatWholeNumber(counts.reviewRequired), "to review"],
+    ...(slots
+      ? ([
+          [formatWholeNumber(slots.canceled), "canceled"],
+          [formatWholeNumber(slots.moved), "moved"],
+        ] as Array<[string, string]>)
+      : []),
+    [formatWholeNumber(notRecorded(counts)), "not recorded"],
     [formatShowRate(counts.showRate), "show rate"],
     [formatShowRate(counts.noShowRate), "no-show rate"],
   ];
@@ -84,7 +114,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <th scope="col" className={head}>Booked</th>
             <th scope="col" className={head}>Held</th>
             <th scope="col" className={head}>No-show</th>
-            <th scope="col" className={head}>Review</th>
+            <th scope="col" className={head}>Not recorded</th>
             <th scope="col" className={head}>
               Show rate
             </th>
@@ -99,6 +129,7 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
               <th scope="row" className="py-2 pr-3 pl-4 text-left font-normal">
                 <p className="font-semibold">{getMemberDisplayName(row.closer)}</p>
                 <p className="text-[13px] text-muted-foreground">{resultsLine(row, partial)}</p>
+                {slotsLine(row) ? <p className="text-[13px] text-muted-foreground">{slotsLine(row)}</p> : null}
               </th>
               <Figures counts={row} />
             </tr>
@@ -107,6 +138,9 @@ function PhoneClosersTable({ data }: { data: ReadyData }) {
             <th scope="row" className="py-2 pr-3 pl-4 text-left">
               <p className="font-semibold">Total</p>
               <p className="text-[13px] font-normal text-muted-foreground">{resultsLine(data.totals, partial)}</p>
+              {slotsLine(data.totals) ? (
+                <p className="text-[13px] font-normal text-muted-foreground">{slotsLine(data.totals)}</p>
+              ) : null}
             </th>
             <Figures counts={data.totals} strong />
           </tr>

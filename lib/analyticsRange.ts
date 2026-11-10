@@ -174,15 +174,51 @@ export function browserDay(timeZone: string): BusinessDaySetting {
  */
 export type AnalyticsRangePlan =
   | { kind: "live" }
-  | { kind: "warehouse"; range: AnalyticsRange }
+  | {
+      kind: "warehouse";
+      range: AnalyticsRange;
+      /** The days the answer must cover: a preset's saved answer can be for an earlier period. */
+      startDate: string;
+      endDateInclusive: string;
+    }
   | {
       kind: "split";
       range: AnalyticsRange;
       history: AnalyticsRange;
       historyStartDate: string;
       historyEndDate: string;
+      /** The first day the live reader answers: today, or yesterday overnight. */
+      liveStartDate: string;
+      /** Yesterday is read live too, until the first sync after today's start lands. */
+      liveFromYesterday?: true;
     };
 
+/**
+ * The days a ClickHouse answer must cover before a panel shows it, or null
+ * when any saved answer for the key will do. A range that ended before today
+ * and a split's history are fixed days. A split that can't be merged reads
+ * its whole range as of the last sync, so its last day isn't checked.
+ */
+export function answerDays(
+  plan: AnalyticsRangePlan,
+  splits: boolean,
+): { startDate: string; endDateInclusive: string | null } | null {
+  if (plan.kind === "warehouse") return { startDate: plan.startDate, endDateInclusive: plan.endDateInclusive };
+  if (plan.kind !== "split") return null;
+  return { startDate: plan.historyStartDate, endDateInclusive: splits ? plan.historyEndDate : null };
+}
+
+export function answerCoversDays(
+  answer: { startDate: string; endDateInclusive: string } | null,
+  days: ReturnType<typeof answerDays>,
+) {
+  if (days === null) return true;
+  return (
+    answer !== null &&
+    answer.startDate === days.startDate &&
+    (days.endDateInclusive === null || answer.endDateInclusive === days.endDateInclusive)
+  );
+}
 /**
  * The cached range for some dates. Dates that match a preset become the
  * preset, so its answer stays valid as days pass; anything else is custom.
@@ -197,32 +233,99 @@ function rangeForDates(startDate: string, endDateInclusive: string, today: strin
   return { kind: "custom", startDate, endDateInclusive };
 }
 
-/** Plans a range of inclusive dates, in the page's day definition. */
+/**
+ * The last day ClickHouse holds whole (docs/reviews/reports-decisions.html,
+ * D1). Yesterday, once a sync whose watermark is past the start of today has
+ * landed; until then the day before, since the evening sync missed whatever
+ * was logged between it and the business day's end. A page that passes this
+ * to its plan reads yesterday live too in those hours, so a call recorded
+ * late last night is never missing in the morning.
+ */
+export function settledThroughDate(today: string, watermarkMs: number | null, todayStartMs: number): string {
+  if (watermarkMs !== null && watermarkMs >= todayStartMs) return addBusinessDays(today, -1);
+  return addBusinessDays(today, -2);
+}
+
+/**
+ * Plans a range of inclusive dates, in the page's day definition.
+ * `settledThrough` is the last day ClickHouse answers (default yesterday);
+ * every later day is read live.
+ */
 export function planAnalyticsRange(
   startDate: string,
   endDateInclusive: string,
   today: string,
+  settledThrough: string = addBusinessDays(today, -1),
 ): AnalyticsRangePlan {
-  if (startDate >= today) return { kind: "live" };
+  if (startDate > settledThrough) return { kind: "live" };
   const whole = rangeForDates(startDate, endDateInclusive, today);
-  if (endDateInclusive < today) return { kind: "warehouse", range: whole };
+  if (endDateInclusive <= settledThrough) return { kind: "warehouse", range: whole, startDate, endDateInclusive };
   const yesterday = addBusinessDays(today, -1);
   return {
     kind: "split",
     range: whole,
     history:
-      whole.kind === "preset"
+      whole.kind === "preset" && settledThrough === yesterday
         ? { ...whole, throughYesterday: true }
-        : { kind: "custom", startDate, endDateInclusive: yesterday },
+        : { kind: "custom", startDate, endDateInclusive: settledThrough },
     historyStartDate: startDate,
-    historyEndDate: yesterday,
+    historyEndDate: settledThrough,
+    liveStartDate: addBusinessDays(settledThrough, 1),
+    ...(settledThrough < yesterday ? { liveFromYesterday: true as const } : {}),
   };
 }
 
-/** An Overview, Operations or lead gen range, in business dates. */
-export type DashboardRange =
-  | { kind: "preset"; preset: "today" | "this_week" | "this_month" }
+/** The presets Overview, Operations and lead gen offer. */
+export type DashboardPreset = "today" | "this_week" | "this_month";
+
+/**
+ * The presets the Reports picker offers: the dashboards' three and five more.
+ * Yesterday, Last month and Last 90 days are analytics presets too, so they
+ * share cached answers; Last week and Year to date plan as dates.
+ */
+export const REPORT_RANGE_PRESETS = [
+  "today",
+  "this_week",
+  "this_month",
+  "last_month",
+  "yesterday",
+  "last_week",
+  "last_90_days",
+  "year_to_date",
+] as const satisfies readonly (DashboardPreset | AnalyticsPreset | "last_week" | "year_to_date")[];
+
+export type ReportRangePreset = (typeof REPORT_RANGE_PRESETS)[number];
+
+/**
+ * A range in business dates. Overview, Operations and lead gen use the
+ * default, the three dashboard presets; Reports pass `ReportRangePreset`.
+ */
+export type DashboardRange<Preset extends ReportRangePreset = DashboardPreset> =
+  | { kind: "preset"; preset: Preset }
   | { kind: "custom"; startBusinessDate: string; endBusinessDateInclusive: string };
+
+/** Any dashboard or Reports range: what the helpers below accept. */
+type AnyDashboardRange = DashboardRange<ReportRangePreset>;
+
+/** A dashboard or Reports preset's first and last business date. */
+function dashboardPresetDates(
+  preset: ReportRangePreset,
+  today: string,
+): { startDate: string; endDateInclusive: string } {
+  switch (preset) {
+    case "today":
+      return { startDate: today, endDateInclusive: today };
+    case "last_week": {
+      // Monday to Sunday of the week before this one.
+      const thisMonday = businessPeriodDate(today, "week");
+      return { startDate: addBusinessDays(thisMonday, -7), endDateInclusive: addBusinessDays(thisMonday, -1) };
+    }
+    case "year_to_date":
+      return { startDate: `${today.slice(0, 4)}-01-01`, endDateInclusive: today };
+    default:
+      return presetDates(preset, today);
+  }
+}
 
 /**
  * Plans an Overview, Operations or lead gen range, in the tenant's business
@@ -230,14 +333,36 @@ export type DashboardRange =
  * one day is a small read for the page's Convex reader, and it skips waiting
  * on a ClickHouse run.
  */
-export function dashboardRangePlan(range: DashboardRange, todayBusinessDate: string): AnalyticsRangePlan {
+export function dashboardRangePlan(
+  range: AnyDashboardRange,
+  todayBusinessDate: string,
+  /** Reports pass `settledThroughDate(...)`; other pages read through yesterday. */
+  settledThrough?: string,
+): AnalyticsRangePlan {
   if (range.kind === "custom") {
     if (range.startBusinessDate === range.endBusinessDateInclusive) return { kind: "live" };
-    return planAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate);
+    return planAnalyticsRange(range.startBusinessDate, range.endBusinessDateInclusive, todayBusinessDate, settledThrough);
   }
   if (range.preset === "today") return { kind: "live" };
-  const dates = presetDates(range.preset, todayBusinessDate);
-  return planAnalyticsRange(dates.startDate, dates.endDateInclusive, todayBusinessDate);
+  const dates = dashboardPresetDates(range.preset, todayBusinessDate);
+  return planAnalyticsRange(dates.startDate, dates.endDateInclusive, todayBusinessDate, settledThrough);
+}
+
+/**
+ * The part of a dashboard range that a split's live reader answers: from the
+ * plan's `liveStartDate` (today, or yesterday overnight) to the range's end.
+ */
+export function dashboardLiveRange(
+  range: AnyDashboardRange,
+  todayBusinessDate: string,
+  liveStartDate: string = todayBusinessDate,
+): DashboardRange {
+  const end = resolveDashboardRange(range, todayBusinessDate).endBusinessDateInclusive;
+  return {
+    kind: "custom",
+    startBusinessDate: liveStartDate,
+    endBusinessDateInclusive: end > liveStartDate ? end : liveStartDate,
+  };
 }
 
 /**
@@ -246,7 +371,7 @@ export function dashboardRangePlan(range: DashboardRange, todayBusinessDate: str
  * clock, and Convex doesn't run it again when the day changes, so after
  * midnight the preset could still answer for yesterday.
  */
-export function dashboardRangeFromToday(range: DashboardRange, todayBusinessDate: string): DashboardRange {
+export function dashboardRangeFromToday(range: AnyDashboardRange, todayBusinessDate: string): DashboardRange {
   const end = range.kind === "custom" ? range.endBusinessDateInclusive : todayBusinessDate;
   return {
     kind: "custom",
@@ -265,13 +390,10 @@ export function dashboardRangeFromToday(range: DashboardRange, todayBusinessDate
  * dates change when today does, and the query runs again for the new day.
  */
 export function resolveDashboardRange(
-  range: DashboardRange,
+  range: AnyDashboardRange,
   todayBusinessDate: string,
 ): Extract<DashboardRange, { kind: "custom" }> {
   if (range.kind === "custom") return range;
-  const { startDate, endDateInclusive } =
-    range.preset === "today"
-      ? { startDate: todayBusinessDate, endDateInclusive: todayBusinessDate }
-      : presetDates(range.preset, todayBusinessDate);
+  const { startDate, endDateInclusive } = dashboardPresetDates(range.preset, todayBusinessDate);
   return { kind: "custom", startBusinessDate: startDate, endBusinessDateInclusive: endDateInclusive };
 }

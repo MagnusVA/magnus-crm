@@ -79,6 +79,25 @@ async function executeRun(
       { timeZone: job.timeZone, dayStartHour: job.dayStartHour },
       Date.now(),
     );
+    if (definition.node) {
+      // Built and saved in Node: the rows and the answer never pass through
+      // this action, which the batch runs two at a time in 64 MiB.
+      const outcome: { ok: true; saved: boolean } | { ok: false; errorMessage: string } = await ctx.runAction(
+        internal.analytics.runNode.finalizeInNode,
+        {
+          ...args,
+          watermark,
+          reportId: job.reportId,
+          tenantId: job.tenantId,
+          filtersJson: job.filtersJson,
+          range,
+        },
+      );
+      if (!outcome.ok) {
+        await ctx.runMutation(internal.analytics.results.fail, { ...args, errorMessage: outcome.errorMessage });
+      }
+      return;
+    }
     const rowsJson = await fetchReportRows(definition, {
       tenantId: job.tenantId,
       filters: JSON.parse(job.filtersJson) as AnalyticsFilters,

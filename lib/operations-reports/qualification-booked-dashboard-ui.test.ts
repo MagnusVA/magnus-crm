@@ -43,9 +43,6 @@ vi.mock("@/app/workspace/operations/qualifications/_components/submissions-pane"
 vi.mock("@/app/workspace/operations/qualifications/_components/qualifier-schedules-dialog", () => ({
   QualifierSchedulesDialog: () => null,
 }));
-vi.mock("@/app/workspace/reports/slack-qualifications/_components/team-goal-dialog", () => ({
-  TeamGoalDialog: () => null,
-}));
 vi.mock("@/app/workspace/operations/booked-calls/_components/booked-calls-details-list", () => ({
   BookedCallsDetailsList: () => null,
 }));

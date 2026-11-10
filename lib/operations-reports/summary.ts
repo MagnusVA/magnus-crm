@@ -15,6 +15,7 @@ export function summaryCards(kind: string, fields: ScalarRecord) {
       { key: "totalCalls", label: "Calls" },
       { key: "showed", label: "Showed" },
       { key: "canceled", label: "Canceled" },
+      { key: "moved", label: "Moved" },
       { key: "noShows", label: "No Shows" },
       { key: "showUpRate", label: "Show-up Rate", format: "percent" },
       { key: "closeRate", label: "Close Rate", format: "percent" },

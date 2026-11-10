@@ -1417,8 +1417,11 @@ export default defineSchema({
       v.literal("no_show"),
     ),
     // === v0.6: Call Classification ===
-    // Set when a meeting is created or backfilled for historical records.
-    // "new" = first booking on an opportunity, "follow_up" = subsequent booking.
+    // "follow_up" when a held meeting on the same deal is scheduled before
+    // this one, else "new": a first call until one is held, so a moved first
+    // call and a rebook after a no-show are first calls (convex/lib/callType.ts).
+    // Set at booking and re-checked when a result is recorded
+    // (convex/lib/dealCallTypes.ts); unset on rows the backfill hasn't reached.
     callClassification: v.optional(
       v.union(
         v.literal("new"),
@@ -1490,7 +1493,8 @@ export default defineSchema({
     // === End Feature B: No-Show Tracking ===
 
     // === Feature B: Reschedule Chain ===
-    // Links this meeting back to the no-show meeting it reschedules.
+    // The meeting this one replaces: a slot given up in a Calendly reschedule
+    // (canceled, so "moved") or a call missed before a no-show rebook.
     rescheduledFromMeetingId: v.optional(v.id("meetings")),
     // === End Feature B: Reschedule Chain ===
     operationsStatsSyncedAt: v.optional(v.number()),
@@ -1499,6 +1503,8 @@ export default defineSchema({
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    // A replaced meeting's successor: whether a canceled slot was moved.
+    .index("by_rescheduledFromMeetingId", ["rescheduledFromMeetingId"])
     .index("by_tenantId_and_calendlyInviteeUri", ["tenantId", "calendlyInviteeUri"])
     .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"])
     .index("by_tenantId_and_status_and_scheduledAt", [
@@ -2271,4 +2277,18 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_status_and_createdAt", ["status", "createdAt"]),
   // === End Public Support Requests ===
+
+  // Every call type the call-type backfill changed, written before the change
+  // (convex/reporting/callTypeBackfill.ts). The old types can't be recomputed,
+  // so this is what makes the reverse exact. Written only by the backfill and
+  // its reverse; dropped once the reports overhaul has run for two weeks.
+  callTypeBackfillChanges: defineTable({
+    tenantId: v.id("tenants"),
+    meetingId: v.id("meetings"),
+    from: v.union(v.literal("new"), v.literal("follow_up"), v.literal("unset")),
+    to: v.union(v.literal("new"), v.literal("follow_up")),
+    changedAt: v.number(),
+    revertedAt: v.optional(v.number()),
+    revertSkipped: v.optional(v.union(v.literal("meeting_deleted"), v.literal("changed_since"))),
+  }).index("by_meetingId", ["meetingId"]),
 });

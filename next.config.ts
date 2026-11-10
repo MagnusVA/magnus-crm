@@ -59,6 +59,24 @@ const nextConfig: NextConfig = {
 			},
 			// "workers", no tab, or anything else.
 			{ source: leadGenSettings, destination: "/workspace/team?role=lead_gen", permanent: false },
+			// Reports' landing page, and the seven old reports' URLs that became
+			// six pages (reports-decisions D11). Not permanent, so their targets
+			// can still change; ?range=this_month and the rest pass through.
+			{ source: "/workspace/reports", destination: "/workspace/reports/scorecard", permanent: false },
+			...(
+				[
+					["team", "people"],
+					["revenue", "scorecard"],
+					["leads", "scorecard"],
+					["activity", "log"],
+					["reminders", "scorecard"],
+					["slack-qualifications", "people?role=setters"],
+				] as const
+			).map(([from, to]) => ({
+				source: `/workspace/reports/${from}`,
+				destination: `/workspace/reports/${to}`,
+				permanent: false,
+			})),
 		];
 	},
 	async headers() {

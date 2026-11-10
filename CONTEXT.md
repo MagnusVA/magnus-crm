@@ -63,8 +63,25 @@ _Avoid_: deal status, closed won, meeting outcome
 One scheduled sales call. It records attendance only: scheduled, held, no-show, or canceled, each recorded with its own time. A call still scheduled after it ends shows as "Not recorded"; that is a display rule, not a fifth state.
 _Avoid_: appointment, completed (as a meeting state)
 
+**First call**:
+A meeting on a deal where the person hasn't held a call yet. A call that replaces a moved slot, and a rebook after a no-show, are first calls too, so first-call show rate counts every attempt at a first conversation.
+_Avoid_: new call (as a booking count)
+
+**Follow-up call**:
+A meeting on a deal where a held call comes before it. The type is stored on the meeting and re-checked when a result is recorded.
+
+**Moved**:
+A canceled meeting that another meeting replaces, because the person rescheduled in Calendly. It isn't a call: reports count it as Moved, never as Canceled or as a booking.
+_Avoid_: rescheduled (as an attendance)
+
+**Replacement**:
+A meeting that replaces another: the new slot of a reschedule, or a rebook after a no-show. It isn't a new booking, so bookings made and DM goals leave it out.
+
+**Recorded**:
+Of the calls due in a period, the share with a held or no-show result. Every show rate is read with it, because a show rate describes only the recorded calls.
+
 **Close rate**:
-Of the deals whose first held call was in a period, the share that are won now. A deal counts once, at its first held call, credited to that call's closer and booked program; follow-up calls never count it again. Because won is read now, a past period's rate rises as its late deals close. Side deals have no held call and stay out, and payments play no part.
+Of the deals whose first held call was in a period, the share that are won now. A deal counts once, at its first held call, credited to the closer who had that call (from its credit record, not the deal's current closer) and its booked program; follow-up calls never count it again. Because won is read now, a past period's rate rises as its late deals close. Side deals have no held call and stay out, and payments play no part.
 _Avoid_: payment close rate, sales ÷ shows
 
 **Win rate**:
@@ -124,6 +141,10 @@ The job a team member did on a deal. Lead gen found the person, the setter quali
 
 **Attribution**:
 A record that one team member played one role on one deal, with where that fact came from. Attribution is only ever added; reassigning a meeting adds a record instead of replacing one. It carries no commission share.
+
+**Credited cash**:
+The cash on the deals where a team member holds an attribution in a role, in full for each person and once per payment, counting only attributions made before the payment. For phone closers it's the payments that name them. It records who contributed, never who is owed; two people in one role both show the deal's cash, and the role's total shows the overlap as Shared.
+_Avoid_: commission, earned
 _Avoid_: credit column, owner
 
 **Touch**:

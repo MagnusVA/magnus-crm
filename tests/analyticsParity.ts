@@ -27,6 +27,19 @@ function snake(name: string) {
 }
 
 /**
+ * The status a meeting's projection bucket holds, as `contributionStatusSql`
+ * computes it: a canceled meeting another meeting replaced is `moved`.
+ */
+export function projectedMeetingStatus(
+  meeting: { _id: string; status: string },
+  meetings: ReadonlyArray<{ rescheduledFromMeetingId?: string }>,
+): string {
+  return meeting.status === "canceled" && meetings.some((other) => other.rescheduledFromMeetingId === meeting._id)
+    ? "moved"
+    : meeting.status;
+}
+
+/**
  * The row an `analytics.*` view returns for a Convex document: the inverse of
  * `docFromRow` (convex/analytics/rows.ts), without the fields the table's
  * view leaves out. Number fields ending in `At`, and `heldUntil`, become
@@ -44,6 +57,31 @@ export function rowFromDoc(table: TableNames, doc: Record<string, unknown>): Rec
     else row[snake(key)] = value;
   }
   return row;
+}
+
+/** Apply the SQL's named queries and projections before exercising a finalizer. */
+export function projectWarehouseRows(
+  rows: Record<string, Array<Record<string, unknown>>>,
+  columns: Record<string, readonly string[] | null>,
+): Record<string, Array<Record<string, unknown>>> {
+  return Object.fromEntries(Object.entries(columns).map(([name, selected]) => [name,
+    (rows[name] ?? []).map(row => selected === null ? row : Object.fromEntries(
+      selected.filter(column => column in row).map(column => [column, row[column]]),
+    )),
+  ]));
+}
+
+/** A projection fixture must exercise each selected field, including optional fields. */
+export function expectProjectionValues(
+  rows: Record<string, Array<Record<string, unknown>>>,
+  columns: Record<string, readonly string[] | null>,
+) {
+  for (const [name, selected] of Object.entries(columns)) {
+    for (const column of selected ?? []) expect(
+      (rows[name] ?? []).some(row => row[column] !== undefined && row[column] !== null && row[column] !== "" && row[column] !== 0),
+      `${name}.${column} needs a non-default fixture value`,
+    ).toBe(true);
+  }
 }
 
 /**

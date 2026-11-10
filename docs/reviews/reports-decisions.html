@@ -1,0 +1,1748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report decisions</title>
+<meta name="description" content="The twelve decisions behind the reports overhaul, each with the cases where the answer changes a number on screen, and how the single PR and its one backfill ship without breaking anything.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens: Magnus CRM's own (DESIGN.md), the same set as reports-overhaul.html */
+:root {
+  color-scheme: light;
+  --paper: #f5f6f8; --card: #ffffff; --ink: #141a28; --ink-2: #4f596b; --ink-3: #5f697b;
+  --rule: #e3e7ed; --rule-2: #d5dbe3; --muted: #eef1f5;
+  --shell: #141a28; --shell-raised: #1d2536;
+  --board: #141a28; --board-raised: #1d2536; --board-fg: #eef1f6; --board-muted: #9aa4b6; --board-line: rgb(242 244 247 / 0.08); --board-ring: transparent;
+  --lime: #84b135; --on-lime: #141a28; --lime-ink: #4a7212;
+  --warning: #f5b700; --warning-surface: #fff4cc; --warning-ink: #7a5200;
+  --danger: #d93a40; --danger-ink: #b42328;
+  --booked: #4c6fd0; --booked-ink: #2b4aa8; --held: #8e99ac; --held-ink: #4f596b;
+  --follow: #2a9d95; --follow-ink: #1d756f; --won: #84b135; --won-ink: #4a7212; --lost: #d93a40; --lost-ink: #b42328;
+  --r-leadgen: #eb6834; --r-setter: #6250d6; --r-dm: #1baf7a; --r-closer: #2a78d6;
+  --hatch: rgb(20 26 40 / 0.16);
+  --shadow: 0 1px 0 rgb(20 26 40 / 0.04), 0 28px 60px -32px rgb(20 26 40 / 0.38);
+  --font: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cond: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #090d14; --card: #121826; --ink: #eef1f6; --ink-2: #98a2b3; --ink-3: #8f99aa;
+    --rule: rgb(255 255 255 / 0.09); --rule-2: rgb(255 255 255 / 0.15); --muted: #1a2131;
+    --shell: #0d121c; --shell-raised: #182032;
+    --board: #1b2336; --board-raised: #26304a; --board-line: rgb(242 244 247 / 0.1); --board-ring: rgb(255 255 255 / 0.1);
+    --lime-ink: #a6cf5e; --warning-surface: #3a2f0a; --warning-ink: #ffd666;
+    --danger: #e5484d; --danger-ink: #ff8a8e;
+    --booked: #6f8fe6; --booked-ink: #9db4f2; --held: #98a2b3; --held-ink: #b9c2d0;
+    --follow: #3fb8b0; --follow-ink: #7ccbc6; --won-ink: #a6cf5e; --lost: #e5484d; --lost-ink: #ff8a8e;
+    --r-leadgen: #d95926; --r-setter: #9085e9; --r-dm: #199e70; --r-closer: #3987e5;
+    --hatch: rgb(238 241 246 / 0.16);
+    --shadow: 0 0 0 1px rgb(255 255 255 / 0.04), 0 28px 60px -28px rgb(0 0 0 / 0.7);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #090d14; --card: #121826; --ink: #eef1f6; --ink-2: #98a2b3; --ink-3: #8f99aa;
+  --rule: rgb(255 255 255 / 0.09); --rule-2: rgb(255 255 255 / 0.15); --muted: #1a2131;
+  --shell: #0d121c; --shell-raised: #182032;
+  --board: #1b2336; --board-raised: #26304a; --board-line: rgb(242 244 247 / 0.1); --board-ring: rgb(255 255 255 / 0.1);
+  --lime-ink: #a6cf5e; --warning-surface: #3a2f0a; --warning-ink: #ffd666;
+  --danger: #e5484d; --danger-ink: #ff8a8e;
+  --booked: #6f8fe6; --booked-ink: #9db4f2; --held: #98a2b3; --held-ink: #b9c2d0;
+  --follow: #3fb8b0; --follow-ink: #7ccbc6; --won-ink: #a6cf5e; --lost: #e5484d; --lost-ink: #ff8a8e;
+  --r-leadgen: #d95926; --r-setter: #9085e9; --r-dm: #199e70; --r-closer: #3987e5;
+  --hatch: rgb(238 241 246 / 0.16);
+  --shadow: 0 0 0 1px rgb(255 255 255 / 0.04), 0 28px 60px -28px rgb(0 0 0 / 0.7);
+}
+
+/* Base */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--lime); color: var(--on-lime); }
+a { color: var(--lime-ink); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--lime-ink); outline-offset: 2px; border-radius: 4px; }
+code, .mono { font-family: var(--mono); font-size: 0.82em; }
+code { background: var(--muted); border: 1px solid var(--rule); padding: 0.05em 0.35em; border-radius: 4px; word-break: break-word; }
+button, textarea { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Shell */
+.shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+.rail { position: sticky; top: 0; height: 100vh; background: var(--shell); color: var(--board-fg); display: flex; flex-direction: column; padding: 20px 14px 18px; overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 14px; text-decoration: none; color: var(--board-fg); }
+.brand svg { width: 30px; height: 30px; flex: none; }
+.brand b { display: block; font: 600 15px/1.1 var(--font); }
+.brand span { display: block; font: 500 12px/1.3 var(--font); color: var(--board-muted); }
+.rail-label { font: 600 11px/1 var(--cond); letter-spacing: 0.14em; text-transform: uppercase; color: rgb(238 241 246 / 0.6); padding: 14px 10px 8px; }
+.toc { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.toc a { display: grid; grid-template-columns: 30px 1fr 12px; align-items: center; min-height: 30px; padding: 3px 10px; border-radius: 7px; color: rgb(238 241 246 / 0.82); text-decoration: none; font: 500 13.5px/1.25 var(--font); }
+.toc a i { font: 600 12px/1 var(--cond); font-style: normal; letter-spacing: 0.06em; color: var(--board-muted); }
+.toc a:hover { background: var(--shell-raised); color: #fff; }
+.toc a[aria-current="true"] { background: rgb(132 177 53 / 0.16); color: #fff; }
+.toc a[aria-current="true"] i { color: var(--lime); }
+.toc a .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid rgb(238 241 246 / 0.3); justify-self: end; transition: background 0.25s, border-color 0.25s; }
+.toc a .dot.done { background: var(--lime); border-color: var(--lime); }
+.rail-progress { margin: 14px 10px 0; font-size: 12px; color: var(--board-muted); }
+.rail-progress .bar { height: 4px; border-radius: 2px; background: rgb(238 241 246 / 0.12); margin-top: 6px; overflow: hidden; }
+.rail-progress .bar i { display: block; height: 100%; width: 0; background: var(--lime); transition: width 0.4s ease; }
+.rail-foot { margin-top: auto; padding: 16px 10px 0; border-top: 1px solid var(--board-line); display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--board-muted); }
+.theme-btn { white-space: nowrap; height: 30px; padding: 0 10px; border-radius: 7px; border: 1px solid rgb(238 241 246 / 0.15); background: var(--shell-raised); color: var(--board-fg); font-size: 12px; cursor: pointer; }
+.theme-btn:hover { background: rgb(238 241 246 / 0.1); }
+
+main { min-width: 0; padding: 44px 44px 160px; }
+.wrap { max-width: 1120px; margin: 0 auto; }
+section { scroll-margin-top: 24px; margin-top: 110px; }
+
+/* Type */
+.kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; font: 600 12px/1 var(--cond); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 16px; }
+.kicker b { display: inline-grid; place-items: center; min-width: 30px; height: 22px; padding: 0 6px; border-radius: 4px; background: var(--board); color: var(--board-fg); font-weight: 700; letter-spacing: 0.08em; box-shadow: inset 0 0 0 1px var(--board-ring); }
+h1 { font: 600 clamp(42px, 5.6vw, 72px)/0.98 var(--font); letter-spacing: -0.025em; margin: 0 0 22px; max-width: 15ch; }
+h2 { font: 600 clamp(26px, 3vw, 36px)/1.1 var(--font); letter-spacing: -0.015em; margin: 0 0 14px; max-width: 30ch; }
+h3 { font: 600 20px/1.25 var(--font); margin: 40px 0 10px; }
+h4 { font: 600 16px/1.3 var(--font); margin: 0 0 6px; }
+p { margin: 0 0 14px; max-width: 72ch; }
+.lede { font-size: 20px; line-height: 1.5; color: var(--ink-2); max-width: 62ch; margin-bottom: 18px; }
+.muted { color: var(--ink-2); }
+.small { font-size: 14px; }
+.lab { font: 600 11px/1.2 var(--cond); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); }
+.tag { font: 700 11px/1 var(--cond); letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; white-space: nowrap; display: inline-block; }
+.t-new { background: color-mix(in srgb, var(--lime) 20%, transparent); color: var(--lime-ink); }
+.t-data { background: var(--warning-surface); color: var(--warning-ink); }
+.t-none { background: var(--muted); color: var(--ink-2); }
+.t-bad { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-ink); }
+
+/* Hero */
+.hero-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 14px; color: var(--ink-2); margin: 0 0 26px; }
+.hero-meta span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-2); margin-right: 8px; vertical-align: middle; opacity: 0.6; }
+.hero-meta span:first-child::before { background: var(--lime); opacity: 1; }
+.hero-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; margin: 30px 0 0; }
+.hero-stats div { background: var(--card); padding: 16px 18px 18px; }
+.hero-stats b { display: block; font: 600 40px/1 var(--cond); margin-bottom: 6px; }
+.hero-stats span { font-size: 14px; color: var(--ink-2); line-height: 1.4; display: block; }
+.howto { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+.howto div { border-top: 2px solid var(--ink); padding-top: 10px; font-size: 14.5px; color: var(--ink-2); }
+.howto div:nth-child(2) { border-color: var(--warning); }
+.howto div:nth-child(3) { border-color: var(--lime); }
+.howto b { color: var(--ink); display: block; margin-bottom: 2px; }
+
+/* Blocks */
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.panel { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; }
+.panel h4 { margin-bottom: 6px; }
+.panel p { font-size: 14.5px; color: var(--ink-2); }
+.panel p:last-child, .panel ul:last-child { margin-bottom: 0; }
+.panel .n { font: 700 12px/1 var(--cond); letter-spacing: 0.1em; color: var(--lime-ink); display: block; margin-bottom: 8px; }
+.callout { border-left: 3px solid var(--lime); background: var(--card); border-radius: 0 10px 10px 0; padding: 14px 18px; margin: 18px 0; max-width: 80ch; border-top: 1px solid var(--rule); border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.callout.warn { border-left-color: var(--warning); }
+.callout.bad { border-left-color: var(--danger); }
+.callout p { margin: 0; }
+.callout p + p { margin-top: 8px; }
+.scroll-x { overflow-x: auto; border-radius: 10px; }
+table.doc { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; font-size: 14px; }
+table.doc th { text-align: left; font: 600 11px/1.2 var(--cond); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: bottom; }
+table.doc td { padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.doc tr:last-child td { border-bottom: 0; }
+table.doc td:first-child { font-weight: 600; }
+pre.sql { margin: 0; background: var(--board); color: var(--board-fg); border-radius: 10px; padding: 14px 16px; font: 400 12.5px/1.55 var(--mono); overflow-x: auto; box-shadow: inset 0 0 0 1px var(--board-ring); }
+pre.sql .c { color: var(--board-muted); }
+pre.sql .k { color: #9db4f2; }
+
+/* Runbook */
+.runbook { list-style: none; margin: 22px 0 0; padding: 0; position: relative; }
+.runbook::before { content: ""; position: absolute; left: 17px; top: 18px; bottom: 18px; width: 2px; background: var(--rule-2); }
+.runbook::after { content: ""; position: absolute; left: 17px; top: 18px; width: 2px; height: 0; background: var(--lime); transition: height 1.6s cubic-bezier(.2,.7,.2,1); }
+.runbook.in::after { height: calc(100% - 36px); }
+.runbook li { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) minmax(0, 0.8fr); gap: 16px; padding: 12px 0; opacity: 0; transform: translateY(8px); transition: opacity 0.5s, transform 0.5s; transition-delay: calc(var(--i, 0) * 90ms); }
+.runbook.in li { opacity: 1; transform: none; }
+.runbook .step { width: 36px; height: 36px; border-radius: 50%; background: var(--card); border: 2px solid var(--rule-2); display: grid; place-items: center; font: 700 14px/1 var(--cond); position: relative; z-index: 1; }
+.runbook li.gate .step { border-color: var(--warning); color: var(--warning-ink); }
+.runbook li.data .step { border-color: var(--danger); color: var(--danger-ink); }
+.runbook li.go .step { border-color: var(--lime); background: var(--lime); color: var(--on-lime); }
+.runbook h4 { margin: 6px 0 4px; }
+.runbook p { font-size: 14.5px; color: var(--ink-2); margin: 0 0 6px; }
+.runbook .stop { font-size: 13.5px; color: var(--ink-2); border-left: 2px solid var(--rule-2); padding: 6px 0 0 12px; }
+.runbook .stop b { display: block; font: 600 11px/1.2 var(--cond); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 4px; }
+.runbook li.data .stop { border-color: var(--danger); }
+
+/* Backfill chain diagram */
+.chainbox { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; margin-top: 18px; box-shadow: var(--shadow); }
+.chainbox-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.seg { display: inline-flex; background: var(--muted); border: 1px solid var(--rule); border-radius: 8px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; height: 30px; padding: 0 12px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgb(20 26 40 / 0.12); font-weight: 600; }
+.chain { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; position: relative; }
+.mtg { border: 1px solid var(--rule); border-radius: 10px; padding: 12px 12px 10px; background: var(--paper); position: relative; }
+.mtg .when { font: 600 15px/1.1 var(--cond); letter-spacing: 0.02em; }
+.mtg .att { display: inline-block; margin-top: 6px; font: 700 11px/1 var(--cond); letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; }
+.att.held { background: color-mix(in srgb, var(--lime) 18%, transparent); color: var(--lime-ink); }
+.att.ns { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-ink); }
+.att.cx { background: var(--muted); color: var(--ink-2); }
+.att.moved { background: color-mix(in srgb, var(--booked) 16%, transparent); color: var(--booked-ink); }
+.mtg .type { margin-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; border-top: 1px dashed var(--rule-2); padding-top: 8px; }
+.type-v { font-weight: 600; position: relative; display: inline-block; }
+.type-v.first { color: var(--booked-ink); }
+.type-v.follow { color: var(--follow-ink); }
+.type-v.flip { animation: tflip 0.5s ease; }
+@keyframes tflip { 0% { transform: rotateX(0); opacity: 1; } 45% { transform: rotateX(90deg); opacity: 0.2; } 100% { transform: rotateX(0); opacity: 1; } }
+.mtg.changed { border-color: var(--warning); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 22%, transparent); }
+.mtg .arrow { position: absolute; right: -14px; top: 22px; width: 14px; height: 2px; background: var(--rule-2); }
+.mtg .arrow::after { content: ""; position: absolute; right: -1px; top: -3px; border: 4px solid transparent; border-left-color: var(--rule-2); border-right: 0; }
+.chain-note { margin-top: 12px; font-size: 13.5px; color: var(--ink-2); }
+
+/* Decisions */
+.group { margin-top: 120px; display: flex; align-items: center; gap: 12px; font: 600 13px/1 var(--cond); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); }
+.group::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+.group + section { margin-top: 36px; }
+.dec .q { font-size: 18.5px; line-height: 1.5; color: var(--ink-2); max-width: 66ch; }
+.facts { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 18px; margin: 18px 0 0; font-size: 14.5px; }
+.facts .lab { display: block; margin-bottom: 6px; }
+.facts p { margin: 0 0 8px; color: var(--ink-2); }
+.facts p:last-child { margin-bottom: 0; }
+.facts .where { font: 400 12px/1.5 var(--mono); color: var(--ink-2); border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 10px; word-break: break-word; }
+
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 22px 0 0; }
+.opt { text-align: left; border: 1.5px solid var(--rule-2); background: var(--card); border-radius: 10px; padding: 12px 14px 12px 44px; cursor: pointer; position: relative; transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s; min-height: 72px; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; }
+.opt:hover { border-color: var(--ink-3); }
+.opt:active { transform: scale(0.99); }
+.opt .ltr { position: absolute; left: 12px; top: 12px; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--rule-2); display: grid; place-items: center; font: 700 12px/1 var(--cond); color: var(--ink-2); transition: background 0.2s, border-color 0.2s, color 0.2s; }
+.opt b { display: block; font-weight: 600; font-size: 15px; line-height: 1.3; }
+.opt span.d { display: block; font-size: 13px; color: var(--ink-2); line-height: 1.4; margin-top: 3px; }
+.opt .rec { display: inline-block; margin-top: 7px; font: 700 10.5px/1 var(--cond); letter-spacing: 0.1em; text-transform: uppercase; color: var(--lime-ink); }
+.opt[aria-checked="true"] { border-color: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 22%, transparent); }
+.opt[aria-checked="true"] .ltr { background: var(--lime); border-color: var(--lime); color: var(--on-lime); }
+.dec:not(.chosen) .opt[aria-checked="true"] { border-style: dashed; box-shadow: none; }
+.dec:not(.chosen) .opt[aria-checked="true"] .ltr { background: transparent; color: var(--lime-ink); }
+.pickline { margin-top: 10px; font-size: 13px; color: var(--ink-2); min-height: 20px; }
+.pickline b { color: var(--ink); }
+
+.cases { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.cases.one { grid-template-columns: minmax(0, 1fr); }
+.case { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.case.wide { grid-column: 1 / -1; }
+.case header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.case header .lab { white-space: nowrap; }
+.case header .lab { color: var(--lime-ink); }
+.case h4 { margin: 0; font-size: 16.5px; }
+.tl { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--rule); display: flex; flex-direction: column; gap: 7px; font-size: 14px; }
+.tl li { position: relative; display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; opacity: 0; transform: translateX(-6px); transition: opacity 0.4s, transform 0.4s; transition-delay: calc(var(--i, 0) * 110ms); }
+.case.in .tl li { opacity: 1; transform: none; }
+.tl li::before { content: ""; position: absolute; left: -20px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--card); border: 2px solid var(--held); }
+.tl li.k-cl::before { border-color: var(--r-closer); }
+.tl li.k-st::before { border-color: var(--r-setter); }
+.tl li.k-dm::before { border-color: var(--r-dm); }
+.tl li.k-lg::before { border-color: var(--r-leadgen); }
+.tl li.k-cash::before { border-color: var(--lime); background: var(--lime); }
+.tl li.k-sys::before { border-color: var(--warning); }
+.tl time { font: 600 13px/1.5 var(--cond); letter-spacing: 0.03em; color: var(--ink-2); white-space: nowrap; }
+.who { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; white-space: nowrap; }
+.who::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--held); }
+.who.cl::before { background: var(--r-closer); }
+.who.st::before { background: var(--r-setter); }
+.who.dm::before { background: var(--r-dm); }
+.who.lg::before { background: var(--r-leadgen); }
+
+.see { border-top: 1px solid var(--rule); padding-top: 10px; }
+.see > .lab { display: block; margin-bottom: 6px; }
+table.mini { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.mini th { text-align: left; font: 600 11px/1.2 var(--cond); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); padding: 4px 8px 6px 0; border-bottom: 1px solid var(--rule); }
+table.mini th.r, table.mini td.r { text-align: right; padding-right: 0; padding-left: 8px; }
+table.mini td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.mini tr:last-child td { border-bottom: 0; }
+table.mini td.r { font-variant-numeric: tabular-nums; font-weight: 600; }
+table.mini tr.tot td { font-weight: 600; border-top: 1px solid var(--rule-2); }
+.bad { color: var(--danger-ink); }
+.good { color: var(--lime-ink); }
+.dim { color: var(--ink-2); font-weight: 400; }
+.why { font-size: 14px; color: var(--ink-2); margin: 0; padding: 10px 12px; background: var(--paper); border-radius: 8px; border: 1px solid var(--rule); }
+.why b { color: var(--ink); }
+.freshline { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.freshline::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--booked); }
+.freshline.live::before { background: var(--lime); }
+
+/* Which option's content shows */
+.dec[data-pick="a"] [data-o]:not([data-o~="a"]),
+.dec[data-pick="b"] [data-o]:not([data-o~="b"]),
+.dec[data-pick="c"] [data-o]:not([data-o~="c"]),
+.dec[data-pick="d"] [data-o]:not([data-o~="d"]) { display: none !important; }
+.dec.swap [data-o] { animation: swapIn 0.42s cubic-bezier(.2,.7,.2,1); }
+@keyframes swapIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* Day strip (D1) */
+.days { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.day { border-radius: 8px; padding: 8px 8px 7px; font-size: 12.5px; line-height: 1.3; color: #fff; position: relative; overflow: hidden; }
+.day b { display: block; font: 600 14px/1.1 var(--cond); letter-spacing: 0.04em; }
+.day.ch { background: var(--booked); }
+.day.live { background: var(--lime); color: var(--on-lime); }
+.day.gap { text-shadow: 0 0 3px var(--booked), 0 0 3px var(--booked), 0 0 6px var(--booked); background: repeating-linear-gradient(135deg, var(--booked) 0 6px, color-mix(in srgb, var(--booked) 55%, var(--card)) 6px 12px); }
+.day.stale { text-shadow: 0 0 3px var(--card), 0 0 3px var(--card), 0 0 6px var(--card); background: repeating-linear-gradient(135deg, var(--held) 0 6px, color-mix(in srgb, var(--held) 55%, var(--card)) 6px 12px); color: var(--ink); }
+
+/* Bars (D4) */
+.bars { display: flex; flex-direction: column; gap: 7px; }
+.bar-row { display: grid; grid-template-columns: 118px minmax(0, 1fr) 76px; gap: 10px; align-items: center; font-size: 13.5px; }
+.bar-row .track { height: 14px; background: var(--muted); border-radius: 3px; overflow: hidden; }
+.bar-row .fill { height: 100%; width: 0; border-radius: 3px; background: var(--r-leadgen); transition: width 0.7s cubic-bezier(.2,.7,.2,1); }
+.bar-row .fill.lane { background: var(--ink-3); }
+.bar-row .v { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Costs */
+.costs { margin-top: 18px; }
+.costs td:first-child { white-space: nowrap; }
+.costs tr.sel td { background: color-mix(in srgb, var(--lime) 8%, transparent); }
+.rec-box { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.rec-box .callout { margin: 0; max-width: none; }
+.note { display: flex; flex-direction: column; gap: 6px; }
+.note textarea { width: 100%; min-height: 92px; resize: vertical; border: 1px solid var(--rule-2); border-radius: 10px; background: var(--card); padding: 10px 12px; font-size: 14.5px; line-height: 1.45; }
+.note textarea:focus { outline: 2px solid var(--lime-ink); outline-offset: 1px; }
+
+/* Answers */
+.answers { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+.answers-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--rule); }
+.btn { height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--rule-2); background: var(--paper); color: var(--ink); font: 500 13.5px/1 var(--font); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.btn:hover { background: var(--muted); }
+.btn.primary { background: var(--lime); border-color: var(--lime); color: var(--on-lime); font-weight: 600; }
+.ans-list { list-style: none; margin: 0; padding: 0; }
+.ans-list li { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--rule); align-items: baseline; font-size: 14.5px; }
+.ans-list li:last-child { border-bottom: 0; }
+.ans-list .id { font: 700 13px/1 var(--cond); letter-spacing: 0.06em; color: var(--ink-2); }
+.ans-list .t { color: var(--ink-2); font-size: 13px; display: block; }
+.ans-list .p { font-weight: 600; }
+.ans-list .p.un { color: var(--ink-2); font-weight: 400; font-style: italic; }
+.ans-list .nt { display: block; font-size: 13px; color: var(--ink); margin-top: 4px; white-space: pre-wrap; border-left: 2px solid var(--warning); padding-left: 8px; }
+.ans-list a { font-size: 13px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--board); color: var(--board-fg); padding: 10px 16px; border-radius: 8px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; z-index: 20; box-shadow: var(--shadow); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Reveal */
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.6s cubic-bezier(.2,.7,.2,1), transform 0.6s cubic-bezier(.2,.7,.2,1); transition-delay: var(--d, 0s); }
+.reveal.in { opacity: 1; transform: none; }
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 12px 16px; gap: 6px 12px; }
+  .rail .toc, .rail-label, .rail-progress { display: none; }
+  .rail-foot { margin: 0 0 0 auto; border: 0; padding: 0; }
+  main { padding: 32px 28px 120px; }
+}
+@media (max-width: 820px) {
+  .cases, .grid-2, .grid-3, .howto, .rec-box { grid-template-columns: minmax(0, 1fr); }
+  .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mtg:nth-child(2) .arrow { display: none; }
+  .runbook li { grid-template-columns: 36px minmax(0, 1fr); }
+  .runbook .stop { grid-column: 2; }
+}
+@media (max-width: 560px) {
+  main { padding: 24px 16px 100px; }
+  section { margin-top: 80px; }
+  .tl li { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .bar-row { grid-template-columns: 92px minmax(0, 1fr) 64px; }
+  .days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ans-list li { grid-template-columns: 36px minmax(0, 1fr); }
+  .ans-list li > a { grid-column: 2; }
+  .lede { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .reveal, .runbook li, .tl li { opacity: 1; transform: none; }
+  .runbook::after { height: calc(100% - 36px); }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mark" viewBox="205 255 376 335"><path fill="#84b135" d="M394.1,566.9c0,13.9,19.1,18,24.7,5.2L473,449.8h-78.9V566.9z"/><path fill="#84b135" d="M370.4,320.2l-42.1,64.7c-5.6,8.6-18.2,8.5-23.6-0.2L235.3,273c-6.8-11-23.9-6.2-23.9,6.8v154c0,8.8,7.2,16,16,16h140.1h26.5V327.2C394.1,314.4,377.4,309.4,370.4,320.2z"/><path fill="#84b135" d="M550.3,275.2L473,449.8h86c8.8,0,16-7.2,16-16V280.4C575,266.4,555.9,262.4,550.3,275.2z"/></symbol>
+</svg>
+<div class="shell">
+<nav class="rail" aria-label="Sections">
+  <a class="brand" href="#top"><svg><use href="#i-mark"/></svg><div><b>Report decisions</b><span>Magnus CRM · reports overhaul</span></div></a>
+  <div class="rail-label">The PR</div>
+  <ul class="toc">
+    <li><a href="#pr"><i>PR</i><span>One PR, shipped dark</span></a></li>
+    <li><a href="#backfill"><i>BF</i><span>The one backfill</span></a></li>
+  </ul>
+  <div class="rail-label">Decisions</div>
+  <ul class="toc" id="tocDecisions">
+    <li><a href="#d1"><i>D1</i><span>Ranges with today</span><em class="dot"></em></a></li>
+    <li><a href="#d2"><i>D2</i><span>Past calls on a handover</span><em class="dot"></em></a></li>
+    <li><a href="#d3"><i>D3</i><span>Whose cash</span><em class="dot"></em></a></li>
+    <li><a href="#d4"><i>D4</i><span>Two in one role</span><em class="dot"></em></a></li>
+    <li><a href="#d5"><i>D5</i><span>What a follow-up is</span><em class="dot"></em></a></li>
+    <li><a href="#d6"><i>D6</i><span>Store or compute</span><em class="dot"></em></a></li>
+    <li><a href="#d7"><i>D7</i><span>Cash and deposits</span><em class="dot"></em></a></li>
+    <li><a href="#d8"><i>D8</i><span>Currencies</span><em class="dot"></em></a></li>
+    <li><a href="#d9"><i>D9</i><span>Overview, Operations</span><em class="dot"></em></a></li>
+    <li><a href="#d10"><i>D10</i><span>Member report access</span><em class="dot"></em></a></li>
+    <li><a href="#d11"><i>D11</i><span>The old pages</span><em class="dot"></em></a></li>
+    <li><a href="#d12"><i>D12</i><span>Checks on production</span><em class="dot"></em></a></li>
+  </ul>
+  <ul class="toc" style="margin-top:8px">
+    <li><a href="#answers"><i>AN</i><span>Your answers</span></a></li>
+  </ul>
+  <div class="rail-progress"><span id="progText">0 of 12 chosen</span><div class="bar"><i id="progBar"></i></div></div>
+  <div class="rail-foot"><span>Invented sample data</span><button class="theme-btn" id="themeBtn" type="button">Theme</button></div>
+</nav>
+
+<main id="top">
+<div class="wrap">
+
+<!-- Hero -->
+<header class="hero">
+  <p class="kicker"><b>02</b> Follow-up to reports-overhaul.html</p>
+  <h1>Twelve decisions, with the cases behind them</h1>
+  <p class="lede">Each decision below walks through what happened in a specific case, step by step, and what the page would show under each answer. Click an option to see its numbers change. Pick one, write a correction where I've got it wrong, and copy your answers at the end.</p>
+  <div class="callout"><p><b>Decided on November 8.</b> D1 B, D2 A, D3 A, D4 A, D5 C, D6 A, D7 A, D8 A, D9 B, D10 B, D11 B and D12 A. The plan with these answers built in is §15 of <a href="reports-overhaul.html#plan">reports-overhaul.html</a>.</p><p>Two things on this page changed with the answers. D11 B deletes the old pages in the same PR, so the dark launch in the next section no longer applies. D9's re-projection covers only the moved slots, not every meeting.</p></div>
+  <div class="hero-meta"><span>8 November 2026</span><span>Every name and amount is invented</span><span>Nothing here touched production</span><span>Code references are to this branch</span></div>
+  <div class="hero-stats reveal">
+    <div><b class="num">12</b><span>decisions, each with two to four cases</span></div>
+    <div><b class="num">4</b><span>new since the first report: D2, D5, D7 and D9</span></div>
+    <div><b class="num">1</b><span>write to stored data: the call-type backfill</span></div>
+    <div><b class="num">1</b><span>pull request, switched on page by page</span></div>
+  </div>
+  <div class="howto">
+    <div><b>Read a case.</b>A dated timeline of who did what, then the figures the page shows.</div>
+    <div><b>Click the options.</b>The figures, the explanation and the cost row follow your click.</div>
+    <div><b>Pick and copy.</b>Picks and notes stay in this browser. The last section copies them for the chat.</div>
+  </div>
+</header>
+
+<!-- One PR -->
+<section id="pr">
+  <p class="kicker"><b>PR</b> The shape of the work</p>
+  <h2>One PR, deployed dark and switched on after the checks</h2>
+  <p>Agreed, the phases cost more than they save. The overhaul goes in as one PR. It still deploys dark, the way each ClickHouse page has so far: the new pages stay behind <code>tenants.analyticsReports</code> until their parity run passes. Turning a page on is one command, and turning it off again needs no deploy. Only one step in the whole PR writes to stored data, the call-type backfill.</p>
+  <div class="scroll-x reveal" style="margin-top:20px">
+  <table class="doc" style="min-width:760px">
+    <thead><tr><th style="width:150px">Area</th><th>What the PR adds or changes</th><th style="width:230px">Stored data</th></tr></thead>
+    <tbody>
+      <tr><td>Definitions</td><td><code>lib/reporting/definitions.ts</code>: every term's label, formula, anchor time and help line. Readers, help tips, export Definitions sheets and the metrics API's descriptions read it.</td><td><span class="tag t-none">None</span></td></tr>
+      <tr><td>Readers</td><td>About twenty reports, each with a Convex reader for today and single days, a SQL template for longer ranges, a merge, and parity and merge tests.</td><td><span class="tag t-none">None</span></td></tr>
+      <tr><td>Pages</td><td>Scorecard, Calls, People with the member report, Attribution, Pipeline and Log, with the presets Yesterday, Last week, Last month, Last 90 days and Year to date.</td><td><span class="tag t-none">None</span></td></tr>
+      <tr><td>Export</td><td>Export in every report band. Summary CSV from the cached answer; Rows CSV, Excel and PDF from a paged row query.</td><td><span class="tag t-none">New table</span> for export jobs, added only</td></tr>
+      <tr><td>Call types</td><td>The booking writer's rule (D5), the four places that count first bookings, one backfill with its ledger, its assert and its reverse.</td><td><span class="tag t-data">Writes</span> <code>callClassification</code> on past meetings; a new ledger table</td></tr>
+      <tr><td>ClickHouse</td><td><code>0004_views.sql</code>: <code>effective_from</code> on the three schedule views, and views for reassignments, notes, link copies and booking reviews.</td><td><span class="tag t-none">None</span> in <code>convex_app</code>; views only</td></tr>
+      <tr><td>Switch and routes</td><td>The new page ids in <code>analyticsPageValidator</code>, redirects from the seven old routes, the sidebar.</td><td><span class="tag t-none">Widen</span> one validator; the switch writes the tenant row</td></tr>
+      <tr><td>Overview, Operations</td><td>Depends on D9. Recommended: labels and help text only.</td><td>Depends on D9</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>The order on the day</h3>
+  <p class="muted">Nine steps from merge to switched on. Amber steps are checks that can stop the run; red steps write data. Every step says what makes us stop.</p>
+  <ol class="runbook" id="runbook">
+    <li class="gate" style="--i:0"><span class="step">1</span><div><h4>Read-only checks on production</h4><p>The five queries in D12, run right after a sync. They size the backfill and show whether D2 to D4 matter in your data.</p></div><div class="stop"><b>Stop if</b>The backfill count is far from what the code predicts. Then something writes call types in a way I haven't found.</div></li>
+    <li style="--i:1"><span class="step">2</span><div><h4>Block the two new tables in Fivetran</h4><p>Export jobs and the backfill ledger. New Convex tables sync to ClickHouse unless the connector blocks them, as the ClickHouse plan notes.</p></div><div class="stop"><b>Stop if</b>The connector still lists either table as allowed.</div></li>
+    <li style="--i:2"><span class="step">3</span><div><h4>Apply <code>0004_views.sql</code></h4><p><code>pnpm ch:migrate</code>, right after a sync. Views are <code>CREATE OR REPLACE</code>, so the file can run twice, and nothing reads the new ones yet.</p></div><div class="stop"><b>Stop if</b>A view fails to create. Nothing depends on it until step 8.</div></li>
+    <li class="go" style="--i:3"><span class="step">4</span><div><h4>Merge and deploy</h4><p>Convex and the app deploy together. New bookings get call types by the new rule. Users still see the old pages.</p></div><div class="stop"><b>Stop if</b>Anything on the old pages moves other than the first and follow-up split of calls booked after the deploy.</div></li>
+    <li class="data" style="--i:4"><span class="step">5</span><div><h4>Dry run the backfill</h4><p>An internal query computes the new type for every meeting and returns what would change, by month and by closer, with sample IDs. It writes nothing.</p></div><div class="stop"><b>Stop if</b>The count differs from check 1 by more than the bookings made since it ran.</div></li>
+    <li class="data" style="--i:5"><span class="step">6</span><div><h4>Run the backfill, then its assert</h4><p>Small batches through <code>patchMeetingLifecycle</code>, so the meeting aggregate, the Operations projection and the deal's meeting refs follow. Each change is written to the ledger first. The assert then reads every meeting again.</p></div><div class="stop"><b>Stop if</b>The assert fails or the per-closer totals moved. The reverse mutation reads the ledger and restores every old type exactly.</div></li>
+    <li style="--i:6"><span class="step">7</span><div><h4>Sync ClickHouse</h4><p>Start a Fivetran sync. ClickHouse picks up the patched meetings, and every cached answer recomputes on the new watermark.</p></div><div class="stop"><b>Stop if</b>The sync doesn't land within the hour. Wait; nothing new is on yet.</div></li>
+    <li class="gate" style="--i:7"><span class="step">8</span><div><h4>Parity, page by page</h4><p><code>pnpm analytics:parity</code> for each new page over yesterday, last month and last 90 days, then each page with <code>?analytics=preview</code>.</p></div><div class="stop"><b>Stop if</b>Any difference. That page stays dark; the others can still go on.</div></li>
+    <li class="go" style="--i:8"><span class="step">9</span><div><h4>Switch each page on</h4><p><code>analytics/switch:enable</code> per page. Its old route redirects from then on (D11).</p></div><div class="stop"><b>Stop if</b>A number looks wrong afterwards. <code>switch:disable</code> brings the old page back without a deploy.</div></li>
+  </ol>
+  <div class="callout"><p><b>The one thing outside the PR</b> is deleting the old pages, their readers and the aggregates only they read, two weeks after the switch. That's the repo's own rule in <code>docs/plans/clickhouse-reporting.md</code> §12.1, and it's deletion only. D11 asks whether you want it in the same PR instead.</p></div>
+</section>
+
+<!-- Backfill -->
+<section id="backfill">
+  <p class="kicker"><b>BF</b> The data change <span class="tag t-data">Writes data</span></p>
+  <h2>The one backfill, built so it can't quietly break a count</h2>
+  <p>Everything else in the PR reads data. This writes it: the call type on meetings that were filed under the wrong type. Which meetings change depends on D5, and whether the type is stored at all depends on D6. There's no schema change, since <code>callClassification</code> already exists, so there's no widen and narrow; the risk is all in the write. The diagram shows one deal before and after.</p>
+
+  <div class="chainbox reveal">
+    <div class="chainbox-top">
+      <span class="lab">One deal, four meetings</span>
+      <div class="seg" role="group" aria-label="State" id="chainSeg">
+        <button type="button" aria-pressed="true" data-chain="now">Stored today</button>
+        <button type="button" aria-pressed="false" data-chain="b">After, D5 = B</button>
+        <button type="button" aria-pressed="false" data-chain="c">After, D5 = C</button>
+      </div>
+    </div>
+    <div class="chain" id="chain">
+      <div class="mtg" data-t="first first first"><div class="when">Oct 6, 3:00 PM</div><div class="small muted">First booking</div><span class="att moved">Moved</span><div class="type"><span class="muted">Type</span><span class="type-v"></span></div><i class="arrow"></i></div>
+      <div class="mtg" data-t="follow first first"><div class="when">Oct 9, 11:00 AM</div><div class="small muted">Replaces Oct 6</div><span class="att ns">No-show</span><div class="type"><span class="muted">Type</span><span class="type-v"></span></div><i class="arrow"></i></div>
+      <div class="mtg" data-t="follow follow first"><div class="when">Oct 13, 2:00 PM</div><div class="small muted">No-show link, points at Oct 9</div><span class="att held">Held</span><div class="type"><span class="muted">Type</span><span class="type-v"></span></div><i class="arrow"></i></div>
+      <div class="mtg" data-t="follow follow follow"><div class="when">Oct 20, 4:30 PM</div><div class="small muted">Booked after a held call</div><span class="att held">Held</span><div class="type"><span class="muted">Type</span><span class="type-v"></span></div></div>
+    </div>
+    <p class="chain-note" id="chainNote"></p>
+  </div>
+
+  <h3>Ten rules the backfill follows</h3>
+  <div class="grid-2" style="margin-top:14px">
+    <div class="panel reveal"><span class="n">01 · Dry run first</span><h4>Nothing writes until you've seen the numbers</h4><p>An internal query applies the rule to every meeting and returns the changes by month and closer, with sample IDs. Its count should match check 1 in D12.</p></div>
+    <div class="panel reveal" style="--d:.05s"><span class="n">02 · One rule</span><h4>The writer and the backfill call the same function</h4><p>The booking writer, the backfill and, with D5 = C, the result recorder all call one function. The backfill can't give a past meeting a type a new booking wouldn't get.</p></div>
+    <div class="panel reveal"><span class="n">03 · Side effects</span><h4>Every change goes through <code>patchMeetingLifecycle</code></h4><p>It re-keys the <code>meetingsByStatus</code> aggregate and queues the Operations meeting projection. A raw <code>ctx.db.patch</code> would leave Team Performance counting the old type, with no error.</p></div>
+    <div class="panel reveal" style="--d:.05s"><span class="n">04 · Idempotent</span><h4>Only meetings that differ get written</h4><p>Each batch compares the stored type with the rule before it writes. A second run changes nothing and logs zero.</p></div>
+    <div class="panel reveal"><span class="n">05 · Resumable</span><h4>Small batches with a cursor</h4><p>Each change also rebuilds the deal's meeting refs and search rows, so batches stay small: 25 changes to start, sized from the dry run. Each batch schedules the next and logs meetings read and changed. A failed batch stops the chain, and the cursor resumes it.</p></div>
+    <div class="panel reveal" style="--d:.05s"><span class="n">06 · Paired assert</span><h4>An <code>assert*</code> migration checks the result</h4><p>It reads every meeting again and fails on the first one whose stored type differs from the rule, as <code>docs/agents/convex.md</code> asks of every migration.</p></div>
+    <div class="panel reveal"><span class="n">07 · A way back</span><h4>A ledger makes the reverse exact</h4><p>The old types can't be recomputed: meetings from before v0.6 were typed by call time, later ones by insert order. So each change writes the meeting ID, old type and new type to a ledger table before the patch. The reverse mutation reads it back, and a test runs forward, then back, and compares.</p></div>
+    <div class="panel reveal" style="--d:.05s"><span class="n">08 · Writer first</span><h4>The new writer deploys before the backfill runs</h4><p>No booking made between the deploy and the backfill keeps the old type, and the dry run sees the same rule production uses.</p></div>
+    <div class="panel reveal"><span class="n">09 · Totals stay put</span><h4>Calls per closer, day and status don't move</h4><p>Only the first and follow-up split changes. Sales Calls and Team Performance are read before and after for October; their totals must match exactly.</p></div>
+    <div class="panel reveal" style="--d:.05s"><span class="n">10 · Edge cases in tests</span><h4>The chains that break naive rules</h4><p>Two moves in a row. A move, then a no-show rebook. A replaced slot on another deal after a merge. A meeting with no type. A follow-up booked before the first call's result is recorded.</p></div>
+  </div>
+  <div class="callout warn"><p><b>What the backfill never touches:</b> payments, credit rows in <code>dealAttributions</code>, deal stages, and the buckets of the Operations projection. Its only side effects are the ones <code>patchMeetingLifecycle</code> already makes for a type change.</p></div>
+</section>
+
+<p class="group">Ranges</p>
+
+<!-- D1 -->
+<section class="dec" id="d1" data-rec="b" data-title="Ranges that include today">
+  <p class="kicker"><b>D1</b> Ranges <span class="tag t-none">No data change</span></p>
+  <h2>When a range includes today, where does today come from?</h2>
+  <p class="q">Today and a single day read Convex. Longer ranges read ClickHouse. The open question is the range that ends today, such as This week on a Thursday.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>The planner already splits these: ClickHouse through yesterday, Convex for today, merged on the page. Fivetran syncs every six hours. After the business day changes at 1:00 AM, the history answer is recomputed, but from the last sync, which can be from before midnight. The freshness line then reads "Today live · earlier days as of 10:05 PM", and anything logged late yesterday is missing until the next sync.</p>
+    <p class="where">lib/analyticsRange.ts:201 · app/workspace/_components/analytics/use-analytics-report.ts:166 · analytics-freshness.tsx:57</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D1 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Split, as built</b><span class="d">History from ClickHouse, today live. A late-night gap shows as an older as-of time.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Split, and close the overnight gap</b><span class="d">Until a sync after 1:00 AM lands, yesterday reads live too.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>Whole range from ClickHouse</b><span class="d">Everything as of the last sync, today included. Today can be six hours behind.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <p class="small muted">Example sync times in these cases: 4:05 and 10:05, morning and evening. The real ones come from <code>analyticsSync</code>.</p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>A payment after lunch</h4></header>
+      <ol class="tl">
+        <li class="k-cash" style="--i:0"><time>Mon to Wed</time><span>$18,400 collected</span></li>
+        <li class="k-sys" style="--i:1"><time>Thu 10:05 AM</time><span>Fivetran sync</span></li>
+        <li class="k-cash" style="--i:2"><time>Thu 2:40 PM</time><span><span class="who cl">Marco Reyes</span> logs a $5,000 PIF payment</span></li>
+        <li class="k-sys" style="--i:3"><time>Thu 3:10 PM</time><span>An admin opens Today, then This week</span></li>
+      </ol>
+      <div class="see"><span class="lab">Where each day of This week comes from</span>
+        <div class="days" data-o="a b"><div class="day ch"><b>Mon</b>ClickHouse</div><div class="day ch"><b>Tue</b>ClickHouse</div><div class="day ch"><b>Wed</b>ClickHouse</div><div class="day live"><b>Thu</b>Convex, live</div></div>
+        <div class="days" data-o="c"><div class="day ch"><b>Mon</b>ClickHouse</div><div class="day ch"><b>Tue</b>ClickHouse</div><div class="day ch"><b>Wed</b>ClickHouse</div><div class="day stale"><b>Thu</b>To 10:05 AM</div></div>
+      </div>
+      <div class="see"><span class="lab">What the page shows at 3:10 PM</span>
+        <table class="mini"><tbody>
+          <tr><td>Today, cash</td><td class="r">$5,000</td></tr>
+          <tr><td>This week, cash</td><td class="r"><span data-o="a b">$23,400</span><span data-o="c" class="bad">$18,400</span></td></tr>
+          <tr><td>Freshness line</td><td class="r"><span data-o="a b" class="freshline live">Today live · earlier days as of 10:05 AM</span><span data-o="c" class="freshline">As of 10:05 AM</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a b">This week includes the payment as soon as it's logged.</p>
+      <p class="why" data-o="c"><b>This week is smaller than Monday to Wednesday plus Today</b> until the 4:05 PM sync. The Today preset stays live in every option, so the two disagree for up to six hours.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A call late on Wednesday night</h4></header>
+      <ol class="tl">
+        <li class="k-sys" style="--i:0"><time>Wed 10:05 PM</time><span>Fivetran sync</span></li>
+        <li class="k-cl" style="--i:1"><time>Wed 11:20 PM</time><span><span class="who cl">Dana Whitfield</span> holds a call</span></li>
+        <li class="k-cash" style="--i:2"><time>Wed 11:50 PM</time><span>Dana logs a $3,000 deposit</span></li>
+        <li class="k-sys" style="--i:3"><time>Thu 1:00 AM</time><span>The business day changes</span></li>
+        <li class="k-sys" style="--i:4"><time>Thu 1:30 AM</time><span>An admin opens This week</span></li>
+        <li class="k-sys" style="--i:5"><time>Thu 4:05 AM</time><span>Next sync</span></li>
+      </ol>
+      <div class="see"><span class="lab">Where each day comes from at 1:30 AM</span>
+        <div class="days" data-o="a"><div class="day ch"><b>Mon</b>ClickHouse</div><div class="day ch"><b>Tue</b>ClickHouse</div><div class="day gap"><b>Wed</b>To 10:05 PM</div><div class="day live"><b>Thu</b>Convex, live</div></div>
+        <div class="days" data-o="b"><div class="day ch"><b>Mon</b>ClickHouse</div><div class="day ch"><b>Tue</b>ClickHouse</div><div class="day live"><b>Wed</b>Convex, live</div><div class="day live"><b>Thu</b>Convex, live</div></div>
+        <div class="days" data-o="c"><div class="day ch"><b>Mon</b>ClickHouse</div><div class="day ch"><b>Tue</b>ClickHouse</div><div class="day gap"><b>Wed</b>To 10:05 PM</div><div class="day stale"><b>Thu</b>Nothing yet</div></div>
+      </div>
+      <div class="see"><span class="lab">What the page shows at 1:30 AM</span>
+        <table class="mini"><tbody>
+          <tr><td>This week, cash</td><td class="r"><span data-o="a c" class="bad">$15,400</span><span data-o="b">$18,400</span></td></tr>
+          <tr><td>Dana's held calls this week</td><td class="r"><span data-o="a c" class="bad">One short</span><span data-o="b">Complete</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a c">The as-of time is honest, but <b>Wednesday reads $3,000 short until 4:05 AM.</b> How often anyone looks in that window depends on the real sync times, which I haven't read.</p>
+      <p class="why" data-o="b">Wednesday reads live until a sync after 1:00 AM lands, then moves to ClickHouse. For those hours Convex reads two days instead of one.</p>
+    </article>
+
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3 · the same in every option</span><h4>A card that can't be added across the split</h4></header>
+      <div class="grid-2">
+        <ol class="tl">
+          <li class="k-st" style="--i:0"><time>Mon 9:12 AM</time><span><span class="who st">Kevin Duarte</span> posts Jordan Ellis in Slack. The deal is created.</span></li>
+          <li class="k-st" style="--i:1"><time>Thu 11:00 AM</time><span><span class="who st">Ana Mejía</span> posts Jordan again while the deal waits for a booking</span></li>
+          <li class="k-sys" style="--i:2"><time>Thu 3:10 PM</time><span>An admin opens Unique deals qualified, This week</span></li>
+        </ol>
+        <div class="see" style="border:0;padding:0"><table class="mini"><tbody>
+          <tr><td>History plus today, added</td><td class="r bad">2 deals</td></tr>
+          <tr><td>Whole week from ClickHouse</td><td class="r">1 deal, as of 10:05 AM</td></tr>
+        </tbody></table></div>
+      </div>
+      <p class="why">A distinct count can't be added across the split. In every option these cards read the whole range from ClickHouse as of the last sync, like Team's outcome mix does today, or carry IDs so the merge can drop the duplicate. Expect a few cards with an as-of time even when the band says live.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Nothing new. The engine already splits.</td><td>None</td><td>A gap of up to six hours of yesterday, overnight, until the next sync</td></tr>
+      <tr data-row="b"><td>B</td><td>The planner takes the last sync time and ends history a day earlier until a sync after 1:00 AM lands. One more cached answer a night. About a day of work.</td><td>None</td><td>Low</td></tr>
+      <tr data-row="c"><td>C</td><td>Remove the split from every report page</td><td>None</td><td>Today and This week disagree for up to six hours, every day</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: B.</b> A is fine if a sync usually lands soon after 1:00 AM. D12 includes reading the real sync times, which settles it.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<p class="group">Who gets the credit</p>
+
+<!-- D2 -->
+<section class="dec" id="d2" data-rec="a" data-title="Past calls when a deal changes closer">
+  <p class="kicker"><b>D2</b> Credit for calls <span class="tag t-new">New</span> <span class="tag t-none">No data change</span></p>
+  <h2>When a deal changes closer, who keeps its past calls?</h2>
+  <p class="q">This isn't in the first report. I found it while building the cases for D3, and it changes show rates and close rates more than anything else here.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>Three things change a deal's closer: a follow-up booked on another closer's Calendly, a reschedule to another host, and a redistribution for a closer's unavailability. Each one calls <code>syncOpportunityMeetingsAssignedCloser</code>, which sets <code>assignedCloserId</code> on every meeting of the deal to the new closer, past ones included. Reports count calls, no-shows and the close-rate cohort by that field, so the earlier closer's held calls and no-shows move to the new one, whenever it happens.</p>
+    <p>Access follows the same field, so the writer has to keep doing this. The credit rows don't move: each meeting keeps its <code>booking_closer</code> row naming the host it was booked with, and a redistributed meeting gets a <code>reassignment</code> row.</p>
+    <p class="where">convex/lib/syncOpportunityMeetingsAssignedCloser.ts:5 · convex/pipeline/inviteeCreated.ts:1037, 1403, 1636, 1685 · convex/unavailability/redistribution.ts:249, 387 · convex/analytics/definitions/closeRateCohort.ts:22 · convex/leadCustomers/permissions.ts:24</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D2 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>The closer at the time</b><span class="d">Each call stays with the closer who had it, read from that meeting's credit rows. Reads only.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>The deal's current closer</b><span class="d">Today's behaviour. Past calls follow the deal to whoever has it now.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>A follow-up booked with another closer</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 6</time><span><span class="who cl">Marco Reyes</span> holds Jordan Ellis's first call. The deal goes to Follow-up.</span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 12</time><span>Jordan books the follow-up on <span class="who cl">Priya Nair</span>'s Calendly. Every meeting on the deal now says Priya.</span></li>
+        <li class="k-cl" style="--i:2"><time>Oct 14</time><span>Priya holds the follow-up</span></li>
+        <li class="k-cash" style="--i:3"><time>Oct 15</time><span>Priya logs $6,000. The deal is won.</span></li>
+      </ol>
+      <div class="see"><span class="lab">October, People › Phone closers</span>
+        <table class="mini"><thead><tr><th></th><th class="r">Marco</th><th class="r">Priya</th></tr></thead><tbody>
+          <tr><td>Calls held</td><td class="r"><span data-o="a">1</span><span data-o="b" class="bad">0</span></td><td class="r"><span data-o="a">1</span><span data-o="b" class="bad">2</span></td></tr>
+          <tr><td>Close-rate cohort, won</td><td class="r"><span data-o="a">1 of 1</span><span data-o="b" class="bad">none</span></td><td class="r"><span data-o="a">none</span><span data-o="b" class="bad">1 of 1</span></td></tr>
+          <tr><td>Cash, per D3 = A</td><td class="r">$0</td><td class="r">$6,000</td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">Marco keeps the first call he held, and the deal counts in his close rate, as <code>CONTEXT.md</code> defines it: "credited to that call's closer".</p>
+      <p class="why" data-o="b"><b>Marco's first call disappears from his October.</b> Priya's close rate gets a deal whose first call she never took.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A sick day moves an old no-show</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 2</time><span>Riley Chen no-shows <span class="who cl">Luis Ortega</span>'s first call</span></li>
+        <li class="k-cl" style="--i:1"><time>Oct 5</time><span>Riley rebooks with Luis for Oct 9</span></li>
+        <li class="k-sys" style="--i:2"><time>Oct 8</time><span>Luis is marked out for Oct 9. The redistribution gives the call to <span class="who cl">Dana Whitfield</span>, and every meeting on the deal now says Dana.</span></li>
+        <li class="k-cl" style="--i:3"><time>Oct 9</time><span>Dana holds the call</span></li>
+      </ol>
+      <div class="see"><span class="lab">October, these two calls</span>
+        <table class="mini"><thead><tr><th></th><th class="r">Luis</th><th class="r">Dana</th></tr></thead><tbody>
+          <tr><td>Held</td><td class="r">0</td><td class="r">1</td></tr>
+          <tr><td>No-shows</td><td class="r"><span data-o="a">1</span><span data-o="b" class="bad">0</span></td><td class="r"><span data-o="a">0</span><span data-o="b" class="bad">1</span></td></tr>
+          <tr><td>Show rate on them</td><td class="r"><span data-o="a">0%</span><span data-o="b" class="bad">none</span></td><td class="r"><span data-o="a">100%</span><span data-o="b" class="bad">50%</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">Each closer is measured on the calls they had.</p>
+      <p class="why" data-o="b"><b>Dana takes a no-show from a call she was never assigned,</b> and Luis's show rate improves because he was out.</p>
+    </article>
+
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3</span><h4>Last month changes after you've read it</h4></header>
+      <div class="grid-2">
+        <ol class="tl">
+          <li class="k-sys" style="--i:0"><time>Oct 1</time><span>The September export shows Marco with 34 held calls and Priya with 24</span></li>
+          <li class="k-sys" style="--i:1"><time>Oct 20</time><span>Three of Marco's September deals book follow-ups on Priya's Calendly</span></li>
+          <li class="k-sys" style="--i:2"><time>Oct 21</time><span>Someone opens September again</span></li>
+        </ol>
+        <div class="see" style="border:0;padding:0"><table class="mini"><thead><tr><th>September, held</th><th class="r">Marco</th><th class="r">Priya</th></tr></thead><tbody>
+          <tr><td>Oct 1 export</td><td class="r">34</td><td class="r">24</td></tr>
+          <tr><td>Oct 21 page</td><td class="r"><span data-o="a">34</span><span data-o="b" class="bad">31</span></td><td class="r"><span data-o="a">24</span><span data-o="b" class="bad">27</span></td></tr>
+        </tbody></table></div>
+      </div>
+      <p class="why" data-o="a">A closed month stays closed, and an export still matches the page.</p>
+      <p class="why" data-o="b"><b>September changes three weeks after it ended,</b> and the October 1 export no longer matches the page.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Calls, show rate, the close-rate cohort and time to record take each meeting's closer from its latest closer credit row. Convex readers and SQL templates join one more table.</td><td>None</td><td>A meeting with no closer row falls back to <code>assignedCloserId</code>. Check 2 in D12 counts them.</td></tr>
+      <tr data-row="b"><td>B</td><td>None</td><td>None</td><td>Past figures move whenever a deal moves</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> It reads only, and it makes calls agree with cash, which already stays with the closer the payment names.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D3 -->
+<section class="dec" id="d3" data-rec="a" data-title="Which closer gets the cash">
+  <p class="kicker"><b>D3</b> Credit for cash <span class="tag t-none">No data change</span></p>
+  <h2>Which closer does a payment's cash belong to?</h2>
+  <p class="q">Every payment names one closer. By the time a deal pays, it can have had several.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p><code>attributedCloserId</code> is set when the payment is logged and never changes. A closer who logs a payment names themselves. An admin who logs one names the deal's assigned closer, or the reminder's closer when it's logged from a reminder; that last case also moves the deal to the reminder's closer with a reassignment row. Revenue by closer reads the field today and leaves out closers who are no longer active, which every option below fixes.</p>
+    <p class="where">convex/closer/payments.ts:84 · convex/closer/reminderOutcomes.ts:153, 196 · convex/closer/additionalPayment.ts:75 · convex/reporting/lib/helpers.ts:109</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D3 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>The payment's closer</b><span class="d">Whoever the payment names. Matches how the cash was logged.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Every credited closer, in full</b><span class="d">Each closer with a credit row gets the deal's cash. The lane counts it once.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>The first call's closer</b><span class="d">The closer of the deal's first held call, the same one the close rate credits.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>A handover before the sale</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 6</time><span><span class="who cl">Marco Reyes</span> holds the first call</span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 13</time><span>Marco is out; his Oct 14 follow-up goes to <span class="who cl">Priya Nair</span></span></li>
+        <li class="k-cash" style="--i:2"><time>Oct 14</time><span>Priya holds it and logs $6,000</span></li>
+      </ol>
+      <div class="see"><span class="lab">October cash</span>
+        <table class="mini"><thead><tr><th></th><th class="r">Marco</th><th class="r">Priya</th><th class="r">Closer lane</th></tr></thead><tbody>
+          <tr><td>Credited</td><td class="r"><span data-o="a">$0</span><span data-o="b c">$6,000</span></td><td class="r"><span data-o="a b">$6,000</span><span data-o="c">$0</span></td><td class="r">$6,000</td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">Priya closed it on the call where it paid. Marco's first call still shows in his calls and close rate, and both appear in the deal chain on Attribution.</p>
+      <p class="why" data-o="b">Both rows show $6,000. Their rows add up to $12,000 against a $6,000 lane, and the lane shows the overlap as Shared.</p>
+      <p class="why" data-o="c">Marco ran the first call, so the sale is his. Priya held the call where it paid and gets nothing.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A reschedule onto another closer's calendar</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 3</time><span>Jordan Ellis books his first call with <span class="who cl">Marco Reyes</span> for Oct 6</span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 5</time><span>He reschedules in Calendly and the new slot is <span class="who cl">Priya Nair</span>'s. Marco's Oct 6 slot keeps its closer credit row.</span></li>
+        <li class="k-cash" style="--i:2"><time>Oct 9</time><span>Priya holds the call and logs $6,000</span></li>
+      </ol>
+      <div class="see"><span class="lab">October cash</span>
+        <table class="mini"><thead><tr><th></th><th class="r">Marco</th><th class="r">Priya</th></tr></thead><tbody>
+          <tr><td>Credited</td><td class="r"><span data-o="a c">$0</span><span data-o="b" class="bad">$6,000</span></td><td class="r">$6,000</td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a c">Priya held the only call and took the payment.</p>
+      <p class="why" data-o="b"><b>Marco is credited $6,000 for a call that never happened.</b> A booking row is written when a call is booked, not when it's held, so B would need a rule to skip moved slots.</p>
+    </article>
+
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3</span><h4>An admin logs a payment from a reminder</h4></header>
+      <div class="grid-2">
+        <ol class="tl">
+          <li class="k-cl" style="--i:0"><time>Oct 7</time><span><span class="who cl">Luis Ortega</span> holds the first call</span></li>
+          <li class="k-sys" style="--i:1"><time>Oct 12</time><span>A reminder on the deal is <span class="who cl">Elena Brooks</span>'s</span></li>
+          <li class="k-cash" style="--i:2"><time>Oct 22</time><span>An admin logs $4,500 from Elena's reminder. The payment names Elena, and the deal moves to her.</span></li>
+        </ol>
+        <div class="see" style="border:0;padding:0"><table class="mini"><thead><tr><th>October cash</th><th class="r">Luis</th><th class="r">Elena</th></tr></thead><tbody>
+          <tr><td>Credited</td><td class="r"><span data-o="a">$0</span><span data-o="b c">$4,500</span></td><td class="r"><span data-o="a b">$4,500</span><span data-o="c">$0</span></td></tr>
+        </tbody></table></div>
+      </div>
+      <p class="why" data-o="a">Whoever owned the reminder that collected the money gets it.</p>
+      <p class="why" data-o="b">Both, in full.</p>
+      <p class="why" data-o="c">Luis, who held the only call.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Reads a stored field</td><td>None</td><td>Cash follows whoever logged it, even after a handover</td></tr>
+      <tr data-row="b"><td>B</td><td>A credit-row join per payment</td><td>None</td><td>Credits closers for moved slots unless those rows are skipped; people rows add up to more than the lane</td></tr>
+      <tr data-row="c"><td>C</td><td>The first held call per deal, the query the close rate already runs</td><td>None</td><td>A side deal has no held call and falls back to A</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A,</b> with every credited closer listed in the deal chain on Attribution, so nobody's part disappears. Pick C if your closers think of a sale as belonging to whoever ran the first call. Check 4 in D12 says how much cash C would move.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D4 -->
+<section class="dec" id="d4" data-rec="a" data-title="Two people in one role on one deal">
+  <p class="kicker"><b>D4</b> Credit for cash <span class="tag t-none">No data change</span></p>
+  <h2>Two people did the same job on one deal. How much is each responsible for?</h2>
+  <p class="q">Attribution answers "these people are responsible for this much money". This decides what that sentence means when a role has two names in it.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>A deal can hold several credit rows in one role. Lead gen gets a capture row from the person's first touch and a respark row from the respark that started this attempt, often two different workers. A second setter gets a row when they post the same person while the deal waits for a booking. Each booking adds its own DM closer and closer rows. The ADR stores no shares: "A share can be added later as one optional field."</p>
+    <p class="where">convex/lib/attribution/dealAttributions.ts:285, 397 · docs/adr/0001-lead-lifecycle-model.md, "Who gets credit, and how much?"</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D4 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Full credit to each</b><span class="d">Each person's row shows the deal's cash. The lane counts it once and shows the overlap as Shared.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Equal split</b><span class="d">The cash divided by the people in the role. Rows add up to the lane.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>First credit wins</b><span class="d">The earliest row in the role takes all of it.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="d"><span class="ltr">D</span><b>Latest credit wins</b><span class="d">The most recent row in the role takes all of it.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>Captured in March, resparked in October</h4></header>
+      <ol class="tl">
+        <li class="k-lg" style="--i:0"><time>Mar 14</time><span><span class="who lg">Sofía Paz</span> captures Hayden Price</span></li>
+        <li class="k-lg" style="--i:1"><time>Oct 1</time><span><span class="who lg">Diego Lara</span> resparks him</span></li>
+        <li class="k-cash" style="--i:2"><time>Oct 31</time><span>Hayden pays $9,500 on Marco's call</span></li>
+      </ol>
+      <div class="see"><span class="lab">Lead gen credit for this deal</span>
+        <table class="mini"><thead><tr><th></th><th class="r">Sofía</th><th class="r">Diego</th><th class="r">Lane</th></tr></thead><tbody>
+          <tr><td>Credited</td>
+            <td class="r"><span data-o="a c">$9,500</span><span data-o="b">$4,750</span><span data-o="d">$0</span></td>
+            <td class="r"><span data-o="a d">$9,500</span><span data-o="b">$4,750</span><span data-o="c">$0</span></td>
+            <td class="r">$9,500</td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">Sofía found him; Diego brought him back. Both rows say $9,500, and the lane says $9,500 with $9,500 Shared.</p>
+      <p class="why" data-o="b">The split reads as commission math: it says Sofía earned half.</p>
+      <p class="why" data-o="c">Diego's respark, the reason this attempt happened, gets nothing.</p>
+      <p class="why" data-o="d">Sofía's capture, the reason Hayden was in the CRM, gets nothing.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>Two setters post the same person</h4></header>
+      <ol class="tl">
+        <li class="k-st" style="--i:0"><time>Oct 1, 9:12 AM</time><span><span class="who st">Kevin Duarte</span> posts Jordan Ellis in Slack; the deal is created</span></li>
+        <li class="k-st" style="--i:1"><time>Oct 3, 4:40 PM</time><span><span class="who st">Ana Mejía</span> posts Jordan again; the deal still waits for a booking, so she gets a setter row too</span></li>
+        <li class="k-cash" style="--i:2"><time>Oct 15</time><span>$6,000 paid</span></li>
+      </ol>
+      <div class="see"><span class="lab">Setter credit for this deal</span>
+        <table class="mini"><thead><tr><th></th><th class="r">Kevin</th><th class="r">Ana</th></tr></thead><tbody>
+          <tr><td>Credited</td>
+            <td class="r"><span data-o="a c">$6,000</span><span data-o="b">$3,000</span><span data-o="d">$0</span></td>
+            <td class="r"><span data-o="a d">$6,000</span><span data-o="b">$3,000</span><span data-o="c">$0</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">Both rows show it. If you think Ana's second post shouldn't count at all, that's a different fix, to the setter writer, and worth a note.</p>
+      <p class="why" data-o="b">Half each, for a deal Kevin created two days earlier.</p>
+      <p class="why" data-o="c">Kevin, who created the deal.</p>
+      <p class="why" data-o="d"><b>Ana takes all of it</b> for a deal Kevin created two days earlier.</p>
+    </article>
+
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3</span><h4>The lead gen lane for October</h4></header>
+      <p class="small muted" style="margin:0">The lane is the cash on deals with any lead gen credit. Hayden's deal is the only one with two workers.</p>
+      <div class="bars" id="d4bars">
+        <div class="bar-row"><span>Lane</span><div class="track"><div class="fill lane" data-a="72600" data-b="72600" data-c="72600" data-d="72600"></div></div><span class="v">$72,600</span></div>
+        <div class="bar-row"><span>Sofía Paz</span><div class="track"><div class="fill" data-a="29550" data-b="24800" data-c="29550" data-d="20050"></div></div><span class="v"><span data-o="a c">$29,550</span><span data-o="b">$24,800</span><span data-o="d">$20,050</span></span></div>
+        <div class="bar-row"><span>Diego Lara</span><div class="track"><div class="fill" data-a="26050" data-b="21300" data-c="16550" data-d="26050"></div></div><span class="v"><span data-o="a d">$26,050</span><span data-o="b">$21,300</span><span data-o="c">$16,550</span></span></div>
+        <div class="bar-row"><span>Mia Torres</span><div class="track"><div class="fill" data-a="15900" data-b="15900" data-c="15900" data-d="15900"></div></div><span class="v">$15,900</span></div>
+        <div class="bar-row"><span>Iván Cruz</span><div class="track"><div class="fill" data-a="10600" data-b="10600" data-c="10600" data-d="10600"></div></div><span class="v">$10,600</span></div>
+      </div>
+      <table class="mini"><tbody>
+        <tr><td>People's rows add up to</td><td class="r"><span data-o="a">$82,100</span><span data-o="b c d">$72,600</span></td></tr>
+        <tr><td>Shared, shown under the lane</td><td class="r"><span data-o="a">$9,500</span><span data-o="b c d" class="dim">not shown</span></td></tr>
+      </tbody></table>
+      <p class="why">One rule holds in every option: a person counts once per deal per role. If Sofía had both captured and resparked Hayden, she'd have two rows and $9,500, not $19,000.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Distinct deals per person per role</td><td>None</td><td>Rows look inflated unless the Shared line is on every lane</td></tr>
+      <tr data-row="b"><td>B</td><td>People per role per deal, then divide</td><td>None</td><td>Reads as commission, which the ADR leaves out</td></tr>
+      <tr data-row="c"><td>C</td><td>Order rows by <code>attributedAt</code></td><td>None</td><td>The respark, setter or DM closer who came later vanishes</td></tr>
+      <tr data-row="d"><td>D</td><td>Order rows by <code>attributedAt</code></td><td>None</td><td>The capture, setter or DM closer who came first vanishes</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> It's the only option that doesn't rank one person's work over another's, and "responsible for" without commission math means exactly that. Check 5 in D12 counts how often a role has two names.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<p class="group">What a word means</p>
+
+<!-- D5 -->
+<section class="dec" id="d5" data-rec="c" data-title="What makes a call a follow-up">
+  <p class="kicker"><b>D5</b> Call types <span class="tag t-new">Partly new</span> <span class="tag t-data">Sets the backfill</span></p>
+  <h2>What makes a call a follow-up?</h2>
+  <p class="q">The first report said a moved first call should stay a first call. Working through the cases turned up a second question: what about a call rebooked after a no-show?</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>A new meeting is a follow-up when its deal already has any meeting. A Calendly reschedule cancels the old slot and inserts a new meeting, which therefore becomes a follow-up. A rebook through the no-show link also points back with <code>rescheduledFromMeetingId</code>, at a meeting that stays a no-show.</p>
+    <p>The same field decides DM goals: Booked Calls, its export, the Overview leaderboard and a ClickHouse template count a DM team's bookings as "anything but a follow-up". A moved call is a first call, but it isn't a new booking, so changing the type means those four also have to skip replacements.</p>
+    <p class="where">convex/pipeline/inviteeCreated.ts:164, 1437, 1052 · convex/operations/bookedCallsDashboard.ts:144 · convex/operations/reports/readers.ts:425 · convex/dashboard/overviewLeaderboardBuilders.ts:163 · convex/analytics/definitions/operations.ts:168</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D5 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Any earlier meeting</b><span class="d">Today's rule. A moved first call becomes a follow-up.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Moves keep their type</b><span class="d">A call that replaces a moved slot takes that slot's type. A rebook after a no-show stays a follow-up.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>First until one is held</b><span class="d">A call is a first call until the person has held one on this deal.</span><span class="rec">Recommended</span></button>
+  </div>
+  <p class="pickline"></p>
+  <p class="small muted">Telling a moved slot from a cancellation is its own fix and comes with every option, so the Oct 6 slot reads "Moved" below in all three.</p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>Jordan's moved first call</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 3</time><span>Jordan Ellis books his first call with <span class="who cl">Marco Reyes</span> for Oct 6</span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 5</time><span>He reschedules to Oct 9 in Calendly. The Oct 6 meeting is canceled and a new one inserted.</span></li>
+        <li class="k-cl" style="--i:2"><time>Oct 9</time><span>He shows</span></li>
+      </ol>
+      <div class="see"><span class="lab">How the calls are filed</span>
+        <table class="mini"><tbody>
+          <tr><td>Oct 6 slot</td><td class="r">First call · moved</td></tr>
+          <tr><td>Oct 9 call</td><td class="r"><span data-o="a" class="bad">Follow-up · held</span><span data-o="b c">First call · held</span></td></tr>
+          <tr><td>Marco's first-call show rate, this deal</td><td class="r"><span data-o="a" class="bad">no result</span><span data-o="b c">1 of 1</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a"><b>Jordan's first conversation counts as a follow-up,</b> and Marco's first-call show rate never sees it.</p>
+      <p class="why" data-o="b c">The call that replaced the first one is the first call.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A rebook after a no-show</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 6</time><span>Riley Chen no-shows her first call with <span class="who cl">Luis Ortega</span></span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 7</time><span>Luis sends the no-show reschedule link; Riley books Oct 10</span></li>
+        <li class="k-cl" style="--i:2"><time>Oct 10</time><span>She shows</span></li>
+      </ol>
+      <div class="see"><span class="lab">How the calls are filed</span>
+        <table class="mini"><tbody>
+          <tr><td>Oct 10 call</td><td class="r"><span data-o="a b">Follow-up · held</span><span data-o="c">First call · held</span></td></tr>
+          <tr><td>First-call show rate, this deal</td><td class="r"><span data-o="a b">0 of 1</span><span data-o="c">1 of 2</span></td></tr>
+          <tr><td>Follow-up show rate, this deal</td><td class="r"><span data-o="a b">1 of 1</span><span data-o="c">none</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a b"><b>Follow-up figures mix real second conversations with rescued first calls.</b> Riley hadn't spoken to anyone before Oct 10, and rescues show up at a different rate from people who've already had a call.</p>
+      <p class="why" data-o="c">Each attempt at a first conversation counts once: Riley missed one and made one. Follow-ups are only calls after someone has spoken to a closer.</p>
+    </article>
+
+    <article class="case reveal">
+      <header><span class="lab">Case 3</span><h4>A follow-up booked during the call</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 6, 3:00 PM</time><span><span class="who cl">Marco Reyes</span>'s first call with Hayden Price starts</span></li>
+        <li class="k-cl" style="--i:1"><time>3:40 PM</time><span>Marco books the follow-up for Oct 13 while still on the call</span></li>
+        <li class="k-cl" style="--i:2"><time>4:05 PM</time><span>Marco records the Oct 6 call as held</span></li>
+      </ol>
+      <div class="see"><span class="lab">How Oct 13 is filed</span>
+        <table class="mini"><tbody>
+          <tr><td>At 3:40 PM</td><td class="r"><span data-o="a b">Follow-up</span><span data-o="c">First call, since nothing is held yet</span></td></tr>
+          <tr><td>At 4:05 PM</td><td class="r"><span data-o="a b">Follow-up</span><span data-o="c" class="good">Follow-up, after the re-check</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a b">The rule only looks at whether a meeting exists, so the timing doesn't matter.</p>
+      <p class="why" data-o="c"><b>This is the extra cost of C.</b> When a result is recorded or corrected, the same rule runs again for the deal's later calls. A deal has a handful of meetings, so it's a small write, but it's a new side effect on the attendance path.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 4</span><h4>DM goals mustn't move</h4></header>
+      <ol class="tl">
+        <li class="k-dm" style="--i:0"><time>Oct 3</time><span>Jordan books through <span class="who dm">Brianna Holt</span>'s DM link. Booked Calls counts 1 for Brianna.</span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 5</time><span>He reschedules. The new meeting carries the booking's UTMs.</span></li>
+      </ol>
+      <div class="see"><span class="lab">Brianna's booked calls</span>
+        <table class="mini"><tbody>
+          <tr><td>Counted as "not a follow-up"</td><td class="r"><span data-o="a">1</span><span data-o="b c" class="bad">2</span></td></tr>
+          <tr><td>With "and not a replacement" added</td><td class="r">1</td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">Nothing changes for DM goals.</p>
+      <p class="why" data-o="b c">With B or C, the four booking counters also skip meetings that replace another, so goals stay as they are. Check 1 in D12 counts replacements that carry DM credit; if it's zero, the guard changes nothing today.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:680px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>None</td><td>None</td><td>First-call show rate loses every moved call</td></tr>
+      <tr data-row="b"><td>B</td><td>The writer reads the replaced slot's type; four booking counters skip replacements</td><td>Backfill: meetings that replace a moved slot</td><td>Low</td></tr>
+      <tr data-row="c"><td>C</td><td>The writer checks for a held call on the deal; recording or correcting a result re-checks later calls; four booking counters skip replacements</td><td>Backfill: every deal with two or more meetings</td><td>Medium: one more side effect where results are recorded</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: C.</b> It's the only rule where "first call" means the person hadn't spoken to a closer yet, which is what first-call show rate is for. If you'd rather not touch the attendance path in this PR, B is the safe minimum and fixes the moved calls.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D6 -->
+<section class="dec" id="d6" data-rec="a" data-title="Store the call type, or compute it on read">
+  <p class="kicker"><b>D6</b> Call types <span class="tag t-data">Data change</span></p>
+  <h2>Store the call type, or work it out on every read?</h2>
+  <p class="q">Whatever D5 says, the rule can be written onto meetings once, or computed by every reader.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p><code>callClassification</code> is stored on the meeting, so storing a corrected value needs no schema change. It's part of the <code>meetingsByStatus</code> aggregate's key (closer, type, status, time), which Team Performance reads. It's also read by Booked Calls, its export, the Overview leaderboard, two ClickHouse templates, the meeting and deal pages, and the metrics API.</p>
+    <p class="where">convex/reporting/aggregates.ts:21 · convex/analytics/definitions/team.ts:82 · convex/operations/reports/readers.ts:425 · app/workspace/closer/meetings/_components/meeting-detail-view.tsx</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D6 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Fix the writer and backfill</b><span class="d">New meetings get the right type, one backfill fixes the past, and readers stay as they are.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>A read rule everywhere</b><span class="d">Leave stored types alone; apply the rule in each reader and SQL template.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>Team Performance's aggregate</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 9</time><span>Jordan's moved first call is held. The aggregate files it under Marco, follow-up, held.</span></li>
+        <li class="k-sys" style="--i:1"><time>Later</time><span>Someone opens Team Performance, New calls</span></li>
+      </ol>
+      <div class="see"><span class="lab">Marco, New calls, held</span>
+        <table class="mini"><tbody>
+          <tr><td>Counted by</td><td class="r"><span data-o="a">the corrected stored type</span><span data-o="b" class="bad">the old stored type</span></td></tr>
+          <tr><td>Includes Oct 9</td><td class="r"><span data-o="a">Yes</span><span data-o="b" class="bad">No, unless the aggregate is rebuilt</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">The backfill re-keys the aggregate as it patches each meeting.</p>
+      <p class="why" data-o="b"><b>A read rule can't fix a count the aggregate has already summed by type.</b> B ends up rebuilding the aggregate anyway, which is a backfill by another name.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A call moved twice, in ClickHouse</h4></header>
+      <ol class="tl">
+        <li class="k-cl" style="--i:0"><time>Oct 8</time><span>A first call is booked for Oct 10</span></li>
+        <li class="k-sys" style="--i:1"><time>Oct 9</time><span>Moved to Oct 12</span></li>
+        <li class="k-sys" style="--i:2"><time>Oct 11</time><span>Moved again to Oct 15, where it's held</span></li>
+      </ol>
+      <div class="see"><span class="lab">What a SQL template needs to file Oct 15</span>
+        <table class="mini"><tbody>
+          <tr><td>The query</td><td class="r"><span data-o="a">reads <code>call_classification</code></span><span data-o="b">walks back two hops to Oct 10</span></td></tr>
+        </tbody></table>
+      </div>
+      <p class="why" data-o="a">One column, the same in Convex and ClickHouse.</p>
+      <p class="why" data-o="b">Each template needs a self-join per hop or a recursive query, and every template has to get it the same way.</p>
+    </article>
+
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3</span><h4>Where the rule has to live</h4></header>
+      <div class="scroll-x"><table class="mini" style="min-width:520px"><thead><tr><th>Place</th><th class="r">A</th><th class="r">B</th></tr></thead><tbody>
+        <tr><td>Booking writer</td><td class="r">The rule</td><td class="r">Unchanged</td></tr>
+        <tr><td>Backfill, assert, reverse, ledger</td><td class="r">New</td><td class="r">None</td></tr>
+        <tr><td><code>meetingsByStatus</code> aggregate</td><td class="r">Follows the patches</td><td class="r">Rebuilt with a computed key</td></tr>
+        <tr><td>Team Performance reader</td><td class="r">Unchanged</td><td class="r">The rule</td></tr>
+        <tr><td>Booked Calls, its export, Overview leaderboard</td><td class="r">Replacement guard</td><td class="r">The rule and the guard</td></tr>
+        <tr><td>ClickHouse templates: team, operations, new reports</td><td class="r">Unchanged</td><td class="r">The rule, in SQL</td></tr>
+        <tr><td>Meeting page, deal page, metrics API</td><td class="r">Unchanged</td><td class="r">The rule</td></tr>
+      </tbody></table></div>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Writer, backfill, ledger, assert, reverse, tests</td><td>Past meetings, as the backfill section describes</td><td>Covered by the ten rules</td></tr>
+      <tr data-row="b"><td>B</td><td>About nine readers and templates, plus the aggregate</td><td>An aggregate rebuild anyway</td><td>The rule drifts between readers</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> It's the one write in the PR, and it's the reason the backfill section exists.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D7 -->
+<section class="dec" id="d7" data-rec="a" data-title="Whether Cash includes deposits">
+  <p class="kicker"><b>D7</b> Words <span class="tag t-new">New</span> <span class="tag t-none">No data change</span></p>
+  <h2>Does "Cash" include deposits?</h2>
+  <p class="q">The first report settled this without asking you. It changes a figure people read on Sales Calls, so it should be your call.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>The metrics API's <code>cash_collected</code> counts every payment that isn't disputed, deposits included. Sales Calls' Cash collected leaves deposits out. Revenue calls the no-deposit figure Final revenue on one card and Revenue on others. Payment types are PIF, split, monthly and deposit.</p>
+    <p class="where">convex/analytics/api/metrics.ts:283 · app/workspace/operations/sales-calls/_components/definitions-card.tsx · convex/reporting/lib/helpers.ts:115</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D7 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Cash includes deposits</b><span class="d">Cash is every payment in. Final cash, without deposits, sits beside it. Sales Calls renames its figure.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Cash leaves deposits out</b><span class="d">Cash is Sales Calls' figure, deposits a separate line. The API disagrees unless it changes too.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>Never just "Cash"</b><span class="d">Two names everywhere: Money in, and Program cash.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case wide reveal">
+      <header><span class="lab">Case 1</span><h4>October on four screens</h4></header>
+      <div class="grid-2">
+        <ol class="tl">
+          <li class="k-cash" style="--i:0"><time>October</time><span>$210,000 in PIF, split and monthly payments</span></li>
+          <li class="k-cash" style="--i:1"><time>October</time><span>$4,800 in deposits</span></li>
+        </ol>
+        <div class="see" style="border:0;padding:0"><table class="mini"><tbody>
+          <tr><td>Scorecard, main figure</td><td class="r"><span data-o="a">Cash $214,800</span><span data-o="b">Cash $210,000</span><span data-o="c">Money in $214,800</span></td></tr>
+          <tr><td>Scorecard, beside it</td><td class="r"><span data-o="a">Final cash $210,000</span><span data-o="b">Deposits $4,800</span><span data-o="c">Program cash $210,000</span></td></tr>
+          <tr><td>Sales Calls</td><td class="r"><span data-o="a">Final cash $210,000, renamed</span><span data-o="b">Cash collected $210,000, as now</span><span data-o="c">Program cash $210,000, renamed</span></td></tr>
+          <tr><td>Metrics API <code>cash_collected</code></td><td class="r"><span data-o="a">214,800, agrees</span><span data-o="b" class="bad">214,800, disagrees</span><span data-o="c">214,800, matches Money in</span></td></tr>
+        </tbody></table></div>
+      </div>
+    </article>
+
+    <article class="case reveal">
+      <header><span class="lab">Case 2</span><h4>A deposit, then the sale</h4></header>
+      <ol class="tl">
+        <li class="k-cash" style="--i:0"><time>Oct 28</time><span>$500 deposit</span></li>
+        <li class="k-cash" style="--i:1"><time>Nov 2</time><span>$4,500 PIF completes the $5,000 program</span></li>
+      </ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>October</td><td class="r"><span data-o="a">Cash $500</span><span data-o="b">Cash $0</span><span data-o="c">Money in $500</span></td></tr>
+        <tr><td>November</td><td class="r"><span data-o="a b">Cash $4,500</span><span data-o="c">Money in $4,500</span></td></tr>
+        <tr><td>The deal, all time</td><td class="r"><span data-o="a">Cash $5,000</span><span data-o="b" class="bad">Cash $4,500</span><span data-o="c">Money in $5,000</span></td></tr>
+      </tbody></table></div>
+      <p class="why" data-o="b"><b>The deal shows $4,500 of cash on a $5,000 program.</b></p>
+      <p class="why" data-o="a c">The deal's cash matches its program price.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 3</span><h4>A deposit, then a loss</h4></header>
+      <ol class="tl">
+        <li class="k-cash" style="--i:0"><time>Oct 28</time><span>$500 deposit</span></li>
+        <li class="k-cl" style="--i:1"><time>Nov 3</time><span>The deal is lost. Nobody marks the deposit disputed.</span></li>
+      </ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>October</td><td class="r"><span data-o="a">Cash $500</span><span data-o="b">Cash $0</span><span data-o="c">Money in $500</span></td></tr>
+        <tr><td>Deposits on lost deals</td><td class="r">$500</td></tr>
+      </tbody></table></div>
+      <p class="why" data-o="a c">The $500 stays in October unless the payment is marked disputed. A Deposits on lost deals line on Scorecard keeps it in view.</p>
+      <p class="why" data-o="b">October never counts it, which is right if deposits are refunded on a loss.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>A label on Sales Calls</td><td>None</td><td>People used to Sales Calls' figure see a new name</td></tr>
+      <tr data-row="b"><td>B</td><td>Change the API's meaning or accept the mismatch</td><td>None</td><td>Tools reading the API disagree with the pages</td></tr>
+      <tr data-row="c"><td>C</td><td>Labels everywhere</td><td>None</td><td>Two new words for everyone</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> It matches the API, which other tools already read, and a deposit is money that came in. If your deposits are refunded when a deal is lost, say so in the note, because that tilts it toward B.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D8 -->
+<section class="dec" id="d8" data-rec="a" data-title="Payments in two currencies">
+  <p class="kicker"><b>D8</b> Words <span class="tag t-none">No data change</span></p>
+  <h2>How are payments in two currencies shown?</h2>
+  <p class="q">Payments can be logged in USD, EUR, GBP, CAD, AUD or JPY.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>Revenue adds <code>amountMinor</code> across currencies and prints the sum in dollars, so €8,000 and $8,000 show as $16,000. Sales Calls keeps one total per currency and has a currency select. Programs carry a default currency. Nothing stores exchange rates.</p>
+    <p class="where">app/workspace/reports/revenue/_components/revenue-format.ts:3 · app/workspace/_components/payment-dialog-form.tsx:36 · app/workspace/operations/sales-calls/_components/sales-calls-page-client.tsx:142</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D8 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>One total per currency</b><span class="d">Each currency stands alone. A select in the band picks the one tables rank by.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Convert at a set rate</b><span class="d">An admin sets a rate per currency; totals show in USD, marked converted.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>Convert at the day's rate</b><span class="d">Each payment converts at its own day's market rate from a feed.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>The band in October</h4></header>
+      <ol class="tl">
+        <li class="k-cash" style="--i:0"><time>October</time><span>$214,800 in USD</span></li>
+        <li class="k-cash" style="--i:1"><time>October</time><span>€7,900 from a European program</span></li>
+      </ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>Cash</td><td class="r"><span data-o="a">$214,800 · €7,900</span><span data-o="b">$223,332, at 1.08 set Oct 1</span><span data-o="c">$223,155, at each day's rate</span></td></tr>
+        <tr><td>Revenue page today</td><td class="r bad">$222,700, adding € as $</td></tr>
+      </tbody></table></div>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>Ranking two closers</h4></header>
+      <ol class="tl">
+        <li class="k-cash" style="--i:0"><time>October</time><span><span class="who cl">Dana Whitfield</span>: $52,400</span></li>
+        <li class="k-cash" style="--i:1"><time>October</time><span><span class="who cl">Elena Brooks</span>: $10,500 and €9,000</span></li>
+      </ol>
+      <div class="see"><table class="mini"><thead><tr><th></th><th class="r">Dana</th><th class="r">Elena</th></tr></thead><tbody>
+        <tr><td>People, cash</td><td class="r">$52,400</td><td class="r"><span data-o="a">$10,500 <span class="dim">· €9,000 in the EUR view</span></span><span data-o="b">$20,220</span><span data-o="c">about $20,190</span></td></tr>
+      </tbody></table></div>
+      <p class="why" data-o="a">Elena's euro sales don't count in the USD ranking. The band says so, and the EUR view ranks them.</p>
+      <p class="why" data-o="b">One ranking, at a rate someone has to keep current. If it goes stale, Elena's rank is off and nothing says so.</p>
+      <p class="why" data-o="c">One ranking at real rates, from an outside service the reports now depend on.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Sales Calls' pattern, reused; exports get a currency column</td><td>None</td><td>Someone selling in two currencies needs two views</td></tr>
+      <tr data-row="b"><td>B</td><td>A rate setting, conversion in readers and SQL, original amounts kept in exports</td><td>A new tenant setting, added</td><td>Stale rates</td></tr>
+      <tr data-row="c"><td>C</td><td>A rate feed and stored daily rates</td><td>A new table</td><td>An outside dependency for a report</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A,</b> unless check 3 in D12 shows real volume outside USD. Then B is worth a look.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<p class="group">Scope and rollout</p>
+
+<!-- D9 -->
+<section class="dec" id="d9" data-rec="a" data-title="Overview and Operations in this PR">
+  <p class="kicker"><b>D9</b> Scope <span class="tag t-new">New</span></p>
+  <h2>Do Overview and Operations change in the same PR?</h2>
+  <p class="q">The new report pages follow the dictionary. Overview and the Operations pages count some of the same things with older rules. With one PR, the question is whether they move together.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>Overview and Sales Calls count canceled calls by meeting status, moves included. Their per-day counts come from the Operations meeting projection, <code>operationsMeetingStatsV2</code>, keyed by day, closer, program and status. It has no moved bucket. Giving it one means re-projecting the canceled meetings that another meeting replaced. <i>Corrected after the decision: an earlier version of this page said every meeting.</i></p>
+    <p>The call-type fix changes these pages' first and follow-up splits in every option here, since they read the same field.</p>
+    <p class="where">convex/operations/meetingProjectionSchema.ts:4, 39 · convex/operations/meetingStats.ts:29 · app/workspace/operations/sales-calls/_components/definitions-card.tsx</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D9 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Reports, plus aligned words</b><span class="d">Overview and Operations keep their numbers. Labels that clash are renamed or get a one-line note.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Everything on the dictionary</b><span class="d">Overview and Operations count moves and cash the new way too. Needs the projection rebuild.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>Reports only</b><span class="d">Leave every other page exactly as it is.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>October's cancellations</h4></header>
+      <ol class="tl">
+        <li class="k-sys" style="--i:0"><time>October</time><span>31 canceled meetings, 12 of them slots given up in a reschedule</span></li>
+      </ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>Calls page</td><td class="r">Canceled 19 · Moved 12</td></tr>
+        <tr><td>Overview</td><td class="r"><span data-o="a">Canceled 31 · "includes moved calls"</span><span data-o="b">Canceled 19 · Moved 12</span><span data-o="c" class="bad">Canceled 31</span></td></tr>
+      </tbody></table></div>
+      <p class="why" data-o="a">The numbers differ, and the label says why.</p>
+      <p class="why" data-o="b">Both pages agree.</p>
+      <p class="why" data-o="c"><b>Two pages, one word, two numbers,</b> and nothing on screen says why.</p>
+    </article>
+
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>Cash on Sales Calls, with D7 = A</h4></header>
+      <ol class="tl">
+        <li class="k-cash" style="--i:0"><time>October</time><span>$210,000 plus $4,800 in deposits</span></li>
+      </ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>Scorecard</td><td class="r">Cash $214,800</td></tr>
+        <tr><td>Sales Calls</td><td class="r"><span data-o="a">Final cash $210,000</span><span data-o="b">Cash $214,800 · Final cash $210,000</span><span data-o="c" class="bad">Cash collected $210,000</span></td></tr>
+      </tbody></table></div>
+    </article>
+
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3 · the same in every option</span><h4>What changes on Overview and Operations anyway</h4></header>
+      <table class="mini"><tbody>
+        <tr><td>First calls and follow-ups, Overview leaderboard and Team Performance</td><td class="r">Change after the backfill</td></tr>
+        <tr><td>DM booked calls and goals</td><td class="r">Unchanged, thanks to the replacement guard</td></tr>
+        <tr><td>Everything else on those pages</td><td class="r"><span data-o="a c">Unchanged</span><span data-o="b">Moves and cash per the dictionary</span></td></tr>
+      </tbody></table>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Labels and help text on Overview and Sales Calls</td><td>None</td><td>Low</td></tr>
+      <tr data-row="b"><td>B</td><td>A moved bucket in the projection; Overview and Sales Calls readers</td><td>Re-projecting the moved slots, a derived table</td><td>A second data step in the same PR as the backfill</td></tr>
+      <tr data-row="c"><td>C</td><td>None</td><td>None</td><td>Pages disagree under the same word</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> B is right eventually, but it's the only change that rebuilds a projection, and I wouldn't stack it on top of the backfill. It can follow once the new pages have run for a few weeks.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D10 -->
+<section class="dec" id="d10" data-rec="a" data-title="Who can open a member report">
+  <p class="kicker"><b>D10</b> Access <span class="tag t-none">No data change</span></p>
+  <h2>Who can open a member report?</h2>
+  <p class="q">The member report is one person's period: figures, days, calls, deals and work log.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>Report pages need <code>reports:view</code>, which admins hold. Closers see only records assigned to them, and their Today page has a performance card. Lead generators have My Activity. Setters, who are Slack qualifiers, and DM closers aren't CRM users, so they can't sign in at all.</p>
+    <p class="where">docs/agents/auth.md, Roles · convex/lib/permissions.ts · app/workspace/closer/_components/performance-card.tsx</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D10 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Admins only</b><span class="d">Admins open anyone's report. Everyone else gets an export from an admin.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Admins, plus your own</b><span class="d">Closers and lead generators open their own report, with no other names on it.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>Everyone sees everyone</b><span class="d">Any signed-in member opens any member's report.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>Marco wants his October</h4></header>
+      <ol class="tl"><li class="k-cl" style="--i:0"><time>Nov 2</time><span><span class="who cl">Marco Reyes</span> wants his show rate and how fast he records results</span></li></ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>What he can open</td><td class="r"><span data-o="a">His Today card</span><span data-o="b">His own member report</span><span data-o="c">His report, and Dana's</span></td></tr>
+        <tr><td>Comparison strip</td><td class="r"><span data-o="a" class="dim">not shown to him</span><span data-o="b">Team median, no names</span><span data-o="c">Named peers</span></td></tr>
+      </tbody></table></div>
+    </article>
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A closer opens another closer's link</h4></header>
+      <ol class="tl"><li class="k-cl" style="--i:0"><time>Nov 2</time><span>Marco pastes the link to Dana's member report</span></li></ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>Result</td><td class="r"><span data-o="a">Redirect to his home page</span><span data-o="b">Redirect; every query checks the member is him</span><span data-o="c">Dana's report opens</span></td></tr>
+      </tbody></table></div>
+      <p class="why" data-o="b">The page guard isn't enough. Each Convex query behind the report compares the member with the viewer's <code>teamMemberId</code>, or a guessed ID leaks Dana's figures.</p>
+    </article>
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3 · the same in every option</span><h4>Kevin, a setter, wants his month</h4></header>
+      <p class="why">Setters and DM closers can't sign in, so in every option an admin exports Kevin's member report as a PDF and sends it. That's another reason the export lands in the same PR.</p>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>The page and Convex guards on <code>reports:view</code></td><td>None</td><td>Low</td></tr>
+      <tr data-row="b"><td>B</td><td>A new permission, a self check in every member query, a version of the page without peers</td><td>None</td><td>Medium: one missed check leaks another person's figures</td></tr>
+      <tr data-row="c"><td>C</td><td><code>reports:view</code> for closers and lead generators</td><td>None</td><td>Everyone's figures visible to peers</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A for this PR.</b> B is a good next step, grown from the closer's Today card, once the report's figures have settled.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D11 -->
+<section class="dec" id="d11" data-rec="a" data-title="What happens to the old pages">
+  <p class="kicker"><b>D11</b> Rollout <span class="tag t-none">No data change</span></p>
+  <h2>What happens to the seven old pages?</h2>
+  <p class="q">Team Performance, Revenue, Pipeline Health, Leads &amp; Conversions, Activity Feed, Reminders and Slack Qualifications.</p>
+  <div class="facts reveal"><span class="lab">What the code does today</span>
+    <p>Report pages switch per tenant through <code>tenants.analyticsReports</code>, and <code>analytics/switch:disable</code> rolls one back without a deploy. The ClickHouse plan keeps an old reader for two weeks after its switch before deleting it.</p>
+    <p class="where">docs/plans/clickhouse-reporting.md §12.1 · app/workspace/_components/workspace-nav.ts:145</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D11 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Redirect at the switch, delete later</b><span class="d">Each old route redirects once its replacement is on. A deletion-only PR follows two weeks later.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Delete in the same PR</b><span class="d">The PR removes the old pages and redirects from the deploy on. Rolling back means a revert.</span></button>
+    <button class="opt" type="button" role="radio" data-opt="c"><span class="ltr">C</span><b>Keep both for a month</b><span class="d">The old pages stay in the sidebar as Classic reports.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases">
+    <article class="case reveal">
+      <header><span class="lab">Case 1</span><h4>A bookmark</h4></header>
+      <ol class="tl"><li class="k-sys" style="--i:0"><time>Nov 12</time><span>An admin opens <code>/workspace/reports/team?range=this_month</code></span></li></ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>Lands on</td><td class="r"><span data-o="a">People, This month, once People is on</span><span data-o="b">People, This month, from the deploy</span><span data-o="c">The old Team Performance</span></td></tr>
+      </tbody></table></div>
+    </article>
+    <article class="case reveal" style="--d:.06s">
+      <header><span class="lab">Case 2</span><h4>A wrong number the morning after</h4></header>
+      <ol class="tl">
+        <li class="k-sys" style="--i:0"><time>Nov 10</time><span>People is switched on</span></li>
+        <li class="k-sys" style="--i:1"><time>Nov 11, 9:00 AM</time><span>An admin spots a show rate that looks wrong</span></li>
+      </ol>
+      <div class="see"><table class="mini"><tbody>
+        <tr><td>Getting the old page back</td><td class="r"><span data-o="a">One command, seconds</span><span data-o="b" class="bad">Revert and redeploy</span><span data-o="c">Click Classic reports</span></td></tr>
+        <tr><td>While it's fixed</td><td class="r"><span data-o="a c">Everyone uses Team Performance</span><span data-o="b">The whole overhaul is reverted, or People stays wrong</span></td></tr>
+      </tbody></table></div>
+    </article>
+    <article class="case wide reveal">
+      <header><span class="lab">Case 3</span><h4>Two answers to one question</h4></header>
+      <table class="mini"><tbody>
+        <tr><td>Show rate for Marco, November</td><td class="r"><span data-o="a b">One page answers it</span><span data-o="c" class="bad">Team Performance and People both answer, with different rules, for a month</span></td></tr>
+      </tbody></table>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>Code</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Redirects that check the switch; a deletion-only PR later</td><td>None</td><td>Low</td></tr>
+      <tr data-row="b"><td>B</td><td>Nothing extra</td><td>None</td><td>No rollback short of a revert</td></tr>
+      <tr data-row="c"><td>C</td><td>Both in the sidebar</td><td>None</td><td>Two answers to the same question</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> The overhaul is still one PR. The follow-up only deletes code that nothing reaches any more.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- D12 -->
+<section class="dec" id="d12" data-rec="a" data-title="Read-only checks on production first">
+  <p class="kicker"><b>D12</b> Before the backfill <span class="tag t-none">Reads only</span></p>
+  <h2>May I run five read-only queries on production first?</h2>
+  <p class="q">Every number in the cases above is invented. Five queries would show which of these decisions matter in your data, and how big the backfill is.</p>
+  <div class="facts reveal"><span class="lab">How they'd run</span>
+    <p>ClickHouse holds production data only, so these run there, through the read-only login, in the minutes after a sync. I'd also read the last few sync times from <code>analyticsSync</code> to settle D1. The results come back to you in chat and never go in the repo, which is public.</p>
+  </div>
+  <div class="opts" role="radiogroup" aria-label="D12 options">
+    <button class="opt" type="button" role="radio" data-opt="a"><span class="ltr">A</span><b>Yes, after the next sync</b><span class="d">I run the five queries and report the counts.</span><span class="rec">Recommended</span></button>
+    <button class="opt" type="button" role="radio" data-opt="b"><span class="ltr">B</span><b>Not yet</b><span class="d">Build from the code alone; size the backfill from its dry run on the day.</span></button>
+  </div>
+  <p class="pickline"></p>
+  <div class="cases one">
+    <article class="case reveal">
+      <header><span class="lab">Check 1 · D5, D6, the backfill</span><h4>Replaced calls, their types, and DM credit on them</h4></header>
+<pre class="sql"><span class="k">SELECT</span>
+  toStartOfMonth(fromUnixTimestamp64Milli(s.scheduled_at_ms, 'America/Tegucigalpa')) <span class="k">AS</span> month,
+  countIf(p.status = 'canceled') <span class="k">AS</span> replaced_moves,
+  countIf(p.status = 'no_show') <span class="k">AS</span> rebooks_after_no_show,
+  countIf(p.status = 'canceled' <span class="k">AND</span> s.call_classification = 'follow_up') <span class="k">AS</span> moves_filed_as_follow_up,
+  countIf(s.id <span class="k">IN</span> (<span class="k">SELECT</span> meeting_id <span class="k">FROM</span> analytics.attributions
+                   <span class="k">WHERE</span> tenant_id = {tenant_id:String} <span class="k">AND</span> role <span class="k">IN</span> ('dm_team', 'dm_closer'))) <span class="k">AS</span> replacements_with_dm_credit
+<span class="k">FROM</span> analytics.meetings <span class="k">AS</span> s
+<span class="k">INNER JOIN</span> analytics.meetings <span class="k">AS</span> p <span class="k">ON</span> p.id = s.rescheduled_from_meeting_id
+<span class="k">WHERE</span> s.tenant_id = {tenant_id:String}
+<span class="k">GROUP BY</span> month <span class="k">ORDER BY</span> month</pre>
+    </article>
+    <article class="case reveal">
+      <header><span class="lab">Check 2 · D2</span><h4>Held calls and no-shows now on a different closer</h4></header>
+<pre class="sql"><span class="k">SELECT</span>
+  count() <span class="k">AS</span> held_or_no_show,
+  countIf(c.meeting_id <span class="k">IS NULL</span>) <span class="k">AS</span> no_closer_row,
+  countIf(c.meeting_id <span class="k">IS NOT NULL AND</span> c.closer_id != m.assigned_closer_id) <span class="k">AS</span> now_on_another_closer
+<span class="k">FROM</span> analytics.meetings <span class="k">AS</span> m
+<span class="k">LEFT JOIN</span> (
+  <span class="k">SELECT</span> meeting_id, JSONExtractString(argMax(source_json, attributed_at_ms), 'userId') <span class="k">AS</span> closer_id
+  <span class="k">FROM</span> analytics.attributions
+  <span class="k">WHERE</span> tenant_id = {tenant_id:String} <span class="k">AND</span> role = 'closer' <span class="k">AND</span> meeting_id <span class="k">IS NOT NULL</span>
+  <span class="k">GROUP BY</span> meeting_id
+) <span class="k">AS</span> c <span class="k">ON</span> c.meeting_id = m.id
+<span class="k">WHERE</span> m.tenant_id = {tenant_id:String} <span class="k">AND</span> m.status <span class="k">IN</span> ('held', 'no_show')
+<span class="k">SETTINGS</span> join_use_nulls = 1</pre>
+    </article>
+    <article class="case reveal">
+      <header><span class="lab">Check 3 · D7, D8</span><h4>Cash by currency and payment type since August</h4></header>
+<pre class="sql"><span class="k">SELECT</span> currency, payment_type, count() <span class="k">AS</span> payments, sum(amount_minor) / 100 <span class="k">AS</span> amount
+<span class="k">FROM</span> analytics.payments
+<span class="k">WHERE</span> tenant_id = {tenant_id:String}
+  <span class="k">AND</span> status != 'disputed'
+  <span class="k">AND</span> recorded_at_ms >= toUnixTimestamp64Milli(toDateTime64('2026-08-01 01:00:00', 3, 'America/Tegucigalpa'))
+<span class="k">GROUP BY</span> currency, payment_type <span class="k">ORDER BY</span> currency, payment_type</pre>
+    </article>
+    <article class="case reveal">
+      <header><span class="lab">Check 4 · D3</span><h4>Cash whose payment names someone other than the first call's closer</h4></header>
+<pre class="sql"><span class="k">WITH</span> first_held <span class="k">AS</span> (
+  <span class="k">SELECT</span> opportunity_id, argMin(id, scheduled_at_ms) <span class="k">AS</span> meeting_id
+  <span class="k">FROM</span> analytics.meetings
+  <span class="k">WHERE</span> tenant_id = {tenant_id:String} <span class="k">AND</span> status = 'held'
+  <span class="k">GROUP BY</span> opportunity_id
+), first_closer <span class="k">AS</span> (
+  <span class="k">SELECT</span> f.opportunity_id <span class="k">AS</span> opportunity_id,
+         JSONExtractString(argMax(a.source_json, a.attributed_at_ms), 'userId') <span class="k">AS</span> closer_id
+  <span class="k">FROM</span> first_held <span class="k">AS</span> f
+  <span class="k">INNER JOIN</span> analytics.attributions <span class="k">AS</span> a <span class="k">ON</span> a.meeting_id = f.meeting_id
+  <span class="k">WHERE</span> a.tenant_id = {tenant_id:String} <span class="k">AND</span> a.role = 'closer'
+  <span class="k">GROUP BY</span> f.opportunity_id
+)
+<span class="k">SELECT</span> p.currency,
+  count() <span class="k">AS</span> payments,
+  countIf(p.attributed_closer_id != fc.closer_id) <span class="k">AS</span> different_closer,
+  sumIf(p.amount_minor, p.attributed_closer_id != fc.closer_id) / 100 <span class="k">AS</span> amount_different
+<span class="k">FROM</span> analytics.payments <span class="k">AS</span> p
+<span class="k">INNER JOIN</span> first_closer <span class="k">AS</span> fc <span class="k">ON</span> fc.opportunity_id = p.opportunity_id
+<span class="k">WHERE</span> p.tenant_id = {tenant_id:String} <span class="k">AND</span> p.status != 'disputed'
+<span class="k">GROUP BY</span> p.currency</pre>
+    </article>
+    <article class="case reveal">
+      <header><span class="lab">Check 5 · D4</span><h4>Paid deals with two or more people in one role</h4></header>
+<pre class="sql"><span class="k">SELECT</span> role, countIf(people > 1) <span class="k">AS</span> deals_with_two_or_more, count() <span class="k">AS</span> paid_deals_with_the_role
+<span class="k">FROM</span> (
+  <span class="k">SELECT</span> opportunity_id, role, uniqExact(team_member_id) <span class="k">AS</span> people
+  <span class="k">FROM</span> analytics.attributions
+  <span class="k">WHERE</span> tenant_id = {tenant_id:String}
+    <span class="k">AND</span> role != 'dm_team'
+    <span class="k">AND</span> opportunity_id <span class="k">IN</span> (<span class="k">SELECT</span> opportunity_id <span class="k">FROM</span> analytics.payments
+                           <span class="k">WHERE</span> tenant_id = {tenant_id:String} <span class="k">AND</span> status != 'disputed')
+  <span class="k">GROUP BY</span> opportunity_id, role
+)
+<span class="k">GROUP BY</span> role <span class="k">ORDER BY</span> role</pre>
+    </article>
+  </div>
+  <div class="scroll-x"><table class="doc costs" style="min-width:640px">
+    <thead><tr><th>Option</th><th>What you get</th><th>Data</th><th>Risk</th></tr></thead>
+    <tbody>
+      <tr data-row="a"><td>A</td><td>Real counts behind D1 to D8 before you answer, and an expected number for the backfill's dry run</td><td>Reads only</td><td>Five queries on ClickHouse while a sync has it awake</td></tr>
+      <tr data-row="b"><td>B</td><td>Decisions on the code alone; the dry run is the first real number</td><td>None</td><td>A decision turns out not to matter, or to matter more than it looked</td></tr>
+    </tbody>
+  </table></div>
+  <div class="rec-box">
+    <div class="callout"><p><b>My pick: A.</b> Ten minutes of reads would tell us whether D2 and D4 affect a handful of deals or a fifth of October.</p></div>
+    <label class="note"><span class="lab">Your note or correction</span><textarea data-note placeholder="Anything I've got wrong, or a case I missed"></textarea></label>
+  </div>
+</section>
+
+<!-- Answers -->
+<section id="answers">
+  <p class="kicker"><b>AN</b> Your answers</p>
+  <h2>Your answers, ready to paste back</h2>
+  <p>Picks and notes stay in this browser only. Copy them into the chat and I'll correct the plan from there. A decision you haven't clicked shows my recommendation in grey.</p>
+  <div class="answers reveal">
+    <div class="answers-top">
+      <span class="lab" id="ansCount">0 of 12 chosen</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" id="acceptRest">Take my picks for the rest</button>
+        <button class="btn" type="button" id="clearAll">Clear</button>
+        <button class="btn primary" type="button" id="copyAll">Copy answers</button>
+      </div>
+    </div>
+    <ul class="ans-list" id="ansList"></ul>
+  </div>
+  <p class="small muted" style="margin-top:40px">Sources: the code on this branch at the paths each decision lists, <code>CONTEXT.md</code>, <code>docs/adr/0001-lead-lifecycle-model.md</code>, <code>docs/agents/convex.md</code>, <code>docs/agents/reporting.md</code>, <code>docs/agents/auth.md</code> and <code>docs/plans/clickhouse-reporting.md</code>. The first report is <code>docs/reviews/reports-overhaul.html</code>. Every name, amount and count in the cases is invented.</p>
+</section>
+
+</div>
+</main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(function () {
+  "use strict";
+  var KEY = "rd-answers-v1";
+  var THEME_KEY = "rd-theme";
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function load(key, fallback) {
+    try { var raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage blocked: answers live for this visit only */ }
+  }
+
+  /* Theme */
+  var root = document.documentElement;
+  var themeBtn = document.getElementById("themeBtn");
+  function systemDark() { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
+  function applyTheme(t) {
+    if (t === "light" || t === "dark") root.setAttribute("data-theme", t); else root.removeAttribute("data-theme");
+    var dark = t ? t === "dark" : systemDark();
+    themeBtn.textContent = dark ? "Light" : "Dark";
+  }
+  applyTheme(load(THEME_KEY, null));
+  themeBtn.addEventListener("click", function () {
+    var cur = root.getAttribute("data-theme") || (systemDark() ? "dark" : "light");
+    var next = cur === "dark" ? "light" : "dark";
+    save(THEME_KEY, next);
+    applyTheme(next);
+  });
+
+  /* Reveal on scroll */
+  var revealTargets = document.querySelectorAll(".reveal, .runbook, .case");
+  if ("IntersectionObserver" in window && !reduce) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          if (e.target.id === "d4bars" || e.target.querySelector("#d4bars")) drawBars();
+          io.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+    revealTargets.forEach(function (el) { io.observe(el); });
+  } else {
+    revealTargets.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  /* Scrollspy */
+  var tocLinks = Array.prototype.slice.call(document.querySelectorAll(".toc a"));
+  var spyTargets = tocLinks.map(function (a) { return document.querySelector(a.getAttribute("href")); }).filter(Boolean);
+  function spy() {
+    var y = window.scrollY + window.innerHeight * 0.3;
+    var current = null;
+    spyTargets.forEach(function (s) { if (s.offsetTop <= y) current = s.id; });
+    tocLinks.forEach(function (a) { a.setAttribute("aria-current", a.getAttribute("href") === "#" + current ? "true" : "false"); });
+  }
+  window.addEventListener("scroll", spy, { passive: true });
+  spy();
+
+  /* Decisions */
+  var decs = Array.prototype.slice.call(document.querySelectorAll(".dec"));
+  var state = load(KEY, {});
+
+  function optLabel(dec, letter) {
+    var b = dec.querySelector('.opt[data-opt="' + letter + '"] b');
+    return letter.toUpperCase() + ". " + (b ? b.textContent : "");
+  }
+
+  function render(dec, animate) {
+    var id = dec.id;
+    var s = state[id] || {};
+    var rec = dec.getAttribute("data-rec");
+    var pick = s.pick || rec;
+    dec.setAttribute("data-pick", pick);
+    dec.classList.toggle("chosen", !!s.pick);
+    dec.querySelectorAll(".opt").forEach(function (o) {
+      var on = o.getAttribute("data-opt") === pick;
+      o.setAttribute("aria-checked", on ? "true" : "false");
+      o.tabIndex = on ? 0 : -1;
+    });
+    dec.querySelectorAll(".costs tr[data-row]").forEach(function (tr) {
+      tr.classList.toggle("sel", tr.getAttribute("data-row") === pick);
+    });
+    var line = dec.querySelector(".pickline");
+    if (line) {
+      line.innerHTML = s.pick
+        ? "Your answer: <b>" + escapeHtml(optLabel(dec, s.pick)) + "</b>" + (s.pick === rec ? " · same as my pick" : " · differs from my pick, " + escapeHtml(optLabel(dec, rec)))
+        : "Showing my pick, <b>" + escapeHtml(optLabel(dec, rec)) + "</b>. Click an option to compare, or to choose it.";
+    }
+    if (animate && !reduce) {
+      dec.classList.remove("swap");
+      void dec.offsetWidth;
+      dec.classList.add("swap");
+    }
+    if (id === "d4") drawBars();
+  }
+
+  function escapeHtml(t) {
+    return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+  }
+
+  decs.forEach(function (dec) {
+    var id = dec.id;
+    dec.querySelectorAll(".opt").forEach(function (o) {
+      o.addEventListener("click", function () {
+        state[id] = state[id] || {};
+        state[id].pick = o.getAttribute("data-opt");
+        save(KEY, state);
+        render(dec, true);
+        renderAnswers();
+      });
+    });
+    var group = dec.querySelector(".opts");
+    group.addEventListener("keydown", function (e) {
+      if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].indexOf(e.key) < 0) return;
+      e.preventDefault();
+      var opts = Array.prototype.slice.call(group.querySelectorAll(".opt"));
+      var i = opts.indexOf(document.activeElement);
+      if (i < 0) i = 0;
+      var n = (e.key === "ArrowRight" || e.key === "ArrowDown") ? (i + 1) % opts.length : (i - 1 + opts.length) % opts.length;
+      opts[n].focus();
+      opts[n].click();
+    });
+    var note = dec.querySelector("[data-note]");
+    if (note) {
+      note.value = (state[id] && state[id].note) || "";
+      var timer = null;
+      note.addEventListener("input", function () {
+        state[id] = state[id] || {};
+        state[id].note = note.value;
+        clearTimeout(timer);
+        timer = setTimeout(function () { save(KEY, state); renderAnswers(); }, 250);
+      });
+    }
+    render(dec, false);
+  });
+
+  /* D4 bars */
+  function drawBars() {
+    var wrap = document.getElementById("d4bars");
+    if (!wrap) return;
+    var dec = document.getElementById("d4");
+    var pick = dec.getAttribute("data-pick") || "a";
+    var max = 82100;
+    var visible = wrap.closest(".case").classList.contains("in") || reduce || !("IntersectionObserver" in window);
+    wrap.querySelectorAll(".fill").forEach(function (f, i) {
+      var v = Number(f.getAttribute("data-" + pick)) || 0;
+      f.style.transitionDelay = (i * 60) + "ms";
+      f.style.width = visible ? (v / max * 100).toFixed(1) + "%" : "0";
+    });
+  }
+  var d4case = document.getElementById("d4bars") && document.getElementById("d4bars").closest(".case");
+  if (d4case && "MutationObserver" in window) {
+    new MutationObserver(drawBars).observe(d4case, { attributes: true, attributeFilter: ["class"] });
+  }
+  drawBars();
+
+  /* Answers */
+  var ansList = document.getElementById("ansList");
+  var ansCount = document.getElementById("ansCount");
+  var progText = document.getElementById("progText");
+  var progBar = document.getElementById("progBar");
+
+  function renderAnswers() {
+    var chosen = 0;
+    ansList.innerHTML = "";
+    decs.forEach(function (dec) {
+      var id = dec.id;
+      var s = state[id] || {};
+      var rec = dec.getAttribute("data-rec");
+      if (s.pick) chosen++;
+      var li = document.createElement("li");
+      var pickHtml = s.pick
+        ? '<span class="p">' + escapeHtml(optLabel(dec, s.pick)) + (s.pick === rec ? "" : ' <span class="dim">· mine was ' + escapeHtml(rec.toUpperCase()) + "</span>") + "</span>"
+        : '<span class="p un">Not chosen · my pick is ' + escapeHtml(optLabel(dec, rec)) + "</span>";
+      var noteHtml = s.note && s.note.trim() ? '<span class="nt">' + escapeHtml(s.note.trim()) + "</span>" : "";
+      li.innerHTML = '<span class="id">' + id.toUpperCase() + '</span><div><span class="t">' + escapeHtml(dec.getAttribute("data-title")) + "</span>" + pickHtml + noteHtml + '</div><a href="#' + id + '">Change</a>';
+      ansList.appendChild(li);
+      var dot = document.querySelector('#tocDecisions a[href="#' + id + '"] .dot');
+      if (dot) dot.classList.toggle("done", !!s.pick);
+    });
+    var txt = chosen + " of " + decs.length + " chosen";
+    ansCount.textContent = txt;
+    progText.textContent = txt;
+    progBar.style.width = (chosen / decs.length * 100) + "%";
+  }
+  renderAnswers();
+
+  function answersText() {
+    var lines = ["Report decisions, my answers (docs/reviews/reports-decisions.html)", ""];
+    decs.forEach(function (dec) {
+      var id = dec.id.toUpperCase();
+      var s = state[dec.id] || {};
+      var rec = dec.getAttribute("data-rec");
+      var pick = s.pick ? optLabel(dec, s.pick) + (s.pick === rec ? " (your recommendation)" : " (you recommended " + rec.toUpperCase() + ")") : "Not chosen; your recommendation was " + optLabel(dec, rec);
+      lines.push(id + " " + dec.getAttribute("data-title"));
+      lines.push("   " + pick);
+      if (s.note && s.note.trim()) lines.push("   Note: " + s.note.trim().replace(/\n+/g, "\n         "));
+      lines.push("");
+    });
+    return lines.join("\n");
+  }
+
+  var toast = document.getElementById("toast");
+  var toastTimer = null;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 2200);
+  }
+
+  document.getElementById("copyAll").addEventListener("click", function () {
+    var text = answersText();
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      showToast(ok ? "Answers copied" : "Copy blocked. Select the list and copy it by hand.");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { showToast("Answers copied"); }, fallback);
+    } else {
+      fallback();
+    }
+  });
+
+  document.getElementById("acceptRest").addEventListener("click", function () {
+    var n = 0;
+    decs.forEach(function (dec) {
+      state[dec.id] = state[dec.id] || {};
+      if (!state[dec.id].pick) { state[dec.id].pick = dec.getAttribute("data-rec"); n++; render(dec, false); }
+    });
+    save(KEY, state);
+    renderAnswers();
+    showToast(n ? "My picks set for " + n + (n === 1 ? " decision" : " decisions") : "Every decision already has an answer");
+  });
+
+  var clearBtn = document.getElementById("clearAll");
+  var clearArmed = false;
+  clearBtn.addEventListener("click", function () {
+    if (!clearArmed) {
+      clearArmed = true;
+      clearBtn.textContent = "Click again to clear";
+      setTimeout(function () { clearArmed = false; clearBtn.textContent = "Clear"; }, 3000);
+      return;
+    }
+    clearArmed = false;
+    clearBtn.textContent = "Clear";
+    state = {};
+    save(KEY, state);
+    decs.forEach(function (dec) { var n = dec.querySelector("[data-note]"); if (n) n.value = ""; render(dec, false); });
+    renderAnswers();
+    showToast("Answers cleared");
+  });
+
+  /* Backfill chain diagram */
+  var chainNotes = {
+    now: "Stored today: the only first call is the slot that never happened. The call held after the no-show is filed as a follow-up, the same as the real follow-up on Oct 20.",
+    b: "With B, the backfill changes one meeting: Oct 9 replaces a moved first call, so it becomes a first call. Oct 13 is a rebook after a no-show and stays a follow-up.",
+    c: "With C, the backfill changes two meetings: nothing on this deal was held before Oct 13, so Oct 9 and Oct 13 are first calls. Oct 20 follows a held call and stays a follow-up."
+  };
+  var chainIdx = { now: 0, b: 1, c: 2 };
+  var chainMtgs = Array.prototype.slice.call(document.querySelectorAll("#chain .mtg"));
+  function setChain(which, animate) {
+    document.querySelectorAll("#chainSeg button").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-chain") === which ? "true" : "false"); });
+    chainMtgs.forEach(function (m, i) {
+      var types = m.getAttribute("data-t").split(" ");
+      var t = types[chainIdx[which]];
+      var el = m.querySelector(".type-v");
+      var prev = el.getAttribute("data-v");
+      el.textContent = t === "first" ? "First call" : "Follow-up";
+      el.className = "type-v " + (t === "first" ? "first" : "follow");
+      el.setAttribute("data-v", t);
+      m.classList.toggle("changed", which !== "now" && types[0] !== t);
+      if (animate && prev && prev !== t && !reduce) {
+        el.style.animationDelay = (i * 80) + "ms";
+        void el.offsetWidth;
+        el.classList.add("flip");
+      }
+    });
+    document.getElementById("chainNote").textContent = chainNotes[which];
+  }
+  document.querySelectorAll("#chainSeg button").forEach(function (b) {
+    b.addEventListener("click", function () { setChain(b.getAttribute("data-chain"), true); });
+  });
+  setChain("now", false);
+})();
+</script>
+</body>
+</html>

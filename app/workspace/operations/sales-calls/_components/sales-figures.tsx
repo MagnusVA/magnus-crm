@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { TextPlaceholder } from "@/app/workspace/_components/text-placeholder";
 import { formatCash } from "@/lib/closer-pipeline";
+import { REPORT_TERMS } from "@/lib/reporting/definitions";
 import { cn } from "@/lib/utils";
 import { dealsWonWords, formatCloseRate } from "./close-rate";
 import type { SalesCallsStats, SalesSummaryMoney } from "./sales-calls-data";
@@ -33,7 +34,7 @@ function Pending() {
         <TextPlaceholder sample="000" />
       </p>
       <p className={PROOF}>
-        <TextPlaceholder sample="0 canceled · 0 no-show" />
+        <TextPlaceholder sample="0 canceled · 0 moved · 0 no-show" />
       </p>
     </>
   );
@@ -90,7 +91,7 @@ export function SalesFigures({
           <>
             <p className={FIGURE}>{formatCount(stats.totalCalls)}</p>
             <p className={PROOF}>
-              {formatCount(stats.canceled)} canceled · {formatCount(stats.noShows)} no-show
+              {formatCount(stats.canceled)} canceled · {formatCount(stats.moved ?? 0)} moved · {formatCount(stats.noShows)} no-show
             </p>
           </>
         ) : (
@@ -109,7 +110,7 @@ export function SalesFigures({
           <Pending />
         )}
       </Zone>
-      <Zone label="Cash collected">
+      <Zone label={REPORT_TERMS.finalCash.label}>
         {stats ? (
           <>
             <p className="flex flex-wrap items-baseline gap-x-2 leading-[1.05]">

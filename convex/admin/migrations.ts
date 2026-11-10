@@ -3,7 +3,7 @@ import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggre
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { recomputeResparkState } from "../lib/respark/state";
-import { requestMeetingProjection } from "../operations/meetingStats";
+import { requestMeetingDeleteProjections } from "../operations/meetingStats";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
@@ -1978,7 +1978,9 @@ export const purgePhase6BlockerRecords = mutation({
       // 7. Delete meetings, with their attribution rows
       for (const meeting of oppMeetings) {
         await deleteMeetingAttributions(ctx, meeting.tenantId, meeting._id);
-        await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
+        // Also re-projects the meeting it replaced: a canceled slot with no
+        // successor left counts as canceled again, not moved.
+        await requestMeetingDeleteProjections(ctx, meeting);
         await ctx.db.delete("meetings", meeting._id);
         counts.meetings++;
       }

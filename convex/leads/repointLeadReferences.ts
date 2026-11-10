@@ -30,6 +30,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { moveMeetingAttributions } from "../lib/attribution/dealAttributions";
+import { retypeDealMeetingsWithoutRefs } from "../lib/dealCallTypes";
+import { requestMeetingProjection } from "../operations/meetingStats";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { syncProspectConversions } from "../lib/prospectConversions";
 import { rebuildQualificationRow } from "../operations/projections";
@@ -242,9 +244,11 @@ export type MeetingMoveResult = {
  * form responses, webhook receipts, reassignment history and attribution
  * rows, which take the new opportunity and its lead. `fields` sets the
  * meeting fields that depend on its opportunity, such as
- * `callClassification`. The meeting's aggregates and projection follow; the
- * caller runs `updateOpportunityMeetingRefs` on both opportunities after its
- * last move.
+ * `rescheduledFromMeetingId`. The call type isn't one of them: it follows
+ * the rule in `convex/lib/callType.ts`, so both deals are re-typed after the
+ * move. The meeting's aggregates and projection follow, and so does the
+ * projection of the meeting it replaced; the caller runs
+ * `updateOpportunityMeetingRefs` on both opportunities after its last move.
  *
  * A payment names the meeting it was taken on, and stays on its own
  * opportunity, so a meeting with a payment doesn't move.
@@ -257,9 +261,7 @@ export async function moveMeetingToOpportunity(
     toOpportunityId: Id<"opportunities">;
     /** The new lead's display name (`leadDisplayString`). */
     leadName: string;
-    fields?: Partial<
-      Pick<Doc<"meetings">, "callClassification" | "rescheduledFromMeetingId">
-    >;
+    fields?: Partial<Pick<Doc<"meetings">, "rescheduledFromMeetingId">>;
   },
 ): Promise<MeetingMoveResult> {
   const { tenantId, meetingId, toOpportunityId } = args;
@@ -293,6 +295,18 @@ export async function moveMeetingToOpportunity(
   });
   // Also mirrors the new opportunity's status onto the meeting.
   await replaceMeetingAggregate(ctx, meeting, meetingId);
+  // A held call leaving one deal and joining another can change the type of
+  // every later call on both.
+  for (const opportunityId of new Set([meeting.opportunityId, toOpportunityId])) {
+    await retypeDealMeetingsWithoutRefs(ctx, opportunityId);
+  }
+  const moved = await ctx.db.get("meetings", meetingId);
+  for (const replacedId of new Set([
+    meeting.rescheduledFromMeetingId,
+    moved?.rescheduledFromMeetingId,
+  ])) {
+    if (replacedId) await requestMeetingProjection(ctx, tenantId, replacedId);
+  }
 
   const result: MeetingMoveResult = {
     formResponses: 0,

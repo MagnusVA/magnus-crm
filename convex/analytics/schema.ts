@@ -41,6 +41,12 @@ export const analyticsPageValidator = v.union(
   v.literal("lead_gen"),
   v.literal("overview"),
   v.literal("my_activity"),
+  // The rebuilt Reports (docs/reviews/reports-overhaul.html). The page ids
+  // above stay while the tenant row may still list them.
+  v.literal("scorecard"),
+  v.literal("calls"),
+  v.literal("people"),
+  v.literal("attribution"),
 );
 
 export const apiKeyScopeValidator = v.literal("metrics:read");
@@ -66,8 +72,10 @@ export const analyticsTables = {
       v.literal("failed"),
     ),
     // The newest good answer. Kept in its own table so the budget, the batch
-    // and cleanup read small rows.
+    // and cleanup read small rows. An answer over 900 KB continues in
+    // `payloadPartIds`, in order; joined, the parts are the answer's JSON.
     payloadId: v.optional(v.id("analyticsPayloads")),
+    payloadPartIds: v.optional(v.array(v.id("analyticsPayloads"))),
     answer: v.optional(
       v.object({
         watermark: v.number(),
@@ -103,16 +111,19 @@ export const analyticsTables = {
     .index("by_lastRequestedAt", ["lastRequestedAt"])
     .index("by_tenantId_and_missedAt", ["tenantId", "missedAt"]),
 
-  /** An answer's JSON, under 900 KB, owned by one `analyticsResults` row. */
+  /** One part of an answer's JSON, under 900 KB, owned by one `analyticsResults` row. */
   analyticsPayloads: defineTable({
     tenantId: v.id("tenants"),
     json: v.string(),
-  }),
+    // The row whose run wrote it, so parts a crashed run left behind are
+    // found and deleted with the key. Unset on answers saved before parts.
+    resultId: v.optional(v.id("analyticsResults")),
+  }).index("by_resultId", ["resultId"]),
 
   /**
    * One row. The 5-minute heartbeat patches `beatAt`, and Fivetran copies it,
-   * so ClickHouse's copy is the newest write a sync included (§8.2). No page
-   * or query reads this table.
+   * so ClickHouse's copy is the newest write a sync included (§8.2). Pages
+   * read only its watermark, through `sync:getSyncWatermark`.
    */
   analyticsSync: defineTable({
     beatAt: v.number(),

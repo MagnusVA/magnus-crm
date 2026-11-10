@@ -138,6 +138,8 @@ export const runNew = internalAction({
   returns: v.string(),
   handler: async (ctx, args): Promise<string> => {
     const definition = getReportDefinition(args.reportId);
+    // The same build production runs, read-only: Node for Node-built reports.
+    if (definition.node) return await ctx.runAction(internal.analytics.runNode.previewInNode, args);
     const rowsJson = await fetchReportRows(definition, {
       tenantId: args.tenantId,
       filters: JSON.parse(args.filtersJson) as AnalyticsFilters,

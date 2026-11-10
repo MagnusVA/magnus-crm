@@ -17,6 +17,7 @@ import type { ScheduleOwner, ScheduleRow } from "../../workSchedules/datedRows";
 import { loadScheduleRowsByOwner } from "../../workSchedules/rangeHours";
 import { createLiveReadState } from "../../lib/liveQueryBounds";
 import { bookingCreditForMeeting } from "../../lib/attribution/dealAttributions";
+import { isReplacement } from "../../lib/callType";
 import { leadDisplayFromShape } from "../../lib/leadDisplay";
 import {
   dmCloserMemberIdentity,
@@ -415,15 +416,16 @@ async function readQualificationEvents(ctx: QueryCtx, args: ReportSourcePageRequ
   return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "qualification_event", eventId: row._id, submittedAt: row.submittedAt, slackUserId: row.slackUserId, slackTeamId: row.slackTeamId, fullNameSnapshot: row.fullNameSnapshot, platform: row.platform, handleSnapshot: row.handleSnapshot, leadId: row.leadId ?? null, opportunityId: row.opportunityId ?? null, resultKind: row.resultKind })));
 }
 
-// First bookings (anything but a follow_up) with their credit from the
-// booking's dm_team and dm_closer rows, as Booked Calls counts them (§6.1).
+// New bookings (any meeting that doesn't replace another, whatever its call
+// type) with their credit from the booking's dm_team and dm_closer rows, as
+// Booked Calls counts them (§6.1).
 // Team-only bookings come along for their team's goal; the reducer keeps them
 // out of the DM closer counts and the raw list. Two meetings a page, so rows
 // are read by meeting.
 async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) {
   const result = await ctx.db.query("meetings").withIndex("by_tenantId_and_createdAt", (q) => q.eq("tenantId", args.tenantId).gte("createdAt", args.startTimestamp).lt("createdAt", args.endTimestampExclusive)).paginate(pagination(args.cursor, 2));
-  const firstBookings = result.page.filter((row) => row.callClassification !== "follow_up");
-  const credited = await Promise.all(firstBookings.map(async (meeting) => ({ meeting, credit: await bookingCreditForMeeting(ctx, args.tenantId, meeting._id) })));
+  const newBookings = result.page.filter((row) => !isReplacement(row));
+  const credited = await Promise.all(newBookings.map(async (meeting) => ({ meeting, credit: await bookingCreditForMeeting(ctx, args.tenantId, meeting._id) })));
   const booked = credited.filter(({ credit }) => credit.dmCloserId !== undefined || credit.teamId !== undefined);
   const page = await Promise.all(booked.map(async ({ meeting, credit }): Promise<ReportSourceRow> => {
     const [opportunity, team, dmCloser] = await Promise.all([ctx.db.get("opportunities", meeting.opportunityId), credit.teamId ? ctx.db.get("attributionTeams", credit.teamId) : Promise.resolve(null), credit.dmCloserId ? ctx.db.get("dmClosers", credit.dmCloserId) : Promise.resolve(null)]);
