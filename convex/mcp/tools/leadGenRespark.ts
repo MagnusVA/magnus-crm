@@ -10,29 +10,29 @@ import { dealOutcomeValidator, dealStageValidator } from "../../opportunities/st
 import { getHeldResparkBatchCore, getResparkPersonPanelCore, resparkBatchCardCore } from "../../respark/queries";
 import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser } from "../guard";
 import { progressValidator } from "./leadGenToday";
+import { formatLocal } from "../time";
 
 const nullableString = v.union(v.string(), v.null());
-const nullableNumber = v.union(v.number(), v.null());
 const text = v.union(mcpPersonTextValidator, v.null());
 const resultValidator = v.union(resparkResultValidator, v.null());
-const touchValidator = v.object({ eventId: v.id("domainEvents"), eventType: v.string(), label: v.string(), occurredAt: v.number() });
+const touchValidator = v.object({ eventId: v.id("domainEvents"), eventType: v.string(), label: v.string(), occurredAt: v.string() });
 const cardValidator = v.object({ itemId: v.id("resparkBatchItems"), bucket: v.number(), result: resultValidator,
   handle: nullableString, stage: v.union(lifecycleStageValidator, v.null()), disposition: v.union(dispositionValidator, v.null()),
-  capturedAt: nullableNumber, capturedBy: v.union(v.literal("you"), v.literal("a teammate"), v.null()),
+  capturedAt: nullableString, capturedBy: v.union(v.literal("you"), v.literal("a teammate"), v.null()),
   newestDealOutcome: v.union(dealOutcomeValidator, v.null()), lastTouches: v.array(touchValidator), blockedReason: nullableString });
 export const resparkBatchArgs = { cursor: v.optional(v.string()) };
 
 export const batch = internalQuery({
   args: { caller: mcpCallerValidator, ...resparkBatchArgs },
-  returns: v.object({ profile: leadGenProfileValidator, asOf: v.number(), isPartial: v.boolean(), textTruncated: v.boolean(),
-    batchId: v.union(v.id("resparkBatches"), v.null()), progress: v.union(progressValidator, v.null()), heldUntil: nullableNumber,
+  returns: v.object({ profile: leadGenProfileValidator, asOf: v.string(), isPartial: v.boolean(), textTruncated: v.boolean(),
+    batchId: v.union(v.id("resparkBatches"), v.null()), progress: v.union(progressValidator, v.null()), heldUntil: nullableString,
     items: v.array(cardValidator), cursor: nullableString }),
   handler: async (ctx, { caller, cursor }) => {
     const me = await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
     const { profile } = await getOwnLeadGenProfile(ctx, me);
     const budget = new McpProjectionBudget();
     if (profile.team) profile.team.name = budget.text(profile.team.name);
-    const empty = { profile, asOf: Date.now(), isPartial: false, textTruncated: budget.textTruncated,
+    const empty = { profile, asOf: formatLocal(Date.now(), me.timeZone), isPartial: false, textTruncated: budget.textTruncated,
       batchId: null, progress: null, heldUntil: null, items: [], cursor: null };
     if (profile.status !== "active" || profile.noTeam) return empty;
     const held = await getHeldResparkBatchCore(ctx, me);
@@ -64,13 +64,13 @@ export const batch = internalQuery({
       const capturedBy = person?.capturedBy === "you" ? "you" as const : person?.capturedBy === "a teammate" ? "a teammate" as const : null;
       items.push({ itemId: item._id, bucket: item.bucket, result: card.result,
         handle: person?.handle ? projection.text(person.handle) : null, stage: person?.stage ?? null,
-        disposition: person?.disposition ?? null, capturedAt: person?.capturedAt ?? null, capturedBy,
+        disposition: person?.disposition ?? null, capturedAt: person?.capturedAt == null ? null : formatLocal(person.capturedAt, me.timeZone), capturedBy,
         newestDealOutcome: person?.newestDeal?.outcome ?? null,
-        lastTouches: projection.take(person?.lastTouches ?? [], touchLimit).map(touch => ({ ...touch, eventType: projection.text(touch.eventType), label: projection.text(touch.label) })),
+        lastTouches: projection.take(person?.lastTouches ?? [], touchLimit).map(touch => ({ ...touch, occurredAt: formatLocal(touch.occurredAt, me.timeZone), eventType: projection.text(touch.eventType), label: projection.text(touch.label) })),
         blockedReason: card.blockedReason ? projection.text(card.blockedReason) : null });
       projection.isPartial ||= person?.capped ?? false;
     }
-    return { profile, asOf: Date.now(), batchId: held.batch._id, progress: held.progress, heldUntil: held.batch.heldUntil,
+    return { profile, asOf: formatLocal(Date.now(), me.timeZone), batchId: held.batch._id, progress: held.progress, heldUntil: formatLocal(held.batch.heldUntil, me.timeZone),
       items, cursor: page.isDone ? null : JSON.stringify({ batchId: held.batch._id, userId: me.userId, tenantId: me.tenantId, cursor: page.continueCursor }),
       isPartial: !page.isDone || state.capped || projection.isPartial, textTruncated: budget.textTruncated || projection.textTruncated };
   },
@@ -79,17 +79,17 @@ export const batch = internalQuery({
 const panelValidator = v.object({ handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
   dispositionReason: text, identity: v.object({ name: text, phone: nullableString, email: nullableString }), timeZone: nullableString,
   timeline: v.array(touchValidator), deals: v.array(v.object({ opportunityId: v.id("opportunities"), stage: dealStageValidator,
-    outcome: dealOutcomeValidator, lostReason: text, createdAt: v.number() })),
-  calls: v.array(v.object({ meetingId: v.id("meetings"), opportunityId: v.id("opportunities"), scheduledAt: v.number(),
+    outcome: dealOutcomeValidator, lostReason: text, createdAt: v.string() })),
+  calls: v.array(v.object({ meetingId: v.id("meetings"), opportunityId: v.id("opportunities"), scheduledAt: v.string(),
     durationMinutes: v.number(), status: v.union(v.literal("scheduled"), v.literal("held"), v.literal("canceled"), v.literal("no_show")),
     bookingAnswers: v.array(v.object({ question: mcpPersonTextValidator, answer: mcpPersonTextValidator })) })),
-  notes: v.array(v.object({ noteId: v.id("leadNotes"), content: mcpPersonTextValidator, createdAt: v.number() })),
-  resparkHistory: v.array(v.object({ itemId: v.id("resparkBatchItems"), result: resultValidator, workedAt: nullableNumber, bucket: v.number() })) });
+  notes: v.array(v.object({ noteId: v.id("leadNotes"), content: mcpPersonTextValidator, createdAt: v.string() })),
+  resparkHistory: v.array(v.object({ itemId: v.id("resparkBatchItems"), result: resultValidator, workedAt: nullableString, bucket: v.number() })) });
 export const resparkPersonArgs = { itemIds: v.array(v.id("resparkBatchItems")) };
 
 export const person = internalQuery({
   args: { caller: mcpCallerValidator, ...resparkPersonArgs },
-  returns: v.object({ profile: leadGenProfileValidator, asOf: v.number(), isPartial: v.boolean(), textTruncated: v.boolean(),
+  returns: v.object({ profile: leadGenProfileValidator, asOf: v.string(), isPartial: v.boolean(), textTruncated: v.boolean(),
     people: v.array(v.object({ itemId: v.id("resparkBatchItems"), panel: v.union(panelValidator, v.null()) })) }),
   handler: async (ctx, { caller, itemIds }) => {
     const me = await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
@@ -104,7 +104,7 @@ export const person = internalQuery({
       if (!panel) { people.push({ itemId, panel: null }); continue; }
       budget.isPartial ||= panel.capped;
       // Give each section space before taking nested booking answers.
-      const timeline = budget.take(panel.timeline, limit).map(touch => ({ ...touch, eventType: budget.text(touch.eventType), label: budget.text(touch.label) }));
+      const timeline = budget.take(panel.timeline, limit).map(touch => ({ ...touch, occurredAt: formatLocal(touch.occurredAt, me.timeZone), eventType: budget.text(touch.eventType), label: budget.text(touch.label) }));
       const deals = budget.take(panel.deals, limit);
       const calls = budget.take(panel.calls, limit);
       const notes = budget.take(panel.notes, limit);
@@ -115,12 +115,14 @@ export const person = internalQuery({
         identity: { name: panel.identity.name ? budget.personText(panel.identity.name) : null,
           phone: panel.identity.phone ? budget.text(panel.identity.phone) : null, email: panel.identity.email ? budget.text(panel.identity.email) : null },
         timeZone: panel.timeZone ? budget.text(panel.timeZone) : null, timeline,
-        deals: deals.map(deal => ({ ...deal, lostReason: deal.lostReason ? budget.personText(deal.lostReason) : null })),
-        calls: calls.map(call => ({ ...call, bookingAnswers: budget.take(call.bookingAnswers, limit).map(answer => ({
+        deals: deals.map(deal => ({ ...deal, createdAt: formatLocal(deal.createdAt, me.timeZone), lostReason: deal.lostReason ? budget.personText(deal.lostReason) : null })),
+        calls: calls.map(call => ({ ...call, scheduledAt: formatLocal(call.scheduledAt, me.timeZone), bookingAnswers: budget.take(call.bookingAnswers, limit).map(answer => ({
           question: budget.personText(answer.question), answer: budget.personText(answer.answer) })) })),
-        notes: notes.map(note => ({ ...note, content: budget.personText(note.content) })), resparkHistory,
+        notes: notes.map(note => ({ ...note, createdAt: formatLocal(note.createdAt, me.timeZone), content: budget.personText(note.content) })),
+        resparkHistory: resparkHistory.map(entry => ({ ...entry,
+          workedAt: entry.workedAt === null ? null : formatLocal(entry.workedAt, me.timeZone) })),
       } });
     }
-    return { profile, asOf: Date.now(), people, isPartial: budget.isPartial, textTruncated: budget.textTruncated };
+    return { profile, asOf: formatLocal(Date.now(), me.timeZone), people, isPartial: budget.isPartial, textTruncated: budget.textTruncated };
   },
 });

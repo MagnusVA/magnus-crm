@@ -10,7 +10,9 @@ import { mergeLeadGenOverview, mergeLeadGenWorkers, mergeLeadGenTopOriginsByTeam
 import { canonicalJson, resolveReportRequest, reportDefinitionFor } from "../analytics/keys";
 import { DEFAULT_BUSINESS_DAY } from "../../lib/businessDay";
 import { REPORT_DEFINITION_VERSION, normalizeReportRange } from "../operations/reports/contracts";
+import { formatLocal } from "./time";
 
+const TIME_ZONE = "America/Los_Angeles";
 const NOW = Date.parse("2026-10-15T18:00:00Z");
 const TODAY = "2026-10-15";
 const ALL = ["overview", "specialists", "teams", "top_posts", "conversions", "respark"] as const;
@@ -31,6 +33,7 @@ afterEach(() => {
 async function fixture() {
   const h = await createMcpHarness();
   const seed = await seedTenantWithLeadGen(h.t);
+  await h.t.run(ctx => ctx.db.patch("users", seed.adminId, { timezone: TIME_ZONE }));
   const admin = h.t.withIdentity({ subject: "user_admin", org_id: seed.orgId });
   // A shared team and origin, a repeated prospect across workers and sources.
   for (const day of ["2026-10-01", "2026-10-14", TODAY]) {
@@ -166,7 +169,7 @@ describe("lead gen report through /mcp", () => {
     const h = await fixture();
     const result = await run(h, { startDate: day, endDate: day, sections: ALL, source: "instagram" });
     parity(result, await web(h, day, day, "instagram"), h);
-    for (const s of result.sections) expect(s).toMatchObject({ state: "ready", source: "live", asOf: NOW });
+    for (const s of result.sections) expect(s).toMatchObject({ state: "ready", source: "live", asOf: formatLocal(NOW, TIME_ZONE) });
     expect(section(result, "conversions").effectiveFilters).toEqual({ startDayKey: day, endDayKey: day });
     expect(section(result, "respark").effectiveFilters).toEqual({ startDayKey: day, endDayKey: day, source: "instagram", sourceAppliesTo: "rawLeads" });
     expect(JSON.stringify(result)).not.toContain("imageUrl");
@@ -197,7 +200,7 @@ describe("lead gen report through /mcp", () => {
     parity(result, { overview: mergeLeadGenOverview(past.overview, today.overview), workers: mergeLeadGenWorkers(past.workers, today.workers),
       posts: mergeLeadGenTopOriginsByTeam(past.posts, today.posts), conversions: mergeLeadGenProspectConversions(past.conversions, today.conversions),
       resparks: mergeLeadGenResparkPerformance(past.resparks, today.resparks) }, h);
-    for (const s of result.sections) expect(s).toMatchObject({ source: "warehouse", state: "ready", asOf: NOW });
+    for (const s of result.sections) expect(s).toMatchObject({ source: "warehouse", state: "ready", asOf: formatLocal(NOW, TIME_ZONE) });
     expect(section(result, "top_posts").rankingPartial).toBe(true);
   });
   it("reads all-history warehouse sections without adding today", async () => {
@@ -206,6 +209,7 @@ describe("lead gen report through /mcp", () => {
     await seedWarehouse(h, past, "2026-10-12", "2026-10-14", "meta_business");
     const result = await run(h, { startDate: "2026-10-12", endDate: "2026-10-14", sections: ALL, source: "meta_business" });
     parity(result, past, h);
+    for (const s of result.sections) expect(s.asOf).toBe(formatLocal(NOW, TIME_ZONE));
     expect(section(result, "top_posts").rankingPartial).toBe(false);
   });
   it("substitutes only the snapshot sections and matches the page's snapshot projections", async () => {
@@ -213,6 +217,7 @@ describe("lead gen report through /mcp", () => {
     const expected = await seedSnapshot(h, "2026-10-01", TODAY, "instagram");
     const result = await run(h, { startDate: "2026-10-01", endDate: TODAY, source: "instagram", sections: ALL });
     parity(result, expected, h);
+    for (const s of result.sections) expect(s.asOf).toBe(formatLocal(NOW, TIME_ZONE));
     for (const name of ALL) expect(section(result, name).source).toBe(["conversions", "respark"].includes(name) ? "live" : "snapshot");
     // Independently read the actual page's job API and transformations.
     const job = (await h.t.run(ctx => ctx.db.query("operationsReportJobs").first()))!;

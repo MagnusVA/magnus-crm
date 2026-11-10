@@ -4,7 +4,11 @@ import { api, internal } from "../../_generated/api";
 import { reportDefinitionFor, resolveReportRequest } from "../../analytics/keys";
 import { mergeMyActivitySummary } from "../../analytics/merge/leadGen";
 import { callTool, createMcpHarness, mcpConnect, seedTenantWithLeadGen, type McpHarness } from "../../../tests/mcpHarness";
-import { LEAD_GEN_NOW, seedLeadGenReads } from "../../../tests/leadGenReadFixtures";
+import { LEAD_GEN_NOW, LEAD_GEN_TIME_ZONE, seedLeadGenReads } from "../../../tests/leadGenReadFixtures";
+
+import { formatLocal } from "../time";
+
+const local = (ms: number) => formatLocal(ms, LEAD_GEN_TIME_ZONE);
 
 type Today = FunctionReturnType<typeof internal.mcp.tools.leadGenToday.run>;
 type Activity = FunctionReturnType<typeof internal.mcp.tools.leadGenActivity.myActivity>;
@@ -65,16 +69,23 @@ describe("lead gen reads through /mcp", () => {
     const day = await seed.sofia.query(api.leadGen.activity.getMyDaySummary, { dayKey: "2026-11-09" });
     const respark = await seed.sofia.query(api.respark.queries.getMyResparkToday, {});
     const pool = await seed.sofia.query(api.respark.queries.getResparkPoolCounts, {});
+    expect(today.asOf).toBe(local(LEAD_GEN_NOW));
+    expect(today.dayKey).toBe("2026-11-09");
     expect(today.profile).toMatchObject({ status: "active", noTeam: false });
     expect(today.counts).toMatchObject({ today: day.submissions, unique: day.uniqueProspects, dupes: day.duplicates, scheduledHours: 6,
-      respark: { batchesDone: respark.batchesDone, resparks: respark.resparks, notAFits: respark.notAFits }, pool: pool.buckets, batchSize: pool.batchSize,
-      openBatch: { progress: { total: 3, worked: 2, remaining: 1 } }, lastOrigin: { kind: "follower" } });
+      respark: { batchesDone: respark.batchesDone, resparks: respark.resparks, notAFits: respark.notAFits }, pool: pool.buckets, batchSize: pool.batchSize, heldUntil: local(pool.heldUntil),
+      openBatch: { progress: { total: 3, worked: 2, remaining: 1 }, heldUntil: local(seed.items[0].heldUntil) },
+      lastOrigin: { kind: "follower", usedAt: local(LEAD_GEN_NOW) } });
     const activity = await tool<Activity>("magnus_my_lead_gen_activity");
     const summary = await seed.sofia.query(api.leadGen.activity.getMyActivitySummary, { range: todayRange });
-    expect(activity).toMatchObject({ state: "ready", source: "live", numbers: { rawLeads: summary.submissions,
+    expect(activity).toMatchObject({ state: "ready", source: "live", asOf: local(LEAD_GEN_NOW), numbers: { rawLeads: summary.submissions,
       resparks: summary.resparks, entries: summary.entries, notAFit: summary.notAFit, scheduledHours: summary.scheduledHours, leadsPerHour: summary.leadsPerHour } });
     expect(activity.recent.find(row => row.id === seed.captures[2].submissionId)?.voided).toBe(true);
     const webRecent = await seed.sofia.query(api.leadGen.activity.listMyRecentSubmissions, { range: todayRange, paginationOpts: { numItems: 25, cursor: null } });
+    for (const row of activity.recent) {
+      const webRow = webRecent.page.find(entry => entry._id === row.id)!;
+      expect(row.submittedAt).toBe(local(webRow.submittedAt));
+    }
     expect(webRecent.page.every(row => !("voided" in row))).toBe(true);
     privateDataAbsent(today); privateDataAbsent(activity);
   });
@@ -82,11 +93,31 @@ describe("lead gen reads through /mcp", () => {
   it("projects safe batch cards and wraps masked panel text without changing the web", async () => {
     const h = await createMcpHarness(); const seed = await seedLeadGenReads(h); const tool = await connect(h, seed.orgId);
     const batch = await tool<Batch>("magnus_respark_batch");
+    expect(batch).toMatchObject({ asOf: local(LEAD_GEN_NOW), heldUntil: local(seed.items[0].heldUntil) });
     expect(batch.items).toHaveLength(3);
     expect(batch.items.find(item => item.itemId === seed.items[0]._id)).toMatchObject({ handle: "held.person", capturedBy: "a teammate", newestDealOutcome: "lost" });
+    const web = await seed.sofia.query(api.respark.queries.getMyResparkBatch, {});
+    for (const item of batch.items) {
+      const webItem = web!.items.find(entry => entry.itemId === item.itemId)!;
+      expect(item.capturedAt).toBe(local(webItem.person!.capturedAt!));
+      expect(item.lastTouches.length).toBeGreaterThan(0);
+      for (const touch of item.lastTouches) expect(touch.occurredAt).toBe(local(
+        webItem.person!.lastTouches.find(entry => entry.eventId === touch.eventId)!.occurredAt));
+    }
     privateDataAbsent(batch);
     const people = await tool<People>("magnus_respark_person", { itemIds: [seed.items[0]._id] });
+    expect(people.asOf).toBe(local(LEAD_GEN_NOW));
     const panel = people.people[0].panel!;
+    const webPanel = (await seed.sofia.query(api.respark.queries.getResparkPersonPanel, { itemId: seed.items[0]._id }))!;
+    expect(panel.timeline.length).toBeGreaterThan(0);
+    for (const touch of panel.timeline) expect(touch.occurredAt).toBe(local(
+      webPanel.timeline.find(entry => entry.eventId === touch.eventId)!.occurredAt));
+    expect(panel.deals[0].createdAt).toBe(local(webPanel.deals[0].createdAt));
+    expect(panel.calls[0].scheduledAt).toBe(local(webPanel.calls[0].scheduledAt));
+    expect(panel.notes[0].createdAt).toBe(local(webPanel.notes[0].createdAt));
+    expect(panel.resparkHistory[0].workedAt).toBeNull();
+    const worked = await tool<People>("magnus_respark_person", { itemIds: [seed.items[1]._id] });
+    expect(worked.people[0].panel!.resparkHistory[0].workedAt).toBe(local(LEAD_GEN_NOW));
     expect(panel.identity.phone).toContain("•••"); expect(panel.identity.email).toContain("•••");
     expect(panel.calls[0].bookingAnswers[0].answer).toMatchObject({ personSupplied: true, truncated: true });
     expect(panel.calls[0].bookingAnswers[0].answer.text).toHaveLength(500);
@@ -94,7 +125,6 @@ describe("lead gen reads through /mcp", () => {
     expect(panel.notes[0].content.personSupplied).toBe(true);
     expect(panel.deals[0].lostReason?.personSupplied).toBe(true);
     expect(people.textTruncated).toBe(true); privateDataAbsent(people);
-    const web = await seed.sofia.query(api.respark.queries.getMyResparkBatch, {});
     expect(JSON.stringify(web)).toContain("Dani Cruz"); expect(JSON.stringify(web)).toContain("payment.recorded");
   });
 
@@ -125,6 +155,7 @@ describe("lead gen reads through /mcp", () => {
         else await ctx.db.patch("leadGenWorkers", seed.sofiaWorkerId, status === "inactive" ? { isActive: false } : { isActive: true, teamId: undefined });
       });
       const today = await tool<Today>("magnus_lead_gen_today");
+      expect(today.asOf).toBe(local(LEAD_GEN_NOW));
       expect(today.unavailableReason).toBe(status); expect(today.counts).toBeNull();
       expect((await tool<Activity>("magnus_my_lead_gen_activity")).numbers).toBeNull();
       expect((await tool<Batch>("magnus_respark_batch")).items).toEqual([]);
@@ -141,12 +172,12 @@ describe("lead gen reads through /mcp", () => {
     const { history } = await warehouse(h, seed, "ready"); const tool = await connect(h, seed.orgId);
     const expected = mergeMyActivitySummary(history, await seed.sofia.query(api.leadGen.activity.getMyActivitySummary, { range: todayRange }));
     const activity = await tool<Activity>("magnus_my_lead_gen_activity", { startDate: "2026-11-02", endDate: "2026-11-09" });
-    expect(activity).toMatchObject({ state: "ready", source: "warehouse", asOf: LEAD_GEN_NOW - 1000,
+    expect(activity).toMatchObject({ state: "ready", source: "warehouse", asOf: local(LEAD_GEN_NOW - 1000),
       numbers: { rawLeads: expected.submissions, resparks: expected.resparks, entries: expected.entries,
         notAFit: expected.notAFit, scheduledHours: expected.scheduledHours, leadsPerHour: expected.leadsPerHour } });
     expect((await tool<Activity>("magnus_my_lead_gen_activity", { startDate: "2026-11-03", endDate: "2026-11-03" })).source).toBe("live");
     const past = await tool<Activity>("magnus_my_lead_gen_activity", { startDate: "2026-11-02", endDate: "2026-11-08" });
-    expect(past).toMatchObject({ source: "warehouse", state: "ready", numbers: { rawLeads: 7 } });
+    expect(past).toMatchObject({ source: "warehouse", state: "ready", asOf: local(LEAD_GEN_NOW - 1000), numbers: { rawLeads: 7 } });
     privateDataAbsent(activity);
   });
 
@@ -154,7 +185,7 @@ describe("lead gen reads through /mcp", () => {
     const h = await createMcpHarness(); const seed = await seedLeadGenReads(h); await warehouse(h, seed, status);
     const tool = await connect(h, seed.orgId);
     const result = await tool<Activity>("magnus_my_lead_gen_activity", { startDate: "2026-11-02", endDate: "2026-11-09" });
-    expect(result.state).toBe(status === "queued" ? "pending" : "failed"); expect(result.numbers).toBeNull(); expect(result.recent).toEqual([]);
+    expect(result.state).toBe(status === "queued" ? "pending" : "failed"); expect(result.numbers).toBeNull(); expect(result.recent).toEqual([]); expect(result.asOf).toBeNull();
   });
 
   it("pages batch items and activity without gaps, and binds cursors to the owner and range", async () => {
@@ -222,6 +253,8 @@ describe("lead gen reads through /mcp", () => {
     await new Promise(resolve => setTimeout(resolve, 50));
     await h.t.run(ctx => ctx.db.patch("analyticsResults", resultId, { status: "ready", run: undefined }));
     const result = await answer;
+    expect(result.asOf).toBe(local(LEAD_GEN_NOW - 1000));
+    expect(result.recent.every(row => row.submittedAt === local(LEAD_GEN_NOW))).toBe(true);
     expect(result.state).toBe("ready"); expect(result.numbers?.rawLeads).toBe(2); expect(result.recent).toHaveLength(5);
   });
 

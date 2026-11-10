@@ -15,6 +15,7 @@ import { rejectRequest } from "../../lib/observability/errors";
 import { McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
 import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser } from "../guard";
 import { leadGenRangeArgs, resolveLeadGenRange, type LeadGenActionCaller, type LeadGenRangeArgs } from "../leadGenShared";
+import { formatLocal } from "../time";
 
 export const myActivityArgs = { ...leadGenRangeArgs, cursor: v.optional(v.string()) };
 const nullableNumber = v.union(v.number(), v.null());
@@ -25,14 +26,19 @@ const summaryValidator = v.object({ range: rangeValidator, submissions: v.number
 type Summary = Infer<typeof summaryValidator>;
 const metricsValidator = v.object({ rawLeads: v.number(), resparks: v.number(), entries: v.number(), notAFit: v.number(),
   scheduledHours: v.number(), leadsPerHour: nullableNumber });
-const recentValidator = v.array(v.object({ id: v.string(), submittedAt: v.number(), type: v.string(), source: v.string(),
-  originKind: v.string(), originValue: v.union(mcpPersonTextValidator, v.null()), handle: v.union(v.string(), v.null()), voided: v.boolean() }));
-const activityResultValidator = v.object({ state: v.union(v.literal("ready"), v.literal("pending"), v.literal("failed")),
+const recentRowValidator = v.object({ id: v.string(), submittedAt: v.number(), type: v.string(), source: v.string(),
+  originKind: v.string(), originValue: v.union(mcpPersonTextValidator, v.null()), handle: v.union(v.string(), v.null()), voided: v.boolean() });
+const activityReadResultValidator = v.object({ state: v.union(v.literal("ready"), v.literal("pending"), v.literal("failed")),
   profile: leadGenProfileValidator, range: rangeValidator, source: v.union(v.literal("live"), v.literal("warehouse")),
   asOf: nullableNumber, isPartial: v.boolean(), textTruncated: v.boolean(), numbers: v.union(metricsValidator, v.null()),
-  recent: recentValidator, cursor: v.union(v.string(), v.null()) });
+  recent: v.array(recentRowValidator), cursor: v.union(v.string(), v.null()) });
+const activityResultValidator = v.object({ ...activityReadResultValidator.fields,
+  asOf: v.union(v.string(), v.null()),
+  recent: v.array(v.object({ ...recentRowValidator.fields, submittedAt: v.string() })),
+});
 type ActivityResult = Infer<typeof activityResultValidator>;
-type ActivityRead = { result: ActivityResult; todaySummary: Summary | null; history: AnalyticsRange | null };
+type ActivityReadResult = Infer<typeof activityReadResultValidator>;
+type ActivityRead = { result: ActivityReadResult; todaySummary: Summary | null; history: AnalyticsRange | null };
 
 function activityPlan(me: McpUser, args: LeadGenRangeArgs) {
   const day = me.tenant.businessDay ?? DEFAULT_BUSINESS_DAY;
@@ -58,7 +64,7 @@ function readCursor(cursor: string | undefined, key: string) {
 
 export const readActivity = internalQuery({
   args: { caller: mcpCallerValidator, ...myActivityArgs },
-  returns: v.object({ result: activityResultValidator, todaySummary: v.union(summaryValidator, v.null()), history: v.union(analyticsRangeValidator, v.null()) }),
+  returns: v.object({ result: activityReadResultValidator, todaySummary: v.union(summaryValidator, v.null()), history: v.union(analyticsRangeValidator, v.null()) }),
   handler: async (ctx, { caller, ...args }): Promise<ActivityRead> => {
     const me = await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
     const info = activityPlan(me, args);
@@ -68,7 +74,7 @@ export const readActivity = internalQuery({
     const publicRange = toPublicOverviewRange(deriveOverviewRange(info.range, Date.now(), info.day));
     const key = cursorKey(me, info.range);
     const cursor = readCursor(args.cursor, key);
-    const base: ActivityResult = { profile, range: publicRange, state: "ready", source: info.source, asOf: Date.now(),
+    const base: ActivityReadResult = { profile, range: publicRange, state: "ready", source: info.source, asOf: Date.now(),
       numbers: null, recent: [], cursor: null, isPartial: false, textTruncated: budget.textTruncated };
     if (!worker || !worker.isActive || profile.noTeam) return { result: { ...base, isPartial: true }, todaySummary: null, history: null };
     if (await leadGenBusinessDayBlocked(ctx, me.tenantId)) return { result: { ...base, state: "pending", isPartial: true, asOf: null }, todaySummary: null, history: null };
@@ -155,6 +161,7 @@ export const myActivity = internalAction({
       }
     }
     await ctx.runQuery(internal.mcp.leadGenShared.authorizeCaller, authArgs);
-    return result;
+    return { ...result, asOf: result.asOf === null ? null : formatLocal(result.asOf, first.timeZone),
+      recent: result.recent.map(row => ({ ...row, submittedAt: formatLocal(row.submittedAt, first.timeZone) })) };
   },
 });

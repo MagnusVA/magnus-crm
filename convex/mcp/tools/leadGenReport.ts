@@ -27,6 +27,7 @@ import {
   mergeLeadGenProspectConversions, mergeLeadGenResparkPerformance,
 } from "../../analytics/merge/leadGen";
 import { sha256Hex } from "../confirm";
+import { formatLocal } from "../time";
 
 type Overview = Awaited<ReturnType<typeof readLeadGenOverview>>;
 type Specialists = Awaited<ReturnType<typeof readWorkerPerformance>>;
@@ -71,7 +72,7 @@ const sectionResultValidator = v.object({
     sourceAppliesTo: v.optional(v.literal("rawLeads")) }),
   definitions: v.array(v.string()),
   source: v.union(v.literal("live"), v.literal("warehouse"), v.literal("snapshot")),
-  asOf: nullableNumber,
+  asOf: v.union(v.string(), v.null()),
   capped: v.boolean(),
   cappedFlags: v.record(v.string(), v.boolean()),
   rankingPartial: v.boolean(),
@@ -79,7 +80,7 @@ const sectionResultValidator = v.object({
   state: v.union(v.literal("ready"), v.literal("pending"), v.literal("failed"), v.literal("rebuilding")),
   cursor: v.union(v.string(), v.null()),
 });
-type SectionResult = Infer<typeof sectionResultValidator>;
+type SectionResult = Omit<Infer<typeof sectionResultValidator>, "asOf"> & { asOf: number | null };
 export const reportResultValidator = v.object({ sections: v.array(sectionResultValidator) });
 
 /** The same live query cores the page uses, with the gateway's verified caller. */
@@ -388,7 +389,10 @@ export const report = internalAction({
       }
     }
     await authorize();
-    return { sections: sections.map(s => results.get(s)!) };
+    return { sections: sections.map(s => {
+      const result = results.get(s)!;
+      return { ...result, asOf: result.asOf === null ? null : formatLocal(result.asOf, me.timeZone) };
+    }) };
   },
 });
 

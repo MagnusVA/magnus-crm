@@ -3,10 +3,12 @@ import { api } from "../convex/_generated/api";
 import { seedTenantWithLeadGen, type McpHarness } from "./mcpHarness";
 
 export const LEAD_GEN_NOW = Date.parse("2026-11-09T16:00:00Z");
+export const LEAD_GEN_TIME_ZONE = "America/Los_Angeles";
 const DAY = 86_400_000;
 
 export async function seedLeadGenReads(h: McpHarness) {
   const seeded = await seedTenantWithLeadGen(h.t);
+  await h.t.run(ctx => ctx.db.patch("users", seeded.sofiaId, { timezone: LEAD_GEN_TIME_ZONE }));
   const sofia = h.t.withIdentity({ subject: "user_sofia", org_id: seeded.orgId });
   const dani = h.t.withIdentity({ subject: "user_dani", org_id: seeded.orgId });
   const admin = h.t.withIdentity({ subject: "user_admin", org_id: seeded.orgId });
