@@ -38,8 +38,8 @@ export function mergedPageAnswers(loaded: Loaded[], period: string): Map<string,
 }
 /**
  * A report still too big at one row per list sheds detail before it is
- * refused: first the omissions' remainders, then each panel's raw page answer,
- * keeping the figures the page shows.
+ * refused: first the omissions' remainders, then the lists in each panel's raw
+ * page answer, then the rest of it, keeping the figures the page shows.
  */
 // The answer's final reasons (row_limit, incomplete_input, mixed_currencies)
 // are added after it is fitted: a few short strings, sent twice.
@@ -55,12 +55,34 @@ export function shedDetail(base: { isPartial: boolean; reasons: string[] }, pane
         ? { scope: item.scope ?? null, rows: item.rows ?? null, ...(item.nullReason ? { nullReason: item.nullReason } : {}) }
         : item);
     if (fits()) return { panels, omitted };
-    // Only a panel whose figures carry the page's numbers can lose its raw
-    // data; a panel with empty figures keeps it, and an answer that still
+    // Only a panel whose figures carry the page's numbers loses detail; a
+    // panel with empty figures keeps its data, and an answer that still
     // doesn't fit is refused by capAnswer rather than sent empty.
     const hasFigures = (figures: Json) => !!figures && typeof figures === "object" && (Array.isArray(figures) ? figures.length > 0 : Object.keys(figures).length > 0);
-    panels = panels.map(panel => panel && typeof panel === "object" && !Array.isArray(panel) && "data" in panel && hasFigures(panel.figures)
-        ? Object.fromEntries([...Object.entries(panel).filter(([key]) => key !== "data"), ["dataOmitted", true]]) as Json
+    const shedable = (panel: Json): panel is { [key: string]: Json } =>
+        !!panel && typeof panel === "object" && !Array.isArray(panel) && "data" in panel && hasFigures(panel.figures);
+    // Lists are the bulky part of a page answer and its counts (a funnel's
+    // stages and cohort) are small, so drop the lists first.
+    const withoutLists = (value: Json): { value: Json; dropped: boolean } => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return { value, dropped: false };
+        let dropped = false;
+        const kept: Record<string, Json> = {};
+        for (const [key, child] of Object.entries(value)) {
+            if (Array.isArray(child)) { dropped = true; continue; }
+            const inner = withoutLists(child);
+            dropped ||= inner.dropped;
+            kept[key] = inner.value;
+        }
+        return { value: kept, dropped };
+    };
+    panels = panels.map(panel => {
+        if (!shedable(panel)) return panel;
+        const stripped = withoutLists(panel.data);
+        return stripped.dropped ? { ...panel, data: stripped.value, listsOmitted: true } : panel;
+    });
+    if (fits()) return { panels, omitted };
+    panels = panels.map(panel => shedable(panel)
+        ? Object.fromEntries([...Object.entries(panel).filter(([key]) => key !== "data" && key !== "listsOmitted"), ["dataOmitted", true]]) as Json
         : panel);
     return { panels, omitted };
 }

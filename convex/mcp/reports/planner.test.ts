@@ -127,11 +127,18 @@ it("resolves Last week and Year to date to the picker's business dates", async (
 });
 
 describe("answer size", () => {
+    it("drops a page answer's lists before its counts, so a funnel keeps its stages", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const byDay = Array.from({ length: 400 }, (_, i) => ({ dayKey: `2026-01-${i}`, note: "w".repeat(60) }));
+        const funnel = { id: "scorecard.funnel", data: { stages: { prospect: 650, qualified: 94 }, cohort: { entered: 648, qualified: 90 }, byDay }, figures: { bookingsMade: 47, weeks: [] } };
+        const shed = shedDetail(base, [funnel] as Json[], []);
+        expect(shed.panels).toEqual([{ id: "scorecard.funnel", data: { stages: { prospect: 650, qualified: 94 }, cohort: { entered: 648, qualified: 90 } }, figures: { bookingsMade: 47, weeks: [] }, listsOmitted: true }]);
+    });
     it("keeps the data of a panel with no figures, and refuses an answer that still doesn't fit", () => {
         const base = { isPartial: false, reasons: [] as string[] };
         const big = "z".repeat(MAX_ASSISTANT_ANSWER_BYTES);
-        const shed = shedDetail(base, [{ id: "scorecard.origins", data: { blob: big }, figures: {} }], []);
-        expect(shed.panels).toEqual([{ id: "scorecard.origins", data: { blob: big }, figures: {} }]);
+        const shed = shedDetail(base, [{ id: "scorecard.origins", data: { blob: big, rows: [big] }, figures: {} }], []);
+        expect(shed.panels).toEqual([{ id: "scorecard.origins", data: { blob: big, rows: [big] }, figures: {} }]);
         expect(capAnswer({ ...base, status: "ready", panels: shed.panels, omitted: shed.omitted }).status).toBe("unavailable");
     });
     it("sheds an answer just under the cap, leaving room for the reasons added after", () => {
