@@ -47,7 +47,7 @@ Everything else is a hand-off: the result links to the page that does it. That c
 - Every record carries `openInMagnus` and `allowedActions`: the admin tools that apply to it now, given its state and the caller's switches.
 - Numbers come from Magnus, with the page's definition. A report's figures are worked out from the page's full answer with the page's own functions (`lib/reporting/pageFigures/`), before any list is cut, so they match the page. Where a page shows a figure as a lower bound, the tool returns it with `lowerBound: true`. A difference the tool computes itself (a comparison in `magnus_numbers`) is returned only when every input is complete; otherwise it carries `nullReason: "incomplete_input"`. Money is per currency, never summed across currencies.
 - Report tools plan their source as the page does, including each page's warehouse switch. A cold warehouse answer returns `status: "pending"` with `retryAfterSeconds`, never zeros. The assistant has its own runner and request table (`mcpReportRequests`), never registers a web cache key, and holds at most one running and two waiting jobs, so the web always keeps a worker.
-- Answers are capped at 12 KiB.
+- Answers are capped at 32 KiB as the gateway sends them (the JSON twice), so about 16 KiB reaches the model.
 
 ## 4. Access
 

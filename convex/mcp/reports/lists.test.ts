@@ -277,7 +277,7 @@ describe("access, cursors and bounding", () => {
     const { rows, pages } = await allTool(f, { list: "pipeline_open_deals", limit: 25 });
     expect(rows).toHaveLength(60);
     expect(new Set(rows.map(row => row.kind === "deal" && row.opportunityId)).size).toBe(60);
-    expect(pages[0].rows.length).toBeLessThan(25);
+    for (const page of pages) expect(gatewayAnswerBytes(page)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
     expect(JSON.stringify(rows)).not.toContain("private@example.com");
     expect(JSON.stringify(rows)).not.toContain("+15555551234");
     expect(rows.every(row => row.kind === "deal" && row.leadName.by === "person" && row.closerName?.by === "person")).toBe(true);

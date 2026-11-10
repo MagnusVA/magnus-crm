@@ -4,7 +4,7 @@ import { adminFixture, adminCaller } from "../../../tests/mcpAdminFixtures";
 import { insertDeal } from "../../../tests/dealStageFixtures";
 import { REPORT_PANELS, LIVE_PANELS, assistantDefinition } from "./catalog";
 import { resolveAnalyticsRange } from "../../../lib/analyticsRange";
-import { gatewayAnswerBytes } from "../../../lib/assistantReportMerge";
+import { gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES } from "../../../lib/assistantReportMerge";
 import { safeText, boundPanel, type Json } from "./output";
 import { readLivePanel } from "./live";
 import { mergeReportPanel } from "./merge";
@@ -27,7 +27,7 @@ describe("live page adapter parity", () => {
             expect(result.status, JSON.stringify(result)).toBe("ready");
             const expected = REPORT_PANELS[report].filter(id => id !== "scorecard.answers");
             expect((result.panels as { id: string }[]).map(p => p.id)).toEqual(expected);
-            expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(12288);
+            expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
             expect(result.openInMagnus).toContain(report === "lead_gen" ? "/workspace/operations/lead-gen" : report === "qualifications" ? "/workspace/operations/qualifications" : `/workspace/reports/${report}`);
             if (report === "pipeline") expect(result.panels).toMatchObject([{ id: "pipeline.now", scope: "current_state_ignores_range" }]);
             // Retained Operations adapters must still equal their unchanged page readers.
@@ -74,7 +74,7 @@ describe("live page adapter parity", () => {
         }
         const result = await f.t.action(internal.mcp.reports.tools.report, { caller, report: "scorecard", range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive }, limit: 25 });
         expect(result.status, JSON.stringify(result)).toBe("ready");
-        expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(12288);
+        expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
         const pageCash = await f.t.withIdentity(identity).query(api.reports.scorecard.cash, { range: whole });
         expect((result.panels as { id: string; data: unknown }[]).find(p => p.id === "scorecard.cash")?.data).toEqual(safeText(pageCash as Json));
         const member = await f.t.action(internal.mcp.reports.tools.report, { caller, report: "people", memberId: f.memberId, range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });

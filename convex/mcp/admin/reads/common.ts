@@ -1,3 +1,4 @@
+import { MAX_ASSISTANT_ANSWER_BYTES } from "../../../../lib/assistantReportMerge";
 import { v } from "convex/values";
 import type { Doc, Id, TableNames } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
@@ -127,10 +128,10 @@ export function answerBytes(value: unknown): number {
   return encoder.encode(json).byteLength + encoder.encode(JSON.stringify(json)).byteLength;
 }
 
-/** Reserve room for the envelope inside the gateway's 12 KiB answer budget. */
+/** Reserve room for the envelope inside the gateway's answer budget. */
 export function fitRows<T>(
   rows: T[],
-  byteBudget = 9000,
+  byteBudget = MAX_ASSISTANT_ANSWER_BYTES - 6 * 1024,
 ): { rows: T[]; capped: boolean } {
   const result: T[] = [];
   let bytes = 4;

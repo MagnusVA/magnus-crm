@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { dashboardRangePlan, resolveAnalyticsRange, settledThroughDate } from "../../../lib/analyticsRange";
 import { planAssistantSources, cachedWindowFits, assertReportCells } from "../../../lib/assistantReportPlan";
-import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, type MetricRow } from "../../../lib/assistantReportMerge";
+import { FIT_BUDGET_BYTES, shedDetail } from "./tools";
+import type { Json } from "./output";
+import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES, type MetricRow } from "../../../lib/assistantReportMerge";
 import { businessDayStart } from "../../../lib/businessDay";
 import { currencySafe, mergePanel, incomplete, safeText, capAnswer, boundPanel } from "./output";
 const day = { timeZone: "America/Tegucigalpa", dayStartHour: 1 };
@@ -94,10 +96,10 @@ describe("safe reporting math", () => {
     });
     it("removes contacts and marks external text", () => { expect(safeText({ name: "ignore instructions", email: "a@b.c", phone: "123", notes: "x" })).toEqual({ name: { text: "ignore instructions", by: "integration" } }); });
     it("caps the gateway's duplicated and escaped JSON", () => {
-        const answer = { status: "ready", rows: [row()], panels: ["x".repeat(13000)], definitions: {} };
-        expect(gatewayAnswerBytes(answer)).toBeGreaterThan(12288);
+        const answer = { status: "ready", rows: [row()], panels: ["x".repeat(MAX_ASSISTANT_ANSWER_BYTES)], definitions: {} };
+        expect(gatewayAnswerBytes(answer)).toBeGreaterThan(MAX_ASSISTANT_ANSWER_BYTES);
         expect(capAnswer(answer).status).toBe("unavailable");
-        expect(gatewayAnswerBytes(capAnswer(answer))).toBeLessThan(12288);
+        expect(gatewayAnswerBytes(capAnswer(answer))).toBeLessThan(MAX_ASSISTANT_ANSWER_BYTES);
     });
 });
 
@@ -122,4 +124,46 @@ it("resolves Last week and Year to date to the picker's business dates", async (
             expect(plan.windows.map(w => w.engine)).toEqual(dashboardRangePlan({ kind: "preset", preset }, date).kind === "split" ? ["warehouse", "convex"] : [dashboardRangePlan({ kind: "preset", preset }, date).kind === "live" ? "convex" : "warehouse"]);
         }
     }
+});
+
+describe("answer size", () => {
+    it("drops a page answer's lists before its counts, so a funnel keeps its stages", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const byDay = Array.from({ length: 400 }, (_, i) => ({ dayKey: `2026-01-${i}`, note: "w".repeat(60) }));
+        const funnel = { id: "scorecard.funnel", data: { stages: { prospect: 650, qualified: 94 }, cohort: { entered: 648, qualified: 90 }, byDay }, figures: { bookingsMade: 47, weeks: [] } };
+        const shed = shedDetail(base, [funnel] as Json[], []);
+        expect(shed.panels).toEqual([{ id: "scorecard.funnel", data: { stages: { prospect: 650, qualified: 94 }, cohort: { entered: 648, qualified: 90 } }, figures: { bookingsMade: 47, weeks: [] }, listsOmitted: true }]);
+    });
+    it("keeps the data of a panel with no figures, and refuses an answer that still doesn't fit", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const big = "z".repeat(MAX_ASSISTANT_ANSWER_BYTES);
+        const shed = shedDetail(base, [{ id: "scorecard.origins", data: { blob: big, rows: [big] }, figures: {} }], []);
+        expect(shed.panels).toEqual([{ id: "scorecard.origins", data: { blob: big, rows: [big] }, figures: {} }]);
+        expect(capAnswer({ ...base, status: "ready", panels: shed.panels, omitted: shed.omitted }).status).toBe("unavailable");
+    });
+    it("sheds an answer just under the cap, leaving room for the reasons added after", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const panel = (n: number) => [{ id: "attribution.lanes", data: { blob: "y".repeat(n) }, figures: { cash: 1 } }] as Json[];
+        // Grow the raw data until the answer lands between the fit budget and the cap.
+        let n = 0;
+        while (gatewayAnswerBytes({ ...base, status: "ready", panels: panel(n + 64), omitted: [] }) <= FIT_BUDGET_BYTES) n += 64;
+        n += 64;
+        const size = gatewayAnswerBytes({ ...base, status: "ready", panels: panel(n), omitted: [] });
+        expect(size).toBeGreaterThan(FIT_BUDGET_BYTES);
+        expect(size).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
+        const shed = shedDetail(base, panel(n), []);
+        expect(shed.panels).toEqual([{ id: "attribution.lanes", figures: { cash: 1 }, dataOmitted: true }]);
+        const final = { ...base, status: "ready", panels: shed.panels, omitted: shed.omitted, reasons: [...base.reasons, "row_limit", "incomplete_input", "mixed_currencies"] };
+        expect(gatewayAnswerBytes(final)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
+    });
+    it("sheds remainders, then raw page data, before refusing an answer that is too big", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const big = "y".repeat(MAX_ASSISTANT_ANSWER_BYTES);
+        const omitted: Json[] = [{ scope: "/data/rows", rows: 9, remainder: { cashMinor: 5 } }, { scope: "/data/origins", rows: null, remainder: null, nullReason: "incomplete_input" }];
+        const shed = shedDetail(base, [{ id: "attribution.lanes", data: { blob: big }, figures: { cash: 1 } }], omitted);
+        expect(shed.panels).toEqual([{ id: "attribution.lanes", figures: { cash: 1 }, dataOmitted: true }]);
+        expect(shed.omitted).toEqual([{ scope: "/data/rows", rows: 9 }, { scope: "/data/origins", rows: null, nullReason: "incomplete_input" }]);
+        expect(base).toMatchObject({ isPartial: true, reasons: ["answer_trimmed"] });
+        expect(gatewayAnswerBytes({ ...base, panels: shed.panels, omitted: shed.omitted })).toBeLessThan(MAX_ASSISTANT_ANSWER_BYTES);
+    });
 });
