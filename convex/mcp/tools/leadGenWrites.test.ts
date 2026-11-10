@@ -392,7 +392,7 @@ describe("a prospect still pointing at a merged person", () => {
 describe("handles and post links in the read tools", () => {
   it("come back whole, so the agent can pass them on", async () => {
     const f = await fixture();
-    const reel = "https://www.instagram.com/reel/17841400000000000";
+    const reel = "https://www.instagram.com/reel/C1784140000xYz";
     await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
       source: "instagram",
       rawHandleOrProfileUrl: "@user_12345678",
@@ -403,10 +403,10 @@ describe("handles and post links in the read tools", () => {
     const activity = await sofia("magnus_my_lead_gen_activity", { range: "today" });
     const row = (activity.data as { recent: Array<{ handle: string; originValue: { text: string } }> }).recent[0];
     expect(row.handle).toBe("user_12345678");
-    expect(row.originValue.text).toContain("17841400000000000");
+    expect(row.originValue.text).toContain("C1784140000xYz");
     const today = await sofia("magnus_lead_gen_today");
     const lastOrigin = (today.data as { counts: { lastOrigin: { value: { text: string } } } }).counts.lastOrigin;
-    expect(lastOrigin.value.text).toContain("17841400000000000");
+    expect(lastOrigin.value.text).toContain("C1784140000xYz");
   });
 
   it("still masks a phone or an email typed into an origin label, or put in a post link that isn't Instagram's", async () => {
@@ -424,12 +424,20 @@ describe("handles and post links in the read tools", () => {
       originKind: "post",
       originUrlOrLabel: "https://example.com/pat@example.com/15550109999",
     });
+    // An Instagram link with a phone where a username would be.
+    await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
+      source: "instagram",
+      rawHandleOrProfileUrl: "@a.third.one",
+      originKind: "post",
+      originUrlOrLabel: "https://instagram.com/15550109999/p/AbC",
+    });
     const sofia = await f.agent("user_sofia");
     const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);
     const today = JSON.stringify((await sofia("magnus_lead_gen_today")).data);
     for (const result of [activity, today]) {
       expect(result).not.toContain("pat@example.com");
       expect(result).not.toContain("555 010 9999");
+      expect(result).not.toContain("15550109999");
     }
   });
 });

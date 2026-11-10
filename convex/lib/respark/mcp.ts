@@ -5,20 +5,22 @@ export const mcpPersonTextValidator = v.object({
   text: v.string(), personSupplied: v.literal(true), truncated: v.boolean(),
 });
 
-// instagram.com/p/<code>, /reel/<code>, /reels/<code> or /tv/<code>, with an
-// optional username before it and nothing after.
-const INSTAGRAM_POST_LINK =
-  /^https?:\/\/(?:www\.)?instagram\.com\/(?:[A-Za-z0-9._]+\/)?(?:p|reel|reels|tv)\/[A-Za-z0-9_-]+\/?$/;
+// instagram.com/p/<code>, /reel/<code>, /reels/<code> or /tv/<code>, with
+// nothing before or after. A shortcode always has a letter in it.
+const INSTAGRAM_POST_LINK = /^https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)\/?$/;
 
 /**
- * Whether an origin is a link the agent may pass back whole. Only a post or
- * reel origin whose value is an Instagram post or reel link qualifies: the
- * capture accepts any URL for those kinds, and a URL such as
- * https://example.com/pat@example.com must still be masked. Every other
- * origin (a story label, "follower") is free text a lead gen typed.
+ * Whether an origin is a link the agent may pass back whole. The contact
+ * mask would eat a run of digits in a post's shortcode, so a plain Instagram
+ * post or reel link skips it. Nothing else does: the capture accepts any URL
+ * for a post origin, so a link with a username part
+ * (instagram.com/15550109999/p/AbC), a code that is only digits, or another
+ * site's URL is masked like the free text a lead gen types for other origins.
  */
 export function isOriginLink(originKind: string, originValue: string): boolean {
-  return (originKind === "post" || originKind === "reel") && INSTAGRAM_POST_LINK.test(originValue);
+  if (originKind !== "post" && originKind !== "reel") return false;
+  const code = INSTAGRAM_POST_LINK.exec(originValue)?.[1];
+  return code !== undefined && /[A-Za-z]/.test(code);
 }
 
 /** One response budget, including children of every returned person. */
