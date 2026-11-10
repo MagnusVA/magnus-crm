@@ -1,5 +1,5 @@
-import type { MemberAvatarIdentity } from "@/convex/lib/memberIdentity";
-import type { ScalarRecord } from "@/convex/operations/reports/contracts";
+import type { MemberAvatarIdentity } from "../../convex/lib/memberIdentity";
+import type { ScalarRecord } from "../../convex/operations/reports/contracts";
 
 /** Rehydrate the canonical member identity from the report's scalar payload. */
 export function dashboardIdentity(fields: ScalarRecord, fallbackId: string, fallbackName: string): MemberAvatarIdentity {

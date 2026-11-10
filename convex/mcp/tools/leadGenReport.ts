@@ -84,7 +84,7 @@ export const reportResultValidator = v.object({ sections: v.array(sectionResultV
 
 /** The same live query cores the page uses, with the gateway's verified caller. */
 export const readLive = internalQuery({
-  args: { caller: mcpCallerValidator, ...dates, source: v.optional(leadGenSourceValidator), sections: v.array(sectionValidator), metadataOnly: v.optional(v.boolean()) },
+  args: { caller: mcpCallerValidator, ...dates, source: v.optional(leadGenSourceValidator), sections: v.array(sectionValidator), metadataOnly: v.optional(v.boolean()), warehouseSplit: v.optional(v.boolean()) },
   returns: v.string(),
   handler: async (ctx, args) => {
     const me = await requireMcpUser(ctx, args.caller, [...LEAD_GEN_ADMIN_ROLES]);
@@ -92,23 +92,31 @@ export const readLive = internalQuery({
     const needed = new Set(args.metadataOnly ? [] : args.sections);
     const overview = !blocked && ["overview", "specialists", "teams", "top_posts"].some(s => needed.has(s as Section))
       ? await readLeadGenOverview(ctx, me.tenantId, args) : null;
-    const workers = !blocked && (needed.has("specialists") || needed.has("teams")) && !overview?.capped
-      ? await readWorkerPerformance(ctx, me.tenantId, args) : null;
-    const origins = !blocked && needed.has("top_posts") && !overview?.capped
-      ? await readTopOriginsByTeam(ctx, me.tenantId, { ...args, limitPerTeam: 10, sortBy: "submissions" }) : null;
+    const failedSections: Section[] = [];
+    // A switched page reads its tables independently of a capped overview.
+    // Keep a failed live half from discarding other warehouse sections.
+    async function readSection<T>(sections: Section[], read: () => Promise<T>): Promise<T | null> {
+      try { return await read(); }
+      catch { failedSections.push(...sections); return null; }
+    }
+    const tablesReadable = !overview?.capped || args.warehouseSplit;
+    const workers = !blocked && (needed.has("specialists") || needed.has("teams")) && tablesReadable
+      ? await readSection(["specialists", "teams"], () => readWorkerPerformance(ctx, me.tenantId, args)) : null;
+    const origins = !blocked && needed.has("top_posts") && tablesReadable
+      ? await readSection(["top_posts"], () => readTopOriginsByTeam(ctx, me.tenantId, { ...args, limitPerTeam: 10, sortBy: "submissions" })) : null;
     // Conversions intentionally have no source filter and no rebuild guard on the page.
     const conversions = needed.has("conversions") ? await readProspectConversions(ctx, me.tenantId, args) : null;
     const resparks = !blocked && needed.has("respark") ? await readResparkPerformance(ctx, me.tenantId, args) : null;
     const teams = args.sections.includes("teams") ? await listSharedDmTeams(ctx, { tenantId: me.tenantId, includeInactive: true }) : [];
     const resparkWorkers = resparks ? await Promise.all(resparks.rows.map(row => ctx.db.get("leadGenWorkers", row.workerId))) : args.sections.includes("respark") ? await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_isActive", q => q.eq("tenantId", me.tenantId)).take(500) : [];
-    return JSON.stringify({ blocked, overview, workers, origins, conversions, resparks, teams,
+    return JSON.stringify({ blocked, failedSections, overview, workers, origins, conversions, resparks, teams,
       resparkTeams: resparkWorkers.map(w => ({ workerId: w?._id, teamId: w?.teamId ?? null })),
       businessDayVersion: me.tenant.businessDayVersion ?? 0,
       warehouse: me.tenant.analyticsReports?.includes("lead_gen") ?? false });
   },
 });
 type Live = {
-  blocked: boolean; overview: Overview | null; workers: Specialists | null; origins: Origins | null;
+  blocked: boolean; failedSections: Section[]; overview: Overview | null; workers: Specialists | null; origins: Origins | null;
   conversions: Conversions | null; resparks: Resparks | null;
   teams: Array<{ _id: Infer<typeof teamId> & string; name: string }>;
   resparkTeams: Array<{ workerId: string; teamId: Infer<typeof teamId> }>;
@@ -261,7 +269,7 @@ export const report = internalAction({
     const liveSections = warehouse && plan.kind === "warehouse" ? [] : !warehouse && range.days > 7
       ? sections.filter(s => !SNAPSHOT_SECTIONS.includes(s)) : sections;
     const live: Live = liveSections.length ? JSON.parse(await ctx.runQuery(internal.mcp.tools.leadGenReport.readLive,
-      { caller: args.caller, ...filters, ...(warehouse ? { startDayKey: me.todayDayKey, endDayKey: me.todayDayKey } : {}), sections: liveSections })) : context;
+      { caller: args.caller, ...filters, ...(warehouse ? { startDayKey: me.todayDayKey, endDayKey: me.todayDayKey } : {}), sections: liveSections, warehouseSplit: warehouse })) : context;
     const snapshot = !warehouse && (range.days > 7 || live.overview?.capped === true);
     let snapshotJobId = continuation?.snapshotJobId;
     const results = new Map<Section, SectionResult>();
@@ -294,6 +302,7 @@ export const report = internalAction({
       // Conversions has no business-day bucket dependency; historical warehouse
       // sections also remain readable while only today's buckets rebuild.
       if (context.blocked && section !== "conversions" && (!warehouse || plan.kind === "split")) { result.state = "rebuilding"; continue; }
+      if (live.failedSections.includes(section)) { result.state = "failed"; continue; }
       if (warehouse) {
         await ctx.runMutation(internal.mcp.tools.leadGenReport.requestWarehouse, warehouseArgs(section));
         waiting.add(section);
