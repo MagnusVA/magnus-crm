@@ -67,8 +67,9 @@ export const roleCashSelect = `SELECT identity_key, currency, sum(amount_minor) 
 FROM recipients GROUP BY identity_key, currency`;
 export const roleCashDaysSelect = `SELECT ${day("recorded_at_ms")} AS day_key, currency, sum(amount_minor) AS amount_minor
 FROM recipients WHERE identity_key = {member_key:String} GROUP BY day_key, currency`;
+// ALL: several identities can share one first payment; first_payments ids are unique.
 export const roleWinsSelect = `SELECT r.identity_key AS identity_key, groupUniqArray(r.opportunity_id) AS won_deal_ids
-FROM recipients AS r INNER ANY JOIN first_payments AS f ON f.id = r.payment_id GROUP BY r.identity_key`;
+FROM recipients AS r INNER ALL JOIN first_payments AS f ON f.id = r.payment_id GROUP BY r.identity_key`;
 export const roleFirstPaymentDealsSelect = `SELECT opportunity_id FROM first_payments
 WHERE recorded_at_ms >= {from_ms:Int64} AND recorded_at_ms < {to_ms:Int64}
   AND ({member_filtered:UInt8} = 0 OR opportunity_id IN (
