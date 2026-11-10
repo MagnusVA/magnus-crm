@@ -192,6 +192,7 @@ import type * as leads_lifecycleAdmin from "../leads/lifecycleAdmin.js";
 import type * as leads_lifecycleChecks from "../leads/lifecycleChecks.js";
 import type * as leads_merge from "../leads/merge.js";
 import type * as leads_mutations from "../leads/mutations.js";
+import type * as leads_nameAdmin from "../leads/nameAdmin.js";
 import type * as leads_notes from "../leads/notes.js";
 import type * as leads_queries from "../leads/queries.js";
 import type * as leads_repointLeadReferences from "../leads/repointLeadReferences.js";
@@ -724,6 +725,7 @@ declare const fullApi: ApiFromModules<{
   "leads/lifecycleChecks": typeof leads_lifecycleChecks;
   "leads/merge": typeof leads_merge;
   "leads/mutations": typeof leads_mutations;
+  "leads/nameAdmin": typeof leads_nameAdmin;
   "leads/notes": typeof leads_notes;
   "leads/queries": typeof leads_queries;
   "leads/repointLeadReferences": typeof leads_repointLeadReferences;

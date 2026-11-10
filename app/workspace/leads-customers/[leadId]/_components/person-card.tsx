@@ -33,6 +33,10 @@ import type { LifecycleChangeMode } from "./lifecycle-change-dialog";
 import { contactKey, personDate, plural } from "./person-format";
 import { formatPhone } from "@/lib/phone";
 
+const EditNameDialog = dynamic(() =>
+  import("./edit-name-dialog").then((module) => module.EditNameDialog),
+);
+
 const LifecycleChangeDialog = dynamic(() =>
   import("./lifecycle-change-dialog").then((module) => module.LifecycleChangeDialog),
 );
@@ -73,13 +77,14 @@ const SMALL_DATE = "font-condensed text-[0.8125rem] font-semibold tracking-[0.02
  * The person on one dense card, facts in groups split by a rule: how to
  * reach them, their first and last touch, what the DM portal recorded,
  * their stage and disposition, programs, identifiers that add something,
- * and portal notes. Admins move the stage back or set the disposition from
- * its footer.
+ * and portal notes. Admins edit the name, move the stage back or set the
+ * disposition from its footer.
  */
 export function PersonCard() {
   const { lead, identifiers, enrollments, customerSummary } = useEntityDetail();
   const { isAdmin } = useRole();
   const [mode, setMode] = useState<LifecycleChangeMode | null>(null);
+  const [editingName, setEditingName] = useState(false);
   const handles = lead.socialHandles ?? [];
   const name = lead.fullName ?? lead.email ?? "Unknown person";
   const meta = customerSummary
@@ -194,6 +199,9 @@ export function PersonCard() {
       {isAdmin && lead.status !== "merged" ? (
         <DetailCardFooter>
           <div className="ml-auto flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setEditingName(true)}>
+              Edit name
+            </Button>
             <Button size="sm" variant="outline" disabled={!canMoveBack} onClick={() => setMode("move_back")}>
               Move back
             </Button>
@@ -203,6 +211,7 @@ export function PersonCard() {
           </div>
         </DetailCardFooter>
       ) : null}
+      {editingName ? <EditNameDialog open onOpenChange={setEditingName} /> : null}
       {mode ? (
         <LifecycleChangeDialog
           open
