@@ -44,6 +44,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "expired a follow-up",
     iconHint: "calendar-x-2",
   },
+  "followUp.rescheduled": {
+    verb: "moved a call-back",
+    iconHint: "calendar-clock",
+  },
   "lead.captured": {
     verb: "captured a prospect",
     iconHint: "user-round-plus",
@@ -64,6 +68,7 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed a lead status",
     iconHint: "git-branch",
   },
+  "meeting.recording_matched": { verb: "matched a call recording", iconHint: "video" },
   "meeting.canceled": {
     verb: "canceled a meeting",
     iconHint: "calendar-x-2",
@@ -84,6 +89,7 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed a meeting status",
     iconHint: "arrow-right-left",
   },
+  "opportunity.call_note_added": { verb: "added a call note", iconHint: "notebook-pen" },
   "opportunity.created": {
     verb: "created an opportunity",
     iconHint: "sparkles",
@@ -110,6 +116,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
   "payment.corrected": {
     verb: "corrected payment details",
     iconHint: "pencil",
+  },
+  "payment.proof_attached": {
+    verb: "attached a payment receipt",
+    iconHint: "paperclip",
   },
   "payment.recorded": {
     verb: "recorded a payment",

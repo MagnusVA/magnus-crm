@@ -24,6 +24,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   qualifications: "Qualifications",
   "booked-calls": "Booked Calls",
   attribution: "Attribution checks",
+  fathom: "Fathom",
   booking: "Booking setup",
   inbox: "Inbox",
   "event-types": "Event types",

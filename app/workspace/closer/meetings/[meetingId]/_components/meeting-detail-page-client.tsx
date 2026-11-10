@@ -18,6 +18,7 @@ import {
 import { ArrowLeftIcon, AlertCircleIcon } from "lucide-react";
 import { MeetingDetailView } from "../../_components/meeting-detail-view";
 import { MeetingDetailSkeleton } from "../../_components/meeting-detail-skeleton";
+import { MeetingPaymentLink } from "../../_components/meeting-payment-link";
 
 type MeetingDetailData = FunctionReturnType<
   typeof api.closer.meetingDetail.getMeetingDetail
@@ -47,12 +48,15 @@ export function MeetingDetailPageClient({
   }
 
   return (
-    <MeetingDetailView
-      detail={detail}
-      mode="closer"
-      viewerRole={viewerRole}
-      onStatusChanged={refreshDetail}
-    />
+    <>
+      <MeetingDetailView
+        detail={detail}
+        mode="closer"
+        viewerRole={viewerRole}
+        onStatusChanged={refreshDetail}
+      />
+      <MeetingPaymentLink detail={detail} onStatusChanged={refreshDetail} />
+    </>
   );
 }
 

@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRole } from "@/components/auth/role-context";
 import { Button } from "@/components/ui/button";
+import { AiAssistantAccessRow } from "../ai-assistant-member-access";
 import { firstName } from "../team-ui";
 import { CardSection, RecordRow, RuledBlock } from "./card-ui";
 import { LOGIN_ROLE_LABEL, type DirectoryMember } from "./member-model";
@@ -71,6 +72,14 @@ export function CrmAccessSection({ member }: { member: DirectoryMember }) {
               </Button>
             ) : null
           }
+        />
+        <AiAssistantAccessRow
+          userId={login.userId}
+          name={name}
+          firstName={first}
+          role={login.role}
+          active={active}
+          blocked={login.aiAssistantBlocked}
         />
       </RuledBlock>
 

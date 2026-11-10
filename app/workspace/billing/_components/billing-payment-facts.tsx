@@ -18,6 +18,7 @@ import {
   STATUS_LABELS,
 } from "./billing-format";
 import { PaidAt } from "./paid-at";
+import { AgentPaymentChip } from "./payment-provenance-markers";
 
 // The payment page's facts: the band's figure row (amount, status, proof,
 // closer) and the three fact cards under it (Payment, Customer and call,
@@ -170,6 +171,11 @@ export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDet
               </Fact>
               <Fact label={<HelpTip tip="Who recorded the payment, and from where in the app.">Recorded</HelpTip>}>
                 {formatOrigin(payment.origin)}
+                <AgentPaymentChip
+                  recordedVia={payment.recordedVia}
+                  agentClient={payment.agentClient}
+                  className="ml-2 align-[1px]"
+                />
               </Fact>
               <Fact label="Reviewed">
                 {review.reviewedAt ? (

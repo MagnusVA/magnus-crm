@@ -1,5 +1,7 @@
 import { blockBooking } from "../pipeline/blocked";
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
@@ -8,7 +10,21 @@ import { canStartFollowUp, describeDealState } from "../opportunities/dealGuards
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
-import { landFollowUp, resolveFollowUpStart } from "../lib/followUpStart";
+import {
+  landFollowUp,
+  resolveFollowUpStart,
+  type FollowUpStart,
+} from "../lib/followUpStart";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  toCheckResult,
+  WEB,
+  type CheckResult,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
+import { queueSecondOpinion } from "../secondOpinion/trigger";
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -286,89 +302,161 @@ export const createManualReminderFollowUpPublic = mutation({
     reminderNote: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
-
-    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
-    if (!opportunity || opportunity.tenantId !== tenantId) {
-      throw new Error("Opportunity not found");
-    }
-    if (opportunity.assignedCloserId !== userId) {
-      throw new Error("Not your opportunity");
-    }
-    const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
-    if (
-      args.meetingId &&
-      (!meeting ||
-        meeting.tenantId !== tenantId ||
-        meeting.opportunityId !== args.opportunityId)
-    ) {
-      throw new Error("Meeting does not belong to this opportunity");
-    }
-    const start = await resolveFollowUpStart(ctx, opportunity, meeting, "Cannot schedule follow-up");
-
-    const now = Date.now();
-    if (args.reminderScheduledAt <= now) {
-      throw new Error("Reminder time must be in the future");
-    }
-    if (meeting) {
-      assertCanRecordMeetingOutcome({
-        meeting,
-        opportunity,
-        userId,
-        role,
-        now,
-      });
-    }
-
-    const followUpId = await ctx.db.insert("followUps", {
-      tenantId,
-      opportunityId: args.opportunityId,
-      leadId: opportunity.leadId,
-      closerId: userId,
-      type: "manual_reminder",
-      contactMethod: args.contactMethod,
-      reminderScheduledAt: args.reminderScheduledAt,
-      reminderNote: args.reminderNote,
-      reason: "closer_initiated",
-      status: "pending",
-      ...(meeting ? { sourceMeetingId: meeting._id } : {}),
-      createdAt: now,
-      createdByUserId: userId,
-      createdSource: "closer",
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "followUp",
-      entityId: followUpId,
-      eventType: "followUp.created",
-      source: "closer",
-      actorUserId: userId,
-      toStatus: "pending",
-      metadata: {
-        type: "manual_reminder",
-        opportunityId: args.opportunityId,
-      },
-      occurredAt: now,
-    });
-
-    await landFollowUp(ctx, args.opportunityId, start, {
-      source: "closer",
-      actorUserId: userId,
-      occurredAt: now,
-    });
-    if (meeting) {
-      await completeMeetingForOutcome(ctx, {
-        meetingId: meeting._id,
-        opportunityId: opportunity._id,
-        toMeetingStatus: "held",
-        recordedAt: now,
-      });
-    }
-
-    return { followUpId };
+    const actor = await requireTenantUser(ctx, ["closer"]);
+    return await createCallbackTask(ctx, actor, args, WEB);
   },
 });
+
+export type CallbackTaskArgs = {
+  opportunityId: Id<"opportunities">;
+  /** The call whose result this is; it is recorded held. */
+  meetingId?: Id<"meetings">;
+  contactMethod: "call" | "text";
+  reminderScheduledAt: number;
+  reminderNote?: string;
+};
+
+/**
+ * Every check `createManualReminderFollowUpPublic` makes, in its order, with
+ * no write. Throws the refusal.
+ */
+async function checkCallbackTask(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: CallbackTaskArgs,
+) {
+  assertCoreRole(actor, ["closer"]);
+  const { userId, tenantId, role } = actor;
+
+  const opportunity = await ctx.db.get("opportunities", args.opportunityId);
+  if (!opportunity || opportunity.tenantId !== tenantId) {
+    throw new Error("Opportunity not found");
+  }
+  if (opportunity.assignedCloserId !== userId) {
+    throw new Error("Not your opportunity");
+  }
+  const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
+  if (
+    args.meetingId &&
+    (!meeting ||
+      meeting.tenantId !== tenantId ||
+      meeting.opportunityId !== args.opportunityId)
+  ) {
+    throw new Error("Meeting does not belong to this opportunity");
+  }
+  const start = await resolveFollowUpStart(ctx, opportunity, meeting, "Cannot schedule follow-up");
+
+  const now = Date.now();
+  if (args.reminderScheduledAt <= now) {
+    throw new Error("Reminder time must be in the future");
+  }
+  if (meeting) {
+    assertCanRecordMeetingOutcome({
+      meeting,
+      opportunity,
+      userId,
+      role,
+      now,
+    });
+  }
+  return { userId, tenantId, opportunity, meeting, start, now };
+}
+
+/**
+ * Whether `createCallbackTask` would set this call-back, without writing,
+ * with the refusal it would throw returned as `{ ok: false, code, message }`.
+ */
+export async function checkCallbackTaskAllowed(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: CallbackTaskArgs,
+): Promise<
+  CheckResult<{
+    opportunityId: Id<"opportunities">;
+    meetingId: Id<"meetings"> | null;
+    leadId: Id<"leads">;
+    /** Whether the deal moves to Follow-up, or stays there with a new task. */
+    start: FollowUpStart;
+  }>
+> {
+  return await toCheckResult(async () => {
+    const { opportunity, meeting, start } = await checkCallbackTask(ctx, actor, args);
+    return {
+      opportunityId: opportunity._id,
+      meetingId: meeting?._id ?? null,
+      leadId: opportunity.leadId,
+      start,
+    };
+  });
+}
+
+/**
+ * Sets a call or text call-back task on the closer's deal and moves the deal
+ * to Follow-up. With a meeting, the call is recorded held, as every other
+ * outcome does. The core of `createManualReminderFollowUpPublic`
+ * (docs/plans/closer-assistant.md §6.3). `provenance` tags the
+ * `followUp.created` event for an agent.
+ */
+export async function createCallbackTask(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: CallbackTaskArgs,
+  provenance: Provenance,
+): Promise<{ followUpId: Id<"followUps"> }> {
+  const { userId, tenantId, opportunity, meeting, start, now } =
+    await checkCallbackTask(ctx, actor, args);
+
+  const followUpId = await ctx.db.insert("followUps", {
+    tenantId,
+    opportunityId: args.opportunityId,
+    leadId: opportunity.leadId,
+    closerId: userId,
+    type: "manual_reminder",
+    contactMethod: args.contactMethod,
+    reminderScheduledAt: args.reminderScheduledAt,
+    reminderNote: args.reminderNote,
+    reason: "closer_initiated",
+    status: "pending",
+    ...(meeting ? { sourceMeetingId: meeting._id } : {}),
+    createdAt: now,
+    createdByUserId: userId,
+    createdSource: "closer",
+  });
+
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "followUp",
+    entityId: followUpId,
+    eventType: "followUp.created",
+    source: "closer",
+    actorUserId: userId,
+    toStatus: "pending",
+    metadata: {
+      type: "manual_reminder",
+      opportunityId: args.opportunityId,
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: now,
+  });
+
+  await landFollowUp(ctx, args.opportunityId, start, {
+    source: "closer",
+    actorUserId: userId,
+    occurredAt: now,
+  });
+  if (meeting) {
+    await completeMeetingForOutcome(ctx, {
+      meetingId: meeting._id,
+      opportunityId: opportunity._id,
+      toMeetingStatus: "held",
+      recordedAt: now,
+    });
+    // A recorded result plus a matched recording starts Jev's check (§6.9).
+    await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+  }
+
+  return { followUpId };
+}
 
 export const markReminderComplete = mutation({
   args: {

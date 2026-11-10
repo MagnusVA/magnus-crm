@@ -95,6 +95,19 @@ _Avoid_: calendar day, UTC day
 A dated next step on a deal, such as sending a reschedule link after a no-show, sending a scheduling link, or a reminder to call back.
 _Avoid_: follow-up (as a deal status)
 
+**Call note**:
+A structured note an AI assistant writes on a deal after a call, for its closer: the person's situation, goal, bottleneck and objection, with an optional next step and financing. Notes are kept as written and never edited; a wrong note gets a correcting one. A note belongs to the deal, so it moves with the deal's meetings.
+_Avoid_: meeting comment (the closers' own web comments), lead note (DM closers' notes)
+
+**End-of-day report**:
+A closer's account of one shift, counted by Magnus from the end of their previous report to the moment they end the day, and posted to the end-of-day Slack channel. It counts with the same definitions as every other screen and groups by shift, not by business day.
+
+**Recording**:
+A Fathom recording of a call, matched to its meeting by the recorder and the scheduled time. A recording never records attendance: a call is held only when a person records its result.
+
+**Second opinion**:
+Jev's check of a recorded call against the result its closer recorded: Agrees, Not sure or Disagrees. It never changes a record. A person acts on a disagreement through the paths that already exist.
+
 **Program**:
 A coaching program a tenant sells. Each deal is for one program.
 

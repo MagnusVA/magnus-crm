@@ -35,6 +35,15 @@ const TENANT_INDEX_BY_TABLE = {
   tenantCalendlyConnections: "by_tenantId",
   teamMembers: "by_tenantId",
   users: "by_tenantId",
+  // AI assistant tables (docs/plans/closer-assistant.md §8).
+  callNotes: "by_tenantId_and_opportunityId_and_createdAt",
+  paymentProofUploads: "by_tenantId_and_userId_and_status",
+  endOfDayReports: "by_tenantId_and_periodEnd",
+  tenantFathomConnections: "by_tenantId",
+  fathomOrgMembers: "by_tenantId_and_email",
+  fathomWebhookEvents: "by_tenantId_and_webhookMessageId",
+  callRecordings: "by_tenantId_and_fathomRecordingId",
+  secondOpinions: "by_tenantId_and_createdAt",
 } as const satisfies {
   [T in keyof DataModel]?: keyof DataModel[T]["indexes"];
 };
@@ -99,6 +108,26 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
       const id = ctx.db.normalizeId("leads", row._id);
       const lead = id && await ctx.db.get("leads", id);
       if (lead) await deleteResparkPoolEntry(ctx, lead);
+    }
+    if (tableName === "fathomWebhookEvents") {
+      const id = ctx.db.normalizeId("fathomWebhookEvents", row._id);
+      const event = id && await ctx.db.get("fathomWebhookEvents", id);
+      if (event?.payloadStorageId) await ctx.storage.delete(event.payloadStorageId);
+    }
+    if (tableName === "callRecordings") {
+      const id = ctx.db.normalizeId("callRecordings", row._id);
+      const recording = id && await ctx.db.get("callRecordings", id);
+      if (recording?.transcriptStorageId) {
+        await ctx.storage.delete(recording.transcriptStorageId);
+      }
+    }
+    if (tableName === "paymentProofUploads") {
+      const id = ctx.db.normalizeId("paymentProofUploads", row._id);
+      const upload = id && await ctx.db.get("paymentProofUploads", id);
+      // An attached file backs a payment, whose own cleanup deletes it.
+      if (upload?.storageId && upload.status !== "attached") {
+        await ctx.storage.delete(upload.storageId);
+      }
     }
     await ctx.db.delete(tableName, row._id);
   }

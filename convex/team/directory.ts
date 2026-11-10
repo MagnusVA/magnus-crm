@@ -41,6 +41,7 @@ export const getDirectory = query({
         userId: user._id, name: userTeamMemberName(user), email: user.email, role: user.role, isActive: user.isActive,
         removed: user.deletedAt !== undefined || !user.isActive, calendlyLinked: Boolean(user.calendlyUserUri),
         invitationPending: user.invitationStatus === "pending", profilePictureUrl: identity.imageUrl ?? null,
+        aiAssistantBlocked: user.mcpBlockedAt !== undefined,
       };
     }
     for (const row of data.leadGen) member(row.teamMemberId ?? `leadGenWorkers:${row._id}`, row.teamMemberId ?? null, row.displayName?.trim() || row.email).leadGen.push({

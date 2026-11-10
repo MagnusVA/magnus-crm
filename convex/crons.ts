@@ -103,4 +103,15 @@ crons.interval("reporting-work-health", { minutes: 15 }, internal.operations.wor
 // the stale-sync alert (docs/plans/clickhouse-reporting.md §8.2).
 crons.interval("analytics-heartbeat", { minutes: 5 }, internal.analytics.sync.beat, {});
 
+// MCP upkeep (docs/plans/closer-assistant.md §6.8): idle gateway sessions,
+// audit rows after 90 days (decision 16), and used preview tokens.
+crons.cron("mcp-prune", "20 7 * * *", internal.mcp.access.pruneDaily, {});
+
+// Fathom (docs/plans/closer-assistant.md §6.5): reconciliation, member sync
+// and health every 30 minutes; raw events, held payloads and old transcripts daily.
+crons.interval("fathom-reconcile-and-health", { minutes: 30 }, internal.fathom.maintenance.sweep, {});
+crons.cron("fathom-retention", "41 7 * * *", internal.fathom.maintenance.purge, {});
+
+crons.interval("second-opinion-day-close", { hours: 1 }, internal.secondOpinion.sweep.run, {});
+
 export default crons;

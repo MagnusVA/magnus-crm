@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -13,7 +13,25 @@ import {
   resolveProgramForWrite,
   type PaymentOrigin,
 } from "../lib/paymentHelpers";
-import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  toCheckResult,
+  WEB,
+  type CheckResult,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
+import {
+  paymentTypeValidator,
+  resolvePaymentType,
+  type PaymentType,
+} from "../lib/paymentTypes";
+import {
+  checkPaymentProof,
+  newPaymentFields,
+  type ProofCheckOptions,
+} from "../lib/paymentProof";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import {
   canMarkLost,
@@ -32,8 +50,14 @@ function normalizeOptionalString(value: string | undefined): string | undefined 
   return trimmed ? trimmed : undefined;
 }
 
-async function assertOwnedPendingReminder(
-  ctx: MutationCtx,
+/**
+ * The closer's own pending manual reminder and its deal, or throws. Shared by
+ * the task outcomes a closer records (`markReminderLost`,
+ * `markReminderNoResponse`).
+ */
+async function loadOwnedPendingReminder(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
   followUpId: Id<"followUps">,
 ): Promise<{
   followUp: Doc<"followUps">;
@@ -41,7 +65,7 @@ async function assertOwnedPendingReminder(
   tenantId: Id<"tenants">;
   userId: Id<"users">;
 }> {
-  const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+  const { userId, tenantId } = actor;
 
   const followUp = await ctx.db.get("followUps", followUpId);
   if (!followUp) {
@@ -72,23 +96,21 @@ async function assertOwnedPendingReminder(
   return { followUp, opportunity, tenantId, userId };
 }
 
-async function requirePendingReminderForPayment(
-  ctx: MutationCtx,
+const TASK_PAYMENT_ROLES = ["closer", "tenant_master", "tenant_admin"] as const;
+type TaskPaymentRole = (typeof TASK_PAYMENT_ROLES)[number];
+
+async function loadPendingReminderForPayment(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor & { role: TaskPaymentRole },
   followUpId: Id<"followUps">,
 ): Promise<{
   followUp: Doc<"followUps">;
   opportunity: Doc<"opportunities">;
   tenantId: Id<"tenants">;
   userId: Id<"users">;
-  role: "closer" | "tenant_master" | "tenant_admin";
+  role: TaskPaymentRole;
 }> {
-  type ReminderPaymentRole = "closer" | "tenant_master" | "tenant_admin";
-  const { userId, tenantId, role: authorizedRole } = await requireTenantUser(ctx, [
-    "closer",
-    "tenant_master",
-    "tenant_admin",
-  ]);
-  const role = authorizedRole as ReminderPaymentRole;
+  const { userId, tenantId, role } = actor;
 
   const followUp = await ctx.db.get("followUps", followUpId);
   if (!followUp) {
@@ -129,153 +151,267 @@ export const logReminderPayment = mutation({
     proofFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
-    const { followUp, opportunity, tenantId, userId, role } =
-      await requirePendingReminderForPayment(
-      ctx,
-      args.followUpId,
+    const actor = await requireTenantUser(ctx, [...TASK_PAYMENT_ROLES]);
+    return await recordTaskPayment(ctx, actor, args, WEB);
+  },
+});
+
+export type TaskPaymentArgs = {
+  followUpId: Id<"followUps">;
+  /** In major units, as the dialog takes it. */
+  amount: number;
+  currency: string;
+  programId: Id<"tenantPrograms">;
+  paymentType: PaymentType;
+  proofFileId?: Id<"_storage">;
+};
+
+/**
+ * Every check a call-back task's payment makes, in the order
+ * `logReminderPayment` always made them, with no write. Throws the refusal.
+ */
+async function checkTaskPayment(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: TaskPaymentArgs,
+  options: ProofCheckOptions = {},
+) {
+  assertCoreRole(actor, TASK_PAYMENT_ROLES);
+  const { followUp, opportunity, tenantId, userId, role } =
+    await loadPendingReminderForPayment(ctx, actor, args.followUpId);
+
+  if (!canTakePayment(opportunity, await loadDealTasks(ctx, opportunity._id))) {
+    throw new Error(
+      `Cannot log payment: the deal is "${describeDealState(opportunity)}"`,
     );
+  }
+  if (args.amount <= 0) {
+    throw new Error("Payment amount must be positive");
+  }
 
-    if (!canTakePayment(opportunity, await loadDealTasks(ctx, opportunity._id))) {
-      throw new Error(
-        `Cannot log payment: the deal is "${describeDealState(opportunity)}"`,
-      );
-    }
-    if (args.amount <= 0) {
-      throw new Error("Payment amount must be positive");
-    }
+  const currency = validateCurrency(args.currency);
+  const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
+  const paymentType = resolvePaymentType(args.paymentType);
+  const now = Date.now();
+  const amountMinor = toAmountMinor(args.amount);
+  const meetingId = opportunity.latestMeetingId ?? undefined;
+  const attributedCloserId =
+    role === "closer" ? userId : followUp.closerId;
+  const origin: PaymentOrigin =
+    role === "closer" ? "closer_reminder" : "admin_reminder";
 
-    const currency = validateCurrency(args.currency);
-    const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
-    const paymentType = resolvePaymentType(args.paymentType);
-    const now = Date.now();
-    const amountMinor = toAmountMinor(args.amount);
-    const meetingId = opportunity.latestMeetingId ?? undefined;
-    const attributedCloserId =
-      role === "closer" ? userId : followUp.closerId;
-    const origin: PaymentOrigin =
-      role === "closer" ? "closer_reminder" : "admin_reminder";
+  assertPaymentRow({
+    tenantId,
+    attributedCloserId,
+    recordedByUserId: userId,
+    origin,
+    opportunityId: opportunity._id,
+    programId: program._id,
+    paymentType,
+  });
+  const proof =
+    options.proof === "skip"
+      ? null
+      : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
 
-    assertPaymentRow({
+  return {
+    proof,
+    followUp,
+    opportunity,
+    tenantId,
+    userId,
+    role,
+    currency,
+    program,
+    paymentType,
+    now,
+    amountMinor,
+    meetingId,
+    attributedCloserId,
+    origin,
+  };
+}
+
+/**
+ * Whether `recordTaskPayment` would take this payment, without writing: the
+ * same checks, in the same order, with the refusal it would throw returned
+ * as `{ ok: false, code, message }` (decision 17).
+ */
+export async function checkTaskPaymentAllowed(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: TaskPaymentArgs,
+  options: ProofCheckOptions = {},
+): Promise<
+  CheckResult<{
+    followUpId: Id<"followUps">;
+    opportunityId: Id<"opportunities">;
+    leadId: Id<"leads">;
+    amountMinor: number;
+    currency: string;
+    programId: Id<"tenantPrograms">;
+    programName: string;
+    paymentType: PaymentType;
+  }>
+> {
+  return await toCheckResult(async () => {
+    const checked = await checkTaskPayment(ctx, actor, args, options);
+    return {
+      followUpId: checked.followUp._id,
+      opportunityId: checked.opportunity._id,
+      leadId: checked.opportunity.leadId,
+      amountMinor: checked.amountMinor,
+      currency: checked.currency,
+      programId: checked.program._id,
+      programName: checked.program.name,
+      paymentType: checked.paymentType,
+    };
+  });
+}
+
+/**
+ * Logs a payment from a pending call-back task: the deal closes won and the
+ * task completes. The core of `logReminderPayment`
+ * (docs/plans/closer-assistant.md §6.3). `provenance` tags the payment's and
+ * the task's own events for an agent.
+ */
+export async function recordTaskPayment(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: TaskPaymentArgs,
+  provenance: Provenance,
+): Promise<Id<"paymentRecords">> {
+  const {
+    followUp,
+    opportunity,
+    tenantId,
+    userId,
+    role,
+    currency,
+    program,
+    paymentType,
+    now,
+    amountMinor,
+    meetingId,
+    attributedCloserId,
+    origin,
+    proof,
+  } = await checkTaskPayment(ctx, actor, args);
+
+  const recordedFields = await newPaymentFields(ctx, tenantId, proof, provenance);
+  const paymentId = await ctx.db.insert("paymentRecords", {
+    tenantId,
+    opportunityId: opportunity._id,
+    meetingId,
+    attributedCloserId,
+    recordedByUserId: userId,
+    amountMinor,
+    currency,
+    programId: program._id,
+    programName: program.name,
+    paymentType,
+    proofFileId: args.proofFileId ?? undefined,
+    status: "recorded",
+    statusChangedAt: now,
+    recordedAt: now,
+    origin,
+    ...recordedFields,
+  });
+  await recordPayment(ctx, paymentId);
+  await insertPaymentAggregate(ctx, paymentId);
+  await setSoldProgramCaches(ctx, {
+    tenantId,
+    opportunityId: opportunity._id,
+    meetingId,
+    programId: program._id,
+    programName: program.name,
+  });
+
+  const reassignsCloser =
+    role !== "closer" && opportunity.assignedCloserId !== followUp.closerId;
+  await transitionOpportunity(ctx, opportunity._id, {
+    to: { stage: "closed", outcome: "won" },
+    fields: {
+      ...(reassignsCloser ? { assignedCloserId: followUp.closerId } : {}),
+      paymentReceivedAt: now,
+      updatedAt: now,
+    },
+    source: role === "closer" ? "closer" : "admin",
+    actorUserId: userId,
+    metadata: { paymentId, followUpId: args.followUpId },
+    occurredAt: now,
+  });
+  if (reassignsCloser) {
+    // The deal moves to the reminder's closer: a reassignment of the deal,
+    // not of a meeting (docs/plans/phase-3-attribution.md §4.6).
+    await recordCloserReassignment(ctx, {
       tenantId,
-      attributedCloserId,
-      recordedByUserId: userId,
-      origin,
       opportunityId: opportunity._id,
-      programId: program._id,
-      paymentType,
+      toUserId: followUp.closerId,
+      fromUserId: opportunity.assignedCloserId,
+      at: now,
     });
+  }
 
-    const paymentId = await ctx.db.insert("paymentRecords", {
-      tenantId,
+  await ctx.db.patch("followUps", args.followUpId, {
+    status: "completed",
+    completedAt: now,
+    completionOutcome: "payment_received",
+  });
+
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "payment",
+    entityId: paymentId,
+    eventType: "payment.recorded",
+    source: role === "closer" ? "closer" : "admin",
+    actorUserId: userId,
+    toStatus: "recorded",
+    metadata: {
       opportunityId: opportunity._id,
       meetingId,
-      attributedCloserId,
-      recordedByUserId: userId,
+      followUpId: args.followUpId,
       amountMinor,
       currency,
       programId: program._id,
       programName: program.name,
       paymentType,
-      proofFileId: args.proofFileId ?? undefined,
-      status: "recorded",
-      statusChangedAt: now,
-      recordedAt: now,
+      attributedCloserId,
+      recordedByUserId: userId,
       origin,
-    });
-    await recordPayment(ctx, paymentId);
-    await insertPaymentAggregate(ctx, paymentId);
-    await setSoldProgramCaches(ctx, {
-      tenantId,
-      opportunityId: opportunity._id,
-      meetingId,
-      programId: program._id,
-      programName: program.name,
-    });
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: now,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "followUp",
+    entityId: args.followUpId,
+    eventType: "followUp.completed",
+    source: role === "closer" ? "closer" : "admin",
+    actorUserId: userId,
+    fromStatus: "pending",
+    toStatus: "completed",
+    metadata: {
+      outcome: "payment_received",
+      origin,
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: now,
+  });
 
-    const reassignsCloser =
-      role !== "closer" && opportunity.assignedCloserId !== followUp.closerId;
-    await transitionOpportunity(ctx, opportunity._id, {
-      to: { stage: "closed", outcome: "won" },
-      fields: {
-        ...(reassignsCloser ? { assignedCloserId: followUp.closerId } : {}),
-        paymentReceivedAt: now,
-        updatedAt: now,
-      },
-      source: role === "closer" ? "closer" : "admin",
-      actorUserId: userId,
-      metadata: { paymentId, followUpId: args.followUpId },
-      occurredAt: now,
-    });
-    if (reassignsCloser) {
-      // The deal moves to the reminder's closer: a reassignment of the deal,
-      // not of a meeting (docs/plans/phase-3-attribution.md §4.6).
-      await recordCloserReassignment(ctx, {
-        tenantId,
-        opportunityId: opportunity._id,
-        toUserId: followUp.closerId,
-        fromUserId: opportunity.assignedCloserId,
-        at: now,
-      });
-    }
+  // The person's enrollments follow their payments, and their first one
+  // makes them a customer (docs/plans/phase-4-customers.md §4.1, §4.2).
+  await syncPersonEnrollments(ctx, {
+    tenantId,
+    leadId: opportunity.leadId,
+    now,
+    source: role === "closer" ? "closer" : "admin",
+    actorUserId: userId,
+  });
 
-    await ctx.db.patch("followUps", args.followUpId, {
-      status: "completed",
-      completedAt: now,
-      completionOutcome: "payment_received",
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "payment",
-      entityId: paymentId,
-      eventType: "payment.recorded",
-      source: role === "closer" ? "closer" : "admin",
-      actorUserId: userId,
-      toStatus: "recorded",
-      metadata: {
-        opportunityId: opportunity._id,
-        meetingId,
-        followUpId: args.followUpId,
-        amountMinor,
-        currency,
-        programId: program._id,
-        programName: program.name,
-        paymentType,
-        attributedCloserId,
-        recordedByUserId: userId,
-        origin,
-      },
-      occurredAt: now,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "followUp",
-      entityId: args.followUpId,
-      eventType: "followUp.completed",
-      source: role === "closer" ? "closer" : "admin",
-      actorUserId: userId,
-      fromStatus: "pending",
-      toStatus: "completed",
-      metadata: {
-        outcome: "payment_received",
-        origin,
-      },
-      occurredAt: now,
-    });
-
-    // The person's enrollments follow their payments, and their first one
-    // makes them a customer (docs/plans/phase-4-customers.md §4.1, §4.2).
-    await syncPersonEnrollments(ctx, {
-      tenantId,
-      leadId: opportunity.leadId,
-      now,
-      source: role === "closer" ? "closer" : "admin",
-      actorUserId: userId,
-    });
-
-    return paymentId;
-  },
-});
+  return paymentId;
+}
 
 export const markReminderLost = mutation({
   args: {
@@ -283,59 +419,120 @@ export const markReminderLost = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { followUpId, reason }) => {
-    const { opportunity, tenantId, userId } = await assertOwnedPendingReminder(
-      ctx,
-      followUpId,
-    );
-
-    if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
-      throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
-    }
-
-    const now = Date.now();
-    const trimmedReason = normalizeOptionalString(reason);
-
-    await transitionOpportunity(ctx, opportunity._id, {
-      to: { stage: "closed", outcome: "lost" },
-      fields: {
-        updatedAt: now,
-        lostAt: now,
-        lostByUserId: userId,
-        ...(trimmedReason ? { lostReason: trimmedReason } : {}),
-      },
-      source: "closer",
-      actorUserId: userId,
-      reason: trimmedReason,
-      metadata: {
-        followUpId,
-        origin: "reminder",
-      },
-      occurredAt: now,
-    });
-
-    await ctx.db.patch("followUps", followUpId, {
-      status: "completed",
-      completedAt: now,
-      completionOutcome: "lost",
-      ...(trimmedReason ? { completionNote: trimmedReason } : {}),
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "followUp",
-      entityId: followUpId,
-      eventType: "followUp.completed",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: "pending",
-      toStatus: "completed",
-      metadata: {
-        outcome: "lost",
-        origin: "reminder",
-      },
-      occurredAt: now,
-    });
+    const actor = await requireTenantUser(ctx, ["closer"]);
+    await recordTaskLoss(ctx, actor, { followUpId, reason }, WEB);
   },
 });
+
+export type TaskLossArgs = {
+  followUpId: Id<"followUps">;
+  reason?: string;
+};
+
+/** Every check `markReminderLost` makes, in its order, with no write. */
+async function checkTaskLoss(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: TaskLossArgs,
+) {
+  assertCoreRole(actor, ["closer"]);
+  const { opportunity, tenantId, userId, followUp } = await loadOwnedPendingReminder(
+    ctx,
+    actor,
+    args.followUpId,
+  );
+
+  if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
+    throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
+  }
+  return { opportunity, tenantId, userId, followUp };
+}
+
+/**
+ * Whether `recordTaskLoss` would close this deal, without writing, with the
+ * refusal it would throw returned as `{ ok: false, code, message }`
+ * (decision 17). The reason rules an agent adds (§6.3) are the tool's.
+ */
+export async function checkTaskLossAllowed(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: TaskLossArgs,
+): Promise<
+  CheckResult<{
+    followUpId: Id<"followUps">;
+    opportunityId: Id<"opportunities">;
+    leadId: Id<"leads">;
+  }>
+> {
+  return await toCheckResult(async () => {
+    const { opportunity, followUp } = await checkTaskLoss(ctx, actor, args);
+    return {
+      followUpId: followUp._id,
+      opportunityId: opportunity._id,
+      leadId: opportunity.leadId,
+    };
+  });
+}
+
+/**
+ * Closes the deal lost from a pending call-back task and completes the task.
+ * The core of `markReminderLost` (docs/plans/closer-assistant.md §6.3).
+ * `provenance` tags the loss event and the task's event for an agent.
+ */
+export async function recordTaskLoss(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: TaskLossArgs,
+  provenance: Provenance,
+): Promise<void> {
+  const { followUpId, reason } = args;
+  const { opportunity, tenantId, userId } = await checkTaskLoss(ctx, actor, args);
+
+  const now = Date.now();
+  const trimmedReason = normalizeOptionalString(reason);
+
+  await transitionOpportunity(ctx, opportunity._id, {
+    to: { stage: "closed", outcome: "lost" },
+    fields: {
+      updatedAt: now,
+      lostAt: now,
+      lostByUserId: userId,
+      ...(trimmedReason ? { lostReason: trimmedReason } : {}),
+    },
+    source: "closer",
+    actorUserId: userId,
+    reason: trimmedReason,
+    metadata: {
+      followUpId,
+      origin: "reminder",
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: now,
+  });
+
+  await ctx.db.patch("followUps", followUpId, {
+    status: "completed",
+    completedAt: now,
+    completionOutcome: "lost",
+    ...(trimmedReason ? { completionNote: trimmedReason } : {}),
+  });
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "followUp",
+    entityId: followUpId,
+    eventType: "followUp.completed",
+    source: "closer",
+    actorUserId: userId,
+    fromStatus: "pending",
+    toStatus: "completed",
+    metadata: {
+      outcome: "lost",
+      origin: "reminder",
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: now,
+  });
+}
 
 export const markReminderNoResponse = mutation({
   args: {
@@ -355,8 +552,10 @@ export const markReminderNoResponse = mutation({
     ),
   },
   handler: async (ctx, { followUpId, nextStep, note, newReminder }) => {
-    const { opportunity, tenantId, userId } = await assertOwnedPendingReminder(
+    const actor = await requireTenantUser(ctx, ["closer"]);
+    const { opportunity, tenantId, userId } = await loadOwnedPendingReminder(
       ctx,
+      actor,
       followUpId,
     );
 

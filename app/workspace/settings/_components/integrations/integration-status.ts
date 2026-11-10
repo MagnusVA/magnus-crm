@@ -41,6 +41,7 @@ export function slackChannelErrors(status: SlackConnected) {
     status.staleReminderChannelError,
     status.leadGenNotifyChannelError,
     status.bookingReviewChannelError,
+    status.eodReportChannelError,
   ].filter((error): error is NonNullable<typeof error> => Boolean(error));
 }
 

@@ -11,6 +11,7 @@ import {
   type GuardState,
 } from "../../tests/dealGuardFixtures";
 import { namedStatus } from "../../tests/stopStatusFixtures";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 // The closer's actions are allowed on the same deals as before PR 7
 // (docs/plans/phase-5-deal-status.md §4.6, §6.4): each runs against every
@@ -80,8 +81,9 @@ describe("the meeting's outcome", () => {
     await expectGuard(
       harness,
       opportunityId,
-      () =>
+      async () =>
         harness.closer.mutation(api.closer.payments.logPayment, {
+          proofFileId: await storeProofFile(harness.t),
           opportunityId,
           meetingId: meetingId!,
           amount: 500,
@@ -194,8 +196,9 @@ describe("the reminder page", () => {
     await expectGuard(
       harness,
       opportunityId,
-      () =>
+      async () =>
         harness.closer.mutation(api.closer.reminderOutcomes.logReminderPayment, {
+          proofFileId: await storeProofFile(harness.t),
           followUpId,
           amount: 500,
           currency: "USD",
@@ -277,8 +280,9 @@ describe("recordAdditionalPayment", () => {
     await expectGuard(
       harness,
       opportunityId,
-      () =>
+      async () =>
         harness.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+          proofFileId: await storeProofFile(harness.t),
           opportunityId,
           amount: 200,
           currency: "USD",

@@ -1,7 +1,9 @@
-import { v } from "convex/values";
+import { dealStanding } from "../../lib/closer-pipeline";
+import { financingProviderValidator } from "../mcp/schema";
+import { v, type Infer } from "convex/values";
 import { literals } from "convex-helpers/validators";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { dealLabelOf } from "../opportunities/stageLabels";
 import { DEAL_POSITIONS } from "../opportunities/stages";
@@ -30,7 +32,7 @@ const SEARCH_MATCH_LIMIT = 200;
 // Far above the payments one deal has.
 const DEAL_PAYMENT_SCAN = 50;
 
-const tabValidator = literals(...CLOSER_LOOKUP_TABS);
+export const tabValidator = literals(...CLOSER_LOOKUP_TABS);
 
 function inTab(deal: Doc<"opportunities">, tab: CloserLookupTab): boolean {
   return tab === "all" || deal.outcome === tab;
@@ -89,6 +91,17 @@ export const listMyOpportunities = query({
   handler: async (ctx, { tab, programKey, search, limit }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
+    return await buildMyOpportunities(ctx, { userId, tenantId }, { tab, programKey, search, limit });
+  },
+});
+
+/** My Pipeline lookup shared by the web query and MCP, with identical filters. */
+export async function buildMyOpportunities(
+  ctx: QueryCtx,
+  { userId, tenantId }: { userId: Id<"users">; tenantId: Id<"tenants"> },
+  { tab, programKey, search, limit, state, financingProvider }: { tab: CloserLookupTab; programKey?: string; search?: string; limit: number; state?: "no_step" | "not_recorded"; financingProvider?: Infer<typeof financingProviderValidator> },
+  now = Date.now(),
+) {
     const { deals, capped } = await readCloserDeals(ctx, tenantId, userId);
 
     // The programs for the filter, from every deal the read covers.
@@ -123,8 +136,28 @@ export const listMyOpportunities = query({
     const counts = { all: filtered.length, open: 0, won: 0, lost: 0 };
     for (const deal of filtered) counts[deal.outcome] += 1;
 
+    // MCP's extra filters use the same next-step rule as My Pipeline.
+    const extraMatches = new Set<Id<"opportunities">>();
+    if (state !== undefined || financingProvider !== undefined) {
+      await Promise.all(filtered.map(async (deal) => {
+        if (state !== undefined) {
+          if (deal.outcome !== "open") return;
+          const nextStep = await loadDealNextStep(ctx, deal);
+          if (dealStanding({ nextStep }, now).state !== state) return;
+        }
+        if (financingProvider !== undefined) {
+          const latest = await ctx.db.query("callNotes")
+            .withIndex("by_tenantId_and_opportunityId_and_createdAt", (q) =>
+              q.eq("tenantId", tenantId).eq("opportunityId", deal._id))
+            .order("desc").first();
+          if (latest?.financingProvider !== financingProvider) return;
+        }
+        extraMatches.add(deal._id);
+      }));
+    }
     const inThisTab = filtered
-      .filter((deal) => inTab(deal, tab))
+      .filter((deal) => inTab(deal, tab) &&
+        (state === undefined && financingProvider === undefined || extraMatches.has(deal._id)))
       .sort((a, b) => dealLastActivityAt(b) - dealLastActivityAt(a));
     const shown = inThisTab.slice(0, Math.max(1, Math.min(Math.floor(limit), MAX_LOOKUP_ROWS)));
 
@@ -169,5 +202,4 @@ export const listMyOpportunities = query({
       isPartial: capped,
       isSearchPartial,
     };
-  },
-});
+}

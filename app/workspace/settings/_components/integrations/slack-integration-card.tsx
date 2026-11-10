@@ -36,11 +36,11 @@ type Props = {
   calendlyFirst?: boolean;
 };
 
-type ChannelKind = "notify" | "stale" | "lead_gen" | "booking_review";
+type ChannelKind = "notify" | "stale" | "lead_gen" | "booking_review" | "eod_report";
 type ChannelError = SlackConnected["notifyChannelError"];
 
 /**
- * Slack: the workspace it's connected to, then the four channels Magnus
+ * Slack: the workspace it's connected to, then the five channels Magnus
  * posts to as ruled rows with the picker in their heading row. Lime only on
  * Connect or Reconnect while Slack can't post.
  */
@@ -210,6 +210,14 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
             error={status.bookingReviewChannelError}
             kind="booking_review"
           />
+          <ChannelRow
+            purpose="End-of-day"
+            tip="Each closer's end-of-day report. Optional; no fallback channel."
+            name={status.eodReportChannelName}
+            active={active}
+            error={status.eodReportChannelError}
+            kind="eod_report"
+          />
         </ul>
 
         {!active || canDisconnect ? (
@@ -246,6 +254,8 @@ export function SlackIntegrationCard({ preloadedStatus, calendlyFirst = false }:
             initialLeadGenChannelName={status.leadGenNotifyChannelName}
             initialBookingReviewChannelId={status.bookingReviewChannelId}
             initialBookingReviewChannelName={status.bookingReviewChannelName}
+            initialEodReportChannelId={status.eodReportChannelId}
+            initialEodReportChannelName={status.eodReportChannelName}
           />
         ) : null}
       </Suspense>
@@ -375,6 +385,8 @@ function repickChannelCopy(kind: ChannelKind) {
       return "Lead gen posts are off. Pick a new lead gen channel to turn them back on.";
     case "booking_review":
       return "Booking review posts are off. Pick a new channel to turn them back on; reviews still open are posted then.";
+    case "eod_report":
+      return "Pick a new end-of-day channel, then retry the saved reports.";
   }
 }
 

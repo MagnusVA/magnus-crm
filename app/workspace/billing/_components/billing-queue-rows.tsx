@@ -20,6 +20,7 @@ import {
   STATUS_LABELS,
   STATUS_WORD,
 } from "./billing-format";
+import { AgentPaymentChip, ReusedProofIcon } from "./payment-provenance-markers";
 
 // The queue's ruled column rows, one 44px line each. The card is the
 // container they fold by: every column from @4xl; under it PROGRAM and TYPE
@@ -30,7 +31,7 @@ export type BillingQueueRow = FunctionReturnType<typeof api.billing.queries.list
 
 /** PAID · CUSTOMER · PROGRAM · TYPE · AMOUNT · PROOF · STATUS · chevron. */
 const COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 @2xl/payments:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_6.5rem_2.75rem_6rem_1rem] @2xl/payments:gap-x-3 @4xl/payments:grid-cols-[8.25rem_minmax(0,1.6fr)_minmax(0,1.15fr)_6.5rem_8rem_2.75rem_6.5rem_1rem] @4xl/payments:gap-x-4";
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 @2xl/payments:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_6.5rem_3.25rem_6rem_1rem] @2xl/payments:gap-x-3 @4xl/payments:grid-cols-[8.25rem_minmax(0,1.6fr)_minmax(0,1.15fr)_6.5rem_8rem_3.25rem_6.5rem_1rem] @4xl/payments:gap-x-4";
 
 const ROW_LINK =
   "outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring";
@@ -52,7 +53,9 @@ export function QueueHeads() {
         </HelpTip>
       </span>
       <span className="text-center">
-        <HelpTip tip="The file icon means a receipt or screenshot is attached. Open the payment to see it.">Proof</HelpTip>
+        <HelpTip tip="The file icon means a receipt or screenshot is attached. An amber copy icon means the same file also backs another payment. Open the payment to see it.">
+          Proof
+        </HelpTip>
       </span>
       <span>
         <HelpTip tip="Needs review: nobody has checked it yet. Reviewed: checked and ready for external billing. Disputed: voided, so it no longer counts as revenue.">
@@ -82,13 +85,16 @@ export function QueueRow({ row, now }: { row: BillingQueueRow; now: number }) {
         {paid}
       </time>
       <div className="min-w-0">
-        <Link
-          href={`/workspace/billing/${payment.id}`}
-          className={cn(ROW_LINK, "block truncate leading-5 font-semibold", name === null && "text-warning-ink")}
-          translate="no"
-        >
-          {name ?? "Missing customer"}
-        </Link>
+        <div className="flex min-w-0 items-center gap-2">
+          <Link
+            href={`/workspace/billing/${payment.id}`}
+            className={cn(ROW_LINK, "block min-w-0 truncate leading-5 font-semibold", name === null && "text-warning-ink")}
+            translate="no"
+          >
+            {name ?? "Missing customer"}
+          </Link>
+          <AgentPaymentChip recordedVia={payment.recordedVia} agentClient={payment.agentClient} />
+        </div>
         <p className="truncate text-[13px] leading-[18px] text-muted-foreground @2xl/payments:hidden">
           <span className="font-condensed text-[14px] font-semibold tabular-nums">{paid}</span> · {payment.programName} · {type}
         </p>
@@ -104,6 +110,7 @@ export function QueueRow({ row, now }: { row: BillingQueueRow; now: number }) {
           {formatAmountMinor(payment.amountMinor, payment.currency)}
         </span>
         <span className="flex justify-center @2xl/payments:justify-self-stretch">
+          <ReusedProofIcon proofReused={payment.proofReused} />
           {payment.hasProofFile ? (
             <Tooltip>
               <TooltipTrigger asChild>

@@ -4,6 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { storeProofFile } from "../../tests/proofFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -182,6 +183,7 @@ describe("a second program", () => {
       expect(created).toMatchObject({ leadId, leadWasCreated: false });
       vi.setSystemTime(Date.now() + DAY_MS);
       const { paymentId } = await harness.closer.mutation(api.sideDeals.logPayment.logPayment, {
+        proofFileId: await storeProofFile(harness.t),
         opportunityId: created.opportunityId, amount: 250, currency: "USD", programId: program, paymentType: "pif",
       });
       return { opportunityId: created.opportunityId, paymentId };

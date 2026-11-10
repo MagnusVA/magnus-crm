@@ -108,6 +108,8 @@ export function timelineSentence(
       return sentence("Booked from the link", program);
     case "followUp.expired":
       return sentence("Task expired", program);
+    case "followUp.rescheduled":
+      return sentence("Call-back moved", program);
     case "payment.recorded":
     case "payment.verified":
     case "payment.corrected":
