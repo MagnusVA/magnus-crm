@@ -23,6 +23,7 @@ import {
   SINGLE_SERIES,
   TOTAL_ROW,
 } from "../../_components/report-ui";
+import { PageRows, ReportPager, usePagedRows } from "../../_components/report-paging";
 import { memberReportHref } from "../../log/_components/use-team-members";
 import { formatCount, formatMoney, formatShare, inCurrency } from "./report-money";
 import {
@@ -211,8 +212,11 @@ export function CashCard({
         <SectionEmpty title={`No payments in ${currency} ${phrase}.`}>Disputed payments never count.</SectionEmpty>
       ) : (
         <>
-          <div className="grid @3xl/cash:grid-cols-2 @3xl/cash:divide-x">
-            <div className="min-w-0 border-b @3xl/cash:border-b-0">
+          {/* Payment types beside the facts once the card is wide enough for
+              both, so Cash stands about as tall as the Funnel beside it. Each
+              column is its own container, so the bars fold by its width. */}
+          <div className="grid @lg/cash:grid-cols-2 @lg/cash:divide-x">
+            <div className="@container min-w-0 border-b @lg/cash:border-b-0">
               <SubHead>By payment type</SubHead>
               <BarList
                 label="Cash by payment type"
@@ -227,44 +231,28 @@ export function CashCard({
               />
             </div>
             <div className="min-w-0">
-              <SubHead>By program</SubHead>
-              <BarList
-                label="Cash by program"
-                labelColumn="9rem"
-                rows={[...entry.byProgram]
-                  .sort((a, b) => b.cashMinor - a.cashMinor)
-                  .map((program) => ({
-                    key: program.programId,
-                    label: program.name,
-                    meta: `${formatCount(program.payments)} payment${program.payments === 1 ? "" : "s"} · ${formatCount(program.dealsWon)} won`,
-                    value: program.cashMinor,
-                    display: formatMoney(program.cashMinor, currency),
-                  }))}
+              <FactRow
+                label={REPORT_TERMS.finalCash.label}
+                help={termHelp("finalCash")}
+                value={formatMoney(entry.finalMinor, currency)}
+              />
+              <FactRow label="Deposits" meta="Part of cash, not of final cash" value={formatMoney(entry.depositMinor, currency)} />
+              <FactRow
+                label="Deposits on lost deals"
+                meta="Deposits in the range on deals that are lost now"
+                value={formatMoney(entry.depositsOnLostDeals, currency)}
+              />
+              <FactRow
+                label={REPORT_TERMS.cashPerWonDeal.label}
+                help={termHelp("cashPerWonDeal")}
+                meta={
+                  perDeal === null
+                    ? "No deal won to divide by"
+                    : `${formatMoney(entry.finalOnWonDealsMinor, currency)} ÷ ${formatCount(entry.dealsWon)} deal${entry.dealsWon === 1 ? "" : "s"} won`
+                }
+                value={perDeal === null ? "—" : formatMoney(perDeal, currency)}
               />
             </div>
-          </div>
-          <div className="border-t">
-            <FactRow
-              label={REPORT_TERMS.finalCash.label}
-              help={termHelp("finalCash")}
-              value={formatMoney(entry.finalMinor, currency)}
-            />
-            <FactRow label="Deposits" meta="Part of cash, not of final cash" value={formatMoney(entry.depositMinor, currency)} />
-            <FactRow
-              label="Deposits on lost deals"
-              meta="Deposits in the range on deals that are lost now"
-              value={formatMoney(entry.depositsOnLostDeals, currency)}
-            />
-            <FactRow
-              label={REPORT_TERMS.cashPerWonDeal.label}
-              help={termHelp("cashPerWonDeal")}
-              meta={
-                perDeal === null
-                  ? "No deal won to divide by"
-                  : `${formatMoney(entry.finalOnWonDealsMinor, currency)} ÷ ${formatCount(entry.dealsWon)} deal${entry.dealsWon === 1 ? "" : "s"} won`
-              }
-              value={perDeal === null ? "—" : formatMoney(perDeal, currency)}
-            />
           </div>
         </>
       )}
@@ -397,12 +385,14 @@ export function FollowThroughCard({
   memberFor: (userId: Id<"users">) => Id<"teamMembers"> | undefined;
 }) {
   const closers = data ? [...data.byCloser].sort((a, b) => b.due - a.due || a.name.localeCompare(b.name)) : [];
+  const { rows: shownClosers, pager } = usePagedRows(closers, { resetKey: phrase });
   return (
     <ReportCard
       title="Follow-through"
       meta={data ? `${formatCount(data.due)} reminder${data.due === 1 ? "" : "s"} due` : undefined}
       container="@container/follow"
       reloading={reloading}
+      footer={data === undefined || data.due === 0 ? undefined : <ReportPager pager={pager} noun="closers" />}
     >
       {data === undefined ? (
         <RowsSkeleton rows={5} label="Loading follow-through" />
@@ -410,7 +400,7 @@ export function FollowThroughCard({
         <SectionEmpty title={`No reminders were due ${phrase}.`}>Manual reminders count here on the day they&apos;re due.</SectionEmpty>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-px border-b bg-border @2xl/follow:grid-cols-4">
+          <div className="grid grid-cols-2 gap-px border-b bg-border @lg/follow:grid-cols-4">
             {[
               { label: REPORT_TERMS.tasksOnTime.label, help: termHelp("tasksOnTime"), value: formatShare(data.onTime, data.due) },
               { label: "On time", value: formatCount(data.onTime) },
@@ -423,62 +413,64 @@ export function FollowThroughCard({
               </div>
             ))}
           </div>
-          <div role="table" aria-label="Follow-through by closer">
-            <div role="row" className={cn("grid border-b", FOLLOW_COLUMNS)}>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "pl-4")}>
-                Closer
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "text-right")}>
-                Due
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "hidden text-right @2xl/follow:block")}>
-                On time
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "hidden text-right @2xl/follow:block")}>
-                Late
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "text-right")}>
-                Overdue
-              </span>
-              <span role="columnheader" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
-                On time
-              </span>
+          <PageRows pager={pager}>
+            <div role="table" aria-label="Follow-through by closer">
+              <div role="row" className={cn("grid border-b", FOLLOW_COLUMNS)}>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "pl-4")}>
+                  Closer
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "text-right")}>
+                  Due
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "hidden text-right @2xl/follow:block")}>
+                  On time
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "hidden text-right @2xl/follow:block")}>
+                  Late
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "text-right")}>
+                  Overdue
+                </span>
+                <span role="columnheader" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
+                  On time
+                </span>
+              </div>
+              {shownClosers.map((closer) => {
+                const member = memberFor(closer.userId);
+                return (
+                  <div role="row" key={closer.userId} className={cn("grid min-h-11 items-center border-b last:border-b-0", FOLLOW_COLUMNS)}>
+                    <span role="cell" className="min-w-0 truncate pr-3 pl-4 font-medium">
+                      {member ? (
+                        <Link href={memberReportHref(member)} className={detailLinkClass}>
+                          {closer.name}
+                        </Link>
+                      ) : (
+                        closer.name
+                      )}
+                    </span>
+                    <span role="cell" className={cn(FIGURE_15, "px-2.5 text-right")}>
+                      {formatCount(closer.due)}
+                    </span>
+                    <span role="cell" className={cn(FIGURE_15, "hidden px-2.5 text-right @2xl/follow:block")}>
+                      {formatCount(closer.onTime)}
+                    </span>
+                    <span role="cell" className={cn(FIGURE_15, "hidden px-2.5 text-right @2xl/follow:block")}>
+                      {formatCount(closer.late)}
+                    </span>
+                    <span
+                      role="cell"
+                      className={cn(FIGURE_15, "px-2.5 text-right", closer.openOverdue > 0 ? "text-warning-ink" : "text-muted-foreground")}
+                    >
+                      {formatCount(closer.openOverdue)}
+                    </span>
+                    <span role="cell" className={cn(FIGURE_15, "pr-4 pl-2.5 text-right")}>
+                      {formatShare(closer.onTime, closer.due)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-            {closers.map((closer) => {
-              const member = memberFor(closer.userId);
-              return (
-                <div role="row" key={closer.userId} className={cn("grid min-h-11 items-center border-b last:border-b-0", FOLLOW_COLUMNS)}>
-                  <span role="cell" className="min-w-0 truncate pr-3 pl-4 font-medium">
-                    {member ? (
-                      <Link href={memberReportHref(member)} className={detailLinkClass}>
-                        {closer.name}
-                      </Link>
-                    ) : (
-                      closer.name
-                    )}
-                  </span>
-                  <span role="cell" className={cn(FIGURE_15, "px-2.5 text-right")}>
-                    {formatCount(closer.due)}
-                  </span>
-                  <span role="cell" className={cn(FIGURE_15, "hidden px-2.5 text-right @2xl/follow:block")}>
-                    {formatCount(closer.onTime)}
-                  </span>
-                  <span role="cell" className={cn(FIGURE_15, "hidden px-2.5 text-right @2xl/follow:block")}>
-                    {formatCount(closer.late)}
-                  </span>
-                  <span
-                    role="cell"
-                    className={cn(FIGURE_15, "px-2.5 text-right", closer.openOverdue > 0 ? "text-warning-ink" : "text-muted-foreground")}
-                  >
-                    {formatCount(closer.openOverdue)}
-                  </span>
-                  <span role="cell" className={cn(FIGURE_15, "pr-4 pl-2.5 text-right")}>
-                    {formatShare(closer.onTime, closer.due)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          </PageRows>
         </>
       )}
     </ReportCard>
@@ -550,6 +542,9 @@ export function ProgramsTableCard({
   phrase: string;
 }) {
   const programs = entry ? [...entry.byProgram].sort((a, b) => b.cashMinor - a.cashMinor || a.name.localeCompare(b.name)) : [];
+  // One page of programs; the Total row under them stays on every page and
+  // totals every program.
+  const { rows: shownPrograms, pager } = usePagedRows(programs, { resetKey: `${currency}|${phrase}` });
   const numberCell = (value: ReactNode, extra?: string) => <td className={cn(FIGURE_15, "px-2.5 text-right whitespace-nowrap", extra)}>{value}</td>;
   return (
     <ReportCard
@@ -557,64 +552,67 @@ export function ProgramsTableCard({
       meta={loaded ? `Cash by sold program · ${currency}` : undefined}
       container="@container/programs"
       reloading={reloading}
+      footer={!loaded || programs.length === 0 || !entry ? undefined : <ReportPager pager={pager} noun="programs" />}
     >
       {!loaded ? (
         <RowsSkeleton rows={4} label="Loading programs" />
       ) : programs.length === 0 || !entry ? (
         <SectionEmpty title={`No payments in ${currency} ${phrase}.`} />
       ) : (
-        <table className="w-full border-collapse">
-          <caption className="sr-only">Payments, deals won and cash by program, in {currency}</caption>
-          <thead>
-            <tr className="border-b">
-              <th scope="col" className={cn(COLUMN_HEAD, "pl-4 text-left")}>
-                Program
-              </th>
-              <th scope="col" className={cn(COLUMN_HEAD, "hidden text-right @2xl/programs:table-cell")}>
-                Payments
-              </th>
-              <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
-                Won
-              </th>
-              <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
-                {REPORT_TERMS.cash.label}
-              </th>
-              <th scope="col" className={cn(COLUMN_HEAD, "hidden text-right @2xl/programs:table-cell")}>
-                {REPORT_TERMS.finalCash.label}
-              </th>
-              <th scope="col" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
-                <HelpTip tip={termHelp("cashPerWonDeal")}>Per won deal</HelpTip>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {programs.map((program) => {
-              const perDeal = cashPerWonDeal(program);
-              return (
-                <tr key={program.programId} className="h-11 border-b">
-                  <th scope="row" className="max-w-0 truncate pr-3 pl-4 text-left font-medium">
-                    {program.name}
-                  </th>
-                  {numberCell(formatCount(program.payments), "hidden @2xl/programs:table-cell")}
-                  {numberCell(formatCount(program.dealsWon))}
-                  {numberCell(formatMoney(program.cashMinor, currency))}
-                  {numberCell(formatMoney(program.finalMinor, currency), "hidden @2xl/programs:table-cell")}
-                  {numberCell(perDeal === null ? "—" : formatMoney(perDeal, currency), "pr-4")}
-                </tr>
-              );
-            })}
-            <tr className={cn("h-11", TOTAL_ROW)}>
-              <th scope="row" className="pr-3 pl-4 text-left">
-                Total
-              </th>
-              {numberCell(formatCount(programs.reduce((sum, program) => sum + program.payments, 0)), "hidden @2xl/programs:table-cell")}
-              {numberCell(formatCount(entry.dealsWon))}
-              {numberCell(formatMoney(entry.cashMinor, currency))}
-              {numberCell(formatMoney(entry.finalMinor, currency), "hidden @2xl/programs:table-cell")}
-              {numberCell(cashPerWonDeal(entry) === null ? "—" : formatMoney(cashPerWonDeal(entry)!, currency), "pr-4")}
-            </tr>
-          </tbody>
-        </table>
+        <PageRows pager={pager}>
+          <table className="w-full border-collapse">
+            <caption className="sr-only">Payments, deals won and cash by program, in {currency}</caption>
+            <thead>
+              <tr className="border-b">
+                <th scope="col" className={cn(COLUMN_HEAD, "pl-4 text-left")}>
+                  Program
+                </th>
+                <th scope="col" className={cn(COLUMN_HEAD, "hidden text-right @2xl/programs:table-cell")}>
+                  Payments
+                </th>
+                <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
+                  Won
+                </th>
+                <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
+                  {REPORT_TERMS.cash.label}
+                </th>
+                <th scope="col" className={cn(COLUMN_HEAD, "hidden text-right @2xl/programs:table-cell")}>
+                  {REPORT_TERMS.finalCash.label}
+                </th>
+                <th scope="col" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
+                  <HelpTip tip={termHelp("cashPerWonDeal")}>Per won deal</HelpTip>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shownPrograms.map((program) => {
+                const perDeal = cashPerWonDeal(program);
+                return (
+                  <tr key={program.programId} className="h-11 border-b">
+                    <th scope="row" className="max-w-0 truncate pr-3 pl-4 text-left font-medium">
+                      {program.name}
+                    </th>
+                    {numberCell(formatCount(program.payments), "hidden @2xl/programs:table-cell")}
+                    {numberCell(formatCount(program.dealsWon))}
+                    {numberCell(formatMoney(program.cashMinor, currency))}
+                    {numberCell(formatMoney(program.finalMinor, currency), "hidden @2xl/programs:table-cell")}
+                    {numberCell(perDeal === null ? "—" : formatMoney(perDeal, currency), "pr-4")}
+                  </tr>
+                );
+              })}
+              <tr className={cn("h-11", TOTAL_ROW)}>
+                <th scope="row" className="pr-3 pl-4 text-left">
+                  Total
+                </th>
+                {numberCell(formatCount(programs.reduce((sum, program) => sum + program.payments, 0)), "hidden @2xl/programs:table-cell")}
+                {numberCell(formatCount(entry.dealsWon))}
+                {numberCell(formatMoney(entry.cashMinor, currency))}
+                {numberCell(formatMoney(entry.finalMinor, currency), "hidden @2xl/programs:table-cell")}
+                {numberCell(cashPerWonDeal(entry) === null ? "—" : formatMoney(cashPerWonDeal(entry)!, currency), "pr-4")}
+              </tr>
+            </tbody>
+          </table>
+        </PageRows>
       )}
     </ReportCard>
   );

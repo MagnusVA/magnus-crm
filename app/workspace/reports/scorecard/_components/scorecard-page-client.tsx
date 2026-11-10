@@ -196,7 +196,7 @@ export function ScorecardPageClient() {
           </>
         }
         figures={
-          <ReportFigures columns="grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-6" reloading={funnel.reloading}>
+          <ReportFigures columns="grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-[repeat(5,minmax(0,1fr))_1.4fr]" reloading={funnel.reloading}>
             <FigureZone
               label="In conversation"
               help="People who entered In conversation in the range: the start of the funnel."
@@ -275,32 +275,33 @@ export function ScorecardPageClient() {
       <WeeksCard funnel={funnel.data} currency={currency} reloading={funnel.reloading} phrase={funnel.phrase} />
 
       <div className={REPORT_PAIR}>
-        <FollowThroughCard
-          data={follow.data}
-          reloading={follow.reloading}
-          phrase={follow.phrase}
-          memberFor={(userId) => team?.byUserId.get(userId)}
-        />
-        <OriginsCard data={origins.data} currency={currency} reloading={origins.reloading} phrase={origins.phrase} />
-      </div>
-
-      <div className={REPORT_PAIR}>
-        <AnswersCard
-          catalog={catalog}
-          fieldKey={fieldKey}
-          onFieldKeyChange={setPickedField}
-          answers={answers.data}
-          source={answersReport.source}
-          freshness={fieldKey ? <AnalyticsFreshnessLine items={[answersReport.freshness]} /> : null}
-          reloading={answers.reloading}
-          phrase={answers.phrase}
-        />
         <ProgramsTableCard
           entry={cashEntry}
           loaded={cash.data !== undefined}
           currency={currency}
           reloading={cash.reloading}
           phrase={cash.phrase}
+        />
+        <OriginsCard data={origins.data} currency={currency} reloading={origins.reloading} phrase={origins.phrase} />
+      </div>
+
+      <div className={REPORT_PAIR}>
+        <FollowThroughCard
+          data={follow.data}
+          reloading={follow.reloading}
+          phrase={follow.phrase}
+          memberFor={(userId) => team?.byUserId.get(userId)}
+        />
+        <AnswersCard
+          catalog={catalog}
+          fieldKey={fieldKey}
+          onFieldKeyChange={setPickedField}
+          programKey={programId ?? ""}
+          answers={answers.data}
+          source={answersReport.source}
+          freshness={fieldKey ? <AnalyticsFreshnessLine items={[answersReport.freshness]} /> : null}
+          reloading={answers.reloading}
+          phrase={answers.phrase}
         />
       </div>
     </div>
