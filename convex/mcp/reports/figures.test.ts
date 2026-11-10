@@ -269,6 +269,18 @@ describe("refusals the agent can read", () => {
     expect(isExpectedError(error)).toBe(true);
     expect((error as { data: { code: string; message: string } }).data).toMatchObject({ code: "report.invalid_request", message: "bookRate is a person's page figure. Choose memberId." });
   });
+  it("refuses a reversed, overlong or malformed range in words the agent can read", async () => {
+    const f = await fixture();
+    for (const [startDate, endDateInclusive, message] of [
+      ["2026-10-31", "2026-10-01", "Choose an end date on or after the start date."],
+      ["2023-01-01", "2026-10-31", "Choose 731 days or fewer."],
+      ["2026-02-30", "2026-03-01", "Use real dates as YYYY-MM-DD."],
+    ] as const) {
+      const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["callsDue"], range: { kind: "custom", startDate, endDateInclusive } }).catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect((error as { data: { code: string; message: string } }).data).toMatchObject({ code: "report.invalid_request", message });
+    }
+  });
   it("leaves an unexpected failure as an error, never a refusal", async () => {
     const f = await fixture();
     // A duplicate user row makes access resolution fail: a bug, not a refusal.

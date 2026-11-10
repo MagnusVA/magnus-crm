@@ -1,5 +1,5 @@
-import { dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, resolveDashboardRange, type ResolvedAnalyticsRange } from "./analyticsRange";
-import { addBusinessDays, businessDateForInstant, countBusinessDays, type BusinessDaySetting } from "./businessDay";
+import { MAX_ANALYTICS_RANGE_DAYS, dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, resolveDashboardRange, type ResolvedAnalyticsRange } from "./analyticsRange";
+import { addBusinessDays, businessDateForInstant, calendarDate, countBusinessDays, type BusinessDaySetting } from "./businessDay";
 
 export type AssistantRange = AnalyticsRange | { kind: "preset"; preset: "today" | "last_week" | "year_to_date" };
 export type SourceWindow = { engine: "convex" | "warehouse"; range: AnalyticsRange; window: ResolvedAnalyticsRange; label: "whole_range" | "history" | "today_live" };
@@ -12,6 +12,7 @@ export function planAssistantSources(args: { range: AssistantRange; day: Busines
   const today = businessDateForInstant(args.now, args.day);
   const range: AnalyticsRange = args.range.kind === "preset" && ["today", "last_week", "year_to_date"].includes(args.range.preset)
     ? (() => { const dates = resolveDashboardRange({ kind: "preset", preset: args.range.preset }, today); return { kind: "custom" as const, startDate: dates.startBusinessDate, endDateInclusive: dates.endBusinessDateInclusive }; })() : args.range as AnalyticsRange;
+  assertRequestRange(range);
   const resolvedRange = resolveAnalyticsRange(range, args.day, args.now);
   const plan = dashboardRangePlan(args.range.kind === "preset" && !("throughYesterday" in args.range && args.range.throughYesterday)
     ? { kind: "preset", preset: args.range.preset }
@@ -34,6 +35,24 @@ export function cachedWindowFits(expected: ResolvedAnalyticsRange, answer: { sta
  */
 export class ReportRequestError extends Error {
   override name = "ReportRequestError";
+}
+
+/**
+ * A custom range the caller sent, checked with resolveAnalyticsRange's own
+ * rules and messages, so a bad range is a refusal the agent can read.
+ */
+function assertRequestRange(range: AnalyticsRange) {
+  if (range.kind !== "custom") return;
+  for (const date of [range.startDate, range.endDateInclusive]) {
+    try {
+      calendarDate(date);
+    } catch {
+      throw new ReportRequestError("Use real dates as YYYY-MM-DD.");
+    }
+  }
+  if (range.startDate > range.endDateInclusive) throw new ReportRequestError("Choose an end date on or after the start date.");
+  if (countBusinessDays(range.startDate, addBusinessDays(range.endDateInclusive, 1)) > MAX_ANALYTICS_RANGE_DAYS)
+    throw new ReportRequestError(`Choose ${MAX_ANALYTICS_RANGE_DAYS} days or fewer.`);
 }
 
 export function reportLimit(limit = 10) {
