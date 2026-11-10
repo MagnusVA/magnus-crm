@@ -57,9 +57,14 @@ export function leadGenAdminInstructions(who: Who | null): string {
   ].join("\n");
 }
 
-/** The instructions for a role's toolset. With no caller yet, the closer's. */
+/**
+ * The instructions for a role's toolset. A caller with no access (signed out,
+ * blocked, or a role that is switched off) lists no tools, so they get no
+ * role's instructions either.
+ */
 export function instructionsFor(role: CrmRole | null, who: Who | null): string {
   if (role === "lead_generator") return leadGenInstructions(who);
   if (role === "tenant_admin" || role === "tenant_master") return leadGenAdminInstructions(who);
-  return closerInstructions(who);
+  if (role === "closer") return closerInstructions(who);
+  return "You're connected to Magnus, the sales CRM. AI assistant access isn't available for this login, so no tools are listed. An admin turns it on in Settings.";
 }

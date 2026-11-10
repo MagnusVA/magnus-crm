@@ -45,7 +45,11 @@ async function fixture() {
     return (name: string, args: Record<string, unknown> = {}) => callTool(h.t, token, sessionId, name, args);
   };
   const web = (sub: string) => h.t.withIdentity({ subject: sub, org_id: seeded.orgId });
-  const rows = <T extends "leadGenSubmissions" | "leads" | "domainEvents" | "leadGenCorrectionEvents">(table: T) =>
+  const rows = <
+    T extends "leadGenSubmissions" | "leadGenProspects" | "leads" | "domainEvents" | "leadGenCorrectionEvents",
+  >(
+    table: T,
+  ) =>
     h.t.run((ctx) => ctx.db.query(table).take(500));
   return { ...h, ...seeded, agent, web, rows };
 }
@@ -230,8 +234,13 @@ describe("magnus_capture_prospects", () => {
     expect(failed.isError).toBe(true);
     expect(failed.text ?? "").toContain("can't be written right now");
     expect(await f.rows("leadGenSubmissions")).toHaveLength(0);
+    expect(await f.rows("leadGenProspects")).toHaveLength(0);
     expect(await f.rows("leads")).toHaveLength(0);
-    expect((await f.rows("domainEvents")).filter((event) => event.eventType === "lead.captured")).toHaveLength(0);
+    expect(
+      (await f.rows("domainEvents")).filter(
+        (event) => event.eventType === "lead.captured" || event.eventType === "lead.created",
+      ),
+    ).toHaveLength(0);
     const scheduled = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").take(50));
     expect(scheduled.filter((job) => job.name.includes("postLeadGenSubmission"))).toHaveLength(0);
 

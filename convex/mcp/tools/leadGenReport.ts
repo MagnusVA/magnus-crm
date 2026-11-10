@@ -2,7 +2,7 @@ import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { internal } from "../../_generated/api";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../../_generated/server";
-import { rejectRequest } from "../../lib/observability/errors";
+import { isExpectedError, rejectRequest } from "../../lib/observability/errors";
 import { leadGenBusinessDayBlocked } from "../../lib/businessDayRebuildState";
 import { LEAD_GEN_ADMIN_ROLES, mcpCallerValidator, requireMcpUser } from "../guard";
 import { leadGenRangeArgs, resolveLeadGenRange, type LeadGenActionCaller } from "../leadGenShared";
@@ -313,11 +313,20 @@ export const report = internalAction({
       } else ready(section, liveValue(section, live), Date.now(), { live: true, version: live.businessDayVersion });
     }
     if ([...waiting].some(s => results.get(s)!.source === "snapshot") && !snapshotJobId) {
-      snapshotJobId = await ctx.runMutation(internal.mcp.tools.leadGenReport.requestSnapshot,
-        // The same token for ten minutes: asking again finds the job this call
-        // started, even after it finished and gave up its admission slot.
-        { caller: args.caller, ...filters, requestToken: ["mcp-report", range.startDayKey, range.endDayKey, args.source ?? "all",
-          context.businessDayVersion, Math.floor(Date.now() / SNAPSHOT_REUSE_MS)].join(":") });
+      try {
+        snapshotJobId = await ctx.runMutation(internal.mcp.tools.leadGenReport.requestSnapshot,
+          // The same token for ten minutes: asking again finds the job this call
+          // started, even after it finished and gave up its admission slot.
+          { caller: args.caller, ...filters, requestToken: ["mcp-report", range.startDayKey, range.endDayKey, args.source ?? "all",
+            context.businessDayVersion, Math.floor(Date.now() / SNAPSHOT_REUSE_MS)].join(":") });
+      } catch (error) {
+        if (isExpectedError(error)) throw error;
+        // The workspace or this admin already has a report running, so no
+        // snapshot can start now. The sections that don't need one still answer.
+        for (const section of [...waiting]) {
+          if (results.get(section)!.source === "snapshot") waiting.delete(section);
+        }
+      }
     }
     while (waiting.size && Date.now() < deadline) {
       for (const section of [...waiting]) {

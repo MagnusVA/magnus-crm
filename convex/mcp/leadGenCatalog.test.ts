@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callTool, createMcpHarness, mcpConnect, mcpRpc, seedTenantWithLeadGen } from "../../tests/mcpHarness";
+import { resolveLeadGenRange } from "./leadGenShared";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -37,6 +38,18 @@ async function connectAs(h: Harness, orgId: string, sub: string) {
   const instructions = (init.body?.result as { instructions?: string } | undefined)?.instructions ?? "";
   return { token, sessionId, names, instructions };
 }
+
+describe("resolveLeadGenRange", () => {
+  it("refuses a calendar date that doesn't exist with a message the agent can act on", () => {
+    expect(() => resolveLeadGenRange({ startDate: "2026-02-31", endDate: "2026-03-02" }, "2026-03-10")).toThrow(
+      "doesn't exist",
+    );
+    expect(resolveLeadGenRange({ startDate: "2026-02-28", endDate: "2026-03-02" }, "2026-03-10")).toMatchObject({
+      days: 3,
+      preset: "custom",
+    });
+  });
+});
 
 describe("the one catalog, by role", () => {
   it("lists each role its own toolset and nothing else", async () => {
@@ -84,8 +97,13 @@ describe("the one catalog, by role", () => {
   it("gives a role nothing while its switch is off, and leaves the others alone", async () => {
     const h = await createMcpHarness();
     const seeded = await seedTenantWithLeadGen(h.t, { mcpRoles: ["closer", "tenant_admin"] });
-    expect((await connectAs(h, seeded.orgId, "user_sofia")).names).toEqual([]);
-    expect((await connectAs(h, seeded.orgId, "user_owner")).names).toEqual([]);
+    // A role that is off lists nothing, and isn't told it is a closer.
+    for (const sub of ["user_sofia", "user_owner"]) {
+      const off = await connectAs(h, seeded.orgId, sub);
+      expect(off.names).toEqual([]);
+      expect(off.instructions).toContain("no tools are listed");
+      expect(off.instructions).not.toContain("magnus_today");
+    }
     expect((await connectAs(h, seeded.orgId, "user_admin")).names).toEqual(ADMIN_TOOLS);
     expect((await connectAs(h, seeded.orgId, "user_alex")).names).toHaveLength(16);
   });

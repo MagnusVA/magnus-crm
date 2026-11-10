@@ -308,6 +308,15 @@ describe("lead gen report through /mcp", () => {
     expect(section(result, "conversions").state).toBe("ready");
     expect(section(result, "respark").rows).toEqual(data.resparks.rows.map(({ worker, ...r }) => ({ ...r, displayName: worker.name!, teamId: h.teamId })));
   });
+  it("keeps the live sections when the workspace can't start another snapshot", async () => {
+    const h = await fixture();
+    // This admin already has a dashboard report running for another range.
+    await seedSnapshot(h, "2026-09-01", "2026-09-20", undefined, "queued");
+    const result = await run(h, { startDate: "2026-10-01", endDate: TODAY, sections: ALL });
+    unavailable(result, "pending", ["overview", "specialists", "teams", "top_posts"]);
+    expect(section(result, "conversions").state).toBe("ready");
+    expect(section(result, "respark").state).toBe("ready");
+  });
   it("finds the snapshot it started when a pending report is asked for again", async () => {
     const h = await fixture();
     const ask = async () => {

@@ -72,7 +72,12 @@ export function resolveLeadGenRange(
   if (!startDate || !endDate || !DAY_KEY.test(startDate) || !DAY_KEY.test(endDate)) {
     throw rejectRequest("range.invalid", 'Send startDate and endDate as business dates, "YYYY-MM-DD".');
   }
-  if (Number.isNaN(Date.parse(`${startDate}T00:00:00Z`)) || Number.isNaN(Date.parse(`${endDate}T00:00:00Z`))) {
+  // Date.parse rolls 2026-02-31 over to March, so compare the round trip.
+  const exists = (day: string) => {
+    const ms = Date.parse(`${day}T00:00:00Z`);
+    return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === day;
+  };
+  if (!exists(startDate) || !exists(endDate)) {
     throw rejectRequest("range.invalid", "One of those dates doesn't exist.");
   }
   if (startDate > endDate) {
