@@ -184,6 +184,7 @@ export const readSnapshot = internalQuery({
   },
 });
 
+const SNAPSHOT_REUSE_MS = 10 * 60 * 1000;
 type Cursor = { version: 1; section: Section; binding: string; generation: string; offset: number; snapshotJobId?: Id<"operationsReportJobs"> };
 function decodeCursor(value: string): Cursor {
   try {
@@ -313,7 +314,10 @@ export const report = internalAction({
     }
     if ([...waiting].some(s => results.get(s)!.source === "snapshot") && !snapshotJobId) {
       snapshotJobId = await ctx.runMutation(internal.mcp.tools.leadGenReport.requestSnapshot,
-        { caller: args.caller, ...filters, requestToken: `mcp-report-${crypto.randomUUID()}` });
+        // The same token for ten minutes: asking again finds the job this call
+        // started, even after it finished and gave up its admission slot.
+        { caller: args.caller, ...filters, requestToken: ["mcp-report", range.startDayKey, range.endDayKey, args.source ?? "all",
+          context.businessDayVersion, Math.floor(Date.now() / SNAPSHOT_REUSE_MS)].join(":") });
     }
     while (waiting.size && Date.now() < deadline) {
       for (const section of [...waiting]) {

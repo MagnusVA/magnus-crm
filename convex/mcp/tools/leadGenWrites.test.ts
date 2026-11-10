@@ -312,6 +312,45 @@ describe("magnus_capture_prospects", () => {
   });
 });
 
+describe("a handle that changed hands", () => {
+  it("is a conflict for the check and the capture, though it was captured before", async () => {
+    const f = await fixture();
+    await webCapture(f, "user_dani", "@shared.handle");
+    // The same handle is later recorded on another person.
+    await f.t.run(async (ctx) => {
+      const leadId = await ctx.db.insert("leads", {
+        tenantId: f.tenantId,
+        fullName: "Someone Else",
+        status: "active",
+        lifecycleStage: "in_conversation",
+        lifecycleStageEnteredAt: { in_conversation: NOW },
+        disposition: "open",
+        resparkGroup: "out",
+        firstSeenAt: NOW,
+        updatedAt: NOW,
+        searchText: "Someone Else",
+      } as never);
+      await ctx.db.insert("leadIdentifiers", {
+        tenantId: f.tenantId,
+        leadId,
+        type: "instagram",
+        value: "shared.handle",
+        rawValue: "shared.handle",
+        source: "manual_entry",
+        confidence: "verified",
+        createdAt: NOW,
+      } as never);
+    });
+    const sofia = await f.agent("user_sofia");
+    const check = await sofia("magnus_check_handles", { handles: ["@shared.handle"] });
+    expect((check.data as { results: Array<{ verdict: string }> }).results[0].verdict).toBe("conflict");
+    const preview = await sofia("magnus_capture_prospects", { ...list(["@shared.handle"]), confirm: false });
+    expect(preview.data as Preview).toMatchObject({ willSave: 0, lines: [{ verdict: "conflict", willSave: false }] });
+    expect((preview.data as Preview).confirmToken).toBeUndefined();
+    expect(await f.rows("leadGenSubmissions")).toHaveLength(1);
+  });
+});
+
 describe("the respark write tools", () => {
   async function withPool(people: number) {
     const f = await fixture();

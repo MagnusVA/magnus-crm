@@ -14,7 +14,9 @@ import { normalizeLeadGenProspectInput } from "./normalization";
  * It follows the capture's own steps: the prospect by dedupe key first, and
  * otherwise the person who holds the Instagram handle. A handle two people
  * hold, or one that points at a broken record, is a conflict, as it is for a
- * capture (`findOrCreateCapturePerson`).
+ * capture (`findOrCreateCapturePerson`). It is stricter than a capture in one
+ * case: a handle that already has a prospect is still checked against the
+ * people who hold it now.
  */
 export type HandleVerdict =
   | "new"
@@ -87,13 +89,18 @@ export async function lookupHandle(
     .query("leadGenProspects")
     .withIndex("by_tenantId_and_dedupeKey", (q) => q.eq("tenantId", tenantId).eq("dedupeKey", normalized.dedupeKey))
     .unique();
+  const holder = await handleHolders(ctx, tenantId, normalized.normalizedHandle);
   if (prospect) {
     const lead = await ctx.db.get("leads", prospect.leadId);
-    if (!lead) return { ...base, verdict: "conflict", prospect, lead: null };
+    // A handle captured for one person and later given to another can't
+    // decide who a new capture is for, though the web would still record it.
+    const person = lead ? await followMergeChain(ctx, lead) : undefined;
+    if (!lead || !person || holder.conflict || (holder.lead && holder.lead._id !== person._id)) {
+      return { ...base, verdict: "conflict", prospect, lead: null };
+    }
     return { ...base, verdict: verdictFor(lead, prospect.contactAttemptCount > 0), prospect, lead };
   }
 
-  const holder = await handleHolders(ctx, tenantId, normalized.normalizedHandle);
   if (holder.conflict) return { ...base, verdict: "conflict", prospect: null, lead: null };
   if (!holder.lead) return { ...base, verdict: "new", prospect: null, lead: null };
   return { ...base, verdict: verdictFor(holder.lead, false), prospect: null, lead: holder.lead };

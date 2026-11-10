@@ -308,6 +308,24 @@ describe("lead gen report through /mcp", () => {
     expect(section(result, "conversions").state).toBe("ready");
     expect(section(result, "respark").rows).toEqual(data.resparks.rows.map(({ worker, ...r }) => ({ ...r, displayName: worker.name!, teamId: h.teamId })));
   });
+  it("finds the snapshot it started when a pending report is asked for again", async () => {
+    const h = await fixture();
+    const ask = async () => {
+      const answer = run(h, { startDate: "2026-10-01", endDate: TODAY, sections: ["overview"] });
+      // Wait for the coordinator to request the snapshot, then pass its deadline.
+      await new Promise(resolve => setTimeout(resolve, 100));
+      vi.setSystemTime(Date.now() + 30000);
+      return await answer;
+    };
+    unavailable(await ask(), "pending", ["overview"]);
+    // The job finished in the meantime and gave up its admission slot.
+    await h.t.run(async ctx => {
+      const admission = (await ctx.db.query("operationsReportAdmission").first())!;
+      await ctx.db.patch("operationsReportAdmission", admission._id, { slots: [] });
+    });
+    await ask();
+    expect(await h.t.run(ctx => ctx.db.query("operationsReportJobs").take(10))).toHaveLength(1);
+  });
   it.each(["live", "warehouse", "snapshot"] as const)("refuses non-admins and isolates a second tenant on the %s route", async route => {
     const h = await fixture();
     for (const subject of ["user_sofia", "user_alex"]) {
