@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { gateway } from "./gateway";
-import { mcpCallerValidator, resolveMcpAccess } from "./guard";
+import { mcpCallerValidator, resolveMcpAccess, writeFamiliesFor } from "./guard";
 
 const SESSION_CLIENT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // decision 16
@@ -16,6 +16,8 @@ export const callerAccessValidator = v.union(
     fullName: v.string(),
     companyName: v.string(),
     timeZone: v.string(),
+    // Admin assistants only: the kinds of change switched on for this role.
+    writeFamilies: v.array(v.string()),
   }),
   v.object({ ok: v.literal(false), code: v.string(), message: v.string() }),
 );
@@ -39,6 +41,7 @@ export const checkCaller = internalQuery({
       fullName: user.fullName ?? user.email,
       companyName: tenant.companyName,
       timeZone: user.timezone ?? tenant.businessDay?.timeZone ?? "America/Tegucigalpa",
+      writeFamilies: writeFamiliesFor(user, tenant),
     };
   },
 });
@@ -80,8 +83,10 @@ export const recordClientSession = internalMutation({
 
 /**
  * Daily upkeep: idle gateway sessions after 30 days, audit rows after 90
- * (decision 16), our client-name rows after 30, and preview tokens an hour
- * after they expire. Each step is bounded; a busy day reschedules itself.
+ * (decision 16), our client-name rows after 30, preview tokens an hour after
+ * they expire, and admin receipts once their year is up
+ * (docs/plans/admin-assistant.md §4). Each pass reads only rows it deletes, so
+ * kept receipts never fill a batch, and a full pass reschedules itself.
  */
 export const pruneDaily = internalMutation({
   args: {},
@@ -97,17 +102,38 @@ export const pruneDaily = internalMutation({
       .take(PRUNE_BATCH);
     for (const row of clientRows) await ctx.db.delete("mcpClientSessions", row._id);
 
+    // Tokens kept as no receipt: expired over an hour ago.
     const tokens = await ctx.db
       .query("mcpConfirmations")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now - 60 * 60 * 1000))
+      .withIndex("by_keepUntil_and_expiresAt", (q) =>
+        q.eq("keepUntil", undefined).lt("expiresAt", now - 60 * 60 * 1000),
+      )
       .take(PRUNE_BATCH);
     for (const row of tokens) await ctx.db.delete("mcpConfirmations", row._id);
+
+    // Receipts whose year is up. The lower bound skips rows with no keepUntil,
+    // which sort first in the index.
+    const receipts = await ctx.db
+      .query("mcpConfirmations")
+      .withIndex("by_keepUntil_and_expiresAt", (q) =>
+        q.gt("keepUntil", 0).lt("keepUntil", now),
+      )
+      .take(PRUNE_BATCH);
+    for (const row of receipts) await ctx.db.delete("mcpConfirmations", row._id);
+
+    const reports = await ctx.db
+      .query("mcpReportRequests")
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .take(PRUNE_BATCH);
+    for (const row of reports) await ctx.db.delete("mcpReportRequests", row._id);
 
     if (
       sessions >= PRUNE_BATCH ||
       audit >= PRUNE_BATCH ||
       clientRows.length === PRUNE_BATCH ||
-      tokens.length === PRUNE_BATCH
+      tokens.length === PRUNE_BATCH ||
+      receipts.length === PRUNE_BATCH ||
+      reports.length === PRUNE_BATCH
     ) {
       await ctx.scheduler.runAfter(0, internal.mcp.access.pruneDaily, {});
     }
