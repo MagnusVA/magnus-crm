@@ -7,6 +7,7 @@ import schema from "../schema";
 import { convexTestModules } from "../test.setup";
 import { DAY_MS, PAYLOAD_PART_BYTES, splitPayload } from "./results";
 import { listAllReportDefinitions } from "./registry";
+import { peopleSlot } from "./definitions/peopleServing";
 import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
 import { completeRows, formatSqlParam, queryWatermark } from "./clickhouse";
@@ -689,10 +690,10 @@ describe("report templates", () => {
     // overview.dashboard runs the other kinds' queries.
     "overview.leaderboard": { kind: "qualifiers" },
   };
-  // Context a definition's SQL reads before running (people.closers.next: the member's user ids).
+  // Context the People aggregate builds read before their SQL (the member's user ids).
   const sampleContext: Record<string, unknown> = {
-    "people.closers.next": { users: [], nowMs: 0 },
-    ...Object.fromEntries(["people.lead_gen.next", "people.setters.next", "people.dm_closers.next"].map(id => [id, {
+    [peopleSlot("closers", "aggregate").id]: { users: [], nowMs: 0 },
+    ...Object.fromEntries((["lead_gen", "setters", "dm_closers"] as const).map(panel => [peopleSlot(panel, "aggregate").id, {
       dimensions: { members: [], users: [], slackUsers: [], dmClosers: [], workers: [], teams: [] },
       hours: { byKey: [], isTruncated: false },
       nowMs: 0,

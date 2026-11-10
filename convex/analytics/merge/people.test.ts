@@ -12,6 +12,7 @@ import { expectMergedAnswer } from "../../../tests/analyticsMerge";
 import { mergePeopleClosers } from "./people";
 import { closerAggregateRows } from "../../../tests/peopleClosersAggregateFixtures";
 import { mergeReportPanel } from "../../mcp/reports/merge";
+import { peopleSlot } from "../definitions/peopleServing";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -49,7 +50,7 @@ describe("first-payment win reconciliation", () => {
       const warehouse = async (memberId: typeof f.memberA | null, window: typeof windows.history) => {
         const rows = await closerAggregateRows(f.t, f.tenantId, memberId, { fromMs: window.startDate, toMs: window.endDate });
         const payload = await f.t.query(internal.analytics.results.previewFinalize, {
-          tenantId: f.tenantId, reportId: "people.closers.next", filtersJson: JSON.stringify({ memberId }),
+          tenantId: f.tenantId, reportId: peopleSlot("closers", "aggregate").id, filtersJson: JSON.stringify({ memberId }),
           range: { ...range, fromMs: window.startDate, toMs: window.endDate }, rowsJson: JSON.stringify(rows),
         });
         return JSON.parse(payload);
