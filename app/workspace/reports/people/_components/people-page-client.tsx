@@ -19,7 +19,7 @@ import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_co
 import { buildEveryone, buildPeopleDocument, parseRosterTab, PEOPLE_TERMS, rosterCurrencies, withRosterTab, type RosterTab } from "./people-data";
 import { formatCount, pickCurrency, rangeQuery } from "./report-format";
 import { CurrencySelect, DefinitionsCard, ReportBandWithRow } from "./report-parts";
-import { ClosersTable, EveryoneTable, RoleTable, RosterCard } from "./roster-tables";
+import { ClosersTable, EveryoneTable, RoleTable, RosterCard, type RosterFrame } from "./roster-tables";
 import { captureReportFilters, useKept, useReportViewed } from "../../_components/use-report-page";
 
 // People: every team member, a tab per role and Everyone side by side
@@ -95,6 +95,11 @@ export function PeoplePageClient() {
   const [requestedCurrency, setRequestedCurrency] = useState<string | null>(null);
   const currency = pickCurrency(currencies, requestedCurrency);
 
+  // The roster's search belongs to the tab it was typed on: another tab,
+  // by click or by the URL, starts empty.
+  const [typed, setTyped] = useState<{ tab: RosterTab; text: string }>({ tab, text: "" });
+  const search = typed.tab === tab ? typed.text : "";
+
   const memberList = members?.members ?? [];
   const inactive = useMemo(
     () => new Set<string>((members?.members ?? []).filter((member) => !member.isActive).map((member) => member.teamMemberId)),
@@ -120,6 +125,14 @@ export function PeoplePageClient() {
   const unattributed =
     reports?.closers.unattributedCash.find((row) => row.currency.toUpperCase() === currency)?.cashMinor ?? 0;
   const loading = reports === undefined || (tab === "everyone" && members === undefined);
+  const frame: RosterFrame = {
+    title: TAB_TITLE[tab],
+    meta: tab === "everyone" ? "Credited cash by role · names open the member report" : "Names open the member report",
+    reloading: kept.reloading,
+    search,
+    onSearch: (text) => setTyped({ tab, text }),
+    resetKey: JSON.stringify([tab, currency, kept.phrase, search.trim().toLowerCase()]),
+  };
 
   return (
     <div className={REPORT_PAGE}>
@@ -159,35 +172,32 @@ export function PeoplePageClient() {
       <AnalyticsFreshnessAlert summary={freshness} />
 
       <div id="people-roster" role="tabpanel" aria-labelledby={`people-tab-${tab}`}>
-        <RosterCard
-          title={TAB_TITLE[tab]}
-          meta={tab === "everyone" ? "Credited cash by role · names open the member report" : "Names open the member report"}
-          loading={loading}
-          reloading={kept.reloading}
-        >
-          {!reports ? null : tab === "everyone" ? (
-            <EveryoneTable members={memberList} reports={reports} currency={currency} links={links} phrase={kept.phrase} />
-          ) : tab === "closer" ? (
-            <ClosersTable
-              rows={reports.closers.rows}
-              unattributed={unattributed}
-              currency={currency}
-              links={links}
-              phrase={kept.phrase}
-              partial={reports.closers.partial || reports.closers.paymentsPartial || reports.closers.cohortPartial}
-            />
-          ) : (
-            <RoleTable
-              role={tab}
-              rows={(tab === "setter" ? reports.setters : tab === "dm_closer" ? reports.dmClosers : reports.leadGen).rows}
-              currency={currency}
-              links={links}
-              inactive={inactive}
-              phrase={kept.phrase}
-              truncated={(tab === "setter" ? reports.setters : tab === "dm_closer" ? reports.dmClosers : reports.leadGen).isTruncated}
-            />
-          )}
-        </RosterCard>
+        {loading || !reports ? (
+          <RosterCard frame={frame} loading />
+        ) : tab === "everyone" ? (
+          <EveryoneTable frame={frame} members={memberList} reports={reports} currency={currency} links={links} phrase={kept.phrase} />
+        ) : tab === "closer" ? (
+          <ClosersTable
+            frame={frame}
+            rows={reports.closers.rows}
+            unattributed={unattributed}
+            currency={currency}
+            links={links}
+            phrase={kept.phrase}
+            partial={reports.closers.partial || reports.closers.paymentsPartial || reports.closers.cohortPartial}
+          />
+        ) : (
+          <RoleTable
+            frame={frame}
+            role={tab}
+            rows={(tab === "setter" ? reports.setters : tab === "dm_closer" ? reports.dmClosers : reports.leadGen).rows}
+            currency={currency}
+            links={links}
+            inactive={inactive}
+            phrase={kept.phrase}
+            truncated={(tab === "setter" ? reports.setters : tab === "dm_closer" ? reports.dmClosers : reports.leadGen).isTruncated}
+          />
+        )}
         {members?.capped ? (
           <p className="mt-2 text-[13px] text-muted-foreground">
             The team has more records than one read returns, so some inactive markers may be missing.
