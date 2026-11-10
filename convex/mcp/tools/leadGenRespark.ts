@@ -1,3 +1,5 @@
+import { loadStaffRedactor } from "../../leadGen/assistantText";
+import { contactAgainViewValidator, type ContactAgainView } from "../../leadGen/contactAgain";
 import { v } from "convex/values";
 import { internalQuery } from "../../_generated/server";
 import { getOwnLeadGenProfile, leadGenProfileValidator } from "../../leadGen/activity";
@@ -12,11 +14,22 @@ import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser } from "../guard";
 import { progressValidator } from "./leadGenToday";
 import { formatLocal } from "../time";
 
+const contactAgainMcpValidator = v.union(v.object({ date: v.string(), at: v.string(),
+  note: contactAgainViewValidator.fields.note, withheldReason: contactAgainViewValidator.fields.withheldReason }), v.null());
+function contactAgainMcp(saved: ContactAgainView | null, timeZone: string, budget: McpProjectionBudget) {
+  if (!saved) return null;
+  budget.textTruncated ||= saved.note?.truncated ?? false;
+  const note = saved.note ? budget.personText(saved.note.text) : null;
+  return { ...saved, at: formatLocal(saved.at, timeZone),
+    note: note ? { ...note, truncated: note.truncated || saved.note!.truncated } : null };
+}
+
 const nullableString = v.union(v.string(), v.null());
 const text = v.union(mcpPersonTextValidator, v.null());
 const resultValidator = v.union(resparkResultValidator, v.null());
 const touchValidator = v.object({ eventId: v.id("domainEvents"), eventType: v.string(), label: v.string(), occurredAt: v.string() });
 const cardValidator = v.object({ itemId: v.id("resparkBatchItems"), bucket: v.number(), result: resultValidator,
+  contactAgain: contactAgainMcpValidator, resparkBlockedReason: nullableString,
   handle: nullableString, stage: v.union(lifecycleStageValidator, v.null()), disposition: v.union(dispositionValidator, v.null()),
   capturedAt: nullableString, capturedBy: v.union(v.literal("you"), v.literal("a teammate"), v.null()),
   newestDealOutcome: v.union(dealOutcomeValidator, v.null()), lastTouches: v.array(touchValidator), blockedReason: nullableString });
@@ -57,12 +70,14 @@ export const batch = internalQuery({
     const projection = new McpProjectionBudget(page.page.length);
     const touchLimit = Math.min(3, Math.floor((50 - page.page.length) / Math.max(1, page.page.length)));
     const state = createLiveReadState();
+    const redactor = await loadStaffRedactor(ctx, me.tenantId);
     const items = [];
     for (const item of page.page) {
-      const card = await resparkBatchCardCore(ctx, me, held.batch.teamId!, item, state, true);
+      const card = await resparkBatchCardCore(ctx, me, held.batch.teamId!, item, state, true, redactor);
       const person = card.person;
       const capturedBy = person?.capturedBy === "you" ? "you" as const : person?.capturedBy === "a teammate" ? "a teammate" as const : null;
       items.push({ itemId: item._id, bucket: item.bucket, result: card.result,
+        contactAgain: contactAgainMcp(person?.contactAgain ?? null, me.timeZone, projection), resparkBlockedReason: card.resparkBlockedReason,
         handle: person?.handle ? projection.text(person.handle) : null, stage: person?.stage ?? null,
         disposition: person?.disposition ?? null, capturedAt: person?.capturedAt == null ? null : formatLocal(person.capturedAt, me.timeZone), capturedBy,
         newestDealOutcome: person?.newestDeal?.outcome ?? null,
@@ -76,7 +91,7 @@ export const batch = internalQuery({
   },
 });
 
-const panelValidator = v.object({ handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
+const panelValidator = v.object({ contactAgain: contactAgainMcpValidator, resparkBlockedReason: nullableString, handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
   dispositionReason: text, identity: v.object({ name: text, phone: nullableString, email: nullableString }), timeZone: nullableString,
   timeline: v.array(touchValidator), deals: v.array(v.object({ opportunityId: v.id("opportunities"), stage: dealStageValidator,
     outcome: dealOutcomeValidator, lostReason: text, createdAt: v.string() })),
@@ -97,10 +112,11 @@ export const person = internalQuery({
     const { profile } = await getOwnLeadGenProfile(ctx, me);
     const budget = new McpProjectionBudget(itemIds.length);
     if (profile.team) profile.team.name = budget.text(profile.team.name);
+    const redactor = await loadStaffRedactor(ctx, me.tenantId);
     const people = [];
     const limit = Math.max(1, Math.floor((50 - itemIds.length) / itemIds.length / 8));
     for (const itemId of itemIds) {
-      const panel = profile.status === "active" && !profile.noTeam ? await getResparkPersonPanelCore(ctx, me, itemId) : null;
+      const panel = profile.status === "active" && !profile.noTeam ? await getResparkPersonPanelCore(ctx, me, itemId, redactor) : null;
       if (!panel) { people.push({ itemId, panel: null }); continue; }
       budget.isPartial ||= panel.capped;
       // Give each section space before taking nested booking answers.
@@ -110,6 +126,7 @@ export const person = internalQuery({
       const notes = budget.take(panel.notes, limit);
       const resparkHistory = budget.take(panel.resparkHistory, limit);
       people.push({ itemId, panel: {
+        contactAgain: contactAgainMcp(panel.contactAgain, me.timeZone, budget), resparkBlockedReason: panel.resparkBlockedReason,
         handle: panel.handle ? budget.text(panel.handle) : null, stage: panel.stage, disposition: panel.disposition,
         dispositionReason: panel.dispositionReason ? budget.personText(panel.dispositionReason) : null,
         identity: { name: panel.identity.name ? budget.personText(panel.identity.name) : null,

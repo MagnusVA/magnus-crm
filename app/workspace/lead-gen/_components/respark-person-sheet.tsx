@@ -1,5 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useCurrentBusinessDate } from "@/hooks/use-current-business-date";
 import type { ReactNode } from "react";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -23,7 +26,9 @@ import { SectionErrorBoundary } from "../../_components/section-error-boundary";
 import { cn } from "@/lib/utils";
 import { CopyHandleButton } from "./copy-handle-button";
 import { dealText, displayHandle, formatDay } from "./respark-format";
-import { DATE, Fact, LABEL, None, STATUS_WORD, Swatch } from "./respark-ui";
+import { ContactAgainNote, DATE, Fact, LABEL, None, STATUS_WORD, Swatch } from "./respark-ui";
+
+const ContactAgainDialog = dynamic(() => import("./contact-again-dialog").then(module => module.ContactAgainDialog));
 
 type Panel = NonNullable<FunctionReturnType<typeof api.respark.queries.getResparkPersonPanel>>;
 
@@ -68,7 +73,9 @@ export function ResparkPersonSheet({
 }
 
 function PanelBody({ itemId, bucket, timeZone }: { itemId: Id<"resparkBatchItems">; bucket: number; timeZone: string }) {
-  const panel = useQuery(api.respark.queries.getResparkPersonPanel, { itemId });
+  const { setting } = useBusinessDay("lead-gen");
+  const currentBusinessDate = useCurrentBusinessDate(setting);
+  const panel = useQuery(api.respark.queries.getResparkPersonPanel, { itemId, currentBusinessDate });
 
   if (panel === undefined) {
     return (
@@ -95,10 +102,10 @@ function PanelBody({ itemId, bucket, timeZone }: { itemId: Id<"resparkBatchItems
     );
   }
 
-  return <PanelContent panel={panel} bucket={bucket} timeZone={timeZone} />;
+  return <PanelContent panel={panel} itemId={itemId} bucket={bucket} timeZone={timeZone} />;
 }
 
-function PanelContent({ panel, bucket, timeZone }: { panel: Panel; bucket: number; timeZone: string }) {
+function PanelContent({ panel, itemId, bucket, timeZone }: { panel: Panel; itemId: Id<"resparkBatchItems">; bucket: number; timeZone: string }) {
   const now = useNow();
   const handle = displayHandle(panel.handle);
   const profileUrl = instagramProfileUrl(panel.handle);
@@ -124,6 +131,8 @@ function PanelContent({ panel, bucket, timeZone }: { panel: Panel; bucket: numbe
             {resparkBucketLabel(bucket)}
           </span>
         </p>
+        <ContactAgainNote saved={panel.contactAgain} />
+        {panel.canSetContactAgain ? <ContactAgainDialog itemId={itemId} /> : null}
         {panel.dispositionReason ? <p className="text-[13px] text-muted-foreground">{panel.dispositionReason}</p> : null}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <CopyHandleButton handle={panel.handle} />

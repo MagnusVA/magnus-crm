@@ -330,7 +330,7 @@ async function syncLeadConversion(
   if (!validateLeadTransition(lead.status, to)) {
     throw new Error(`Person ${lead._id} can't move from ${lead.status} to ${to}`);
   }
-  await ctx.db.patch("leads", lead._id, { status: to, updatedAt: args.now });
+  await ctx.db.patch("leads", lead._id, { status: to, updatedAt: args.now, ...(to === "converted" && { contactAgain: undefined }) });
   await emitDomainEvent(ctx, {
     tenantId: args.tenantId,
     entityType: "lead",

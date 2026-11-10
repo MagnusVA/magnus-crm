@@ -43,3 +43,8 @@ export function contactAgainHolds(lead: Doc<"leads">, now: number): boolean {
   const saved = visibleContactAgain(lead);
   return saved !== null && saved.at > now;
 }
+
+/** A separate block for Resparked only. Skip and Not a fit keep their rules. */
+export function contactAgainWaitReason(lead: Doc<"leads">, now = Date.now()): string | null {
+  return contactAgainHolds(lead, now) ? `This person asked to be contacted again on ${lead.contactAgain!.date}.` : null;
+}

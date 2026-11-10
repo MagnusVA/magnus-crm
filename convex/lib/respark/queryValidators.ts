@@ -1,3 +1,4 @@
+import { contactAgainViewValidator } from "../../leadGen/contactAgain";
 import { v } from "convex/values";
 import { dispositionValidator, lifecycleStageValidator } from "../../leads/lifecycle";
 import { dealOutcomeValidator, dealStageValidator } from "../../opportunities/stages";
@@ -11,6 +12,7 @@ const touch = v.object({ eventId: v.id("domainEvents"), eventType: v.string(),
 const deal = v.object({ opportunityId: v.id("opportunities"), stage: dealStageValidator,
   outcome: dealOutcomeValidator, lostReason: nullableString, createdAt: v.number() });
 const personCard = v.object({
+  contactAgain: v.union(contactAgainViewValidator, v.null()),
   handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
   capturedAt: nullableNumber, capturedBy: nullableString, qualifiedAt: nullableNumber,
   newestDeal: v.union(deal, v.null()), timeZone: nullableString,
@@ -19,10 +21,13 @@ const personCard = v.object({
 export const batchValidator = v.object({
   batchId: v.id("resparkBatches"), heldUntil: v.number(), size: v.number(), createdAt: v.number(),
   items: v.array(v.object({ itemId: v.id("resparkBatchItems"), position: v.number(), bucket: v.number(),
-    result, workedAt: nullableNumber, person: v.union(personCard, v.null()), blockedReason: nullableString })),
+    result, workedAt: nullableNumber, person: v.union(personCard, v.null()), blockedReason: nullableString, resparkBlockedReason: nullableString })),
   capped: v.boolean(),
 });
 export const panelValidator = v.object({
+  canSetContactAgain: v.boolean(),
+  resparkBlockedReason: nullableString,
+  contactAgain: v.union(contactAgainViewValidator, v.null()),
   handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
   dispositionReason: nullableString,
   identity: v.object({ name: nullableString, phone: nullableString, email: nullableString }),

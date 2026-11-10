@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonContactAgain } from "@/app/workspace/_components/person-contact-again";
 import { useState } from "react";
 import Link from "next/link";
 import { CheckIcon } from "lucide-react";
@@ -76,6 +77,7 @@ export function PersonCard({ detail }: { detail: MeetingDetail }) {
         </span>
       }
     >
+      <PersonContactAgain lead={lead} />
       <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-2 px-4 py-3">
         {rows.map((row) => (
           <div key={row.label} className="contents">

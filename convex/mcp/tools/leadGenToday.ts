@@ -23,7 +23,7 @@ export const run = internalQuery({
       today: v.number(), unique: v.number(), dupes: v.number(), scheduledHours: v.union(v.number(), v.null()),
       respark: v.object({ batchesDone: v.number(), resparks: v.number(), notAFits: v.number() }),
       openBatch: v.union(v.null(), v.object({ progress: progressValidator, heldUntil: v.string() })),
-      pool: v.array(v.object({ bucket: v.number(), count: v.number() })), batchSize: v.number(), heldUntil: v.string(),
+      pool: v.union(v.array(v.object({ bucket: v.number(), count: v.number() })), v.null()), poolUnavailableReason: v.union(v.string(), v.null()), batchSize: v.number(), heldUntil: v.string(),
       lastOrigin: v.union(v.null(), v.object({ source: v.string(), kind: v.string(), value: v.union(mcpPersonTextValidator, v.null()), usedAt: v.string() })),
     })),
   }),
@@ -49,12 +49,12 @@ export const run = internalQuery({
       .order("desc").first();
     const lastOrigin = last ? { source: last.source, kind: last.originKind,
       value: last.originValue ? budget.personText(last.originValue) : null, usedAt: formatLocal(last.submittedAt, me.timeZone) } : null;
-    return { profile, dayKey, asOf: formatLocal(asOf, me.timeZone), unavailableReason: null, isPartial: state.capped || budget.isPartial,
+    return { profile, dayKey, asOf: formatLocal(asOf, me.timeZone), unavailableReason: null, isPartial: state.capped || budget.isPartial || pool.isPartial,
       textTruncated: budget.textTruncated,
       counts: { today: day.submissions, unique: day.uniqueProspects, dupes: day.duplicates,
         scheduledHours: hours.get(worker._id) ?? null,
         respark: { batchesDone: respark.batchesDone, resparks: respark.resparks, notAFits: respark.notAFits },
         openBatch: held && held.progress.remaining > 0 ? { progress: held.progress, heldUntil: formatLocal(held.batch.heldUntil, me.timeZone) } : null,
-        pool: pool.buckets, batchSize: pool.batchSize, heldUntil: formatLocal(pool.heldUntil, me.timeZone), lastOrigin } };
+        pool: pool.buckets, poolUnavailableReason: pool.unavailableReason, batchSize: pool.batchSize, heldUntil: formatLocal(pool.heldUntil, me.timeZone), lastOrigin } };
   },
 });

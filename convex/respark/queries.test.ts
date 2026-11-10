@@ -131,7 +131,7 @@ describe("Respark queries", () => {
     await h.admin.mutation(api.respark.batches.markResparked, { itemId: item._id });
     const other = await otherUser(h, true);
     expect(await other.caller.query(api.respark.queries.getMyResparkBatch, {})).toBeNull();
-    expect((await other.caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets.map((b) => b.count)).toEqual([0, 0, 0, 0, 0]);
+    expect((await other.caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets!.map((b) => b.count)).toEqual([0, 0, 0, 0, 0]);
     expect(await other.caller.query(api.respark.queries.getMyResparkToday, {})).toMatchObject({ batchesDone: 0, resparks: 0, notAFits: 0 });
     expect(await other.caller.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id })).toBeNull();
   });
@@ -258,14 +258,14 @@ describe("Respark queries", () => {
       });
     }
     const counts = await h.admin.query(api.respark.queries.getResparkPoolCounts, {});
-    expect(counts.buckets.map((bucket) => bucket.count)).toEqual([1, 1, 1, 2, 1]);
+    expect(counts.buckets!.map((bucket) => bucket.count)).toEqual([1, 1, 1, 2, 1]);
     const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
     const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
     expect(batch.batchId).toBe(batchId);
     expect(batch.heldUntil).toBe(counts.heldUntil);
     expect(batch.size).toBe(6);
     expect(batch.items.map((item) => item.position)).toEqual([0, 1, 2, 3, 4, 5]);
-    for (const bucket of counts.buckets) expect(batch.items.filter((item) => item.bucket === bucket.bucket)).toHaveLength(bucket.count);
+    for (const bucket of counts.buckets!) expect(batch.items.filter((item) => item.bucket === bucket.bucket)).toHaveLength(bucket.count);
   });
 
   it("serves a maximum-size batch within Convex transaction limits", async () => {
@@ -294,7 +294,7 @@ describe("Respark queries", () => {
     const { batchId } = await caller.mutation(api.respark.batches.claimResparkBatch, {});
     const batch = (await caller.query(api.respark.queries.getMyResparkBatch, {}))!;
     expect(batch.batchId).toBe(batchId);
-    expect((await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets[1].count).toBe(1);
+    expect((await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets![1].count).toBe(1);
     expect((await caller.query(api.respark.queries.getMyResparkToday, {})).batchesDone).toBe(0);
     expect(await caller.query(api.respark.queries.getResparkPersonPanel, { itemId: batch.items[0].itemId })).not.toBeNull();
 

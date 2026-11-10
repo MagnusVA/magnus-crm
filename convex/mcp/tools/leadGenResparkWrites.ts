@@ -1,3 +1,4 @@
+import { contactAgainWaitReason } from "../../lib/contactAgain";
 import { v } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../../_generated/server";
@@ -143,6 +144,10 @@ async function planMarks(
         lines.push(blocked(`${left} Skip them instead.`));
         continue;
       }
+    }
+    if (mark.result === "resparked" && lead) {
+      const wait = contactAgainWaitReason(lead, now);
+      if (wait) { lines.push(blocked(wait)); continue; }
     }
     lines.push({
       ...base,

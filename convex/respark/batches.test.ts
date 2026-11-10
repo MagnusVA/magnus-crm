@@ -292,7 +292,7 @@ describe("team pools", () => {
     for (const leadId of [teamAOnly, teamBOnly, both]) expect(await checks(h, leadId)).toEqual([]);
 
     const counts = async (caller: Caller) =>
-      (await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets.map((bucket) => bucket.count);
+      (await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets!.map((bucket) => bucket.count);
     expect(await counts(h.admin)).toEqual([0, 1, 0, 0, 0]);
     expect(await counts(teamB)).toEqual([0, 2, 0, 0, 0]);
   });
@@ -306,7 +306,7 @@ describe("team pools", () => {
       .toEqual({ batchId: null, resumed: false, size: 0, noTeam: true });
     const counts = await noTeam.query(api.respark.queries.getResparkPoolCounts, {});
     expect(counts.noTeam).toBe(true);
-    expect(counts.buckets.map((bucket) => bucket.count)).toEqual([0, 0, 0, 0, 0]);
+    expect(counts.buckets!.map((bucket) => bucket.count)).toEqual([0, 0, 0, 0, 0]);
     expect((await h.admin.query(api.respark.queries.getResparkPoolCounts, {})).noTeam).toBe(false);
   });
 

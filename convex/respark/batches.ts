@@ -1,3 +1,4 @@
+import { contactAgainHolds, contactAgainWaitReason } from "../lib/contactAgain";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
@@ -165,6 +166,10 @@ export async function claimResparkBatchCore(
     inactiveAfterDays: settings.inactiveAfterDays,
   })) {
     read += 1;
+    if (contactAgainHolds(lead, now)) {
+      if (full()) break;
+      continue;
+    }
     const hold = await holdState(ctx, {
       tenantId: access.tenantId,
       leadId: lead._id,
@@ -318,6 +323,10 @@ export async function markResparkItemCore(
   }
   await requirePersonInPool(ctx, item, worker);
   if (args.result === "resparked") {
+    const person = await ctx.db.get("leads", item.leadId);
+    if (person && contactAgainHolds(person, now)) {
+      throw rejectRequest("respark.contact_again", contactAgainWaitReason(person)!);
+    }
     const eventId = await emitResparkTouch(ctx, access, item, LEAD_RESPARKED, now, provenance);
     // The item is the stage evidence, so it is worked before the stage moves.
     await workResparkItem(ctx, item, { result: "resparked", workedAt: now, eventId });
