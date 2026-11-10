@@ -239,10 +239,15 @@ export const reconcile = internalAction({
       }
       let nextApiCursor: string | null = null;
       if (emails.length) {
-        // Light list, no include flags; repeated recorded_by[] and created_after are documented at
+        // The list carries each recording's transcript, summary and action items, so one request
+        // covers a page instead of two more per recording; the processor fetches only what's missing.
+        // Repeated recorded_by[], created_after and the include flags are documented at
         // https://developers.fathom.ai/api-reference/meetings/list-meetings.
         const params = new URLSearchParams({
           created_after: new Date(a.since).toISOString(),
+          include_transcript: "true",
+          include_summary: "true",
+          include_action_items: "true",
         });
         for (const email of emails) params.append("recorded_by[]", email);
         if (a.apiCursor) params.set("cursor", a.apiCursor);

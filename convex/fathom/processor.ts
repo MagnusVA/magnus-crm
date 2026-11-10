@@ -266,13 +266,13 @@ export const process = internalAction({
         connectionId: e.connectionId,
       });
       if (!c || c.connectionStatus !== "connected") return null;
-      // Reconciliation payloads deliberately omit heavy content. Fetch it through the recording endpoints.
+      // Fetch only what the payload left out. A null summary means Fathom has none.
       const already = await ctx.runQuery(internal.fathom.processor.exists, {
         tenantId: e.tenantId,
         fathomRecordingId: data.recording_id,
       });
       // Synchronous response: https://developers.fathom.ai/api-reference/recordings/get-summary
-      if (!already && !data.default_summary) {
+      if (!already && data.default_summary === undefined) {
         const response = await fathomFetch(
           ctx,
           c._id,

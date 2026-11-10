@@ -605,7 +605,7 @@ describe("Fathom API workflows", () => {
     expect(c).toMatchObject({ connectionStatus: "disconnected", apiKey: "" });
     expect(c?.webhookSecret).toBeUndefined();
   });
-  it("reconciles a light list and fetches missing summary and transcript through recording endpoints", async () => {
+  it("fetches the summary and transcript a list item left out through recording endpoints", async () => {
     const f = await fixture();
     const calls: string[] = [];
     vi.stubGlobal(
@@ -617,9 +617,9 @@ describe("Fathom API workflows", () => {
           return Response.json({
             items: [
               payload({
-                transcript: null,
-                default_summary: null,
-                action_items: null,
+                transcript: undefined,
+                default_summary: undefined,
+                action_items: undefined,
               }),
             ],
             next_cursor: null,
@@ -664,8 +664,9 @@ describe("Fathom API workflows", () => {
     const params = new URL(calls[0]).searchParams;
     expect(params.getAll("recorded_by[]")).toEqual(["closer@example.com"]);
     expect(params.has("created_after")).toBe(true);
-    expect(params.has("include_transcript")).toBe(false);
-    expect(params.has("include_summary")).toBe(false);
+    expect(params.get("include_transcript")).toBe("true");
+    expect(params.get("include_summary")).toBe("true");
+    expect(params.get("include_action_items")).toBe("true");
     expect(calls[1]).toMatch(/\/recordings\/42\/summary$/);
     expect(calls[2]).toMatch(/\/recordings\/42\/transcript$/);
   });
@@ -679,7 +680,7 @@ describe("Fathom API workflows", () => {
         vi.setSystemTime(Date.now() + 3000);
         if (url.includes("/meetings?"))
           return Response.json({
-            items: [payload({ transcript: null, default_summary: null })],
+            items: [payload({ transcript: null, default_summary: undefined })],
             next_cursor: null,
           });
         if (url.endsWith("/summary")) return Response.json({ summary: null });
@@ -721,6 +722,69 @@ describe("Fathom API workflows", () => {
     expect(processed?.status).toBe("processed");
     expect(calls[1]).toMatch(/\/recordings\/42\/summary$/);
     expect(calls[2]).toMatch(/\/recordings\/42\/transcript$/);
+  });
+  it("stores recordings from the list alone, with no request per recording", async () => {
+    const f = await fixture();
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        vi.setSystemTime(Date.now() + 3000);
+        if (url.includes("/meetings?"))
+          return Response.json({
+            // The second recording has no summary or speech: null and [] are answers, not gaps.
+            items: [
+              payload(),
+              payload({ recording_id: 43, default_summary: null, transcript: [] }),
+            ],
+            next_cursor: null,
+          });
+        throw new Error("Unexpected stub request");
+      }),
+    );
+    const startedAt = Date.now();
+    await f.t.mutation(internal.fathom.maintenance.startReconcile, {
+      connectionId: f.connectionId,
+      since: startedAt - 30 * 86400_000,
+    });
+    const c = await f.t.run((ctx) =>
+      ctx.db.get("tenantFathomConnections", f.connectionId),
+    );
+    await f.t.action(internal.fathom.maintenance.reconcile, {
+      connectionId: f.connectionId,
+      token: c!.reconcileToken!,
+      since: startedAt - 30 * 86400_000,
+      startedAt,
+      memberCursor: null,
+      apiCursor: null,
+      emails: [],
+      attempt: 0,
+    });
+    const events = await f.t.run((ctx) =>
+      ctx.db.query("fathomWebhookEvents").take(10),
+    );
+    for (const event of events)
+      await f.t.action(internal.fathom.processor.process, {
+        eventId: event._id,
+      });
+    const stored = await recordings(f);
+    expect(stored).toHaveLength(2);
+    expect(stored.find((r) => r.fathomRecordingId === 42)).toMatchObject({
+      summaryMarkdown: "Summary",
+      transcriptLineCount: 2,
+      actionItems: [
+        {
+          description: "Send proposal",
+          assigneeEmail: "closer@example.com",
+          timestamp: "00:01:00",
+        },
+      ],
+    });
+    const silent = stored.find((r) => r.fathomRecordingId === 43);
+    expect(silent?.summaryMarkdown).toBeUndefined();
+    expect(silent?.transcriptLineCount).toBe(0);
+    expect(calls).toHaveLength(1);
   });
   it("serializes API request reservations and honors a 429 Retry-After", async () => {
     const f = await fixture(),
