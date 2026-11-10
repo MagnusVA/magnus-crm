@@ -72,8 +72,13 @@ export const endShift = internalMutation({
     // Bind the exact input too: even a whitespace edit needs another read-back.
     // The lines go to a Slack channel the whole team reads, so a phone or an
     // email dictated into them is masked before the preview, the save and the post.
-    const masked = (value: string | undefined) => (value === undefined ? undefined : maskContactText(value, []));
-    const text = { narrative: masked(shiftText(narrative)), note: masked(shiftText(note)) };
+    // Checked for length again after masking, which can make the text longer,
+    // so a preview never offers a token the save would refuse.
+    const masked = (value: string | undefined) => {
+      const text = shiftText(value);
+      return text === undefined ? undefined : shiftText(maskContactText(text, []));
+    };
+    const text = { narrative: masked(narrative), note: masked(note) };
     const now = Date.now();
     if (confirm) {
       const redeemed = await redeemConfirmation(ctx, me, TOOL, confirmToken, { narrative, note, dayKey, businessDayVersion });
