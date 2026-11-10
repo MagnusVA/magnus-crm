@@ -1,3 +1,4 @@
+import { ReportRequestError } from "../../../lib/assistantReportPlan";
 import type { ToolRequest } from "./contracts";
 import type { MetricRow } from "../../../lib/assistantReportMerge";
 import { termHelp, type ReportTermKey } from "../../../lib/reporting/definitions";
@@ -46,22 +47,22 @@ export function metricPanels(metric: AssistantMetric, request: Request): string[
   return ["lead_gen.overview"];
 }
 export function validateNumbers(request: Request) {
-  if (!request.metrics.length || request.metrics.length > ASSISTANT_METRICS.length) throw new Error(`Choose 1 to ${ASSISTANT_METRICS.length} page terms.`);
+  if (!request.metrics.length || request.metrics.length > ASSISTANT_METRICS.length) throw new ReportRequestError(`Choose 1 to ${ASSISTANT_METRICS.length} page terms.`);
   const role = creditRole(request.role);
-  if (request.groupBy === "team") throw new Error("groupBy team is not supported by these page panels. Choose closer, program, or a supported day series.");
+  if (request.groupBy === "team") throw new ReportRequestError("groupBy team is not supported by these page panels. Choose closer, program, or a supported day series.");
   for (const metric of request.metrics) {
-    if (["creditedCash", "shared", "attributionCoverage", "perScheduledHour"].includes(metric) && (!role || role === "everyone")) throw new Error(`${metric} needs a role.`);
-    if (metric === "creditedCash" && role === "dm_team" && request.memberId) throw new Error("DM team credited cash is shown on Attribution, not on a member row. Choose a member role for this scalar.");
-    if (metric === "bookRate" && role && role !== "setter") throw new Error("bookRate is the setter page's qualification cohort.");
-    if (metric === "perScheduledHour" && !["setter", "dm_closer", "lead_gen"].includes(role ?? "")) throw new Error("perScheduledHour supports setters, dm_closers and lead_gen.");
-    if (["perScheduledHour", "bookRate"].includes(metric) && !request.memberId) throw new Error(`${metric} is a person's page figure. Choose memberId.`);
-    if (request.groupBy === "closer" && (!CLOSER_GROUP.has(metric) || request.memberId || metric === "creditedCash" && role !== "closer" || request.programId || request.closerId)) throw new Error(`${metric} cannot group by closer with these filters using the page builder.`);
-    if (request.groupBy === "program" && (!["cash", "finalCash", "dealsWon"].includes(metric) || metric === "dealsWon" && request.scope && request.scope !== "sold_program")) throw new Error(`${metric} cannot group by program. The Cash page supports cash, finalCash and dealsWon with scope sold_program.`);
-    if (request.groupBy === "day" && (!DAY.has(metric) || metric === "dealsWon" && request.scope && request.scope !== "booked_program_activity")) throw new Error(`${metric} has no matching by-day series on the page.`);
+    if (["creditedCash", "shared", "attributionCoverage", "perScheduledHour"].includes(metric) && (!role || role === "everyone")) throw new ReportRequestError(`${metric} needs a role.`);
+    if (metric === "creditedCash" && role === "dm_team" && request.memberId) throw new ReportRequestError("DM team credited cash is shown on Attribution, not on a member row. Choose a member role for this scalar.");
+    if (metric === "bookRate" && role && role !== "setter") throw new ReportRequestError("bookRate is the setter page's qualification cohort.");
+    if (metric === "perScheduledHour" && !["setter", "dm_closer", "lead_gen"].includes(role ?? "")) throw new ReportRequestError("perScheduledHour supports setters, dm_closers and lead_gen.");
+    if (["perScheduledHour", "bookRate"].includes(metric) && !request.memberId) throw new ReportRequestError(`${metric} is a person's page figure. Choose memberId.`);
+    if (request.groupBy === "closer" && (!CLOSER_GROUP.has(metric) || request.memberId || metric === "creditedCash" && role !== "closer" || request.programId || request.closerId)) throw new ReportRequestError(`${metric} cannot group by closer with these filters using the page builder.`);
+    if (request.groupBy === "program" && (!["cash", "finalCash", "dealsWon"].includes(metric) || metric === "dealsWon" && request.scope && request.scope !== "sold_program")) throw new ReportRequestError(`${metric} cannot group by program. The Cash page supports cash, finalCash and dealsWon with scope sold_program.`);
+    if (request.groupBy === "day" && (!DAY.has(metric) || metric === "dealsWon" && request.scope && request.scope !== "booked_program_activity")) throw new ReportRequestError(`${metric} has no matching by-day series on the page.`);
     const panels = metricPanels(metric, request);
-    if (request.programId && panels.some(p => !p.startsWith("scorecard.") && !p.startsWith("calls."))) throw new Error(`${metric} has no program filter on its page.`);
-    if (request.closerId && panels.some(p => !p.startsWith("calls."))) throw new Error(`${metric} has no closer filter on its page. Use groupBy closer or memberId where supported.`);
-    if (request.memberId && panels.some(p => !p.startsWith("people."))) throw new Error(`${metric} has no member filter on its page.`);
+    if (request.programId && panels.some(p => !p.startsWith("scorecard.") && !p.startsWith("calls."))) throw new ReportRequestError(`${metric} has no program filter on its page.`);
+    if (request.closerId && panels.some(p => !p.startsWith("calls."))) throw new ReportRequestError(`${metric} has no closer filter on its page. Use groupBy closer or memberId where supported.`);
+    if (request.memberId && panels.some(p => !p.startsWith("people."))) throw new ReportRequestError(`${metric} has no member filter on its page.`);
   }
 }
 

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { isExpectedError, rejectRequest } from "../../lib/observability/errors";
+import { rejectRequest } from "../../lib/observability/errors";
 import type { QueryCtx } from "../../_generated/server";
 import { internalQuery } from "../../_generated/server";
 import { requireMcpAdmin, loadInTenant, mcpCallerValidator } from "../guard";
@@ -7,7 +7,7 @@ import { analyticsArgsKey, canonicalJson } from "../../analytics/keys";
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { findResult, readSyncRow, resultState } from "../../analytics/results";
 import { isClickHouseConfigured } from "../../analytics/clickhouse";
-import { planAssistantSources, cachedWindowFits, assertReportCells, rangePeriods, reportLimit, type SourceWindow, type AssistantRange } from "../../../lib/assistantReportPlan";
+import { ReportRequestError, planAssistantSources, cachedWindowFits, assertReportCells, rangePeriods, reportLimit, type SourceWindow, type AssistantRange } from "../../../lib/assistantReportPlan";
 import { settledThroughDate, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { addBusinessDays, businessDateForInstant, businessDayStart } from "../../../lib/businessDay";
 import type { AnalyticsFilters } from "../../analytics/definition";
@@ -75,12 +75,12 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
     }
     else {
         if (request.programId && !["scorecard", "calls"].includes(request.report) || request.closerId && request.report !== "calls" || request.callType && request.report !== "calls" || request.memberId && request.report !== "people" || request.fieldKey && request.report !== "scorecard" || request.teamId && request.report !== "lead_gen")
-            throw new Error("Choose filters supported by this report: programId for scorecard/calls, closerId and callType for calls, memberId for people, fieldKey for scorecard, teamId for lead_gen.");
+            throw new ReportRequestError("Choose filters supported by this report: programId for scorecard/calls, closerId and callType for calls, memberId for people, fieldKey for scorecard, teamId for lead_gen.");
 
         if (request.teamId) await loadInTenant(ctx, me, "attributionTeams", request.teamId);
-        if (request.panel && !REPORT_PANELS[request.report].some(id => id === request.panel || id.split(".")[1] === request.panel) && !(request.memberId && ["profile", "people.profile"].includes(request.panel))) throw new Error("Choose a panel belonging to this report.");
-        if (request.role && !["people", "attribution"].includes(request.report)) throw new Error("role is supported by People and Attribution.");
-        if (request.report === "people" && request.role && !["everyone", "closers", "setters", "dm_closers", "lead_gen"].includes(request.role)) throw new Error("People role must match a tab: everyone, closers, setters, dm_closers, lead_gen.");
+        if (request.panel && !REPORT_PANELS[request.report].some(id => id === request.panel || id.split(".")[1] === request.panel) && !(request.memberId && ["profile", "people.profile"].includes(request.panel))) throw new ReportRequestError("Choose a panel belonging to this report.");
+        if (request.role && !["people", "attribution"].includes(request.report)) throw new ReportRequestError("role is supported by People and Attribution.");
+        if (request.report === "people" && request.role && !["everyone", "closers", "setters", "dm_closers", "lead_gen"].includes(request.role)) throw new ReportRequestError("People role must match a tab: everyone, closers, setters, dm_closers, lead_gen.");
     }
     if (request.memberId) await loadInTenant(ctx, me, "teamMembers", request.memberId);
     if (request.programId) await loadInTenant(ctx, me, "tenantPrograms", request.programId);
@@ -137,15 +137,16 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
 }
 /**
  * Planning refuses a request it can't answer (an unsupported term, grouping,
- * filter or size) with a plain `Error`. The gateway hides a plain error's
- * message, so it goes out as a refusal the agent can read.
+ * filter or size) with a `ReportRequestError`. The gateway hides a plain
+ * error's message, so that one goes out as a refusal the agent can read; any
+ * other error propagates as the bug it is.
  */
 export const prepare = internalQuery({ args: { caller: mcpCallerValidator, request: requestValidator }, returns: v.string(), handler: async (ctx, args) => {
     try {
         return JSON.stringify(await prepareReport(ctx, args.caller, args.request));
     }
     catch (error) {
-        if (error instanceof Error && error.name === "Error" && !isExpectedError(error))
+        if (error instanceof ReportRequestError)
             throw rejectRequest("report.invalid_request", error.message);
         throw error;
     }

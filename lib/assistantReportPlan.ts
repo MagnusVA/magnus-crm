@@ -27,14 +27,23 @@ export function cachedWindowFits(expected: ResolvedAnalyticsRange, answer: { sta
   return !!answer && expected.startDate === answer.startDate && expected.endDateInclusive === answer.endDateInclusive;
 }
 
+/**
+ * A report request Magnus can't answer as asked (a limit, size, term,
+ * grouping or filter). The report tool sends it to the agent as a refusal it
+ * can read; any other error stays a bug.
+ */
+export class ReportRequestError extends Error {
+  override name = "ReportRequestError";
+}
+
 export function reportLimit(limit = 10) {
-  if (!Number.isInteger(limit) || limit < 1 || limit > 25) throw new Error("Choose a limit from 1 to 25.");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 25) throw new ReportRequestError("Choose a limit from 1 to 25.");
   return limit;
 }
 
 /** Called before any data query. Includes the omitted group in the output budget. */
 export function assertReportCells(periods: number, groups: number) {
-  if (periods * groups > 60) throw new Error("Choose at most 60 period × group cells.");
+  if (periods * groups > 60) throw new ReportRequestError("Choose at most 60 period × group cells.");
 }
 export function rangePeriods(range: ResolvedAnalyticsRange) {
   return countBusinessDays(range.startDate, addBusinessDays(range.endDateInclusive, 1));

@@ -269,6 +269,19 @@ describe("refusals the agent can read", () => {
     expect(isExpectedError(error)).toBe(true);
     expect((error as { data: { code: string; message: string } }).data).toMatchObject({ code: "report.invalid_request", message: "bookRate is a person's page figure. Choose memberId." });
   });
+  it("leaves an unexpected failure as an error, never a refusal", async () => {
+    const f = await fixture();
+    // A duplicate user row makes access resolution fail: a bug, not a refusal.
+    await f.t.run(async ctx => {
+      const admin = (await ctx.db.get("users", f.adminId))!;
+      const { _id, _creationTime, ...copy } = admin;
+      void _id; void _creationTime;
+      await ctx.db.insert("users", copy);
+    });
+    const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["callsDue"], range }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(isExpectedError(error)).toBe(false);
+  });
 });
 
 it("keeps a term's unit and currency when its input is missing", () => {
