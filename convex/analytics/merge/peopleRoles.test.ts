@@ -2,10 +2,11 @@ import { expect, it } from "vitest";
 import { api } from "../../_generated/api";
 import { createRoleFixture, from, split, to, identity } from "../../../tests/peopleRolesFixtures";
 import { mergePeopleRoles } from "./peopleRoles";
+import { shapePanel } from "../../../lib/reporting/pageFigures/panels";
 import { mergeReportPanel } from "../../mcp/reports/merge";
 
-for (const role of ["dm_closer", "lead_gen"] as const) {
-  it(`${role} reconciles changed first-payment recipients for roster and private member answers`, async () => {
+for (const [role, multipleNamed] of [["dm_closer", false], ["lead_gen", false], ["dm_closer", true]] as const) {
+  it(`${role}${multipleNamed ? " with multiple named recipients" : ""} reconciles changed first-payment recipients for roster and private member answers`, async () => {
     const f = await createRoleFixture();
     const reader = role === "dm_closer" ? api.reports.peopleRoles.getDmClosers : api.reports.peopleRoles.getLeadGen;
     await f.t.run(async ctx => {
@@ -31,11 +32,12 @@ for (const role of ["dm_closer", "lead_gen"] as const) {
       const credits = await ctx.db.query("dealAttributions").take(100);
       if (role === "lead_gen") {
         for (const c of credits.filter(c => c.role === role && c.attributedAt === from))
-          await ctx.db.patch("dealAttributions", c._id, { attributedAt: to - 1 });
+          await ctx.db.patch("dealAttributions", c._id, { teamMemberId: f.memberB });
       }
       const base = credits.find(c => c.role === role)!;
       const { _id, _creationTime, ...fields } = base; void _id; void _creationTime;
       await ctx.db.insert("dealAttributions", { ...fields, teamMemberId: f.memberB, attributedAt: split });
+      if (multipleNamed) await ctx.db.insert("dealAttributions", { ...fields, teamMemberId: f.memberA, attributedAt: split });
     });
     for (const [i, member] of members.entries()) {
       const today = await read(member, split, to);
@@ -43,7 +45,28 @@ for (const role of ["dm_closer", "lead_gen"] as const) {
       const whole = await read(member, from, to);
       for (const merged of [mergePeopleRoles(history[i], today), mergeReportPanel(`people.${role === "dm_closer" ? "dm_closers" : role}`, history[i], today) as typeof today]) {
         expect(merged.rows.map(r => [r.key, r.wonDealIds])).toEqual(whole.rows.map(r => [r.key, r.wonDealIds]));
+        const id = `people.${role === "dm_closer" ? "dm_closers" : role}`;
+        const figures = (answer: typeof today) => shapePanel(id, answer, new Map([[id, answer]]), { ...(member ? { memberId: member } : {}), currency: "USD" }).figures;
+        if (member) expect(figures(merged)).toMatchObject({ won: { value: whole.rows[0]?.won ?? null } });
+        else expect((figures(merged) as { rows: { key: string; won: number }[] }).rows.map(r => [r.key, r.won]))
+          .toEqual((figures(whole) as { rows: { key: string; won: number }[] }).rows.map(r => [r.key, r.won]));
       }
     }
   });
 }
+
+it("keeps legacy cache merging and setter credit-based wins", async () => {
+  const f = await createRoleFixture();
+  for (const reader of [api.reports.peopleRoles.getSetters, api.reports.peopleRoles.getLeadGen]) {
+    const history = await f.t.withIdentity(identity).query(reader, { startDate: from, endDate: split });
+    const today = await f.t.withIdentity(identity).query(reader, { startDate: split, endDate: to });
+    const { firstPaymentDealIds: _ids, ...legacy } = history; void _ids;
+    const legacyMerged = mergePeopleRoles(legacy, today);
+    expect(legacyMerged.firstPaymentDealIds).toBeUndefined();
+    expect(legacyMerged.rows[0].wonDealIds).toEqual(history.rows[0].wonDealIds);
+    if (history.role === "setter") {
+      const merged = mergePeopleRoles({ ...history, firstPaymentDealIds: [] }, { ...today, firstPaymentDealIds: [f.dealId], rows: [] });
+      expect(merged.rows[0].wonDealIds).toContain(f.dealId);
+    }
+  }
+});
