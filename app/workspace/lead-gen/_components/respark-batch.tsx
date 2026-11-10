@@ -182,7 +182,7 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
         title="Respark batch"
         description={
           <>
-            {batch.size} people ·{" "}
+            {batch.size} {batch.size === 1 ? "person" : "people"} ·{" "}
             <HelpTip tip={`The end of the business day, ${timeZone} time. Then the batch ends.`}>
               held until {formatClock(batch.heldUntil, timeZone)}
             </HelpTip>

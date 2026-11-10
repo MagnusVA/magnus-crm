@@ -39,7 +39,7 @@ export function ContactAgainDialog(target: Target) {
         <DialogTitle>Contact again</DialogTitle>
         <DialogDescription>Until this date, nobody can pick this person in a new respark batch or mark them resparked. If you just sent a message from your batch, mark them resparked first, then save the date.</DialogDescription>
       </DialogHeader>
-      {current === undefined ? <p role="status">Loading date…</p> : current.hidden ? <p>This person can&apos;t have a contact-again date.</p> : !current.canEdit ? <ContactAgainNote saved={current.contactAgain} /> :
+      {current === undefined ? <p role="status">Loading date…</p> : current.hidden ? <p>This person can&apos;t have a contact-again date.</p> : !current.canEdit ? (current.contactAgain ? <ContactAgainNote saved={current.contactAgain} /> : <p>No contact-again date is saved.</p>) :
         <DateForm key={JSON.stringify(current.contactAgain)} target={target} saved={current.contactAgain} min={addBusinessDays(currentBusinessDate, 1)} onClose={() => setOpen(false)} />}
     </DialogContent>
   </Dialog>;

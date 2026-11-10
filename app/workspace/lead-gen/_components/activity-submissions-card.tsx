@@ -173,7 +173,7 @@ function ActivityRowItem({ row, timeZone, singleDay }: { row: ActivityRow; timeZ
           {row.flag ? (
             <details className="mr-auto min-w-0 flex-1 text-[13px] text-muted-foreground">
               <summary className="min-h-6 w-fit cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">Flag details</summary>
-              <p className="whitespace-pre-wrap break-words">Your reason: {row.flag.reason}</p>
+              <p className="whitespace-pre-wrap break-words">{role === "lead_generator" ? "Your reason" : "Flag reason"}: {row.flag.reason}</p>
               {row.flag.dismissal?.note ? <p className="whitespace-pre-wrap break-words">Admin note: {row.flag.dismissal.note.text}</p> : null}
               {row.flag.dismissal?.withheld ? <p>The admin note could not be shown safely.</p> : null}
             </details>
