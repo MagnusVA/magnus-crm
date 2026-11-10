@@ -54,7 +54,7 @@ export function validateNumbers(request: Request) {
     if (metric === "creditedCash" && role === "dm_team" && request.memberId) throw new Error("DM team credited cash is shown on Attribution, not on a member row. Choose a member role for this scalar.");
     if (metric === "bookRate" && role && role !== "setter") throw new Error("bookRate is the setter page's qualification cohort.");
     if (metric === "perScheduledHour" && !["setter", "dm_closer", "lead_gen"].includes(role ?? "")) throw new Error("perScheduledHour supports setters, dm_closers and lead_gen.");
-    if (["perScheduledHour", "bookRate"].includes(metric) && !request.memberId && !(request.groupBy === "closer" && role === "closer")) throw new Error(`${metric} is a person's page figure. Choose memberId (or groupBy closer for closer credited cash).`);
+    if (["perScheduledHour", "bookRate"].includes(metric) && !request.memberId) throw new Error(`${metric} is a person's page figure. Choose memberId.`);
     if (request.groupBy === "closer" && (!CLOSER_GROUP.has(metric) || request.memberId || metric === "creditedCash" && role !== "closer" || request.programId || request.closerId)) throw new Error(`${metric} cannot group by closer with these filters using the page builder.`);
     if (request.groupBy === "program" && (!["cash", "finalCash", "dealsWon"].includes(metric) || metric === "dealsWon" && request.scope && request.scope !== "sold_program")) throw new Error(`${metric} cannot group by program. The Cash page supports cash, finalCash and dealsWon with scope sold_program.`);
     if (request.groupBy === "day" && (!DAY.has(metric) || metric === "dealsWon" && request.scope && request.scope !== "booked_program_activity")) throw new Error(`${metric} has no matching by-day series on the page.`);
@@ -66,19 +66,22 @@ export function validateNumbers(request: Request) {
 }
 
 /** Scalar extraction happens only after the page has merged its source answers. */
+/** One unit per term, whether or not its input was complete. */
+const unitOf = (id: AssistantMetric): MetricRow["unit"] => MONEY.has(id) ? "minor" : RATIOS.has(id) ? "ratio" : id === "timeToRecord" ? "minutes" : id === "perScheduledHour" ? "per_hour" : "count";
+
 /**
  * `currencyAnswers` picks each page's currency: the current period's answers,
  * so a comparison period reads the same currency instead of choosing its own.
  */
 export function projectNumbers(answers: PageAnswers, request: Request, currencyAnswers: PageAnswers = answers): MetricRow[] {
   const rows: MetricRow[] = [];
-  const put = (id: AssistantMetric, value: number | null, group: string | null = null, period = "total", currency?: string, scope?: string) => rows.push({ id, value, unit: MONEY.has(id) ? "minor" : RATIOS.has(id) ? "ratio" : id === "timeToRecord" ? "minutes" : id === "perScheduledHour" ? "per_hour" : "count", group, period, ...(currency ? { currency } : {}), ...(scope ? { scope } : {}), ...(value === null ? { nullReason: "no_denominator" } : {}) });
+  const put = (id: AssistantMetric, value: number | null, group: string | null = null, period = "total", currency?: string, scope?: string) => rows.push({ id, value, unit: unitOf(id), group, period, ...(currency ? { currency } : {}), ...(scope ? { scope } : {}), ...(value === null ? { nullReason: "no_denominator" } : {}) });
   for (const metric of [...new Set(request.metrics)]) {
     const panel = metricPanels(metric, request)[0];
     const data = answers.get(panel);
     const currency = pageCurrency(currencyAnswers, panel.split(".")[0], request.currency);
     const scope = metric === "dealsWon" ? request.groupBy === "program" ? "sold_program" : request.scope ?? "booked_program_activity" : undefined;
-    if (!data) { rows.push({ id: metric, value: null, unit: MONEY.has(metric) ? "minor" : RATIOS.has(metric) ? "ratio" : metric === "timeToRecord" ? "minutes" : "count", group: null, period: "total", nullReason: "incomplete_input" }); continue; }
+    if (!data) { rows.push({ id: metric, value: null, unit: unitOf(metric), group: null, period: "total", ...(MONEY.has(metric) ? { currency } : {}), nullReason: "incomplete_input" }); continue; }
     if (request.groupBy === "closer" && panel === "people.closers") {
       for (const r of (data as PeopleClosers).rows) put(metric, closerPageFigures(r, currency)[metric as keyof ReturnType<typeof closerPageFigures>] ?? null, r.userId, "total", MONEY.has(metric) ? currency : undefined, metric === "dealsWon" ? "first_payment_closer" : undefined);
     } else if (request.groupBy === "program") {

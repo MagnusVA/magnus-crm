@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { isExpectedError, rejectRequest } from "../../lib/observability/errors";
 import type { QueryCtx } from "../../_generated/server";
 import { internalQuery } from "../../_generated/server";
 import { requireMcpAdmin, loadInTenant, mcpCallerValidator } from "../guard";
@@ -134,7 +135,21 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
     }
     return { resolvedRange: base.resolvedRange, businessDay: { timeZone: day.timeZone, startHour: day.dayStartHour }, inputs, limit, syncWatermark, configured: isClickHouseConfigured(), path: request.kind === "numbers" ? "/workspace/reports/scorecard" : request.report === "lead_gen" || request.report === "qualifications" ? `/workspace/operations/${request.report === "lead_gen" ? "lead-gen" : "qualifications"}` : `/workspace/reports/${request.report}${request.report === "people" && request.memberId ? `/${request.memberId}` : ""}` };
 }
-export const prepare = internalQuery({ args: { caller: mcpCallerValidator, request: requestValidator }, returns: v.string(), handler: async (ctx, args) => JSON.stringify(await prepareReport(ctx, args.caller, args.request)) });
+/**
+ * Planning refuses a request it can't answer (an unsupported term, grouping,
+ * filter or size) with a plain `Error`. The gateway hides a plain error's
+ * message, so it goes out as a refusal the agent can read.
+ */
+export const prepare = internalQuery({ args: { caller: mcpCallerValidator, request: requestValidator }, returns: v.string(), handler: async (ctx, args) => {
+    try {
+        return JSON.stringify(await prepareReport(ctx, args.caller, args.request));
+    }
+    catch (error) {
+        if (error instanceof Error && error.name === "Error" && !isExpectedError(error))
+            throw rejectRequest("report.invalid_request", error.message);
+        throw error;
+    }
+} });
 export type JobAnswer = {
     status: "ready" | "pending" | "failed" | "unavailable";
     data?: unknown;

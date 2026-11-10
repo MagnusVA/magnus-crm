@@ -13,7 +13,8 @@ import { safeText, boundPanel, type Json } from "./output";
 import { gatewayAnswerBytes, type MetricRow } from "../../../lib/assistantReportMerge";
 import type { Prepared } from "./planning";
 import type { ToolRequest } from "./contracts";
-import { ASSISTANT_METRICS } from "./metrics";
+import { ASSISTANT_METRICS, projectNumbers } from "./metrics";
+import { isExpectedError } from "../../lib/observability/errors";
 
 const range = { kind: "custom" as const, startDate: whole.startDate, endDateInclusive: whole.endDateInclusive };
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
@@ -259,4 +260,19 @@ it("returns each role's page metrics on a seeded member who works all four roles
   }
   const result=await f.t.action(internal.mcp.reports.tools.report,{caller:f.caller,report:"people",memberId:f.memberId,range,currency:"USD"});
   expect(result.status,JSON.stringify(result)).toBe("ready");
+});
+
+describe("refusals the agent can read", () => {
+  it("refuses an unsupported request with a readable code and message", async () => {
+    const f = await fixture();
+    const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["bookRate"], role: "setters", range }).catch((e: unknown) => e);
+    expect(isExpectedError(error)).toBe(true);
+    expect((error as { data: { code: string; message: string } }).data).toMatchObject({ code: "report.invalid_request", message: "bookRate is a person's page figure. Choose memberId." });
+  });
+});
+
+it("keeps a term's unit and currency when its input is missing", () => {
+  const rows = projectNumbers(new Map(), { metrics: ["perScheduledHour", "cash"], range, role: "setters", memberId: "m", currency: "USD" } as never);
+  expect(rows.find(r => r.id === "perScheduledHour")).toMatchObject({ unit: "per_hour", nullReason: "incomplete_input" });
+  expect(rows.find(r => r.id === "cash")).toMatchObject({ unit: "minor", currency: "USD", nullReason: "incomplete_input" });
 });
