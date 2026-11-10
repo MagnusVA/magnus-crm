@@ -10,19 +10,67 @@ import { ConnectionUrl } from "@/components/ai-assistants/connection-url";
 import { Switch } from "@/components/ui/switch";
 import { CARD, CardHead } from "@/app/workspace/team/_components/team-ui";
 import { getErrorMessage } from "@/lib/errors";
-import { cn } from "@/lib/utils";
 import { IntegrationCardSkeleton } from "../settings-skeleton";
 import { Fact, Facts, NoteLine, StatusWord } from "../settings-ui";
 
 const AccessConfirmDialog = dynamic(() => import("@/components/ai-assistants/access-confirm-dialog"));
 
-/** Roles with no tools yet: shown, switched off. */
-const NO_TOOLS = ["Admins", "Lead generators"] as const;
+type Role = "tenant_master" | "tenant_admin" | "closer" | "lead_generator";
+
+/**
+ * One switch per group of roles with a toolset. Owners and admins share the
+ * admin toolset, so they share a switch.
+ */
+const GROUPS: readonly {
+  id: string;
+  label: string;
+  /** The group in a sentence: "On for closers". */
+  noun: string;
+  roles: readonly Role[];
+  description: string;
+  confirm: string;
+}[] = [
+  {
+    id: "ai-closers",
+    label: "Closers",
+    noun: "closers",
+    roles: ["closer"],
+    description: "16 tools · their own meetings, people, deals, payments and recordings",
+    confirm:
+      "Their AI agents can read their meetings, people and deals, and that data goes to whichever AI provider each closer uses.",
+  },
+  {
+    id: "ai-lead-generators",
+    label: "Lead generators",
+    noun: "lead generators",
+    roles: ["lead_generator"],
+    description: "8 tools · handle checks, captures, their respark batch and their own numbers",
+    confirm:
+      "Their AI agents can check handles, save captures and work their respark batch, and that data goes to whichever AI provider each lead generator uses.",
+  },
+  {
+    id: "ai-admins",
+    label: "Owners and admins",
+    noun: "admins",
+    roles: ["tenant_master", "tenant_admin"],
+    description: "6 tools · the lead gen report, today's floor, the roster, raw submissions and voiding a capture",
+    confirm:
+      "Their AI agents can read the lead gen report, every specialist's numbers and raw submissions, and void a capture. That data goes to whichever AI provider each admin uses.",
+  },
+];
+
+type Group = (typeof GROUPS)[number];
+
+/** "closers", "closers and admins", "closers, lead generators and admins". */
+function sentenceList(words: string[]) {
+  if (words.length <= 1) return words.join("");
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
 
 /**
  * Who may connect an AI app (Claude, ChatGPT, terminal agents) to Magnus
- * over MCP (docs/plans/closer-assistant.md §7). One switch per role; only
- * closers have tools. Owners and admins with `settings:manage`.
+ * over MCP (docs/plans/closer-assistant.md §7, docs/plans/lead-gen-assistant.md
+ * §4). One switch per group of roles. Owners and admins with `settings:manage`.
  */
 export function AiAssistantsCard() {
   const { hasPermission } = useRole();
@@ -33,19 +81,20 @@ export function AiAssistantsCard() {
 function AiAssistantsSettings() {
   const settings = useQuery(api.mcp.settings.getAiAssistantSettings, {});
   const setRoles = useMutation(api.mcp.settings.setRoles);
-  const [confirmOn, setConfirmOn] = useState(false);
+  const [confirmOn, setConfirmOn] = useState<Group | null>(null);
   const [saving, setSaving] = useState(false);
 
   if (settings === undefined) {
     return <IntegrationCardSkeleton label="Loading AI assistant settings" groups={[3]} />;
   }
 
-  const enabled = settings.roles.includes("closer");
+  const isOn = (group: Group) => group.roles.every((role) => settings.roles.includes(role));
+  const on = GROUPS.filter(isOn);
 
-  async function turnOff() {
+  async function turnOff(group: Group) {
     setSaving(true);
     try {
-      await setRoles({ roles: (settings?.roles ?? []).filter((role) => role !== "closer") });
+      await setRoles({ roles: (settings?.roles ?? []).filter((role) => !group.roles.includes(role)) });
     } catch (error) {
       toast.error(getErrorMessage(error, "Couldn't turn off AI assistant access."));
     } finally {
@@ -56,35 +105,37 @@ function AiAssistantsSettings() {
   return (
     <section aria-label="AI assistants" className={CARD}>
       <CardHead title="AI assistants">
-        <StatusWord tone={enabled ? "ok" : "muted"}>{enabled ? "On for closers" : "Off"}</StatusWord>
+        <StatusWord tone={on.length > 0 ? "ok" : "muted"}>
+          {on.length > 0 ? `On for ${sentenceList(on.map((group) => group.noun))}` : "Off"}
+        </StatusWord>
       </CardHead>
       <div className="border-b border-border px-4 py-2.5">
         <NoteLine>
-          Closers can connect Claude, ChatGPT or a terminal agent to Magnus and work their own day through it. Each
-          agent signs in as its closer and sees only what they can.
+          People in the roles you turn on can connect Claude, ChatGPT or a terminal agent to Magnus and work through
+          it. Each agent signs in as its person and sees only what they can.
         </NoteLine>
       </div>
       <ul className="border-b border-border last:border-b-0">
-        <RoleRow
-          id="ai-closers"
-          label="Closers"
-          description="16 tools · their own meetings, people, deals, payments and recordings"
-          checked={enabled}
-          disabled={saving || !settings.availableRoles.includes("closer")}
-          onCheckedChange={(on) => {
-            if (on) setConfirmOn(true);
-            else void turnOff();
-          }}
-        />
-        {NO_TOOLS.map((label) => (
-          <RoleRow key={label} id={`ai-${label}`} label={label} description="No tools yet" checked={false} disabled />
+        {GROUPS.map((group) => (
+          <RoleRow
+            key={group.id}
+            id={group.id}
+            label={group.label}
+            description={group.description}
+            checked={isOn(group)}
+            disabled={saving || !group.roles.every((role) => settings.availableRoles.includes(role))}
+            onCheckedChange={(checked) => {
+              if (checked) setConfirmOn(group);
+              else void turnOff(group);
+            }}
+          />
         ))}
       </ul>
-      {enabled ? (
+      {on.length > 0 ? (
         <Facts>
           <Fact
             label="Connection URL"
-            tip="Closers paste this into their AI app's connectors. They also see it, with the setup steps, on their Profile page."
+            tip="People paste this into their AI app's connectors. They also see it, with the setup steps, on their Profile page."
           >
             <ConnectionUrl url={settings.resourceUrl} />
           </Fact>
@@ -92,11 +143,11 @@ function AiAssistantsSettings() {
       ) : null}
       {confirmOn ? (
         <AccessConfirmDialog
-          title="Turn on for closers?"
-          description="Their AI agents can read their meetings, people and deals, and that data goes to whichever AI provider each closer uses."
+          title={`Turn on for ${confirmOn.noun}?`}
+          description={confirmOn.confirm}
           action="Turn on"
-          onClose={() => setConfirmOn(false)}
-          onConfirm={() => setRoles({ roles: [...new Set([...settings.roles, "closer" as const])] })}
+          onClose={() => setConfirmOn(null)}
+          onConfirm={() => setRoles({ roles: [...new Set([...settings.roles, ...confirmOn.roles])] })}
         />
       ) : null}
     </section>
@@ -117,13 +168,12 @@ function RoleRow({
   description: string;
   checked: boolean;
   disabled?: boolean;
-  onCheckedChange?: (checked: boolean) => void;
+  onCheckedChange: (checked: boolean) => void;
 }) {
-  const inert = !onCheckedChange;
   return (
     <li className="flex min-h-11 items-center gap-3 border-b border-border px-4 py-1.5 last:border-b-0">
       <div className="min-w-0 flex-1">
-        <label htmlFor={id} className={cn("block text-sm font-medium", inert && "text-muted-foreground")}>
+        <label htmlFor={id} className="block text-sm font-medium">
           {label}
         </label>
         <p className="text-[13px] leading-[1.45] text-muted-foreground">{description}</p>

@@ -14,28 +14,24 @@ const AccessConfirmDialog = dynamic(() => import("@/components/ai-assistants/acc
 /**
  * The member card's AI assistant row (docs/plans/closer-assistant.md §7):
  * whether this login's connected agents may use Magnus, and Block or
- * Unblock. Shown for closers, the one role with tools, and for anyone
- * already blocked.
+ * Unblock. Every role has tools now, so every member has the row.
  */
 export function AiAssistantAccessRow({
   userId,
   name,
   firstName,
-  role,
   active,
   blocked,
 }: {
   userId: Id<"users">;
   name: string;
   firstName: string;
-  role: "tenant_master" | "tenant_admin" | "closer" | "lead_generator";
   active: boolean;
   blocked: boolean;
 }) {
   const { hasPermission } = useRole();
   const setBlocked = useMutation(api.mcp.settings.setUserBlocked);
   const [confirm, setConfirm] = useState(false);
-  if (role !== "closer" && !blocked) return null;
   const canChange = active && hasPermission("settings:manage");
 
   return (
@@ -49,7 +45,7 @@ export function AiAssistantAccessRow({
         secondary={
           blocked
             ? `${firstName}’s connected agents can’t use Magnus.`
-            : `Can use Magnus while AI assistants are on for closers.`
+            : "Can use Magnus while AI assistants are on for their role."
         }
         actions={
           canChange ? (
