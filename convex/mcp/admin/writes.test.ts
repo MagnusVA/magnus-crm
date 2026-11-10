@@ -308,3 +308,12 @@ describe("review bot fixes", () => {
     ).rejects.toThrow("dispute");
   });
 });
+
+describe("goal limits", () => {
+  it("prepares a goal up to the web's limit of 5000, and refuses above it", async () => {
+    const h = await fixture();
+    const prepared = await h.prepareGoal(5000);
+    expect(prepared.commit.summary).toBe("Daily qualification goal · no goal → 5000");
+    await expect(h.prepareGoal(5001)).rejects.toThrow("0 to 5000");
+  });
+});

@@ -53,8 +53,8 @@ export const prepareSetGoal = internalMutation({
   returns: v.any(),
   handler: async (ctx, { caller, kind, teamId, value }) => {
     const me = await requireMcpAdmin(ctx, caller, { family: "goals", permission: "settings:manage" });
-    if (value !== null && (!Number.isInteger(value) || value < 0 || value > 1000)) {
-      throw rejectRequest("goal.invalid", "A goal is a whole number from 0 to 1000, or null to clear it.");
+    if (value !== null && (!Number.isInteger(value) || value < 0 || value > 5000)) {
+      throw rejectRequest("goal.invalid", "A goal is a whole number from 0 to 5000, or null to clear it.");
     }
     const actor = actorOf(me);
     if (kind === "daily_qualifications") {
