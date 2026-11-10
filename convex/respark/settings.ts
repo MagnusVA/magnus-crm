@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { mutation, query, type QueryCtx } from "../_generated/server";
 import { DEFAULT_BUSINESS_DAY } from "../../lib/businessDay";
 import { businessDayValidator } from "../businessDaySchema";
 import { PERMISSIONS } from "../lib/permissions";
@@ -34,31 +35,45 @@ export const getResparkSettings = query({
   }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["settings:manage"]]);
-    const tenant = await ctx.db.get("tenants", tenantId);
-    if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
-    const settings = readResparkSettings(tenant);
-    const businessDay = tenant.businessDay ?? DEFAULT_BUSINESS_DAY;
-    const days = args.inactiveAfterDays ?? settings.inactiveAfterDays;
-    // A value outside the bounds can't be saved, so it gets no count.
-    if (!inRange(days, INACTIVE_AFTER_DAYS_RANGE)) {
-      return { settings, businessDay, inactive: null };
-    }
-    // Inactive in any group: one range count per group, up to the cutoff.
-    const cutoff = inactiveCutoff(args.now ?? Date.now(), days);
-    const counts = await resparkPool.countBatch(
-      ctx,
-      RESPARK_GROUPS.map((group) => ({
-        namespace: tenantId,
-        bounds: {
-          lower: { key: [group, 0] as [typeof group, number], inclusive: true },
-          upper: { key: [group, cutoff] as [typeof group, number], inclusive: true },
-        },
-      })),
-    );
-    const count = counts.reduce((sum, value) => sum + value, 0);
-    return { settings, businessDay, inactive: { inactiveAfterDays: days, count } };
+    return getResparkSettingsCore(ctx, { tenantId, ...args });
   },
 });
+
+export async function getResparkSettingsCore(
+  ctx: QueryCtx,
+  args: { tenantId: Id<"tenants">; inactiveAfterDays?: number; now?: number },
+) {
+  const tenant = await ctx.db.get("tenants", args.tenantId);
+  if (!tenant) throw new Error(`Missing tenant ${args.tenantId}`);
+  const settings = readResparkSettings(tenant);
+  const businessDay = tenant.businessDay ?? DEFAULT_BUSINESS_DAY;
+  const days = args.inactiveAfterDays ?? settings.inactiveAfterDays;
+  // A value outside the bounds can't be saved, so it gets no count.
+  if (!inRange(days, INACTIVE_AFTER_DAYS_RANGE)) {
+    return { settings, businessDay, inactive: null };
+  }
+  // Inactive in any group: one range count per group, up to the cutoff.
+  const cutoff = inactiveCutoff(args.now ?? Date.now(), days);
+  const counts = await resparkPool.countBatch(
+    ctx,
+    RESPARK_GROUPS.map((group) => ({
+      namespace: args.tenantId,
+      bounds: {
+        lower: { key: [group, 0] as [typeof group, number], inclusive: true },
+        upper: {
+          key: [group, cutoff] as [typeof group, number],
+          inclusive: true,
+        },
+      },
+    })),
+  );
+  const count = counts.reduce((sum, value) => sum + value, 0);
+  return {
+    settings,
+    businessDay,
+    inactive: { inactiveAfterDays: days, count },
+  };
+}
 
 export const updateResparkSettings = mutation({
   args: { inactiveAfterDays: v.number(), batchSize: v.number() },

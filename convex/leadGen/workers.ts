@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
-import { internalMutation, mutation, query } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { internalMutation, mutation, query, type QueryCtx } from "../_generated/server";
 import { leadGenWorkerMemberIdentity } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -10,7 +10,7 @@ import {
 } from "./sharedTeams";
 import { leadGenWeekdayValidator } from "./validators";
 import { linkLeadGenWorkerTeamMember } from "../lib/teamMembers";
-import { createLiveReadState } from "../lib/liveQueryBounds";
+import { createLiveReadState, type LiveReadState } from "../lib/liveQueryBounds";
 import { tenantBusinessToday } from "../lib/tenantBusinessDay";
 import { rowsInForce } from "../lib/workSchedule";
 import {
@@ -76,26 +76,168 @@ export const syncWorkerProfileForUser = internalMutation({
   },
 });
 
-export const listWorkers = query({
+type WorkerListArgs = { tenantId: Id<"tenants">; includeInactive?: boolean };
+type WorkerPageArgs = WorkerListArgs & {
+  teamId?: Id<"attributionTeams">;
+  paginationOpts: { cursor: string | null; numItems: number };
+};
+
+/** Auth-free roster readers shared by the web and MCP. */
+export function listWorkersCore(
+  ctx: QueryCtx,
+  args: WorkerPageArgs,
+): ReturnType<typeof listWorkerPageCore>;
+export function listWorkersCore(
+  ctx: QueryCtx,
+  args: WorkerListArgs,
+): Promise<Doc<"leadGenWorkers">[]>;
+export async function listWorkersCore(
+  ctx: QueryCtx,
+  args: WorkerListArgs & Partial<WorkerPageArgs>,
+) {
+  if (args.paginationOpts)
+    return listWorkerPageCore(ctx, { ...args, ...args.paginationOpts });
+  const rows = await ctx.db
+    .query("leadGenWorkers")
+    .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", args.tenantId))
+    .take(250);
+  return rows
+    .filter((worker) => args.includeInactive || worker.isActive)
+    .sort((a, b) => a.email.localeCompare(b.email));
+}
+
+/** Native pagination avoids the web reader's legacy 250-worker ceiling. */
+async function listWorkerPageCore(
+  ctx: QueryCtx,
   args: {
-    includeInactive: v.optional(v.boolean()),
+    tenantId: Id<"tenants">;
+    includeInactive?: boolean;
+    teamId?: Id<"attributionTeams">;
+    cursor: string | null;
+    numItems: number;
   },
+) {
+  const rows = args.teamId
+    ? ctx.db
+        .query("leadGenWorkers")
+        .withIndex("by_tenantId_and_teamId", (q) =>
+          q.eq("tenantId", args.tenantId).eq("teamId", args.teamId),
+        )
+    : args.includeInactive
+      ? ctx.db
+          .query("leadGenWorkers")
+          .withIndex("by_tenantId_and_userId", (q) =>
+            q.eq("tenantId", args.tenantId),
+          )
+      : ctx.db
+          .query("leadGenWorkers")
+          .withIndex("by_tenantId_and_isActive", (q) =>
+            q.eq("tenantId", args.tenantId).eq("isActive", true),
+          );
+  return rows.paginate({
+    cursor: args.cursor,
+    numItems: args.numItems,
+    maximumRowsRead: 100,
+    maximumBytesRead: 128 * 1024,
+  });
+}
+
+type TeamPageArgs = WorkerListArgs & {
+  paginationOpts: { cursor: string | null };
+};
+export function listTeamsCore(
+  ctx: QueryCtx,
+  args: TeamPageArgs,
+): ReturnType<typeof listTeamPageCore>;
+export function listTeamsCore(
+  ctx: QueryCtx,
+  args: WorkerListArgs,
+): ReturnType<typeof listSharedDmTeams>;
+export async function listTeamsCore(
+  ctx: QueryCtx,
+  args: WorkerListArgs & Partial<TeamPageArgs>,
+) {
+  if (args.paginationOpts)
+    return listTeamPageCore(ctx, { ...args, ...args.paginationOpts });
+  return listSharedDmTeams(ctx, args);
+}
+
+/** Paged team companion; filtering after the bounded page preserves empty-page cursors. */
+async function listTeamPageCore(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    includeInactive?: boolean;
+    cursor: string | null;
+  },
+) {
+  const page = await ctx.db
+    .query("attributionTeams")
+    .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+    .paginate({
+      cursor: args.cursor,
+      numItems: 25,
+      maximumRowsRead: 25,
+      maximumBytesRead: 128 * 1024,
+    });
+  return {
+    ...page,
+    page: page.page.filter((team) => args.includeInactive || team.isActive),
+  };
+}
+
+export async function listWorkerSchedulesCore(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    workerId?: Id<"leadGenWorkers">;
+    workerIds?: Id<"leadGenWorkers">[];
+    today?: string;
+    state?: LiveReadState;
+  },
+) {
+  const today = args.today ?? (await tenantBusinessToday(ctx, args.tenantId));
+  const state = args.state ?? createLiveReadState();
+  let workerIds = args.workerIds;
+  if (args.workerId) {
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
+    if (!worker || worker.tenantId !== args.tenantId)
+      throw new Error("Worker not found");
+    workerIds = [worker._id];
+  }
+  if (!workerIds) {
+    const workers = await ctx.db
+      .query("leadGenWorkers")
+      .withIndex("by_tenantId_and_userId", (q) =>
+        q.eq("tenantId", args.tenantId),
+      )
+      .take(250);
+    workerIds = workers.map((worker) => worker._id);
+  }
+  const rows: Doc<"leadGenWorkerSchedules">[] = [];
+  for (const workerId of workerIds) {
+    const scan = await readScheduleRows(
+      ctx,
+      args.tenantId,
+      { table: "leadGenWorkerSchedules", workerId },
+      state,
+    );
+    rows.push(...rowsInForce(scan.rows, today));
+    if (scan.capped) break;
+  }
+  return { rows, capped: state.capped };
+}
+
+export const listWorkers = query({
+  args: { includeInactive: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-
-    const rows = await ctx.db
-      .query("leadGenWorkers")
-      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
-      .take(250);
-
-    const filtered = rows
-      .filter((worker) => args.includeInactive || worker.isActive)
-      .sort((a, b) => a.email.localeCompare(b.email));
-    return await Promise.all(
-      filtered.map(async (worker) => ({
+    const workers = await listWorkersCore(ctx, { tenantId, ...args });
+    return Promise.all(
+      workers.map(async (worker) => ({
         ...worker,
         avatar: await leadGenWorkerMemberIdentity(ctx, worker),
       })),
@@ -104,69 +246,24 @@ export const listWorkers = query({
 });
 
 export const listTeams = query({
-  args: {
-    includeInactive: v.optional(v.boolean()),
-  },
+  args: { includeInactive: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-
-    return await listSharedDmTeams(ctx, {
-      tenantId,
-      includeInactive: args.includeInactive,
-    });
+    return listTeamsCore(ctx, { tenantId, ...args });
   },
 });
 
 export const listWorkerSchedules = query({
-  args: {
-    workerId: v.optional(v.id("leadGenWorkers")),
-  },
+  args: { workerId: v.optional(v.id("leadGenWorkers")) },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-
-    // The week in force today, one row per weekday, as before rows were dated.
-    const today = await tenantBusinessToday(ctx, tenantId);
-    const state = createLiveReadState();
-
-    if (args.workerId) {
-      const worker = await ctx.db.get("leadGenWorkers", args.workerId);
-      if (!worker || worker.tenantId !== tenantId) {
-        throw new Error("Worker not found");
-      }
-
-      const scan = await readScheduleRows(
-        ctx,
-        tenantId,
-        { table: "leadGenWorkerSchedules", workerId: worker._id },
-        state,
-      );
-      return rowsInForce(scan.rows, today);
-    }
-
-    const workers = await ctx.db
-      .query("leadGenWorkers")
-      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
-      .take(250);
-
-    const schedules = [];
-    for (const worker of workers) {
-      const scan = await readScheduleRows(
-        ctx,
-        tenantId,
-        { table: "leadGenWorkerSchedules", workerId: worker._id },
-        state,
-      );
-      schedules.push(...rowsInForce(scan.rows, today));
-      if (scan.capped) break;
-    }
-
-    return schedules;
+    return (await listWorkerSchedulesCore(ctx, { tenantId, ...args })).rows;
   },
 });
 
