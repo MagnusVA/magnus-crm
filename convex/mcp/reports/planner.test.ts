@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { dashboardRangePlan, resolveAnalyticsRange, settledThroughDate } from "../../../lib/analyticsRange";
 import { planAssistantSources, cachedWindowFits, assertReportCells } from "../../../lib/assistantReportPlan";
-import { shedDetail } from "./tools";
+import { FIT_BUDGET_BYTES, shedDetail } from "./tools";
 import type { Json } from "./output";
 import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES, type MetricRow } from "../../../lib/assistantReportMerge";
 import { businessDayStart } from "../../../lib/businessDay";
@@ -127,6 +127,21 @@ it("resolves Last week and Year to date to the picker's business dates", async (
 });
 
 describe("answer size", () => {
+    it("sheds an answer just under the cap, leaving room for the reasons added after", () => {
+        const base = { isPartial: false, reasons: [] as string[] };
+        const panel = (n: number) => [{ id: "attribution.lanes", data: { blob: "y".repeat(n) }, figures: { cash: 1 } }] as Json[];
+        // Grow the raw data until the answer lands between the fit budget and the cap.
+        let n = 0;
+        while (gatewayAnswerBytes({ ...base, status: "ready", panels: panel(n + 64), omitted: [] }) <= FIT_BUDGET_BYTES) n += 64;
+        n += 64;
+        const size = gatewayAnswerBytes({ ...base, status: "ready", panels: panel(n), omitted: [] });
+        expect(size).toBeGreaterThan(FIT_BUDGET_BYTES);
+        expect(size).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
+        const shed = shedDetail(base, panel(n), []);
+        expect(shed.panels).toEqual([{ id: "attribution.lanes", figures: { cash: 1 }, dataOmitted: true }]);
+        const final = { ...base, status: "ready", panels: shed.panels, omitted: shed.omitted, reasons: [...base.reasons, "row_limit", "incomplete_input", "mixed_currencies"] };
+        expect(gatewayAnswerBytes(final)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
+    });
     it("sheds remainders, then raw page data, before refusing an answer that is too big", () => {
         const base = { isPartial: false, reasons: [] as string[] };
         const big = "y".repeat(MAX_ASSISTANT_ANSWER_BYTES);

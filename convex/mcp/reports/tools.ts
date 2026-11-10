@@ -41,8 +41,12 @@ export function mergedPageAnswers(loaded: Loaded[], period: string): Map<string,
  * refused: first the omissions' remainders, then each panel's raw page answer,
  * keeping the figures the page shows.
  */
+// The answer's final reasons (row_limit, incomplete_input, mixed_currencies)
+// are added after it is fitted: a few short strings, sent twice.
+const REASONS_HEADROOM_BYTES = 512;
+export const FIT_BUDGET_BYTES = MAX_ASSISTANT_ANSWER_BYTES - REASONS_HEADROOM_BYTES;
 export function shedDetail(base: { isPartial: boolean; reasons: string[] }, panels: Json[], omitted: Json[]) {
-    const fits = () => gatewayAnswerBytes({ ...base, status: "ready", panels, omitted }) <= MAX_ASSISTANT_ANSWER_BYTES;
+    const fits = () => gatewayAnswerBytes({ ...base, status: "ready", panels, omitted }) <= FIT_BUDGET_BYTES;
     if (fits()) return { panels, omitted };
     base.isPartial = true;
     base.reasons.push("answer_trimmed");
@@ -204,7 +208,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
     for (let displayLimit = prepared.limit; displayLimit >= 1; displayLimit--) {
         omitted = [];
         panels = clean.map(panel => boundPanel(panel, displayLimit, complete, omitted));
-        if (gatewayAnswerBytes({ ...base, status: "ready", panels, omitted }) <= MAX_ASSISTANT_ANSWER_BYTES)
+        if (gatewayAnswerBytes({ ...base, status: "ready", panels, omitted }) <= FIT_BUDGET_BYTES)
             break;
     }
     ({ panels, omitted } = shedDetail(base, panels, omitted));
