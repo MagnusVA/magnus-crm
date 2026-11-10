@@ -25,8 +25,18 @@ function mergeRow(past: PeopleRoleRow, current: PeopleRoleRow, role: PeopleRoleR
 
 export function mergePeopleRoles(history: PeopleRoleReport, today: PeopleRoleReport): PeopleRoleReport {
   if (history.role !== today.role || history.memberId !== today.memberId) throw new Error("Cannot merge different member reports.");
-  return { ...today,
-    rows: mergeRows(history.rows, today.rows, row => row.key, (past, current) => mergeRow(past, current, today.role))
+  const reconcile = history.role !== "setter" && history.firstPaymentDealIds !== undefined && today.firstPaymentDealIds !== undefined;
+  const newer = new Set(today.firstPaymentDealIds);
+  const olderRows = reconcile ? history.rows.map(row => {
+    const wonDealIds = row.wonDealIds.filter(id => !newer.has(id));
+    return { ...row, wonDealIds, won: wonDealIds.length, dealsWon: wonDealIds.length };
+  }) : history.rows;
+  const { firstPaymentDealIds: _newerIds, ...current } = today;
+  return { ...current,
+    ...(history.firstPaymentDealIds !== undefined && today.firstPaymentDealIds !== undefined
+      ? { firstPaymentDealIds: unionCreditIds(history.firstPaymentDealIds, today.firstPaymentDealIds) }
+      : {}),
+    rows: mergeRows(olderRows, today.rows, row => row.key, (past, current) => mergeRow(past, current, today.role))
       .sort((a, b) => a.key.localeCompare(b.key)),
     days: mergeRows(history.days, today.days, day => day.dayKey, (past, current) => ({
       dayKey: current.dayKey, qualifications: past.qualifications + current.qualifications,
