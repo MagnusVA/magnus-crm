@@ -152,13 +152,6 @@ export const listResparkPerformance = query({
   }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:view-all"]]);
-    return await readResparkPerformance(ctx, tenantId, args);
-  },
-});
-
-
-/** Shared read core; callers authorize the tenant before entering. */
-export async function readResparkPerformance(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string; source?: Doc<"leadGenDailyStats">["source"] }) {
     await assertLeadGenBusinessDayReady(ctx, tenantId);
     if (args.startDayKey > args.endDayKey)
       throw new Error("Start date must be on or before end date");
@@ -248,4 +241,5 @@ export async function readResparkPerformance(ctx: QueryCtx, tenantId: Id<"tenant
       bookedByWorker,
       bookedCapped: creditState.capped || dealState.capped,
     });
-}
+  },
+});

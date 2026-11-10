@@ -1050,7 +1050,7 @@ export const failJob = internalMutation({
   },
 });
 
-export async function requestReport(
+async function requestReport(
   ctx: MutationCtx,
   auth: TenantUserResult,
   args: {

@@ -1,3 +1,4 @@
+import { buildFathomSettings } from "./connectionCore";
 import { v } from "convex/values";
 import { z } from "zod";
 import {
@@ -6,16 +7,27 @@ import {
   mutation,
   env,
   type ActionCtx,
+  type MutationCtx,
+  type QueryCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { requireTenantUser } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { PERMISSIONS } from "../lib/permissions";
 import { rejectRequest } from "../lib/observability/errors";
-import { reportError } from "../lib/observability/log";
-import { readLiveQueryRows, createLiveReadState } from "../lib/liveQueryBounds";
+import { log, reportError } from "../lib/observability/log";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  toCheckResult,
+  WEB,
+  type CheckResult,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
 import { fathomFetch, rosterPage, rosterFields } from "./client";
-import { recordingView, toRecordingView } from "./recordings";
+import { recordingView } from "./recordings";
 
 // Trigger values, include flags, response id/secret: https://developers.fathom.ai/api-reference/webhooks/create-a-webhook
 const triggeredFor = [
@@ -257,85 +269,94 @@ export const settings = query({
     const actor = await requireTenantUser(ctx, [
       ...PERMISSIONS["settings:manage"],
     ]);
-    const c = await ctx.db
-      .query("tenantFathomConnections")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", actor.tenantId))
-      .unique();
-    const state = createLiveReadState();
-    const members = await readLiveQueryRows(
-      ctx.db
-        .query("fathomOrgMembers")
-        .withIndex("by_tenantId_and_email", (q) =>
-          q.eq("tenantId", actor.tenantId),
-        ),
-      200,
-      state,
-    );
-    const users = await readLiveQueryRows(
-      ctx.db
-        .query("users")
-        .withIndex("by_tenantId_and_isActive", (q) =>
-          q.eq("tenantId", actor.tenantId).eq("isActive", true),
-        ),
-      200,
-      state,
-    );
-    const unmatched = await readLiveQueryRows(
-      ctx.db
-        .query("callRecordings")
-        .withIndex("by_tenantId_and_matchStatus_and_createdAt", (q) =>
-          q.eq("tenantId", actor.tenantId).eq("matchStatus", "unmatched"),
-        )
-        .order("desc"),
-      50,
-      state,
-    );
-    const warnings = [...(c?.healthWarnings ?? [])];
-    if (c?.connectionStatus === "connected") {
-      if (!c.keyHolderIsAccountAdmin)
-        warnings.push(
-          "This key cannot inspect account permissions. Confirm its seat can view the Sales team and external calls are shared with User's Team, with the full lock.",
-        );
-      else
-        warnings.push(
-          "Confirm the key holder can view the Sales team. Fathom does not identify the key holder in its roster response.",
-        );
-      if (members.rows.some((m) => !m.ignored && !m.matchedUserId))
-        warnings.push(
-          "Unlinked members' recordings wait up to 7 days, then are deleted. Link each sales recorder under Members.",
-        );
-    }
-    return {
-      connection: c
-        ? {
-            status: c.connectionStatus,
-            keyLast4: c.keyLast4,
-            lastWebhookAt: c.lastWebhookAt,
-            lastReconciledAt: c.lastReconciledAt,
-            lastError: c.lastError,
-            accountAdmin: c.keyHolderIsAccountAdmin,
-            droppedCount: c.droppedCount ?? 0,
-            importing: Boolean(c.reconcileToken),
-          }
-        : null,
-      members: members.rows.map((m) => ({
-        memberId: m._id,
-        email: m.email,
-        name: m.name,
-        userId: m.matchedUserId,
-        ignored: m.ignored,
-        viewAccessLevel: m.viewAccessLevel,
-      })),
-      users: users.rows.map((u) => ({
-        userId: u._id,
-        label: u.fullName ?? u.email,
-      })),
-      unmatched: unmatched.rows.map(toRecordingView),
-      warnings,
-      capped: state.capped,
-    };
+    return await buildFathomSettings(ctx, actor.tenantId);
   },
 });
+export type LinkMemberArgs = {
+  memberId: Id<"fathomOrgMembers">;
+  userId?: Id<"users">;
+  ignored?: boolean;
+};
+
+/** Every check `linkMember` makes, in its order, with no write. */
+async function checkLinkMember(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  a: LinkMemberArgs,
+) {
+  assertCoreRole(actor, PERMISSIONS["settings:manage"]);
+  const m = await ctx.db.get("fathomOrgMembers", a.memberId);
+  if (!m || m.tenantId !== actor.tenantId)
+    throw rejectRequest(
+      "fathom.member_not_found",
+      "Fathom member not found.",
+    );
+  if (a.userId) {
+    const user = await ctx.db.get("users", a.userId);
+    if (!user?.isActive || user.tenantId !== actor.tenantId)
+      throw rejectRequest(
+        "fathom.invalid_user",
+        "Choose an active member of this tenant.",
+      );
+  }
+  return { member: m };
+}
+
+/** Whether `linkMemberCore` would link or ignore this member, without writing. */
+export async function checkLinkMemberAllowed(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: LinkMemberArgs,
+): Promise<
+  CheckResult<{
+    memberId: Id<"fathomOrgMembers">;
+    currentUserId?: Id<"users">;
+    currentlyIgnored: boolean;
+  }>
+> {
+  return await toCheckResult(async () => {
+    const { member } = await checkLinkMember(ctx, actor, args);
+    return {
+      memberId: member._id,
+      ...(member.matchedUserId ? { currentUserId: member.matchedUserId } : {}),
+      currentlyIgnored: member.ignored,
+    };
+  });
+}
+
+/**
+ * Links a Fathom member to a team member, or marks them ignored, and
+ * retries the recordings held for them: the core of `linkMember`. No event
+ * covers a link, so an agent's is logged with its provenance.
+ */
+export async function linkMemberCore(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  a: LinkMemberArgs,
+  provenance: Provenance,
+): Promise<null> {
+  const { member: m } = await checkLinkMember(ctx, actor, a);
+  await ctx.db.patch("fathomOrgMembers", m._id, {
+    matchedUserId: a.ignored ? undefined : a.userId,
+    ignored: a.ignored ?? false,
+  });
+  await ctx.scheduler.runAfter(0, internal.fathom.processor.retryHeld, {
+    tenantId: actor.tenantId,
+    cursor: null,
+  });
+  if (provenance.via === "mcp") {
+    log.info("fathom.member.linked", {
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      memberId: m._id,
+      userId: a.ignored ? undefined : a.userId,
+      ignored: a.ignored ?? false,
+      ...provenanceMetadata(provenance),
+    });
+  }
+  return null;
+}
+
 export const linkMember = mutation({
   args: {
     memberId: v.id("fathomOrgMembers"),
@@ -347,28 +368,6 @@ export const linkMember = mutation({
     const actor = await requireTenantUser(ctx, [
       ...PERMISSIONS["settings:manage"],
     ]);
-    const m = await ctx.db.get("fathomOrgMembers", a.memberId);
-    if (!m || m.tenantId !== actor.tenantId)
-      throw rejectRequest(
-        "fathom.member_not_found",
-        "Fathom member not found.",
-      );
-    if (a.userId) {
-      const user = await ctx.db.get("users", a.userId);
-      if (!user?.isActive || user.tenantId !== actor.tenantId)
-        throw rejectRequest(
-          "fathom.invalid_user",
-          "Choose an active member of this tenant.",
-        );
-    }
-    await ctx.db.patch("fathomOrgMembers", m._id, {
-      matchedUserId: a.ignored ? undefined : a.userId,
-      ignored: a.ignored ?? false,
-    });
-    await ctx.scheduler.runAfter(0, internal.fathom.processor.retryHeld, {
-      tenantId: actor.tenantId,
-      cursor: null,
-    });
-    return null;
+    return await linkMemberCore(ctx, actor, a, WEB);
   },
 });

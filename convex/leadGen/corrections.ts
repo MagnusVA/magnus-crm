@@ -40,8 +40,8 @@ export const voidSubmission = mutation({
 });
 
 /**
- * Voids one capture, for the web and for the agent
- * (docs/plans/lead-gen-assistant.md §2, row 13). The caller checks the role.
+ * Voids one capture for the web, including closing its open flag.
+ * The caller checks the role.
  */
 export async function voidSubmissionCore(
   ctx: MutationCtx,

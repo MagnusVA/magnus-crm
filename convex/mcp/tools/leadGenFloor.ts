@@ -15,9 +15,8 @@ import { getResparkSettingsCore } from "../../respark/settings";
 import { resparkSettingsValidator } from "../../lib/respark/settings";
 import { tenantBusinessToday } from "../../lib/tenantBusinessDay";
 import {
-  LEAD_GEN_ADMIN_ROLES,
   mcpCallerValidator,
-  requireMcpUser,
+  requireMcpAdmin,
 } from "../guard";
 import { formatLocal } from "../time";
 
@@ -70,7 +69,7 @@ export const floor = internalQuery({
     ),
   }),
   handler: async (ctx, { caller, ...args }) => {
-    const me = await requireMcpUser(ctx, caller, LEAD_GEN_ADMIN_ROLES);
+    const me = await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
     const now = Date.now();
     const result = await readLeadGenFloor(ctx, {
       tenantId: me.tenantId,
@@ -132,7 +131,7 @@ export const roster = internalQuery({
     resparkRules: resparkSettingsValidator,
   }),
   handler: async (ctx, { caller, includeInactive, cursor }) => {
-    const me = await requireMcpUser(ctx, caller, LEAD_GEN_ADMIN_ROLES);
+    const me = await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
     const now = Date.now();
     const scope = JSON.stringify([
       "roster",

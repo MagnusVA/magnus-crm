@@ -109,6 +109,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed an opportunity status",
     iconHint: "arrow-right-left",
   },
+  "opportunity.reassigned": {
+    verb: "reassigned a deal to another closer",
+    iconHint: "user-round-cog",
+  },
   "payment.disputed": {
     verb: "disputed a payment",
     iconHint: "circle-alert",
@@ -132,6 +136,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
   "payment.voided": {
     verb: "voided a payment",
     iconHint: "circle-x",
+  },
+  "second_opinion.checked": {
+    verb: "checked a second opinion",
+    iconHint: "scale",
   },
   "user.created": {
     verb: "created a team member",

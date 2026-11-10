@@ -12,4 +12,8 @@ export const gateway = new McpGateway(components.mcpGateway);
  */
 export const mcpRateLimiter = new RateLimiter(components.rateLimiter, {
   mcpCall: { kind: "token bucket", rate: 60, period: MINUTE, capacity: 20 },
+  // Admin assistants (docs/plans/admin-assistant.md §4): prepare and commit
+  // calls per user, and records changed per workspace per day.
+  mcpWrite: { kind: "token bucket", rate: 10, period: MINUTE, capacity: 3 },
+  mcpChangesDaily: { kind: "fixed window", rate: 150, period: 24 * 60 * MINUTE },
 });

@@ -15,7 +15,7 @@ import {
 } from "../../fathom/recordings";
 import { readTranscriptPage } from "../../fathom/transcript";
 import { rejectRequest } from "../../lib/observability/errors";
-import { mcpCallerValidator, requireMcpUser } from "../guard";
+import { mcpCallerValidator, requireMcpUser, requireMcpAdmin, loadInTenant } from "../guard";
 import { formatLocal } from "../time";
 
 /**
@@ -34,7 +34,12 @@ export const authorizeRecording = internalQuery({
   },
   returns: v.object({ recording: v.union(recordingView, v.null()), timeZone: v.string() }),
   handler: async (ctx, { caller, meetingId, recordingId }) => {
-    const me = await requireMcpUser(ctx, caller, ["closer"]);
+    const identity = await requireMcpUser(ctx, caller, ["closer", "tenant_master", "tenant_admin"]);
+    const me = identity.role === "closer" ? identity : await requireMcpAdmin(ctx, caller);
+    if (me.role !== "closer") {
+      if (meetingId) await loadInTenant(ctx, me, "meetings", meetingId);
+      if (recordingId) await loadInTenant(ctx, me, "callRecordings", recordingId);
+    }
     if (Boolean(meetingId) === Boolean(recordingId)) {
       throw rejectRequest("recording.target_required", "Pass a meetingId or a recordingId.");
     }
@@ -47,7 +52,7 @@ export const authorizeRecording = internalQuery({
     }
     // A closer reads their own recordings, matched to their meetings or not.
     if (row.meetingId) await requireRecordingMeeting(ctx, me, row.meetingId);
-    else if (row.recordedByUserId !== me.userId) {
+    else if (me.role === "closer" && row.recordedByUserId !== me.userId) {
       throw rejectRequest("recording.not_found", "That recording isn't one of yours.");
     }
     return { recording: toRecordingView(row), timeZone: me.timeZone };

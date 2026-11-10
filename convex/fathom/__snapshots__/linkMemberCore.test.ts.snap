@@ -1,0 +1,90 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`web paths write what they wrote before the split > attach, a manual match 1`] = `
+{
+  "result": null,
+  "written": {
+    "callRecordings": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000010010callRecordings",
+          "removed": [],
+          "set": {
+            "matchMethod": "manual",
+            "matchStatus": "matched",
+            "matchedAt": 1792497600000,
+            "matchedByUserId": "000000000000000000000010002users",
+            "meetingId": "000000000000000000010007meetings",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010012domainEvents",
+          "actorUserId": "000000000000000000000010002users",
+          "entityId": "000000000000000000010007meetings",
+          "entityType": "meeting",
+          "eventType": "meeting.recording_matched",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "recordingId": "000000000000010010callRecordings",
+          },
+          "occurredAt": 1792497600000,
+          "source": "system",
+          "tenantId": "0000000000000000000010000tenants",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > linkMember links, ignores, and refuses 1`] = `
+{
+  "result": null,
+  "written": {
+    "fathomOrgMembers": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000010011fathomOrgMembers",
+          "removed": [],
+          "set": {
+            "matchedUserId": "000000000000000000000010003users",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > linkMember links, ignores, and refuses 2`] = `
+{
+  "result": null,
+  "written": {
+    "fathomOrgMembers": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000010011fathomOrgMembers",
+          "removed": [
+            "matchedUserId",
+          ],
+          "set": {
+            "ignored": true,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;

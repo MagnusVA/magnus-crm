@@ -55,7 +55,8 @@ type LogArgs = {
   paginationOpts: PaginationOptions;
 };
 
-async function readLog(
+/** Trusted callers must validate member/actor filters and authorize the tenant. */
+export async function readLog(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   args: LogArgs,

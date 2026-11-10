@@ -1,10 +1,9 @@
 import type { FunctionReturnType } from "convex/server";
-import type { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
-import type { ScalarRecord } from "../../convex/operations/reports/contracts";
+import type { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { ScalarRecord } from "@/convex/operations/reports/contracts";
+import type { TopOriginOverviewRow } from "@/app/workspace/_components/top-origins-overview-table";
 import { dashboardIdentity } from "./dashboard-identity";
-
-type TopOriginOverviewRow = { originKey: string; source: string; originKind: string; originValue: string; submissions: number; uniqueProspects: number };
 
 type SnapshotRow = { rowKey: string; payload: ScalarRecord };
 type WorkerRow = FunctionReturnType<typeof api.leadGen.reporting.listWorkerPerformance>[number];

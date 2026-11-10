@@ -7,7 +7,7 @@ import { trimLeadGenText } from "../../leadGen/floor";
 import { visibleContactAgain } from "../../lib/contactAgain";
 import { leadGenOriginKindValidator, leadGenSourceValidator } from "../../leadGen/validators";
 import { rejectRequest } from "../../lib/observability/errors";
-import { LEAD_GEN_ADMIN_ROLES, LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser } from "../guard";
+import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpAdmin, requireMcpUser, type McpUser } from "../guard";
 import { formatLocal } from "../time";
 
 /**
@@ -135,7 +135,10 @@ export const check = internalQuery({
     capturesCursor: v.optional(v.union(v.string(), v.null())),
   }),
   handler: async (ctx, { caller, handles, cursor }) => {
-    const me = await requireMcpUser(ctx, caller, [...LEAD_GEN_ROLES, ...LEAD_GEN_ADMIN_ROLES]);
+    const user = await requireMcpUser(ctx, caller, [...LEAD_GEN_ROLES, "tenant_master", "tenant_admin"]);
+    const me = user.role === "lead_generator"
+      ? user
+      : await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
     const isAdmin = me.role !== "lead_generator";
     if (handles.length < 1 || handles.length > MAX_HANDLES) {
       throw rejectRequest("handles.count", `Pass 1 to ${MAX_HANDLES} handles in one call.`);

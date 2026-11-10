@@ -140,3 +140,11 @@ Decisions against a reviewer's advice:
 - Older no-show notes are shown to lead gens, with redaction (one draft wanted only notes written after this release). The owner asked for the reasons, and the redaction covers names, amounts and contact details.
 - No-show history has no cursors of its own (data draft). A person carries their 3 newest qualifying no-shows and a `historyPartial` flag.
 - The shift report's hours can differ from My Activity on a day with no captures, where the page shows zero.
+
+## 10. After the admin assistant merged
+
+The admin assistant's access, settings, instructions, toolset and confirmation flow take precedence wherever the designs overlap. The 12 lead generator tools keep their own role switch, instructions and behavior in the shared catalog.
+
+`magnus_lead_gen_report` was dropped because `magnus_report` already reads the Lead Gen dashboard. `magnus_void_capture` was dropped so admin changes follow the admin assistant design; admins can still void a capture on the web, including closing its open flag. The floor, roster, submissions and admin handle check moved under the admin assistant's reading switch and `requireMcpAdmin` guard with `lead-gen:view-all`. These remain reads with their existing result shapes.
+
+The schema is the additive union of both designs. The new fields are optional and the new tables start empty, so no data backfill is needed.

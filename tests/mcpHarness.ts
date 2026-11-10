@@ -117,7 +117,7 @@ export async function seedTenantWithCloser(
 /**
  * A tenant with the lead gen and admin toolsets switched on: an owner, an
  * admin, two lead gens on one team (Sofia and Dani), each with an active
- * worker row, and one closer. `sub` values are `user_owner`, `user_admin`,
+ * worker row, and one closer. Admin reading is on and changes are off. `sub` values are `user_owner`, `user_admin`,
  * `user_sofia`, `user_dani` and `user_alex`.
  */
 export async function seedTenantWithLeadGen(

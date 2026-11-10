@@ -108,7 +108,7 @@ export const closerTools: McpToolRegistration[] = [
     },
     identityArg: "caller",
     annotations: { readOnlyHint: true, openWorldHint: false },
-    metadata: { ...CLOSER, auditErrorMessage: false },
+    metadata: { roles: ["closer", "tenant_master", "tenant_admin"], auditErrorMessage: false },
   }),
   defineMcpMutation({
     name: "magnus_attach_recording",

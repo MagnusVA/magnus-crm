@@ -19,6 +19,7 @@ describe("redeemConfirmation", () => {
       const issued = await issueConfirmation(ctx, who, "tool_a", args, "preview");
       const redeemed = await redeemConfirmation(ctx, who, "tool_a", issued.confirmToken, args);
       if (redeemed.kind !== "fresh") throw new Error("expected a fresh token");
+      expect(redeemed.preview).toBe("preview");
       await markConfirmationUsed(ctx, redeemed.confirmationId, { saved: true });
       return issued.confirmToken;
     });

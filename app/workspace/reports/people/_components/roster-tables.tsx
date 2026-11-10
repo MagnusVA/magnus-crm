@@ -1,5 +1,7 @@
 "use client";
 
+import { totalCloserRow } from "@/lib/reporting/pageFigures/people";
+
 import { useRef, type ReactNode } from "react";
 import { XIcon } from "lucide-react";
 import { DetailCardFooter } from "@/app/workspace/closer/meetings/_components/detail-card";
@@ -209,28 +211,7 @@ export function ClosersTable({
     },
   ];
   // The Total sums every closer, not the page shown, and stays on every page.
-  const sum = (pick: (row: CloserRow) => number) => rows.reduce((total, row) => total + pick(row), 0);
-  const total: CloserRow = {
-    ...rows[0],
-    userId: rows[0].userId,
-    name: "Total",
-    due: sum((row) => row.due),
-    held: sum((row) => row.held),
-    noShow: sum((row) => row.noShow),
-    notRecorded: sum((row) => row.notRecorded),
-    cohortDeals: sum((row) => row.cohortDeals),
-    cohortWon: sum((row) => row.cohortWon),
-    dealsWon: sum((row) => row.dealsWon),
-    payments: sum((row) => row.payments),
-    recordMinutes: rows.flatMap((row) => row.recordMinutes),
-    cash: [
-      {
-        currency,
-        cashMinor: sum((row) => closerMetrics(row, currency).cashMinor),
-        finalMinor: sum((row) => closerMetrics(row, currency).finalMinor),
-      },
-    ],
-  };
+  const total = totalCloserRow(rows, currency)!;
   return (
     <RosterCard frame={frame} footer={<ReportPager pager={pager} noun="phone closers" />}>
       {partial ? (

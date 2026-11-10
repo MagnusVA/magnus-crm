@@ -275,87 +275,43 @@ describe("capture flags through /mcp", () => {
     expect(await f.counts()).toEqual(before);
   });
 
-  it.each(["core", "mcp"] as const)(
-    "repairs an open flag on an already-voided capture through %s without a second reversal",
-    async (path) => {
-      const f = await fixture();
-      const capture = await f.capture();
-      const first = await flag(f, capture.submissionId);
-      await f
-        .web("user_admin")
-        .mutation(api.leadGen.corrections.voidSubmission, {
-          submissionId: capture.submissionId,
-          reason: "Wrong post",
-        });
-      await f.t.run((ctx) =>
-        ctx.db.patch("leadGenCaptureFlags", first.flag.flagId, {
-          state: "open",
-          resolvedAt: undefined,
-          resolvedByUserId: undefined,
-        }),
-      );
-      const before = await f.counts();
-      if (path === "core") {
-        expect(
-          await f
-            .web("user_admin")
-            .mutation(api.leadGen.corrections.voidSubmission, {
-              submissionId: capture.submissionId,
-              reason: "Repeat void",
-            }),
-        ).toMatchObject({ alreadyVoided: true });
-      } else {
-        const admin = await f.agent("user_admin");
-        expect(
-          (
-            await admin("magnus_void_capture", {
-              submissionId: capture.submissionId,
-              reason: "Repeat void",
-              confirm: false,
-            })
-          ).data,
-        ).toMatchObject({ alreadyVoided: true });
-      }
-      expect(await f.flags()).toMatchObject([{ state: "voided" }]);
-      expect(await f.counts()).toEqual(before);
-    },
-  );
+  it("repairs an open flag on an already-voided capture through the web without a second reversal", async () => {
+    const f = await fixture();
+    const capture = await f.capture();
+    const first = await flag(f, capture.submissionId);
+    const admin = f.web("user_admin");
+    await admin.mutation(api.leadGen.corrections.voidSubmission, {
+      submissionId: capture.submissionId,
+      reason: "Wrong post",
+    });
+    await f.t.run((ctx) => ctx.db.patch("leadGenCaptureFlags", first.flag.flagId, {
+      state: "open",
+      resolvedAt: undefined,
+      resolvedByUserId: undefined,
+    }));
+    const before = await f.counts();
+    expect(await admin.mutation(api.leadGen.corrections.voidSubmission, {
+      submissionId: capture.submissionId,
+      reason: "Repeat void",
+    })).toMatchObject({ alreadyVoided: true });
+    expect(await f.flags()).toMatchObject([{ state: "voided" }]);
+    expect(await f.counts()).toEqual(before);
+  });
 
-  it("rolls flag closure and reversals back if a later void write fails, leaving its token usable", async () => {
+  it("rolls flag closure and reversals back if a later web void write fails", async () => {
     const f = await fixture();
     const capture = await f.capture();
     await flag(f, capture.submissionId);
-    const admin = await f.agent("user_admin");
+    const admin = f.web("user_admin");
     const args = { submissionId: capture.submissionId, reason: "Wrong post" };
-    const preview = (
-      await admin("magnus_void_capture", { ...args, confirm: false })
-    ).data as Preview;
     const before = await f.counts();
     failure.voidFails = true;
-    const failed = await admin("magnus_void_capture", {
-      ...args,
-      confirm: true,
-      confirmToken: preview.confirmToken,
-    });
-    expect(failed.isError).toBe(true);
-    expect(failed.text).toContain("can't be written");
+    await expect(admin.mutation(api.leadGen.corrections.voidSubmission, args)).rejects.toThrow("can't be written");
     expect(await f.flags()).toMatchObject([{ state: "open" }]);
     expect(await f.counts()).toEqual(before);
-    expect(
-      await f.t.run((ctx) =>
-        ctx.db.get("leadGenSubmissions", capture.submissionId),
-      ),
-    ).not.toHaveProperty("voidedAt");
+    expect(await f.t.run((ctx) => ctx.db.get("leadGenSubmissions", capture.submissionId))).not.toHaveProperty("voidedAt");
     failure.voidFails = false;
-    expect(
-      (
-        await admin("magnus_void_capture", {
-          ...args,
-          confirm: true,
-          confirmToken: preview.confirmToken,
-        })
-      ).isError,
-    ).toBe(false);
+    await admin.mutation(api.leadGen.corrections.voidSubmission, args);
     expect(await f.flags()).toMatchObject([{ state: "voided" }]);
   });
 

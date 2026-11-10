@@ -77,6 +77,7 @@ export function CrmAccessSection({ member }: { member: DirectoryMember }) {
           userId={login.userId}
           name={name}
           firstName={first}
+          role={login.role}
           active={active}
           blocked={login.aiAssistantBlocked}
         />

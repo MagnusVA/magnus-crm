@@ -1,6 +1,7 @@
 "use node";
 
 import { WorkOS } from "@workos-inc/node";
+import { hasPermission } from "../lib/permissions";
 import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
@@ -499,6 +500,15 @@ export const updateUserRole = action({
 	): Promise<{ userId: Id<"users">; role: Infer<typeof crmRoleValidator>; previous: RoleChangePrevious }> => {
 		const { caller, tenant, callerWorkosUserId } =
 			await requireAdminContext(ctx);
+		// The permission map makes role changes the owner's; enforce it here,
+		// not only in the Team page (docs/plans/admin-assistant.md §5, fix 3).
+		if (!hasPermission(caller.role, "team:update-role")) {
+			throw rejectRequest(
+				"team.role_change_owner_only",
+				"Only the owner can change someone's role.",
+				{ role: caller.role },
+			);
+		}
 		const user: Doc<"users"> = await getTenantUserOrThrow(ctx, caller.tenantId, userId);
 
 		if (newRole === "tenant_master") {

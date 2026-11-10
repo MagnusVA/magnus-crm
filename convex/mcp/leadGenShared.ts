@@ -1,13 +1,13 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalQuery } from "../_generated/server";
+import { internalQuery, type QueryCtx } from "../_generated/server";
 import { businessDateForInstant, countBusinessDays, addBusinessDays } from "../../lib/businessDay";
 import { resolveDashboardRange } from "../../lib/analyticsRange";
 import { isExpectedError, rejectRequest } from "../lib/observability/errors";
 import type { CrmRole } from "../lib/roleMapping";
 import { rememberTenantBusinessDay } from "../lib/tenantBusinessDay";
 import schema from "../schema";
-import { mcpCallerValidator, requireMcpUser } from "./guard";
+import { mcpCallerValidator, requireMcpUser, type McpUser } from "./guard";
 
 /**
  * Shared by the lead gen tools (docs/plans/lead-gen-assistant.md): the range
@@ -105,6 +105,29 @@ export type LeadGenActionCaller = {
   todayDayKey: string;
 };
 
+export const leadGenActionCallerValidator = v.object({
+  userId: v.id("users"),
+  tenantId: v.id("tenants"),
+  role: roleValidator,
+  timeZone: v.string(),
+  agentClient: v.string(),
+  businessDay: v.object({ timeZone: v.string(), dayStartHour: v.number() }),
+  todayDayKey: v.string(),
+});
+
+export function leadGenActionCaller(ctx: QueryCtx, me: McpUser): LeadGenActionCaller {
+  const businessDay = rememberTenantBusinessDay(ctx, me.tenant);
+  return {
+    userId: me.userId,
+    tenantId: me.tenantId,
+    role: me.role,
+    timeZone: me.timeZone,
+    agentClient: me.agentClient,
+    businessDay: { timeZone: businessDay.timeZone, dayStartHour: businessDay.dayStartHour },
+    todayDayKey: businessDateForInstant(Date.now(), businessDay),
+  };
+}
+
 /**
  * The access check for a lead gen action. Actions have no database, so they
  * run this first, and again before returning anything that took time, so a
@@ -112,27 +135,10 @@ export type LeadGenActionCaller = {
  */
 export const authorizeCaller = internalQuery({
   args: { caller: mcpCallerValidator, roles: v.array(roleValidator) },
-  returns: v.object({
-    userId: v.id("users"),
-    tenantId: v.id("tenants"),
-    role: roleValidator,
-    timeZone: v.string(),
-    agentClient: v.string(),
-    businessDay: v.object({ timeZone: v.string(), dayStartHour: v.number() }),
-    todayDayKey: v.string(),
-  }),
+  returns: leadGenActionCallerValidator,
   handler: async (ctx, { caller, roles }): Promise<LeadGenActionCaller> => {
     const me = await requireMcpUser(ctx, caller, roles);
-    const businessDay = rememberTenantBusinessDay(ctx, me.tenant);
-    return {
-      userId: me.userId,
-      tenantId: me.tenantId,
-      role: me.role,
-      timeZone: me.timeZone,
-      agentClient: me.agentClient,
-      businessDay: { timeZone: businessDay.timeZone, dayStartHour: businessDay.dayStartHour },
-      todayDayKey: businessDateForInstant(Date.now(), businessDay),
-    };
+    return leadGenActionCaller(ctx, me);
   },
 });
 

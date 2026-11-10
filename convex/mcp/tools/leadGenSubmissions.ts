@@ -15,14 +15,15 @@ import {
 } from "../../leadGen/validators";
 import { rejectRequest } from "../../lib/observability/errors";
 import {
-  LEAD_GEN_ADMIN_ROLES,
   mcpCallerValidator,
-  requireMcpUser,
+  requireMcpAdmin,
 } from "../guard";
 import {
   leadGenRangeArgs,
   resolveLeadGenRange,
   type LeadGenActionCaller,
+  leadGenActionCallerValidator,
+  leadGenActionCaller,
 } from "../leadGenShared";
 import { formatLocal } from "../time";
 
@@ -65,6 +66,16 @@ const pageValidator = v.object({
 });
 type SubmissionPage = Infer<typeof pageValidator>;
 
+/** The action checks admin reading before work and before returning its result. */
+export const authorize = internalQuery({
+  args: { caller: mcpCallerValidator },
+  returns: leadGenActionCallerValidator,
+  handler: async (ctx, { caller }): Promise<LeadGenActionCaller> => {
+    const me = await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
+    return leadGenActionCaller(ctx, me);
+  },
+});
+
 /** Separate transactions are required for successive native export pages. */
 export const readPage = internalQuery({
   args: {
@@ -82,7 +93,7 @@ export const readPage = internalQuery({
     ctx,
     { caller, cursor, numItems, ...args },
   ): Promise<SubmissionPage> => {
-    const me = await requireMcpUser(ctx, caller, LEAD_GEN_ADMIN_ROLES);
+    const me = await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
     // Refuse foreign filter IDs explicitly, including a filter on an empty range.
     if (args.workerId) {
       const worker = await ctx.db.get("leadGenWorkers", args.workerId);
@@ -189,8 +200,8 @@ export const list = internalAction({
   ) => {
     const startedAt = Date.now();
     const authorized: LeadGenActionCaller = await ctx.runQuery(
-      internal.mcp.leadGenShared.authorizeCaller,
-      { caller, roles: [...LEAD_GEN_ADMIN_ROLES] },
+      internal.mcp.tools.leadGenSubmissions.authorize,
+      { caller },
     );
     const range = resolveLeadGenRange(rangeArgs, authorized.todayDayKey, {
       maxDays: 120,
@@ -239,8 +250,8 @@ export const list = internalAction({
     }
     // A revoked user receives no accumulated result, even after the final page.
     const finalAccess: LeadGenActionCaller = await ctx.runQuery(
-      internal.mcp.leadGenShared.authorizeCaller,
-      { caller, roles: [...LEAD_GEN_ADMIN_ROLES] },
+      internal.mcp.tools.leadGenSubmissions.authorize,
+      { caller },
     );
     if (
       finalAccess.tenantId !== authorized.tenantId ||

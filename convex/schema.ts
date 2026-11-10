@@ -49,6 +49,8 @@ import { analyticsPageValidator, analyticsTables } from "./analytics/schema";
 import { meetingProjectionTables } from "./operations/meetingProjectionSchema";
 import { pipelineTables } from "./pipeline/schema";
 import { mcpTables } from "./mcp/schema";
+import { mcpReportTables } from "./mcp/reportSchema";
+import { writeFamilyValidator } from "./mcp/families";
 import { fathomTables } from "./fathom/schema";
 import { secondOpinionTables } from "./secondOpinion/schema";
 import { endOfDayTables } from "./closer/endOfDaySchema";
@@ -62,6 +64,7 @@ export default defineSchema({
   ...operationsReportTables,
   ...analyticsTables,
   ...mcpTables,
+  ...mcpReportTables,
   ...fathomTables,
   ...secondOpinionTables,
   ...endOfDayTables,
@@ -141,6 +144,15 @@ export default defineSchema({
         ),
         changedAt: v.number(),
         changedByUserId: v.id("users"),
+        // Admin assistants (admin-assistant.md §4): the roles whose assistants
+        // may make changes, and which kinds of change. Unset means none.
+        writeRoles: v.optional(
+          v.array(v.union(v.literal("tenant_master"), v.literal("tenant_admin"))),
+        ),
+        writeFamilies: v.optional(v.array(writeFamilyValidator)),
+        // When the write switches last changed. A token or plan prepared
+        // before then never applies.
+        writeChangedAt: v.optional(v.number()),
       }),
     ),
     // Jev's second opinion on recorded calls (closer-assistant.md §6.9).
@@ -210,6 +222,9 @@ export default defineSchema({
     // An admin blocked this user's AI assistant access (decision 14).
     mcpBlockedAt: v.optional(v.number()),
     mcpBlockedByUserId: v.optional(v.id("users")),
+    // When the block last changed, either way. Anything an assistant prepared
+    // before then never applies (admin-assistant.md §4).
+    mcpBlockChangedAt: v.optional(v.number()),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the team list shows users in creation order
     .index("by_tenantId", ["tenantId"])

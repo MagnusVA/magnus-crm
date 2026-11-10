@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -490,58 +491,63 @@ export const getPeopleClosers = query({
   handler: async (ctx, args): Promise<PeopleClosers> => {
     const viewer = await requireTenantUser(ctx, [...MEMBER_REPORT_ROLES]);
     const memberId = await resolveMemberFilter(ctx, args.memberId, viewer);
-    assertValidDateRange(args.startDate, args.endDate);
-    const meetings = await readRangeMeetings(
-      ctx,
-      viewer.tenantId,
-      args.startDate,
-      args.endDate,
-    );
-    const loaded = await loadCallFacts(
-      ctx,
-      viewer.tenantId,
-      meetings.rows,
-      args.asOf ?? Date.now(),
-    );
-    const facts = {
-      facts: loaded.facts,
-      partial: loaded.partial || meetings.capped,
-    };
-    const payments = await readLiveQueryRows(
-      ctx.db
-        .query("paymentRecords")
-        .withIndex("by_tenantId_and_recordedAt", (q) =>
-          q
-            .eq("tenantId", viewer.tenantId)
-            .gte("recordedAt", args.startDate)
-            .lt("recordedAt", args.endDate),
-        ),
-      CALL_READ_CAP,
-    );
-    const eligible = payments.rows.filter((p) => p.status !== "disputed");
-    const users = await loadCloserUsers(ctx, viewer.tenantId, facts, eligible);
-    const cohort = await readCloserCohort(ctx, viewer.tenantId, facts);
-    const callPayments = memberId
-      ? await readCallPayments(ctx, viewer.tenantId, facts)
-      : { payments: [], partial: false };
-    return buildPeopleClosers(
-      {
-        ...facts,
-        partial: facts.partial || users.partial || callPayments.partial,
-        users: users.users,
-        payments: eligible,
-        callPayments: callPayments.payments,
-        cohort: cohort.cohort,
-        firstPaymentIds: await readFirstPayments(
-          ctx,
-          viewer.tenantId,
-          eligible,
-        ),
-        cohortPartial: cohort.partial,
-        paymentsPartial: payments.capped,
-      },
-      memberId,
-      await getTenantBusinessDay(ctx, viewer.tenantId),
-    );
+    return readPeopleClosers(ctx, viewer.tenantId, args, memberId);
   },
 });
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readPeopleClosers(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getPeopleClosers>, memberId: Id<"teamMembers"> | null): Promise<PeopleClosers> {
+  assertValidDateRange(args.startDate, args.endDate);
+  const meetings = await readRangeMeetings(
+    ctx,
+    tenantId,
+    args.startDate,
+    args.endDate,
+  );
+  const loaded = await loadCallFacts(
+    ctx,
+    tenantId,
+    meetings.rows,
+    args.asOf ?? Date.now(),
+  );
+  const facts = {
+    facts: loaded.facts,
+    partial: loaded.partial || meetings.capped,
+  };
+  const payments = await readLiveQueryRows(
+    ctx.db
+      .query("paymentRecords")
+      .withIndex("by_tenantId_and_recordedAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("recordedAt", args.startDate)
+          .lt("recordedAt", args.endDate),
+      ),
+    CALL_READ_CAP,
+  );
+  const eligible = payments.rows.filter((p) => p.status !== "disputed");
+  const users = await loadCloserUsers(ctx, tenantId, facts, eligible);
+  const cohort = await readCloserCohort(ctx, tenantId, facts);
+  const callPayments = memberId
+    ? await readCallPayments(ctx, tenantId, facts)
+    : { payments: [], partial: false };
+  return buildPeopleClosers(
+    {
+      ...facts,
+      partial: facts.partial || users.partial || callPayments.partial,
+      users: users.users,
+      payments: eligible,
+      callPayments: callPayments.payments,
+      cohort: cohort.cohort,
+      firstPaymentIds: await readFirstPayments(
+        ctx,
+        tenantId,
+        eligible,
+      ),
+      cohortPartial: cohort.partial,
+      paymentsPartial: payments.capped,
+    },
+    memberId,
+    await getTenantBusinessDay(ctx, tenantId),
+  );
+}

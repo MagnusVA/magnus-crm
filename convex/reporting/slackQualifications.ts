@@ -1,8 +1,16 @@
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, query, type QueryCtx } from "../_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { log } from "../lib/observability/log";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  WEB,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
 import {
   slackQualificationsByTime,
   slackQualificationsByUser,
@@ -270,35 +278,60 @@ export async function buildQualificationReport(
   };
 }
 
+export type SetTeamDailyGoalArgs = { dailyTeamQualificationGoal: number | null };
+
+/**
+ * Sets or clears the team's daily qualified-leads goal: the core of
+ * `setTeamDailyGoal`. No event covers a goal; the change is logged with its
+ * provenance.
+ */
+export async function setTeamDailyGoalCore(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: SetTeamDailyGoalArgs,
+  provenance: Provenance,
+): Promise<{ dailyTeamQualificationGoal: number | null }> {
+  assertCoreRole(actor, ["tenant_master", "tenant_admin"]);
+  const { tenantId } = actor;
+
+  if (
+    args.dailyTeamQualificationGoal !== null &&
+    (!Number.isInteger(args.dailyTeamQualificationGoal) ||
+      args.dailyTeamQualificationGoal < 0 ||
+      args.dailyTeamQualificationGoal > MAX_DAILY_TEAM_GOAL)
+  ) {
+    throw new Error(
+      `Daily team goal must be an integer between 0 and ${MAX_DAILY_TEAM_GOAL}.`,
+    );
+  }
+
+  await ctx.db.patch("tenants", tenantId, {
+    slackQualificationDailyTeamQuota:
+      args.dailyTeamQualificationGoal ?? undefined,
+  });
+  log.info("reporting.team_daily_goal.set", {
+    tenantId,
+    actorUserId: actor.userId,
+    dailyTeamQualificationGoal: args.dailyTeamQualificationGoal,
+    via: provenance.via,
+    ...provenanceMetadata(provenance),
+  });
+
+  return {
+    dailyTeamQualificationGoal: args.dailyTeamQualificationGoal,
+  };
+}
+
 export const setTeamDailyGoal = mutation({
   args: {
     dailyTeamQualificationGoal: v.union(v.number(), v.null()),
   },
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
+    const actor = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-
-    if (
-      args.dailyTeamQualificationGoal !== null &&
-      (!Number.isInteger(args.dailyTeamQualificationGoal) ||
-        args.dailyTeamQualificationGoal < 0 ||
-        args.dailyTeamQualificationGoal > MAX_DAILY_TEAM_GOAL)
-    ) {
-      throw new Error(
-        `Daily team goal must be an integer between 0 and ${MAX_DAILY_TEAM_GOAL}.`,
-      );
-    }
-
-    await ctx.db.patch("tenants", tenantId, {
-      slackQualificationDailyTeamQuota:
-        args.dailyTeamQualificationGoal ?? undefined,
-    });
-
-    return {
-      dailyTeamQualificationGoal: args.dailyTeamQualificationGoal,
-    };
+    return await setTeamDailyGoalCore(ctx, actor, args, WEB);
   },
 });
 

@@ -50,6 +50,7 @@ async function readPerson(
     )
     .take(1000);
   if (
+    me.role === "closer" &&
     !owned.some((opportunity) =>
       canOpenOpportunityDetail({
         viewerUserId: me.userId,
@@ -354,3 +355,9 @@ export const run = internalQuery({
     };
   },
 });
+
+/** Admin adapter over the same person core; caller must already pass requireMcpAdmin. */
+export async function buildAdminPerson(ctx: QueryCtx, me: McpUser, personId: Id<"leads">, includeContact: boolean) {
+  if (me.role !== "tenant_master" && me.role !== "tenant_admin") throw refuse();
+  return await readPerson(ctx, me, personId, includeContact);
+}

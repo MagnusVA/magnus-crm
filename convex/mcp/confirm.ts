@@ -26,7 +26,7 @@ export function stableJson(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
 }
 
-function randomToken(): string {
+export function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   return `ct_${btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" })[c] ?? "")}`;
 }
@@ -52,28 +52,24 @@ export async function issueConfirmation(
 }
 
 /**
- * Checks a commit's token. The token must belong to this user, tenant and
- * tool, and the arguments must match the preview, before anything else is
- * decided: a used token then returns its stored result, so the caller hands
- * it back instead of writing twice. Otherwise the caller may write, then must
- * call `markConfirmationUsed` in the same transaction.
+ * Checks a commit's token. A token already used returns its stored result, so
+ * the caller hands it back instead of writing twice. Otherwise the caller may
+ * write, then must call `markConfirmationUsed` in the same transaction.
  */
 export async function redeemConfirmation(
   ctx: MutationCtx,
-  who: { tenantId: Id<"tenants">; userId: Id<"users"> },
+  who: { userId: Id<"users">; tenantId?: Id<"tenants"> },
   tool: string,
   token: string | undefined,
   args: unknown,
 ): Promise<
   | { kind: "replay"; result: unknown }
-  // `preview` is the text the caller issued, for a commit that must still
-  // match what was read back.
   | { kind: "fresh"; confirmationId: Id<"mcpConfirmations">; preview: string }
 > {
   if (!token) {
     throw rejectRequest(
       "confirm.token_required",
-      "Preview first with confirm: false, read the preview back word for word, then commit with its confirmToken.",
+      "Preview first with confirm: false, read the preview to the person you're helping, then commit with its confirmToken.",
     );
   }
   const tokenHash = await sha256Hex(token);
@@ -84,26 +80,27 @@ export async function redeemConfirmation(
   if (
     !row ||
     row.userId !== who.userId ||
-    row.tenantId !== who.tenantId ||
+    (who.tenantId !== undefined && row.tenantId !== who.tenantId) ||
     row.tool !== tool
   ) {
     throw rejectRequest(
       "confirm.token_unknown",
-      "That preview token isn't valid. Preview again, then ask for a yes.",
+      "That preview token isn't valid. Preview again, then ask before committing.",
     );
   }
-  // Before the replay: a used token must not answer for different details.
+  // The arguments are compared before a replay, so a retry with different
+  // arguments is never told the first action succeeded.
   if (row.argsHash !== (await sha256Hex(stableJson(args)))) {
     throw rejectRequest(
       "confirm.args_changed",
-      "These details differ from the preview. Preview again, then ask for a yes.",
+      "These details differ from the preview. Preview again, then ask before committing.",
     );
   }
   if (row.usedAt !== undefined) {
     return { kind: "replay", result: row.resultJson ? JSON.parse(row.resultJson) : null };
   }
   if (row.expiresAt < Date.now()) {
-    throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask for a yes.");
+    throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask before committing.");
   }
   return { kind: "fresh", confirmationId: row._id, preview: row.preview };
 }

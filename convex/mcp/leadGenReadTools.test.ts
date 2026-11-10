@@ -15,6 +15,7 @@ import {
   createMcpHarness,
   mcpConnect,
   seedTenantWithLeadGen,
+  testCaller,
 } from "../../tests/mcpHarness";
 
 afterEach(() => {
@@ -452,6 +453,30 @@ describe("admin lead gen read tools over MCP", () => {
     expect(result.data).not.toHaveProperty("rows");
   });
 
+  it("rechecks admin reading after the final page before returning any submissions", async () => {
+    const { h, seed, admin } = await fixture();
+    await seedCaptures(h, seed, 1);
+    const original = exportsReader.listRawSubmissionExportPageCore;
+    let revocation: Promise<unknown> | undefined;
+    const spy = vi.spyOn(exportsReader, "listRawSubmissionExportPageCore").mockImplementation(async (ctx, args) => {
+      const result = await original(ctx, args);
+      expect(result.isDone).toBe(true);
+      revocation = h.t.run(async (mutation) => {
+        const tenant = await mutation.db.get("tenants", seed.tenantId);
+        await mutation.db.patch("tenants", seed.tenantId, {
+          mcpAccess: { ...tenant!.mcpAccess!, roles: ["closer", "lead_generator", "tenant_master"] },
+        });
+      });
+      return result;
+    });
+    const result = await callTool(h.t, admin.token, admin.sessionId, "magnus_lead_gen_submissions");
+    await revocation;
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("off for your role");
+    expect(result.data).not.toHaveProperty("rows");
+  });
+
   it("stops at the wall-clock budget and continues from the last completed page", async () => {
     const { h, seed, call } = await fixture();
     const capture = await seedCaptures(h, seed, 6);
@@ -501,6 +526,29 @@ describe("admin lead gen read tools over MCP", () => {
     }
   });
 
+  it.each(["reading off", "blocked"])("refuses every retained admin read with %s at the gateway and inside the tool", async (state) => {
+    const { h, seed, admin } = await fixture();
+    const owner = h.t.withIdentity({ subject: "user_owner", org_id: seed.orgId });
+    if (state === "reading off") {
+      await owner.mutation(api.mcp.settings.setRoles, { roles: ["closer", "lead_generator", "tenant_master"] });
+    } else {
+      await owner.mutation(api.mcp.settings.setUserBlocked, { userId: seed.adminId, blocked: true });
+    }
+    const message = state === "reading off" ? "off for your role" : "blocked";
+    for (const name of ["magnus_lead_gen_floor", "magnus_lead_gen_roster", "magnus_lead_gen_submissions", "magnus_check_handles"]) {
+      const result = await callTool(h.t, admin.token, admin.sessionId, name, name === "magnus_check_handles" ? { handles: ["fixture"] } : {});
+      expect(result.response.body?.error?.message ?? result.text).toContain(message);
+    }
+    const caller = testCaller(seed.orgId, "claude-ai", "user_admin");
+    await expect(h.t.query(internal.mcp.tools.leadGenFloor.floor, { caller })).rejects.toThrow(message);
+    await expect(h.t.query(internal.mcp.tools.leadGenFloor.roster, { caller })).rejects.toThrow(message);
+    await expect(h.t.query(internal.mcp.tools.leadGenHandles.check, { caller, handles: ["fixture"] })).rejects.toThrow(message);
+    await expect(h.t.action(internal.mcp.tools.leadGenSubmissions.list, { caller })).rejects.toThrow(message);
+    await expect(h.t.query(internal.mcp.tools.leadGenSubmissions.readPage, {
+      caller, startTimestamp: 0, endTimestamp: Date.now(), cursor: null, numItems: 2,
+    })).rejects.toThrow(message);
+  });
+
   it("isolates a second tenant and refuses foreign worker and team filters", async () => {
     const { h, seed } = await fixture();
     await seedCaptures(h, seed, 3);
@@ -510,15 +558,18 @@ describe("admin lead gen read tools over MCP", () => {
       "magnus_lead_gen_floor",
       "magnus_lead_gen_roster",
       "magnus_lead_gen_submissions",
+      "magnus_check_handles",
     ]) {
       const result = await callTool(
         h.t,
         session.token,
         session.sessionId,
         name,
+        name === "magnus_check_handles" ? { handles: ["fixture"] } : {},
       );
       expect(result.isError, result.text).toBe(false);
       expect(JSON.stringify(result.data)).not.toContain(seed.sofiaWorkerId);
+      if (name === "magnus_check_handles") expect(result.data).toMatchObject({ results: [{ verdict: "new", captures: [] }] });
     }
     for (const filters of [
       { workerId: seed.sofiaWorkerId },

@@ -6,11 +6,19 @@ import { env, httpAction, type ActionCtx } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { gateway, mcpRateLimiter } from "./gateway";
 import { MCP_CLIENT_CLAIM } from "./guard";
-import type { CrmRole } from "../lib/roleMapping";
 import { instructionsFor } from "./instructions";
+import { adminTools } from "./toolsets/admin";
 import { closerTools } from "./toolsets/closer";
 import { leadGenTools } from "./toolsets/leadGen";
 import { leadGenAdminTools } from "./toolsets/leadGenAdmin";
+
+/**
+ * One registered list for every role (docs/plans/admin-assistant.md §6). The
+ * gateway deletes tools missing from a list, so two lists would overwrite each
+ * other; `authorize` filters this one per caller instead.
+ */
+const allTools = [...closerTools, ...adminTools, ...leadGenTools, ...leadGenAdminTools];
+const isAdminRole = (role: string) => role === "tenant_master" || role === "tenant_admin";
 import { handleProofUpload } from "./uploads";
 
 /**
@@ -114,15 +122,16 @@ function clientFromClientId(clientId: unknown): string | undefined {
   }
 }
 
-/**
- * One flat catalog for every role. The gateway keeps the tools it is given
- * and drops the rest, so each role's toolset must be in this one list;
- * `metadata.roles` decides who lists and calls each tool.
- */
-const mcpTools = [...closerTools, ...leadGenTools, ...leadGenAdminTools];
-
 type CallerAccess =
-  | { ok: true; userId: string; role: string; fullName: string; companyName: string; timeZone: string }
+  | {
+      ok: true;
+      userId: string;
+      role: string;
+      fullName: string;
+      companyName: string;
+      timeZone: string;
+      writeFamilies: string[];
+    }
   | { ok: false; code: string; message: string };
 
 const handleMcp = httpAction(async (ctx, request) => {
@@ -173,9 +182,18 @@ const handleMcp = httpAction(async (ctx, request) => {
     if (!identity) return { allowed: false, reason: "Unauthorized" };
     const access = await accessFor(identity);
     if (!access.ok) return { allowed: false, reason: access.message };
-    const roles = (toolMetadata as { roles?: string[] } | null)?.roles ?? [];
+    const meta = (toolMetadata as { roles?: string[]; family?: string; writes?: boolean } | null) ?? {};
+    const roles = meta.roles ?? [];
     if (!roles.includes(access.role)) {
       return { allowed: false, reason: "This tool isn't available for your role." };
+    }
+    // An admin write tool names its kind of change; it is hidden, and refused,
+    // while the owner has that kind switched off (admin-assistant.md §4).
+    if (isAdminRole(access.role) && meta.family && !access.writeFamilies.includes(meta.family)) {
+      return { allowed: false, reason: "That kind of change is switched off for assistants in this workspace." };
+    }
+    if (isAdminRole(access.role) && meta.writes && access.writeFamilies.length === 0) {
+      return { allowed: false, reason: "Assistants can't make changes in this workspace." };
     }
     if (mode === "call") {
       const limit = await mcpRateLimiter.limit(ctx, "mcpCall", { key: access.userId });
@@ -183,22 +201,33 @@ const handleMcp = httpAction(async (ctx, request) => {
         rateLimited = true;
         return { allowed: false, reason: "Too many requests in a minute. Try again shortly." };
       }
+      if (meta.family || meta.writes) {
+        const write = await mcpRateLimiter.limit(ctx, "mcpWrite", { key: access.userId });
+        if (!write.ok) {
+          rateLimited = true;
+          return { allowed: false, reason: "Too many changes in a minute. Wait a moment, then try again." };
+        }
+      }
     }
     return { allowed: true };
   };
 
+  // Instructions follow the caller's role, on initialize and on stateless
+  // discovery alike.
   let instructions = instructionsFor(null, null);
-  if (rpc.method === "initialize") {
+  if (rpc.method === "initialize" || rpc.method === "server/discover") {
     const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1];
     const identity = token ? await resolveIdentity(token) : null;
     const access = identity ? await accessFor(identity) : null;
-    if (access?.ok) instructions = instructionsFor(access.role as CrmRole, access);
+    if (access?.ok) {
+      instructions = instructionsFor(access.role, access);
+    }
   }
 
   const response = await gateway.handleMcpRequest(ctx, request, {
     authorize,
     resolveIdentity,
-    tools: mcpTools,
+    tools: allTools,
     requireAuth: true,
     initializeInstructions: instructions,
   });
