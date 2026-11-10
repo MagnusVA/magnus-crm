@@ -33,6 +33,7 @@ import {
   plural,
   rate,
 } from "../../people/_components/report-format";
+import { PageRows, ReportPager, usePagedRows } from "../../_components/report-paging";
 import { GroupHead, RowLink } from "../../people/_components/report-parts";
 import {
   attendanceRates,
@@ -382,46 +383,77 @@ export function ByDayCard({ summary, reloading, phrase }: CardProps) {
   );
 }
 
-/** Calls due with no result yet, oldest first; each opens the call and the deal. */
-export function OwedCard({ summary, reloading, phrase, now }: CardProps & { now: number }) {
+/**
+ * Calls due with no result yet, oldest first, a page of ten at a time; each
+ * opens the call and the deal. The summary carries the oldest 200.
+ */
+export function OwedCard({
+  summary,
+  reloading,
+  phrase,
+  now,
+  filterKey,
+}: CardProps & {
+  now: number;
+  /** The band's filters, which the list starts over on. */
+  filterKey: string;
+}) {
   const words = summary ? owedWords(summary.owedTotal, summary.owed.length, phrase) : null;
+  const { rows, pager } = usePagedRows(summary?.owed ?? [], { resetKey: filterKey });
   return (
     <ReportCard
       title="Still owed a result"
       meta={words?.meta}
       container="@container/owed"
       reloading={reloading}
-      footer={words?.footer ? <DetailCardFooter className="font-normal">{words.footer}</DetailCardFooter> : null}
+      footer={
+        summary && words && !words.empty ? (
+          <ReportPager pager={pager} noun="calls">
+            {/* Only the cap needs saying; the title row already counts the calls. */}
+            {summary.owedTotal > summary.owed.length ? <span>{words.footer}</span> : null}
+          </ReportPager>
+        ) : null
+      }
     >
       {!summary || !words ? (
         <RowsSkeleton rows={5} label="Loading the calls still owed a result" />
       ) : words.empty ? (
         <SectionEmpty title={words.empty} />
       ) : (
-        <ul aria-label="Calls still owed a result" className="flex flex-col">
-          {summary.owed.map((row) => (
-            <li
-              key={row.meetingId}
-              className="grid gap-x-4 gap-y-0.5 border-b px-4 py-2 last:border-b-0 @3xl/owed:grid-cols-[11rem_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] @3xl/owed:items-center"
-            >
-              <RowLink href={`/workspace/pipeline/meetings/${row.meetingId}`} className={cn(FIGURE_15, "font-medium")}>
-                {formatWhen(row.scheduledAt)}
-              </RowLink>
-              <RowLink href={`/workspace/opportunities/${row.opportunityId}`} className="truncate font-semibold">
-                {row.leadName}
-              </RowLink>
-              <span className="truncate text-[13px] text-muted-foreground">
-                <RowLink href={`/workspace/pipeline/meetings/${row.meetingId}`}>{row.closerName}</RowLink>
-                <span className="@3xl/owed:hidden"> · {row.programName}</span>
-              </span>
-              <span className="hidden truncate text-[13px] text-muted-foreground @3xl/owed:block">{row.programName}</span>
-              <span className="flex items-center gap-2">
-                <StatusWord tone="owed">Not recorded</StatusWord>
-                <span className="text-[13px] whitespace-nowrap text-muted-foreground">{ageWords(row.scheduledAt, now)}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
+        <PageRows pager={pager}>
+          <ul aria-label="Calls still owed a result" className="flex flex-col">
+            {rows.map((row) => {
+              const age = ageWords(row.scheduledAt, now);
+              return (
+                <li
+                  key={row.meetingId}
+                  className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-0.5 border-b px-4 py-1.5 last:border-b-0 @3xl/owed:min-h-11 @3xl/owed:grid-cols-[11rem_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_6.5rem] @3xl/owed:py-0"
+                >
+                  <RowLink
+                    href={`/workspace/pipeline/meetings/${row.meetingId}`}
+                    className={cn(FIGURE_15, "hidden font-medium @3xl/owed:inline")}
+                  >
+                    {formatWhen(row.scheduledAt)}
+                  </RowLink>
+                  <RowLink href={`/workspace/opportunities/${row.opportunityId}`} className="truncate font-semibold">
+                    {row.leadName}
+                  </RowLink>
+                  <span className="text-right text-[13px] whitespace-nowrap text-warning-ink @3xl/owed:hidden">{age}</span>
+                  <span className="col-span-2 truncate text-[13px] text-muted-foreground @3xl/owed:col-span-1">
+                    <RowLink href={`/workspace/pipeline/meetings/${row.meetingId}`} className="@3xl/owed:hidden">
+                      {formatWhen(row.scheduledAt)}
+                    </RowLink>
+                    <span className="@3xl/owed:hidden"> · </span>
+                    <RowLink href={`/workspace/pipeline/meetings/${row.meetingId}`}>{row.closerName}</RowLink>
+                    <span className="@3xl/owed:hidden"> · {row.programName}</span>
+                  </span>
+                  <span className="hidden truncate text-[13px] text-muted-foreground @3xl/owed:block">{row.programName}</span>
+                  <span className="hidden text-right text-[13px] whitespace-nowrap text-warning-ink @3xl/owed:block">{age}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </PageRows>
       )}
     </ReportCard>
   );

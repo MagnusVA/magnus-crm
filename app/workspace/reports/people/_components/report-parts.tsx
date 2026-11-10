@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { ChevronDownIcon } from "lucide-react";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { FreshnessWords, type FreshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
 import { PageBand } from "@/app/workspace/_components/page-band";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MemberRole } from "@/convex/reports/member";
 import { REPORT_TERMS, type ReportTermKey } from "@/lib/reporting/definitions";
@@ -67,19 +69,46 @@ export function RowLink({ href, children, className }: { href: string | null; ch
   );
 }
 
-/** "How these are counted": every term the page uses, from the dictionary, in words. */
+/**
+ * "How these are counted": every term the page uses, from the dictionary, in
+ * words. It sits folded at the foot of the page (the Folded Audit Card's
+ * grammar), since it is read once and the figures above it every day.
+ */
 export function DefinitionsCard({ terms }: { terms: readonly ReportTermKey[] }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
   return (
-    <DetailCard title="How these are counted" className="min-w-0">
-      <dl className="@container flex flex-col">
-        {terms.map((key) => (
-          <div key={key} className="grid gap-x-4 gap-y-0.5 border-b px-4 py-2 last:border-b-0 @3xl:grid-cols-[10rem_minmax(0,1fr)]">
-            <dt className="text-[13px] font-semibold">{REPORT_TERMS[key].label}</dt>
-            <dd className="max-w-[75ch] text-[13px] text-muted-foreground">
-              {REPORT_TERMS[key].definition} <span className="whitespace-nowrap">({REPORT_TERMS[key].formula})</span>
-            </dd>
-          </div>
-        ))}
+    <DetailCard
+      title="How these are counted"
+      meta={
+        <>
+          <span className="hidden @xl:inline">
+            {terms.length} {terms.length === 1 ? "term" : "terms"}, each with its formula
+          </span>
+          <Button size="xs" variant="outline" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((value) => !value)}>
+            {open ? "Hide" : "Show"}
+            <span className="sr-only"> how these are counted</span>
+            <ChevronDownIcon
+              data-icon="inline-end"
+              aria-hidden="true"
+              className={cn("transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")}
+            />
+          </Button>
+        </>
+      }
+      className={cn("@container min-w-0", !open && "[&>div:first-child]:border-b-0")}
+    >
+      <dl id={panelId} hidden={!open} className="flex flex-col">
+        {open
+          ? terms.map((key) => (
+              <div key={key} className="grid gap-x-4 gap-y-0.5 border-b px-4 py-2 last:border-b-0 @3xl:grid-cols-[10rem_minmax(0,1fr)]">
+                <dt className="text-[13px] font-semibold">{REPORT_TERMS[key].label}</dt>
+                <dd className="max-w-[75ch] text-[13px] text-muted-foreground">
+                  {REPORT_TERMS[key].definition} <span className="@3xl:whitespace-nowrap">({REPORT_TERMS[key].formula})</span>
+                </dd>
+              </div>
+            ))
+          : null}
       </dl>
     </DetailCard>
   );
@@ -224,10 +253,14 @@ export function PeopleTable<Row>({
     ));
   const fold = (row: Row) =>
     columns.map((column, index) => (
-      <span key={column.key} className="whitespace-nowrap">
+      // One span per column, so a rule can hide a column with its separator.
+      // The separator sits outside the unbroken pair, so the line wraps there.
+      <span key={column.key}>
         {index > 0 ? " · " : null}
-        <span className="text-muted-foreground">{column.label} </span>
-        <span className={cn(FIGURE_15, column.owed?.(row) && "text-warning-ink")}>{column.value(row)}</span>
+        <span className="whitespace-nowrap">
+          <span className="text-muted-foreground">{column.label} </span>
+          <span className={cn(FIGURE_15, column.owed?.(row) && "text-warning-ink")}>{column.value(row)}</span>
+        </span>
       </span>
     ));
   return (

@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { PageRows, ReportPager, type PagerState } from "../../_components/report-paging";
 import { LABEL, ReportCard, StatusWord, type StatusTone } from "../../_components/report-ui";
 import { entityHref, entityWord, personHref, sentenceCase, statusWords } from "./log-shape";
 
-// The Log's feed (§12): the audit trail newest first, one ruled row per
-// event, WHEN · WHO · WHAT · RECORD · STATUS from @3xl/feed and two lines
+// The Log's feed (§12): the audit trail newest first, a page of 25 at a time,
+// one ruled row per event, WHEN · WHO · WHAT · RECORD · STATUS from @3xl/feed and two lines
 // narrower. A record opens its page when it has one.
 
 const COLUMNS =
@@ -95,50 +96,37 @@ function LogRow({ entry, oneDay }: { entry: LogEntry; oneDay: boolean }) {
 }
 
 export function LogFeed({
-  entries,
-  hasMore,
+  rows,
+  pager,
   loadingMore,
-  onLoadMore,
-  pageSize,
+  onLookFurther,
   reloading,
   oneDay,
   phrase,
   onClearFilters,
 }: {
-  /** Undefined until the first page arrives. */
-  entries: LogEntry[] | undefined;
-  hasMore: boolean;
+  /** The page of events shown; undefined until the first page arrives. */
+  rows: LogEntry[] | undefined;
+  pager: PagerState;
   loadingMore: boolean;
-  onLoadMore: () => void;
-  pageSize: number;
+  /** Reads further back when the events read so far hold no match. */
+  onLookFurther: () => void;
   reloading: boolean;
   oneDay: boolean;
   phrase: string;
   /** Set while a filter is applied. */
   onClearFilters?: () => void;
 }) {
-  const count = entries?.length ?? 0;
+  const count = rows?.length ?? 0;
   return (
     <ReportCard
       title="Events"
-      meta={entries && count > 0 ? `${count.toLocaleString()}${hasMore ? " shown" : ""} · newest first` : "Newest first"}
+      meta="Newest first"
       container="@container/feed"
       reloading={reloading}
-      footer={
-        entries !== undefined && hasMore ? (
-          <div className="flex min-h-10 items-center justify-between gap-3 border-t px-4 py-1.5 text-[13px] text-muted-foreground">
-            <p role="status" className="flex items-center gap-2">
-              {loadingMore ? <Spinner aria-hidden="true" className="size-3.5" /> : null}
-              {loadingMore ? "Loading…" : count > 0 ? `Showing ${count.toLocaleString()} events` : "Matches may be further back"}
-            </p>
-            <Button variant="outline" size="sm" onClick={onLoadMore} disabled={loadingMore}>
-              Show {pageSize} more
-            </Button>
-          </div>
-        ) : null
-      }
+      footer={rows !== undefined && count > 0 ? <ReportPager pager={pager} noun="events" /> : null}
     >
-      {entries === undefined ? (
+      {rows === undefined ? (
         <div role="status" aria-label="Loading the log">
           {Array.from({ length: 10 }, (_, index) => (
             <div key={index} className="flex h-11 items-center gap-4 border-b px-4 last:border-b-0">
@@ -148,7 +136,7 @@ export function LogFeed({
             </div>
           ))}
         </div>
-      ) : count === 0 && !hasMore ? (
+      ) : count === 0 && !pager.hasNext ? (
         <SectionEmpty title={onClearFilters ? `No events match these filters ${phrase}.` : `No events ${phrase}.`}>
           {onClearFilters ? (
             <button type="button" onClick={onClearFilters} className={cn(detailLinkClass, "text-[13px]")}>
@@ -159,9 +147,13 @@ export function LogFeed({
           )}
         </SectionEmpty>
       ) : count === 0 ? (
-        <p role="status" className="px-4 py-4 text-sm text-muted-foreground">
-          No matches in the events read so far.
-        </p>
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted-foreground">
+          <p>No matches in the events read so far. Matches may be further back.</p>
+          <Button variant="outline" size="sm" onClick={onLookFurther} disabled={loadingMore}>
+            {loadingMore ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}
+            {loadingMore ? "Reading…" : "Look further back"}
+          </Button>
+        </div>
       ) : (
         <>
           <div className={cn("hidden min-h-7 items-end border-b px-4 pb-1.5", COLUMNS, LABEL)}>
@@ -173,11 +165,13 @@ export function LogFeed({
             <span>Record</span>
             <span>Status</span>
           </div>
-          <ul aria-label="Events">
-            {entries.map((entry) => (
-              <LogRow key={entry._id} entry={entry} oneDay={oneDay} />
-            ))}
-          </ul>
+          <PageRows pager={pager}>
+            <ul aria-label="Events">
+              {rows.map((entry) => (
+                <LogRow key={entry._id} entry={entry} oneDay={oneDay} />
+              ))}
+            </ul>
+          </PageRows>
         </>
       )}
     </ReportCard>

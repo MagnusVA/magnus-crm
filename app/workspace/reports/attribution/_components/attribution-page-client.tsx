@@ -21,7 +21,15 @@ import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_co
 import { CurrencySelect } from "../../scorecard/_components/report-currency";
 import { useRowsExport } from "../../_components/report-export-menu";
 import { formatCount, formatMoney, inCurrency, pickMainCurrency, shownCurrency } from "../../scorecard/_components/report-money";
-import { LanesCard, PathsCard, ResponsibleCard, coverageProof } from "./attribution-cards";
+import {
+  ALL_ROLES,
+  LanesCard,
+  PathsCard,
+  RESPONSIBLE_CARD_ID,
+  ResponsibleCard,
+  coverageProof,
+  type RoleFilter,
+} from "./attribution-cards";
 import {
   ROLE_LABELS,
   ROLE_ORDER,
@@ -45,6 +53,7 @@ export function AttributionPageClient() {
   const range = useReportRange();
   const [requestedCurrency, setRequestedCurrency] = useState<string | null>(null);
   const [openDeal, setOpenDeal] = useState<Id<"opportunities"> | null>(null);
+  const [role, setRole] = useState<RoleFilter>(ALL_ROLES);
 
   const { plan, loaded } = range;
   const common = { page: "attribution" as const, plan };
@@ -108,7 +117,7 @@ export function AttributionPageClient() {
           </>
         }
         figures={
-          <ReportFigures columns="grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-6" reloading={lanes.reloading}>
+          <ReportFigures columns="grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]" reloading={lanes.reloading}>
             <FigureZone
               label={REPORT_TERMS.cash.label}
               help={termHelp("cash")}
@@ -154,6 +163,13 @@ export function AttributionPageClient() {
         isTruncated={lanes.data?.isTruncated ?? false}
         reloading={lanes.reloading}
         phrase={lanes.phrase}
+        onShowRole={(next) => {
+          setRole(next);
+          const card = document.getElementById(RESPONSIBLE_CARD_ID);
+          card?.scrollIntoView({ block: "nearest" });
+          // Focus lands on the table's role filter, which names the role now shown.
+          card?.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true });
+        }}
       />
 
       <div className={REPORT_PAIR}>
@@ -162,6 +178,8 @@ export function AttributionPageClient() {
           currency={currency}
           reloading={lanes.reloading}
           phrase={lanes.phrase}
+          role={role}
+          onRoleChange={setRole}
           onOpenDeal={setOpenDeal}
         />
         <PathsCard

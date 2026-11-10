@@ -12,7 +12,7 @@ import { businessDateForInstant, businessDayDisclosure } from "@/lib/businessDay
 import { REPORT_TERMS, termHelp } from "@/lib/reporting/definitions";
 import { ReportExportMenu } from "../../_components/report-export-menu";
 import { FigureZone, REPORT_PAGE, REPORT_PAIR, ReportBand, ReportFigures } from "../../_components/report-ui";
-import { AgingCard, BookingReviewsCard, OwedCard, StagesCard } from "./pipeline-cards";
+import { AgingCard, BookingReviewsLine, OwedCard, StagesCard } from "./pipeline-cards";
 import {
   buildPipelineDocument,
   countFigure,
@@ -99,13 +99,11 @@ export function PipelinePageClient() {
         }
       />
 
+      <BookingReviewsLine data={data} />
+      <StagesCard data={data} />
       <div className={REPORT_PAIR}>
-        <StagesCard data={data} />
-        <BookingReviewsCard data={data} />
-      </div>
-      <div className={REPORT_PAIR}>
-        <AgingCard data={data} />
-        <OwedCard data={data} />
+        <OwedCard data={data} now={now} />
+        <AgingCard data={data} now={now} />
       </div>
     </div>
   );

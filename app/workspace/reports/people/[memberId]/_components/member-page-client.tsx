@@ -17,6 +17,7 @@ import { useNow } from "@/hooks/use-now";
 import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { currentAnswers, type ShownAnswer } from "@/lib/reporting/export";
+import { cn } from "@/lib/utils";
 import { ReportExportMenu } from "../../../_components/report-export-menu";
 import { REPORT_PAGE, REPORT_PAIR, ReportCard, ReportNote } from "../../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../../_components/use-report-range";
@@ -34,6 +35,7 @@ import { useKept, useReportViewed } from "../../../_components/use-report-page";
 import {
   CallsList,
   CLOSER_DAY_SERIES,
+  DAYS_PAIR_ROW,
   DaysCard,
   FiguresCard,
   ItemsList,
@@ -345,7 +347,7 @@ export function MemberPageClient({ memberId, viewerRole }: { memberId: Id<"teamM
                   ) : null
                 }
               />
-              <div className={REPORT_PAIR}>
+              <div className={cn(REPORT_PAIR, DAYS_PAIR_ROW)}>
                 <DaysCard
                   title="Calls by day"
                   meta="Held, no-show and not recorded"
@@ -381,7 +383,7 @@ export function MemberPageClient({ memberId, viewerRole }: { memberId: Id<"teamM
                 ) : null
               }
             />
-            <div className={REPORT_PAIR}>
+            <div className={cn(REPORT_PAIR, DAYS_PAIR_ROW)}>
               <DaysCard
                 title={`${ROLE_LABEL[role]} by day`}
                 meta={ROLE_DAY_SERIES[role].map((entry) => entry.label).join(" and ")}

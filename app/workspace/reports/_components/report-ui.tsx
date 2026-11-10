@@ -208,6 +208,7 @@ export function FigureUnit({ children }: { children: ReactNode }) {
  * height, or render `SectionEmpty` / `SectionError` as children.
  */
 export function ReportCard({
+  id,
   title,
   meta,
   container,
@@ -216,6 +217,8 @@ export function ReportCard({
   children,
   footer,
 }: {
+  /** An anchor another card's link can bring into view. */
+  id?: string;
   title: ReactNode;
   meta?: ReactNode;
   /**
@@ -230,7 +233,7 @@ export function ReportCard({
   footer?: ReactNode;
 }) {
   return (
-    <DetailCard title={title} meta={meta} className={cn("min-w-0 overflow-hidden", className)}>
+    <DetailCard id={id} title={title} meta={meta} className={cn("min-w-0 overflow-hidden", className)}>
       <div
         aria-busy={reloading || undefined}
         className={cn(

@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { AnswersOutput } from "@/convex/reports/scorecard";
 import type { AnalyticsSource } from "@/app/workspace/_components/analytics/use-analytics-report";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
-import { DetailCardFooter } from "@/app/workspace/closer/meetings/_components/detail-card";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { PageRows, ReportPager, usePagedRows } from "../../_components/report-paging";
 import { COLUMN_HEAD, FIGURE_15, ReportCard, ReportNote, RowsSkeleton } from "../../_components/report-ui";
 import { formatCount, formatShare } from "./report-money";
 
@@ -19,8 +18,6 @@ import { formatCount, formatShare } from "./report-money";
 // people and their deals can't be split at today (merge `null`).
 
 type Catalog = FunctionReturnType<typeof api.reports.formFields.getFieldCatalog>;
-
-const SHOWN = 12;
 
 /** One option per field key: the same question on two event types shares a key. */
 export function answerFields(catalog: Catalog | undefined) {
@@ -38,6 +35,7 @@ export function AnswersCard({
   catalog,
   fieldKey,
   onFieldKeyChange,
+  programKey,
   answers,
   source,
   freshness,
@@ -47,6 +45,8 @@ export function AnswersCard({
   catalog: Catalog | undefined;
   fieldKey: string | null;
   onFieldKeyChange: (next: string) => void;
+  /** The program filter, so a new program goes back to the first page. */
+  programKey: string;
   answers: AnswersOutput | undefined;
   source: AnalyticsSource;
   /** This card's own freshness line: it reads the whole range as of the last sync. */
@@ -54,10 +54,9 @@ export function AnswersCard({
   reloading: boolean;
   phrase: string;
 }) {
-  const [showAll, setShowAll] = useState(false);
   const fields = answerFields(catalog);
   const rows = answers?.answers ?? [];
-  const shown = showAll ? rows : rows.slice(0, SHOWN);
+  const { rows: shown, pager } = usePagedRows(rows, { resetKey: `${fieldKey ?? ""}|${programKey}` });
   return (
     <ReportCard
       title="What predicts a sale"
@@ -82,18 +81,7 @@ export function AnswersCard({
           </Select>
         ) : undefined
       }
-      footer={
-        rows.length > SHOWN ? (
-          <DetailCardFooter className="font-normal">
-            <span className="text-[13px]">
-              {showAll ? `All ${formatCount(rows.length)} answers` : `Showing ${SHOWN} of ${formatCount(rows.length)} answers`}
-            </span>
-            <Button variant="outline" size="sm" onClick={() => setShowAll(!showAll)}>
-              {showAll ? "Show fewer" : `Show all ${formatCount(rows.length)}`}
-            </Button>
-          </DetailCardFooter>
-        ) : undefined
-      }
+      footer={answers === undefined || rows.length === 0 ? undefined : <ReportPager pager={pager} noun="answers" />}
     >
       {catalog === undefined ? (
         <RowsSkeleton rows={5} label="Loading booking-form questions" />
@@ -113,45 +101,47 @@ export function AnswersCard({
           ) : rows.length === 0 ? (
             <SectionEmpty title={`No one answered “${answers.label}” ${phrase}.`} />
           ) : (
-            <table className="w-full border-collapse">
-              <caption className="sr-only">
-                People, and how many of them held a call and bought, by answer to {answers.label}
-              </caption>
-              <thead>
-                <tr className="border-b">
-                  <th scope="col" className={cn(COLUMN_HEAD, "pl-4 text-left")}>
-                    Answer
-                  </th>
-                  <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
-                    People
-                  </th>
-                  <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
-                    Held
-                  </th>
-                  <th scope="col" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
-                    Won
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((row) => (
-                  <tr key={row.answer} className="h-11 border-b last:border-b-0">
-                    <th scope="row" className="max-w-0 truncate pr-3 pl-4 text-left font-medium" title={row.answer}>
-                      {row.answer}
+            <PageRows pager={pager}>
+              <table className="w-full border-collapse">
+                <caption className="sr-only">
+                  People, and how many of them held a call and bought, by answer to {answers.label}
+                </caption>
+                <thead>
+                  <tr className="border-b">
+                    <th scope="col" className={cn(COLUMN_HEAD, "pl-4 text-left")}>
+                      Answer
                     </th>
-                    <td className={cn(FIGURE_15, "px-2.5 text-right")}>{formatCount(row.people)}</td>
-                    <td className={cn(FIGURE_15, "px-2.5 text-right whitespace-nowrap")}>
-                      {formatShare(row.held, row.people)}
-                      <span className="ml-1.5 text-[13px] font-normal text-muted-foreground">{formatCount(row.held)}</span>
-                    </td>
-                    <td className={cn(FIGURE_15, "pr-4 pl-2.5 text-right whitespace-nowrap")}>
-                      {formatShare(row.won, row.people)}
-                      <span className="ml-1.5 text-[13px] font-normal text-muted-foreground">{formatCount(row.won)}</span>
-                    </td>
+                    <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
+                      People
+                    </th>
+                    <th scope="col" className={cn(COLUMN_HEAD, "text-right")}>
+                      Held
+                    </th>
+                    <th scope="col" className={cn(COLUMN_HEAD, "pr-4 text-right")}>
+                      Won
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {shown.map((row) => (
+                    <tr key={row.answer} className="h-11 border-b last:border-b-0">
+                      <th scope="row" className="max-w-0 truncate pr-3 pl-4 text-left font-medium" title={row.answer}>
+                        {row.answer}
+                      </th>
+                      <td className={cn(FIGURE_15, "px-2.5 text-right")}>{formatCount(row.people)}</td>
+                      <td className={cn(FIGURE_15, "px-2.5 text-right whitespace-nowrap")}>
+                        {formatShare(row.held, row.people)}
+                        <span className="ml-1.5 text-[13px] font-normal text-muted-foreground">{formatCount(row.held)}</span>
+                      </td>
+                      <td className={cn(FIGURE_15, "pr-4 pl-2.5 text-right whitespace-nowrap")}>
+                        {formatShare(row.won, row.people)}
+                        <span className="ml-1.5 text-[13px] font-normal text-muted-foreground">{formatCount(row.won)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </PageRows>
           )}
         </>
       )}

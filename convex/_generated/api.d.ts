@@ -428,6 +428,7 @@ import type * as reports_formFields from "../reports/formFields.js";
 import type * as reports_lib_access from "../reports/lib/access.js";
 import type * as reports_lib_callFacts from "../reports/lib/callFacts.js";
 import type * as reports_lib_creditFacts from "../reports/lib/creditFacts.js";
+import type * as reports_lib_pipelineNextStep from "../reports/lib/pipelineNextStep.js";
 import type * as reports_lib_scorecardFacts from "../reports/lib/scorecardFacts.js";
 import type * as reports_lib_validators from "../reports/lib/validators.js";
 import type * as reports_log from "../reports/log.js";
@@ -959,6 +960,7 @@ declare const fullApi: ApiFromModules<{
   "reports/lib/access": typeof reports_lib_access;
   "reports/lib/callFacts": typeof reports_lib_callFacts;
   "reports/lib/creditFacts": typeof reports_lib_creditFacts;
+  "reports/lib/pipelineNextStep": typeof reports_lib_pipelineNextStep;
   "reports/lib/scorecardFacts": typeof reports_lib_scorecardFacts;
   "reports/lib/validators": typeof reports_lib_validators;
   "reports/log": typeof reports_log;
