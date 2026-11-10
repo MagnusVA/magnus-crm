@@ -414,24 +414,30 @@ describe("handles and post links in the read tools", () => {
     const sofia = await f.agent("user_sofia");
     const origins = [
       // Free text a lead gen typed as a label.
-      { handle: "@someone.new", originKind: "follower" as const, value: "Call pat@example.com at +1 555 010 9999" },
+      { handle: "@someone.new", originKind: "follower" as const, value: "Reunion call pat@example.com at +1 555 010 9999", keeps: "Reunion call" },
       // The capture accepts any URL as a post origin.
-      { handle: "@someone.else", originKind: "post" as const, value: "https://example.com/pat@example.com/15550109999" },
+      { handle: "@someone.else", originKind: "post" as const, value: "https://example.com/landing-page/pat@example.com/15550109999", keeps: "example.com/landing-page" },
       // An Instagram link with a phone where a username would be.
-      { handle: "@a.third.one", originKind: "post" as const, value: "https://instagram.com/15550109999/p/AbC" },
+      { handle: "@a.third.one", originKind: "post" as const, value: "https://instagram.com/15550109999/p/AbCxyz", keeps: "/p/AbCxyz" },
     ];
-    for (const origin of origins) {
+    for (const [index, origin] of origins.entries()) {
+      // A minute apart, so each capture is the newest and becomes the last origin.
+      vi.setSystemTime(new Date(NOW + (index + 1) * 60_000));
       await f.web("user_sofia").mutation(api.leadGen.capture.submit, {
         source: "instagram",
         rawHandleOrProfileUrl: origin.handle,
         originKind: origin.originKind,
         originUrlOrLabel: origin.value,
       });
-      // Checked after each capture: the today tool shows only the last origin.
-      const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);
-      const today = JSON.stringify((await sofia("magnus_lead_gen_today")).data);
-      expect(today).toContain("lastOrigin");
-      for (const result of [activity, today]) {
+      const activity = (await sofia("magnus_my_lead_gen_activity", { range: "today" })).data as {
+        recent: Array<{ handle: string; originValue: { text: string } }>;
+      };
+      const today = (await sofia("magnus_lead_gen_today")).data as { counts: { lastOrigin: { value: { text: string } } } };
+      // The origin is there, with its harmless part intact, in both tools.
+      expect(today.counts.lastOrigin.value.text).toContain(origin.keeps);
+      expect(activity.recent[0]).toMatchObject({ handle: origin.handle.slice(1) });
+      expect(activity.recent[0].originValue.text).toContain(origin.keeps);
+      for (const result of [JSON.stringify(activity), JSON.stringify(today)]) {
         expect(result).not.toContain("pat@example.com");
         expect(result).not.toContain("555 010 9999");
         expect(result).not.toContain("15550109999");
