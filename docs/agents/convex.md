@@ -87,17 +87,18 @@ Find an existing mutation that writes the same table and match its side-effect c
 
 ## AI assistants over MCP
 
-Closers connect Claude, ChatGPT, Hermes and other MCP clients to `https://<deployment>.convex.site/mcp` (`docs/plans/closer-assistant.md`). The pieces:
+Closers, owners and admins connect Claude, ChatGPT, Hermes and other MCP clients to `https://<deployment>.convex.site/mcp` (`docs/plans/closer-assistant.md`, `docs/plans/admin-assistant.md`). The pieces:
 
 - **The mount**, `convex/mcp/http.ts`, verifies AuthKit access tokens against `${AUTHKIT_DOMAIN}/oauth2/jwks` with `MCP_RESOURCE_URL` as the audience, then hands the verified caller to `convex-mcp-gateway`. It doesn't use `auth.config.ts`, because Convex refuses an auth config that reads an unset variable and both variables stay optional. Without both, every MCP route answers 404.
-- **Tools** are internal functions listed in `convex/mcp/toolsets/<role>.ts`. They run inside the gateway component, where `ctx.auth` is empty: the gateway injects the verified caller into the `caller` argument (`identityArg: "caller"`), and each tool starts with `requireMcpUser(ctx, caller, roles)` from `convex/mcp/guard.ts`. Never read `ctx.auth` in a tool, and never accept a user or tenant ID as a tool argument.
-- **Access** needs four things: the role holds `mcp:connect`, a toolset exists for the role (`MCP_TOOLSET_ROLES`), the tenant switched the role on (`tenants.mcpAccess`), and the user isn't blocked (`users.mcpBlockedAt`). `tools/list` and every call check the same conditions.
+- **Tools** are internal functions listed in `convex/mcp/toolsets/<role>.ts`; admin tools start with `requireMcpAdmin(ctx, caller, { family, permission })` and load every ID through `loadInTenant`. They run inside the gateway component, where `ctx.auth` is empty: the gateway injects the verified caller into the `caller` argument (`identityArg: "caller"`), and each tool starts with `requireMcpUser(ctx, caller, roles)` from `convex/mcp/guard.ts`. Never read `ctx.auth` in a tool, and never accept a user or tenant ID as a tool argument.
+- **Access** needs four things: the role holds `mcp:connect`, a toolset exists for the role (`MCP_TOOLSET_ROLES`), the tenant switched the role on (`tenants.mcpAccess`), and the user isn't blocked (`users.mcpBlockedAt`). `tools/list` and every call check the same conditions. An admin tool that changes something also needs its kind of change switched on (`mcpAccess.writeRoles`, `mcpAccess.writeFamilies`); `authorize` hides it otherwise, by its `metadata.family`.
 - **Errors** the agent should read go out as `rejectRequest` (a `ConvexError`); the gateway sends any other error as a generic message and keeps the detail in its audit log.
-- **Writes that last**, such as payments, no-shows and losses, preview first and commit with a token from `convex/mcp/confirm.ts` (decision 17). A used token returns its first result, so a retried commit never writes twice.
+- **Writes that last**, such as payments, no-shows and losses, preview first and commit with a token from `convex/mcp/confirm.ts` (decision 17). A used token returns its first result, so a retried commit never writes twice. Admin changes go through a committer instead (`convex/mcp/admin/prepare.ts`): a prepare tool stores the change with the fields it depends on, `magnus_commit` re-reads them and writes nothing if one changed, and plans (payment reviews, losses, coverage) are approved on `/workspace/assistant/approvals/<planId>`. Register every new committer in `convex/mcp/admin/committers.ts`, and give it a core shared with the web mutation (`check*` plus `*Core(ctx, actor, args, provenance)`, as in `convex/closer/noShowActions.ts`).
 - **Provenance**: an agent's writes keep the user's own `source` and add `via: "mcp"` and `agentClient` to the action's event metadata. The mount records each session's client name from `initialize` and forwards it in the caller's claims (`MCP_CLIENT_CLAIM`).
-- **Upkeep**: the daily `mcp-prune` cron prunes idle gateway sessions, audit rows after 90 days and used preview tokens.
+- **Upkeep**: the daily `mcp-prune` cron prunes idle gateway sessions, audit rows after 90 days, used preview tokens, admin receipts past their `keepUntil` (365 days) and expired `mcpReportRequests`.
+- **Reports for assistants** run through their own runner and `mcpReportRequests`, never `registerRequest`, so they never take a web cache key or refresh slot (`convex/mcp/reports/`).
 
-Tests use `tests/mcpHarness.ts`, which signs AuthKit-shaped tokens with a local key and calls `/mcp` through `t.fetch`.
+Tests use `tests/mcpHarness.ts` (and `tests/mcpAdminFixtures.ts` for an owner, an admin and a closer), which signs AuthKit-shaped tokens with a local key and calls `/mcp` through `t.fetch`.
 
 ## Convex AI Gateway
 
