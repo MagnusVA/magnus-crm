@@ -2,12 +2,11 @@ import { rejectRequest } from "../../lib/observability/errors";
 import { ReportRequestError } from "../../../lib/assistantReportPlan";
 import type { PeopleClosers } from "../../reports/people";
 import type { FollowThroughOutput } from "../../reports/scorecard";
-import { v } from "convex/values";
-import { internalAction, type ActionCtx } from "../../_generated/server";
+import type { ActionCtx } from "../../_generated/server";
 import { internal } from "../../_generated/api";
-import { mcpCallerValidator, type McpCaller } from "../guard";
+import type { McpCaller } from "../guard";
 import { appLink } from "../admin/prepare";
-import { numbersArgs, reportArgs, ASSISTANT_COLD_WAIT_MS, type ToolRequest } from "./contracts";
+import { ASSISTANT_COLD_WAIT_MS, type ToolRequest } from "./contracts";
 import type { Prepared, JobAnswer } from "./planning";
 import { incomplete, withholdIncomplete, safeText, boundPanel, capAnswer, type Json } from "./output";
 import { boundMetricRows, metricDelta, NON_ADDITIVE, type MetricRow } from "../../../lib/assistantReportMerge";
@@ -125,13 +124,21 @@ async function executeReportTool(ctx: ActionCtx, caller: McpCaller, request: Too
     if (JSON.stringify(rechecked.inputs) !== JSON.stringify(prepared.inputs) || rechecked.syncWatermark !== prepared.syncWatermark || rechecked.resolvedRange.startDate !== prepared.resolvedRange.startDate || rechecked.resolvedRange.endDateInclusive !== prepared.resolvedRange.endDateInclusive)
         return pending();
     const byKey = new Map(jobs.map((j, i) => [j.key, answers[i]]));
+    // Each ready answer is read on its own, so no query reads more than one.
+    const dataByKey = new Map<string, unknown>();
+    for (const job of jobs) {
+        const json: string | null = await ctx.runQuery(internal.mcp.reports.planning.jobAnswer, { caller, source: byKey.get(job.key)!.source! });
+        if (json === null)
+            return pending();
+        dataByKey.set(job.key, JSON.parse(json));
+    }
     const loaded: Loaded[] = [];
     for (let index = 0; index < prepared.inputs.length; index++) {
         const input = prepared.inputs[index];
         const answer = input.job ? byKey.get(input.job.key)! : null;
         let data: unknown;
         try {
-            data = answer ? answer.data : JSON.parse(await ctx.runQuery(internal.mcp.reports.read.panel, { caller, id: input.id, filters: input.filters, range: input.window.window }));
+            data = answer ? dataByKey.get(input.job!.key) : JSON.parse(await ctx.runQuery(internal.mcp.reports.read.panel, { caller, id: input.id, filters: input.filters, range: input.window.window }));
         }
         catch {
             return capAnswer({ ...base, status: "unavailable", isPartial: true, reasons: ["live_reader_unavailable"] });
@@ -263,5 +270,3 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         throw error;
     }
 }
-export const numbers = internalAction({ args: { caller: mcpCallerValidator, ...numbersArgs }, returns: v.any(), handler: async (ctx, { caller, memberId, programId, closerId, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "numbers", ...args, ...await ctx.runQuery(internal.mcp.reports.planning.normalizeRequestIds, { memberId, programId, closerId }) }) });
-export const report = internalAction({ args: { caller: mcpCallerValidator, ...reportArgs }, returns: v.any(), handler: async (ctx, { caller, memberId, programId, closerId, teamId, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "report", ...args, ...await ctx.runQuery(internal.mcp.reports.planning.normalizeRequestIds, { memberId, programId, closerId, teamId }) }) });

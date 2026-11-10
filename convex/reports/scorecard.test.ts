@@ -125,7 +125,7 @@ describe("Scorecard readers", () => {
     });
     const output = await f.t.withIdentity(identity).query(api.reports.scorecard.funnel, { range: today });
     expect(output.stages.in_conversation).toBeGreaterThanOrEqual(700);
-  });
+  }, 20_000); // Seeds 700 people: slow on CI runners, about 1.3 s locally.
   async function seedSixStages(f: Awaited<ReturnType<typeof scorecardFixture>>, count: number) {
     const at = today.fromMs + HOUR;
     const payment = f.payments[0];

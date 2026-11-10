@@ -126,7 +126,7 @@ describe("new report SQL rules", () => {
         tenantId: "TENANT_SENTINEL" as Id<"tenants">,
         filters,
         range: { ...range, fromMs: 1788242400123, toMs: 1790834400456 },
-      });
+      }, { users: [], nowMs: now });
       for (const [name, query] of Object.entries(queries)) {
         const views = query.sql.match(/\banalytics\.(?!watermark\b)\w+/g) ?? [];
         const tenantFilters =

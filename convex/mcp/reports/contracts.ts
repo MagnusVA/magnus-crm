@@ -40,6 +40,9 @@ export const ASSISTANT_COLD_WAIT_MS = 8000;
  * warehouse error doesn't stick to the same request until the key expires.
  */
 export const FAILED_JOB_RETRY_MS = 60_000;
-export function failedJobRetryable(row: { status: string; finishedAt?: number; createdAt: number }, now: number): boolean {
+export function failedJobRetryable(row: { status: string; error?: string; finishedAt?: number; createdAt: number }, now: number): boolean {
+    // Too large stays too large until the key expires with the next sync.
+    if (row.error === "range_too_large")
+        return false;
     return row.status === "failed" && now - (row.finishedAt ?? row.createdAt) >= FAILED_JOB_RETRY_MS;
 }

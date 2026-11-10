@@ -69,6 +69,40 @@ describe("Pipeline now", () => {
     expect(answer.owed.calls).toHaveLength(100);
     expect(answer.owed.partial).toBe(true);
   });
+  it("counts owed calls exactly when a closer's user record is gone", async () => {
+    const f = await callsReportFixture();
+    aggregate.register(f.t, "meetingsByStatus");
+    await f.t.run(async (ctx) => {
+      const base = (await ctx.db.get("meetings", f.owed))!;
+      const { _id, _creationTime, ...doc } = base;
+      void _id;
+      void _creationTime;
+      for (let index = 0; index < 600; index++)
+        await ctx.db.insert("meetings", {
+          ...doc,
+          scheduledAt: from - DAY + index * 60_000,
+          assignedCloserId: [f.ana, f.beto, f.inactive, f.former][index % 4],
+        });
+    });
+    const ids = await f.t.run(async (ctx) =>
+      (await ctx.db.query("meetings").take(1000)).map((m) => m._id),
+    );
+    for (let start = 0; start < ids.length; start += 100)
+      await f.t.run(async (ctx) => {
+        for (const id of ids.slice(start, start + 100))
+          await meetingsByStatus.insert(
+            ctx,
+            (await ctx.db.get("meetings", id))!,
+          );
+      });
+    // Production holds meetings whose closer's user was deleted; reading
+    // closers from users made the aggregate check fail every time.
+    await f.t.run(async (ctx) => ctx.db.delete("users", f.former));
+    const answer = await f.t
+      .withIdentity(identity)
+      .query(api.reports.pipeline.getPipelineNow, {});
+    expect(answer.owed.total).toBe(601);
+  });
   it("does not present a capped scan as an exact total when the aggregate is inconsistent", async () => {
     const f = await callsReportFixture();
     aggregate.register(f.t, "meetingsByStatus");

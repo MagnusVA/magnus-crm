@@ -89,7 +89,7 @@ function partsFit(parts: readonly string[]) {
 }
 
 /** An answer's parts, in order: `payloadId` first, then `payloadPartIds`. */
-function payloadIdsOf(row: Doc<"analyticsResults">): Id<"analyticsPayloads">[] {
+export function payloadIdsOf(row: Doc<"analyticsResults">): Id<"analyticsPayloads">[] {
   return row.payloadId ? [row.payloadId, ...(row.payloadPartIds ?? [])] : [];
 }
 

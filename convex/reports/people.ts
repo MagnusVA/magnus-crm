@@ -56,6 +56,7 @@ export type CloserRow = {
   cohortDeals: number;
   cohortWon: number;
   dealsWon: number;
+  wonDealIds?: Id<"opportunities">[];
   cash: CloserCash[];
   payments: number;
 };
@@ -79,6 +80,7 @@ export type CloserCall = {
 };
 export type PeopleClosers = {
   rows: CloserRow[];
+  firstPaymentDealIds?: Id<"opportunities">[];
   unattributedCash: CloserCash[];
   days: CloserDay[];
   calls: CloserCall[];
@@ -94,6 +96,7 @@ export type PeopleCloserInput = CallFacts & {
   callPayments: Doc<"paymentRecords">[];
   cohort: CloserCohort[];
   firstPaymentIds: Id<"paymentRecords">[];
+  firstPaymentDealIds?: Id<"opportunities">[];
   cohortPartial: boolean;
   paymentsPartial: boolean;
 };
@@ -115,43 +118,15 @@ export function buildPeopleClosers(
   memberId: Id<"teamMembers"> | null,
   setting: BusinessDaySetting,
 ): PeopleClosers {
-  const ids = new Set<Id<"users">>(
-    input.users.filter((u) => u.role === "closer").map((u) => u._id),
-  );
-  input.facts.forEach((f) => ids.add(f.closerId));
-  const payments = input.payments.filter((p) => p.status !== "disputed");
-  payments.forEach((p) => {
-    if (p.attributedCloserId) ids.add(p.attributedCloserId);
-  });
-  const users = new Map(input.users.map((u) => [u._id, u]));
-  const byId = new Map<Id<"users">, CloserRow>();
-  for (const userId of ids) {
-    const u = users.get(userId);
-    if (memberId && u?.teamMemberId !== memberId) continue;
-    byId.set(userId, {
-      userId,
-      teamMemberId: u?.teamMemberId ?? null,
-      name: u ? getUserDisplayName(u) : "Removed closer",
-      isActive: !!u?.isActive && u.deletedAt === undefined,
-      due: 0,
-      held: 0,
-      noShow: 0,
-      notRecorded: 0,
-      moved: 0,
-      canceled: 0,
-      firstHeld: 0,
-      firstNoShow: 0,
-      firstNotRecorded: 0,
-      followUpHeld: 0,
-      followUpNoShow: 0,
-      recordMinutes: [],
-      cohortDeals: 0,
-      cohortWon: 0,
-      dealsWon: 0,
-      cash: [],
-      payments: 0,
-    });
-  }
+  const users = new Map(input.users.map(u => [u._id, u]));
+  const selected = (id: Id<"users">) => !memberId || users.get(id)?.teamMemberId === memberId;
+  const payments = input.payments.filter(p => p.status !== "disputed");
+  const byId = new Map<Id<"users">, CloserTotals>();
+  const getRow = (userId: Id<"users">) => {
+    let row = byId.get(userId);
+    if (!row) { row = emptyCloserTotals(userId); byId.set(userId, row); }
+    return row;
+  };
   const days = new Map<string, CloserDay>();
   const getDay = (at: number) => {
     const dayKey = businessDateForInstant(at, setting);
@@ -176,8 +151,7 @@ export function buildPeopleClosers(
   const calls: CloserCall[] = [];
   const cohort = new Map(input.cohort.map((c) => [c.meetingId, c]));
   for (const fact of input.facts) {
-    const row = byId.get(fact.closerId);
-    if (!row) continue;
+    const row = getRow(fact.closerId);
     if (fact.due) row.due++;
     const key =
       fact.status === "held"
@@ -207,7 +181,7 @@ export function buildPeopleClosers(
       row.cohortDeals++;
       if (c.won) row.cohortWon++;
     }
-    if (memberId) {
+    if (memberId && selected(fact.closerId)) {
       const day = getDay(fact.meeting.scheduledAt);
       if (key === "held" || key === "noShow" || key === "notRecorded")
         day[key]++;
@@ -235,12 +209,14 @@ export function buildPeopleClosers(
       if (!memberId) addCash(unattributedCash, p);
       continue;
     }
-    const row = byId.get(p.attributedCloserId);
-    if (!row) continue;
+    const row = getRow(p.attributedCloserId);
     row.payments++;
     addCash(row.cash, p);
-    if (p.opportunityId && first.has(p._id)) row.dealsWon++;
-    if (memberId) {
+    if (p.opportunityId && first.has(p._id)) {
+      row.dealsWon++;
+      row.wonDealIds!.push(p.opportunityId);
+    }
+    if (memberId && selected(p.attributedCloserId)) {
       const day = getDay(p.recordedAt);
       const cash = day.cashMinorByCurrency.find(
         (c) => c.currency === p.currency,
@@ -253,26 +229,55 @@ export function buildPeopleClosers(
         });
     }
   }
-  byId.forEach((r) => sortCash(r.cash));
-  days.forEach((d) =>
-    d.cashMinorByCurrency.sort((a, b) => a.currency.localeCompare(b.currency)),
-  );
-  calls.sort(
-    (a, b) =>
-      b.scheduledAt - a.scheduledAt || a.meetingId.localeCompare(b.meetingId),
-  );
+  return finishPeopleClosers({
+    users: input.users, totals: [...byId.values()], unattributedCash,
+    days: [...days.values()], calls,
+    // Raw reference SQL has no lifetime participation projection, so it omits
+    // this optional metadata. The live reader supplies the privacy-filtered set.
+    firstPaymentDealIds: input.firstPaymentDealIds,
+    partial: input.partial, cohortPartial: input.cohortPartial, paymentsPartial: input.paymentsPartial,
+  }, memberId);
+}
+
+export type CloserTotals = Omit<CloserRow, "teamMemberId" | "name" | "isActive">;
+export function emptyCloserTotals(userId: Id<"users">): CloserTotals {
   return {
-    rows: [...byId.values()].sort(
-      (a, b) =>
-        a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId),
-    ),
-    unattributedCash: sortCash(unattributedCash),
-    days: [...days.values()].sort((a, b) => a.dayKey.localeCompare(b.dayKey)),
-    calls: calls.slice(0, 300),
-    callsPartial: calls.length > 300 || input.partial,
-    partial: input.partial,
-    cohortPartial: input.cohortPartial,
-    paymentsPartial: input.paymentsPartial,
+    userId, due: 0, held: 0, noShow: 0, notRecorded: 0, moved: 0, canceled: 0,
+    firstHeld: 0, firstNoShow: 0, firstNotRecorded: 0, followUpHeld: 0, followUpNoShow: 0,
+    recordMinutes: [], cohortDeals: 0, cohortWon: 0, dealsWon: 0, wonDealIds: [], cash: [], payments: 0,
+  };
+}
+export type PeopleCloserFinishInput = Omit<PeopleClosers, "rows" | "callsPartial"> & {
+  users: Doc<"users">[];
+  totals: CloserTotals[];
+  callsPartial?: boolean;
+};
+
+/** Shared by live facts and SQL aggregates. No meeting/payment documents needed. */
+export function finishPeopleClosers(input: PeopleCloserFinishInput, memberId: Id<"teamMembers"> | null): PeopleClosers {
+  const users = new Map(input.users.map(u => [u._id, u]));
+  const totals = new Map(input.totals.map(row => [row.userId, row]));
+  for (const user of input.users) if (user.role === "closer" && !totals.has(user._id))
+    totals.set(user._id, emptyCloserTotals(user._id));
+  const rows: CloserRow[] = [];
+  for (const row of totals.values()) {
+    const user = users.get(row.userId);
+    if (memberId && user?.teamMemberId !== memberId) continue;
+    rows.push({ ...row, cash: sortCash(row.cash),
+      ...(row.wonDealIds ? { wonDealIds: [...new Set(row.wonDealIds)].sort() } : {}),
+      teamMemberId: user?.teamMemberId ?? null,
+      name: user ? getUserDisplayName(user) : "Removed closer",
+      isActive: !!user?.isActive && user.deletedAt === undefined });
+  }
+  for (const day of input.days) day.cashMinorByCurrency.sort((a, b) => a.currency.localeCompare(b.currency));
+  const calls = input.calls.sort((a, b) => b.scheduledAt - a.scheduledAt || a.meetingId.localeCompare(b.meetingId));
+  return {
+    rows: rows.sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId)),
+    ...(input.firstPaymentDealIds ? { firstPaymentDealIds: [...new Set(input.firstPaymentDealIds)].sort() } : {}),
+    unattributedCash: sortCash(input.unattributedCash),
+    days: input.days.sort((a, b) => a.dayKey.localeCompare(b.dayKey)),
+    calls: calls.slice(0, 300), callsPartial: !!input.callsPartial || calls.length > 300 || input.partial,
+    partial: input.partial, cohortPartial: input.cohortPartial, paymentsPartial: input.paymentsPartial,
   };
 }
 
@@ -425,6 +430,7 @@ export async function readCallPayments(
 }
 
 export const peopleClosersValidator = v.object({
+  firstPaymentDealIds: v.optional(v.array(v.id("opportunities"))),
   rows: v.array(
     v.object({
       userId: v.id("users"),
@@ -444,6 +450,7 @@ export const peopleClosersValidator = v.object({
       cohortDeals: v.number(),
       cohortWon: v.number(),
       dealsWon: v.number(),
+      wonDealIds: v.optional(v.array(v.id("opportunities"))),
       cash: v.array(cashValidator),
       payments: v.number(),
     }),
@@ -531,19 +538,31 @@ export async function readPeopleClosers(ctx: QueryCtx, tenantId: Id<"tenants">, 
   const callPayments = memberId
     ? await readCallPayments(ctx, tenantId, facts)
     : { payments: [], partial: false };
+  const firstPaymentIds = await readFirstPayments(ctx, tenantId, eligible);
+  const first = new Set(firstPaymentIds);
+  let firstPaymentDealIds = eligible.flatMap(p => p.opportunityId && first.has(p._id) ? [p.opportunityId] : []);
+  const participationState = createLiveReadState();
+  if (memberId) {
+    const userIds = new Set(users.users.filter(u => u.teamMemberId === memberId).map(u => u._id));
+    const participated: Id<"opportunities">[] = [];
+    for (const id of firstPaymentDealIds) {
+      const history = await readLiveQueryRows(ctx.db.query("paymentRecords")
+        .withIndex("by_opportunityId_and_recordedAt", q => q.eq("opportunityId", id)), CALL_READ_CAP, participationState);
+      if (history.rows.some(p => p.tenantId === tenantId && p.attributedCloserId && userIds.has(p.attributedCloserId))) participated.push(id);
+      if (history.capped) break;
+    }
+    firstPaymentDealIds = participated;
+  }
   return buildPeopleClosers(
     {
       ...facts,
-      partial: facts.partial || users.partial || callPayments.partial,
+      partial: facts.partial || users.partial || callPayments.partial || participationState.capped,
       users: users.users,
       payments: eligible,
       callPayments: callPayments.payments,
       cohort: cohort.cohort,
-      firstPaymentIds: await readFirstPayments(
-        ctx,
-        tenantId,
-        eligible,
-      ),
+      firstPaymentIds,
+      firstPaymentDealIds,
       cohortPartial: cohort.partial,
       paymentsPartial: payments.capped,
     },

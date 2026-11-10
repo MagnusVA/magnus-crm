@@ -66,7 +66,7 @@ for (const split of [false, true]) describe(`page figures, ${split ? "warehouse 
     await warehouse(f, request);
     const page = await f.t.withIdentity(identity).query(api.reports.calls.getCallsSummary, { startDate: whole.fromMs, endDate: whole.toMs });
     expect(page.recordMinutes).toHaveLength(40);
-    const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range, limit: 25 });
+    const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "calls", range, limit: 25 });
     expect(result.status).toBe("ready");
     const p = panel(result, "calls.summary");
     const omitted: Json[] = [];
@@ -94,7 +94,7 @@ for (const split of [false, true]) describe(`page figures, ${split ? "warehouse 
     for (const report of ["scorecard", "people", "attribution"] as const) {
       await warehouse(f, { kind: "report", report, range, currency: "USD" });
       for (const id of REPORT_PANELS[report]) {
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report, ...(id === "people.members" ? {} : { panel: id }), range, currency: "USD", limit: 25 });
+        const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report, ...(id === "people.members" ? {} : { panel: id }), range, currency: "USD", limit: 25 });
         expect(result.status, JSON.stringify(result)).toBe("ready");
         const p = panel(result, id);
         if (id === "scorecard.funnel") expect(p.figures).toMatchObject({ weeks: groupByWeek(funnel.byDay).map(w => ({...w,cash:w.cash.filter(c=>c.currency==="USD")})), cohortShares: Object.fromEntries(Object.entries(funnel.cohort).map(([k,v]) => [k, funnel.cohort.entered ? v / funnel.cohort.entered : null])) });
@@ -121,7 +121,7 @@ for (const split of [false, true]) describe(`page figures, ${split ? "warehouse 
     const request = { kind: "report" as const, report: "people" as const, memberId: f.memberId, range, currency: "USD" };
     const plan = await warehouse(f, request);
     expect(plan.inputs.some(i => i.team && !i.filters.memberId)).toBe(true);
-    const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "people", memberId: f.memberId, range, currency: "USD" });
+    const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "people", memberId: f.memberId, range, currency: "USD" });
     expect(result.status, JSON.stringify(result)).toBe("ready");
     const web = f.t.withIdentity(identity);
     const team = await web.query(api.reports.people.getPeopleClosers, { startDate: whole.fromMs, endDate: whole.toMs });
@@ -152,7 +152,7 @@ for (const split of [false, true]) describe(`page figures, ${split ? "warehouse 
       const args = { metrics:[metric], range, currency:"USD", ...(["shared","attributionCoverage"].includes(metric)?{role:"closers" as const}:{}), ...(metric==="creditedCash"?{role:"closers" as const,memberId:f.memberId}:{}), ...(["perScheduledHour","bookRate"].includes(metric)?{role:"setters" as const,memberId:f.memberId}:{}) };
       const plan = await warehouse(f,{kind:"numbers",...args});
       expect(plan.inputs.every(i=>i.id!=="mcp.metrics")).toBe(true);
-      const result=await f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,...args});
+      const result=await f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,...args});
       expect(result.status,`${metric}: ${JSON.stringify(result)}`).toBe("ready");
       expect(scalars(result)[0].value,metric).toEqual(expected[metric]);
       if(metric==="timeToRecord") expect(scalars(result)[0].unit).toBe("minutes");
@@ -164,7 +164,7 @@ describe("page projection constraints", () => {
   it("keeps the full People page and selected role tab counts within the gateway cap", async () => {
     const f = await fixture();
     for (const role of [undefined, "closers", "setters", "dm_closers", "lead_gen"] as const) {
-      const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "people", range, role });
+      const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "people", range, role });
       expect(result.status, JSON.stringify(result)).toBe("ready");
       expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
       if (role) expect(panel(result, `people.${role}`).figures).toHaveProperty("roleTabCounts");
@@ -179,9 +179,9 @@ describe("page projection constraints", () => {
       const row=await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key",q=>q.eq("tenantId",f.tenantId).eq("key",job.key)).unique();
       await ctx.db.patch("mcpReportRequests",row!._id,{resultJson:JSON.stringify({...JSON.parse(row!.resultJson!),partial:true})});
     });
-    const result=await f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:request.metrics,range});
+    const result=await f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:request.metrics,range});
     expect(scalars(result).every(r=>r.value!==null&&r.lowerBound===true)).toBe(true);
-    const report=await f.t.action(internal.mcp.reports.tools.report,{caller:f.caller,report:"calls",range});
+    const report=await f.t.action(internal.mcp.reports.toolsNode.report,{caller:f.caller,report:"calls",range});
     expect(panel(report,"calls.summary")).toMatchObject({lowerBound:true});
     expect(panel(report,"calls.summary").data).toBeTruthy();
   });
@@ -193,7 +193,7 @@ describe("page projection constraints", () => {
       await pay("USD", 50000);
       for (let i = 0; i < 3; i++) await pay("EUR", 400000);
     });
-    const result = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["cash"], range, compareTo: "previous_period" });
+    const result = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["cash"], range, compareTo: "previous_period" });
     const cash = scalars(result).find(r => r.id === "cash")! as MetricRow & { delta?: number };
     expect(cash.currency).toBe("USD");
     expect(cash.delta).toBe((cash.value ?? 0) - 50000);
@@ -209,23 +209,23 @@ describe("page projection constraints", () => {
     const plan=await warehouse(f,request);
     expect(plan.inputs.every(i=>i.id==="calls.summary")).toBe(true);
     expect(new Set(plan.inputs.map(i=>JSON.stringify([i.id,i.period,i.filters,i.window.window.startDate,i.window.window.endDateInclusive]))).size).toBe(plan.inputs.length);
-    const result=await f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:request.metrics,range,compareTo:request.compareTo});
+    const result=await f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:request.metrics,range,compareTo:request.compareTo});
     expect(result.status).toBe("ready");
     expect(scalars(result).find(r=>r.id==="callsDue")).toMatchObject({value:3,delta:3,deltaUnit:"count"});
   });
   it("supports only builder-backed closer, program and day groupings and names won-deal scope", async () => {
     const f=await fixture();
     for(const groupBy of ["closer","program","day"] as const){
-      const result=await f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:["dealsWon"],range,groupBy,currency:"USD"});
+      const result=await f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:["dealsWon"],range,groupBy,currency:"USD"});
       expect(result.status).toBe("ready");
       expect(scalars(result).every(r=>r.scope===(groupBy==="closer"?"first_payment_closer":groupBy==="program"?"sold_program":"booked_program_activity"))).toBe(true);
     }
-    for (const [metric,groupBy] of [["closeRate","day"],["callsScheduled","program"],["cash","team"]] as const) await expect(f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:[metric],range,groupBy})).rejects.toThrow(/page|supported/);
-    await expect(f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:["creditedCash"],range})).rejects.toThrow("role");
-    const laneResult=await f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:["creditedCash"],role:"closers",currency:"USD",range});
+    for (const [metric,groupBy] of [["closeRate","day"],["callsScheduled","program"],["cash","team"]] as const) await expect(f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:[metric],range,groupBy})).rejects.toThrow(/page|supported/);
+    await expect(f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:["creditedCash"],range})).rejects.toThrow("role");
+    const laneResult=await f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:["creditedCash"],role:"closers",currency:"USD",range});
     const lanes=await f.t.withIdentity(identity).query(api.reports.attribution.getLanes,{startDate:whole.fromMs,endDate:whole.toMs});
     expect(scalars(laneResult)[0]).toMatchObject({value:laneViews(lanes,"USD").find(r=>r.role==="closer")!.laneMinor,scope:"role_lane"});
-    await expect(f.t.action(internal.mcp.reports.tools.numbers,{caller:f.caller,metrics:["perScheduledHour"],role:"setters",range})).rejects.toThrow("memberId");
+    await expect(f.t.action(internal.mcp.reports.toolsNode.numbers,{caller:f.caller,metrics:["perScheduledHour"],role:"setters",range})).rejects.toThrow("memberId");
   });
 });
 
@@ -254,18 +254,18 @@ it("returns each role's page metrics on a seeded member who works all four roles
     const page = await f.t.withIdentity(identity).query(ref,{startDate:whole.fromMs,endDate:whole.toMs});
     const row=page.rows.find(r=>r.teamMemberId===f.memberId)!;
     expect(metrics(row,"USD").perHour).not.toBeNull();
-    const result=await f.t.action(internal.mcp.reports.tools.report,{caller:f.caller,report:"people",panel:id,memberId:f.memberId,range,currency:"USD"});
+    const result=await f.t.action(internal.mcp.reports.toolsNode.report,{caller:f.caller,report:"people",panel:id,memberId:f.memberId,range,currency:"USD"});
     expect(result.status,JSON.stringify(result)).toBe("ready");
     for(const figure of roleMemberFigures(role,row,page.rows,"USD")) expect(panel(result,id).figures[figure.term??figure.key]).toEqual({value:figure.value,teamMedian:figure.teamMedian});
   }
-  const result=await f.t.action(internal.mcp.reports.tools.report,{caller:f.caller,report:"people",memberId:f.memberId,range,currency:"USD"});
+  const result=await f.t.action(internal.mcp.reports.toolsNode.report,{caller:f.caller,report:"people",memberId:f.memberId,range,currency:"USD"});
   expect(result.status,JSON.stringify(result)).toBe("ready");
 });
 
 describe("refusals the agent can read", () => {
   it("refuses an unsupported request with a readable code and message", async () => {
     const f = await fixture();
-    const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["bookRate"], role: "setters", range }).catch((e: unknown) => e);
+    const error = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["bookRate"], role: "setters", range }).catch((e: unknown) => e);
     expect(isExpectedError(error)).toBe(true);
     expect((error as { data: { code: string; message: string } }).data).toMatchObject({ code: "report.invalid_request", message: "bookRate is a person's page figure. Choose memberId." });
   });
@@ -276,7 +276,7 @@ describe("refusals the agent can read", () => {
       ["2023-01-01", "2026-10-31", "Choose 731 days or fewer."],
       ["2026-02-30", "2026-03-01", "Use real dates as YYYY-MM-DD."],
     ] as const) {
-      const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["callsDue"], range: { kind: "custom", startDate, endDateInclusive } }).catch((e: unknown) => e);
+      const error = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["callsDue"], range: { kind: "custom", startDate, endDateInclusive } }).catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
       expect((error as { data: { code: string; message: string } }).data).toMatchObject({ code: "report.invalid_request", message });
     }
@@ -290,7 +290,7 @@ describe("refusals the agent can read", () => {
       void _id; void _creationTime;
       await ctx.db.insert("users", copy);
     });
-    const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["callsDue"], range }).catch((e: unknown) => e);
+    const error = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["callsDue"], range }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
     expect(isExpectedError(error)).toBe(false);
   });
@@ -306,7 +306,7 @@ describe("admin report regressions", () => {
   it("refuses explicit scopes that closer grouping cannot honor", async () => {
     const f = await fixture();
     for (const scope of ["sold_program", "booked_program_activity"] as const) {
-      const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["dealsWon"], scope, groupBy: "closer", range }).catch((e: unknown) => e);
+      const error = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["dealsWon"], scope, groupBy: "closer", range }).catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
       expect(String(error)).toContain("first_payment_closer");
     }
@@ -315,7 +315,7 @@ describe("admin report regressions", () => {
     const f = await fixture();
     await f.t.run(ctx => ctx.db.patch("slackUsers", f.slackId, { teamMemberId: undefined }));
     for (const metric of ["perScheduledHour", "bookRate"] as const) {
-      const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: [metric], memberId: f.memberId, ...(metric === "perScheduledHour" ? { role: "setters" as const } : {}), range }).catch((e: unknown) => e);
+      const error = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: [metric], memberId: f.memberId, ...(metric === "perScheduledHour" ? { role: "setters" as const } : {}), range }).catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
       expect(String(error)).toContain("isn't in the setter role");
     }
@@ -323,8 +323,8 @@ describe("admin report regressions", () => {
   it("refuses unavailable currencies and names the available currencies", async () => {
     const f = await fixture();
     for (const call of [
-      () => f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["cash"], currency: "XYZ", range }),
-      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", currency: "XYZ", range }),
+      () => f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["cash"], currency: "XYZ", range }),
+      () => f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "scorecard", currency: "XYZ", range }),
     ]) {
       const error = await call().catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
@@ -333,15 +333,15 @@ describe("admin report regressions", () => {
   });
   it("accepts any currency for a selected panel without money inputs", async () => {
     const f = await fixture();
-    const answer = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", panel: "follow_through", currency: "EUR", range });
+    const answer = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "scorecard", panel: "follow_through", currency: "EUR", range });
     expect(answer.status).not.toBe("unavailable");
   });
   it("answers malformed and wrong-table report IDs with a readable error", async () => {
     const f = await fixture();
     for (const call of [
-      () => f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["cash"], programId: "not-an-id", range }),
-      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "lead_gen", teamId: f.memberId, range }),
-      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", closerId: f.memberId, range }),
+      () => f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["cash"], programId: "not-an-id", range }),
+      () => f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "lead_gen", teamId: f.memberId, range }),
+      () => f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "calls", closerId: f.memberId, range }),
     ]) {
       const error = await call().catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
@@ -351,7 +351,7 @@ describe("admin report regressions", () => {
   it("refuses unknown and malformed field keys with a readable report error", async () => {
     const f = await fixture();
     for (const fieldKey of ["unknown", "   ", "x".repeat(501)]) {
-      const error = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", fieldKey, range }).catch((e: unknown) => e);
+      const error = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "scorecard", fieldKey, range }).catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
       expect(String(error)).toContain("report.invalid_request");
       expect(String(error)).toContain(fieldKey === "unknown" ? "budget" : "report_fields");
@@ -359,7 +359,7 @@ describe("admin report regressions", () => {
   });
   it("counts the comparison range's own day cells before loading panels", async () => {
     const f = await fixture();
-    const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["bookingsMade"], groupBy: "day", range: { kind: "preset", preset: "today" }, compareTo: { kind: "custom", startDate: "2026-11-10", endDateInclusive: "2027-01-09" } }).catch((e: unknown) => e);
+    const error = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["bookingsMade"], groupBy: "day", range: { kind: "preset", preset: "today" }, compareTo: { kind: "custom", startDate: "2026-11-10", endDateInclusive: "2027-01-09" } }).catch((e: unknown) => e);
     expect(isExpectedError(error)).toBe(true);
     expect(String(error)).toContain("60 period");
     expect(await f.t.run(ctx => ctx.db.query("mcpReportRequests").take(1))).toHaveLength(0);
@@ -368,7 +368,7 @@ describe("admin report regressions", () => {
     const f = await fixture();
     for (const [preset, now] of [["this_week", "2026-11-09"], ["this_month", "2026-11-01"]] as const) {
       vi.setSystemTime(Date.parse(`${now}T18:00:00Z`));
-      const error = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range: { kind: "preset", preset, throughYesterday: true } }).catch((e: unknown) => e);
+      const error = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "calls", range: { kind: "preset", preset, throughYesterday: true } }).catch((e: unknown) => e);
       expect(isExpectedError(error)).toBe(true);
       expect(String(error)).toContain("no days before today");
     }
@@ -380,14 +380,14 @@ describe("admin report regressions", () => {
       expect([...new Set(prepared.inputs.map(input => input.id))]).toEqual([id]);
       if (report === "people") {
         expect(prepared.inputs.every(input => !input.job)).toBe(true);
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report, panel: id, range });
+        const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report, panel: id, range });
         expect(result.status).toBe("ready");
       }
     }
   });
   it("labels grouped closers with an untrusted display name", async () => {
     const f = await fixture();
-    const result = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["dealsWon", "cash"], groupBy: "closer", currency: "USD", range });
+    const result = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["dealsWon", "cash"], groupBy: "closer", currency: "USD", range });
     expect(result.status).toBe("ready");
     expect(result.rows).toEqual(expect.arrayContaining([expect.objectContaining({ group: f.closerId, label: { text: "Assigned closer", by: "closer" } })]));
   });
@@ -403,7 +403,7 @@ describe("admin report regressions", () => {
       }
     });
     const { kind: _kind, ...args } = request;
-    const result = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, ...args });
+    const result = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, ...args });
     expect(result.status).toBe("ready");
     expect(result.reasons).toContain("comparison_only_groups");
     expect(result.reasons).not.toContain("row_limit");

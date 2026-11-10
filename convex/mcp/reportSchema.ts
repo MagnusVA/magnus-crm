@@ -29,7 +29,11 @@ export const mcpReportTables = {
     runCount: v.optional(v.number()),
     minuteStartedAt: v.optional(v.number()),
     minuteCount: v.optional(v.number()),
+    // Inline answers written before answers moved to mcpReportPayloads.
     resultJson: v.optional(v.string()),
+    // A ready answer stored in parts: how many, under which run.
+    payloadParts: v.optional(v.number()),
+    payloadRunToken: v.optional(v.string()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     startedAt: v.optional(v.number()),
@@ -43,4 +47,18 @@ export const mcpReportTables = {
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
     .index("by_expiresAt", ["expiresAt"])
     .index("by_tenantId_and_expiresAt", ["tenantId", "expiresAt"]),
+  // One answer in parts of up to 900 KB, so an answer can outgrow a 1 MiB
+  // document (People's lead gen panel is about 5 MB for a year). Parts belong
+  // to one run of one request; a part of another run is never read.
+  mcpReportPayloads: defineTable({
+    tenantId: v.id("tenants"),
+    requestId: v.id("mcpReportRequests"),
+    runToken: v.string(),
+    index: v.number(),
+    json: v.string(),
+  }).index("by_requestId_and_runToken_and_index", [
+    "requestId",
+    "runToken",
+    "index",
+  ]),
 };

@@ -5,7 +5,7 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { convexTestModules } from "../../test.setup";
 import { qualifiedLifecycle } from "../../../tests/bookingHarness";
-import { expectSameAnswer, rowFromDoc, projectWarehouseRows, expectProjectionValues } from "../../../tests/analyticsParity";
+import { expectSameAnswer, rowFromDoc, projectWarehouseRows, expectProjectionValues, orderedLimitByRows, withOpaquePaymentIds } from "../../../tests/analyticsParity";
 import { expectMergedAnswer } from "../../../tests/analyticsMerge";
 import { businessDayStart, DEFAULT_BUSINESS_DAY } from "../../../lib/businessDay";
 import { loadCreditFacts, summarizeCaptures, type PeopleRole } from "../../reports/lib/creditFacts";
@@ -173,6 +173,42 @@ const attributionCases = [
 ] as const;
 
 describe("new report parity and merges", () => {
+  for (const role of ["dm_closer", "lead_gen"] as const) {
+    it(`${role} selects the first indexed payment per status before breaking status ties by id`, async () => {
+      const f = await createFixture();
+      const definition = peopleRoleReports.find(report => report.id === `people.${role === "dm_closer" ? "dm_closers" : role}`)!;
+      const sql = definition.sql({ tenantId: f.tenantId, range, filters: { memberId: null } }).firstPayments.sql;
+      const payments = await f.t.run(async ctx => {
+        const existing = await ctx.db.query("paymentRecords").take(100);
+        const { _id, _creationTime, ...fields } = existing[0];
+        for (const payment of existing) await ctx.db.delete("paymentRecords", payment._id);
+        const payments: Doc<"paymentRecords">[] = [];
+        for (const status of ["recorded", "recorded", "verified", "verified"] as const) {
+          const id = await ctx.db.insert("paymentRecords", { ...fields, status });
+          payments.push((await ctx.db.get("paymentRecords", id))!);
+        }
+        return payments;
+      });
+      // Convex-test ids increase with creation time. Use opaque warehouse ids
+      // to exercise the production case where those two orders disagree.
+      const aliases = ["z-recorded-first", "a-recorded-later", "m-verified-first", "b-verified-later"];
+      const ids = Object.fromEntries(payments.map((payment, i) => [payment._id, aliases[i] as Id<"paymentRecords">]));
+      const bothStatuses = payments.map(payment => ({ ...rowFromDoc("paymentRecords", payment), id: ids[payment._id] }));
+      const recorded = bothStatuses.filter((_, i) => i < 2);
+      expect(orderedLimitByRows(sql, recorded).map(row => row.id)).toEqual(["z-recorded-first"]);
+      const firstPayments = orderedLimitByRows(sql, bothStatuses);
+      expect(firstPayments.map(row => row.id)).toEqual(["m-verified-first"]);
+      const liveFacts = await f.t.run(ctx => loadCreditFacts(withOpaquePaymentIds(ctx, ids), f.tenantId, range, role));
+      expect(firstPayments.map(row => row.id)).toEqual(liveFacts.firstPayments.map(payment => payment._id));
+      // Index candidates tie on recordedAt, so the outer stage ignores their
+      // creation order. The selected id is not exposed in the role answer.
+      const rows = await warehouseRows(f, role);
+      rows.firstPayments = firstPayments;
+      await expectSameAnswer({ t: f.t, identity, tenantId: f.tenantId, range,
+        reportId: definition.id, live: role === "dm_closer" ? api.reports.peopleRoles.getDmClosers : api.reports.peopleRoles.getLeadGen,
+        liveArgs: { startDate: from, endDate: to }, filters: { memberId: null }, rows });
+    });
+  }
   for (const report of [...attributionCases, ...peopleCases]) {
     it(`${report.id} has warehouse parity`, async () => {
       const fixture = await createFixture();

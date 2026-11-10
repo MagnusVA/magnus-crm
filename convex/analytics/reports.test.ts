@@ -6,7 +6,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
 import { DAY_MS, PAYLOAD_PART_BYTES, splitPayload } from "./results";
-import { listReportDefinitions } from "./registry";
+import { listAllReportDefinitions } from "./registry";
 import { API_METRICS } from "./api/metrics";
 import { hmacSha256Hex } from "../lib/webCrypto";
 import { completeRows, formatSqlParam, queryWatermark } from "./clickhouse";
@@ -689,11 +689,21 @@ describe("report templates", () => {
     // overview.dashboard runs the other kinds' queries.
     "overview.leaderboard": { kind: "qualifiers" },
   };
+  // Context a definition's SQL reads before running (people.closers.next: the member's user ids).
+  const sampleContext: Record<string, unknown> = {
+    "people.closers.next": { users: [] },
+  };
 
-  for (const definition of listReportDefinitions()) {
-    it(`${definition.id} filters every view by tenant and takes values only as parameters`, () => {
-      const filters = sampleFilters[definition.id] ?? sentinelFilters;
-      const queries = definition.sql({ tenantId: "TENANT_SENTINEL" as Id<"tenants">, filters, range });
+  // Shadow and rollback twins too: they run on production during comparisons.
+  // Member reports are checked with a member and as the roster.
+  const cases = listAllReportDefinitions().flatMap(definition =>
+    definition.id.startsWith("people.")
+      ? [{ definition, label: definition.id, filters: sampleFilters[definition.id] ?? sentinelFilters },
+         { definition, label: `${definition.id} (roster)`, filters: { memberId: null } }]
+      : [{ definition, label: definition.id, filters: sampleFilters[definition.id] ?? sentinelFilters }]);
+  for (const { definition, label, filters } of cases) {
+    it(`${label} filters every view by tenant and takes values only as parameters`, () => {
+      const queries = definition.sql({ tenantId: "TENANT_SENTINEL" as Id<"tenants">, filters, range } as never, sampleContext[definition.id]);
       for (const [name, query] of Object.entries(queries)) {
         const views = query.sql.match(/\banalytics\.(?!watermark\b)\w+/g) ?? [];
         const tenantFilters = query.sql.match(/\btenant_id\s*=\s*\{tenant_id:String\}/g) ?? [];

@@ -3,11 +3,18 @@ import { vOnCompleteArgs, type WorkId } from "@convex-dev/workpool";
 import type { MutationCtx } from "../../_generated/server";
 import { internalMutation } from "../../_generated/server";
 import { internal } from "../../_generated/api";
-import type { Doc } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import { analyticsPool } from "../../analytics/pool";
 import { readSyncRow } from "../../analytics/results";
 import { requireMcpAdmin, mcpCallerValidator } from "../guard";
 import { ASSISTANT_JOB_TIMEOUT_MS, SYNC_INTERVAL_MS, failedJobRetryable, jobValidator, type ReportJob } from "./contracts";
+/** Parts deleted per transaction: 6 × 900 KB stays well under a mutation's reads. */
+const PART_DELETE_BATCH = 6;
+/** A run's parts are deleted in scheduled batches, never inline with other work. */
+async function scheduleDeleteParts(ctx: MutationCtx, requestId: Id<"mcpReportRequests">, runToken: string | undefined) {
+    if (runToken !== undefined)
+        await ctx.scheduler.runAfter(0, internal.mcp.reports.admission.deleteParts, { requestId, runToken });
+}
 /** Serializes admission across tenants through indexed status range reads (Convex OCC).
  * Only running rows are dispatched. Two waiting rows stay outside the shared pool.
  */
@@ -22,7 +29,9 @@ async function recoverAndDispatch(ctx: MutationCtx) {
         }
         if (row.workId)
             await analyticsPool.cancel(ctx, row.workId as WorkId);
-        await ctx.db.patch("mcpReportRequests", row._id, { status: "failed", error: "abandoned_job", finishedAt: now });
+        // Clear a published answer too, or its parts would be kept from deletion.
+        await ctx.db.patch("mcpReportRequests", row._id, { status: "failed", error: "abandoned_job", payloadParts: undefined, payloadRunToken: undefined, finishedAt: now });
+        await scheduleDeleteParts(ctx, row._id, row.runToken);
     }
     if (active)
         return;
@@ -59,8 +68,13 @@ export const admit = internalMutation({
             if (running + waiting >= 3)
                 break;
             const fields = { tenantId: me.tenantId, userId: me.userId, key: job.key, report: job.report, paramsJson: JSON.stringify(job), status: "waiting" as const, createdAt: now, expiresAt: now + SYNC_INTERVAL_MS, kind: "job" as const };
-            if (existing)
-                await ctx.db.patch("mcpReportRequests", existing._id, { ...fields, resultJson: undefined, error: undefined, finishedAt: undefined, executingAt: undefined, runToken: undefined, workId: undefined });
+            if (existing) {
+                // The old run's parts go in their own batches; the new run writes under a new token.
+                await scheduleDeleteParts(ctx, existing._id, existing.runToken);
+                if (existing.payloadRunToken !== existing.runToken)
+                    await scheduleDeleteParts(ctx, existing._id, existing.payloadRunToken);
+                await ctx.db.patch("mcpReportRequests", existing._id, { ...fields, resultJson: undefined, payloadParts: undefined, payloadRunToken: undefined, error: undefined, finishedAt: undefined, executingAt: undefined, runToken: undefined, workId: undefined });
+            }
             else
                 await ctx.db.insert("mcpReportRequests", fields);
             waiting++;
@@ -84,19 +98,61 @@ export const begin = internalMutation({
         return { job: JSON.parse(row.paramsJson) as ReportJob, tenantId: row.tenantId };
     },
 });
+/** One part of a running request's answer, written only under its current run. */
+export const storePart = internalMutation({
+    args: { requestId: v.id("mcpReportRequests"), runToken: v.string(), index: v.number(), json: v.string() }, returns: v.boolean(),
+    handler: async (ctx, args) => {
+        const row = await ctx.db.get("mcpReportRequests", args.requestId);
+        if (!row || row.status !== "running" || row.runToken !== args.runToken || row.expiresAt <= Date.now())
+            return false;
+        const existing = await ctx.db.query("mcpReportPayloads").withIndex("by_requestId_and_runToken_and_index", q => q.eq("requestId", args.requestId).eq("runToken", args.runToken).eq("index", args.index)).unique();
+        if (existing)
+            await ctx.db.replace("mcpReportPayloads", existing._id, { tenantId: row.tenantId, requestId: args.requestId, runToken: args.runToken, index: args.index, json: args.json });
+        else
+            await ctx.db.insert("mcpReportPayloads", { tenantId: row.tenantId, requestId: args.requestId, runToken: args.runToken, index: args.index, json: args.json });
+        return true;
+    },
+});
+/** Publishes a run's parts, or records its failure and schedules its parts' deletion. */
 export const finish = internalMutation({
-    args: { requestId: v.id("mcpReportRequests"), runToken: v.string(), resultJson: v.optional(v.string()), watermark: v.optional(v.number()), error: v.optional(v.string()) }, returns: v.null(),
+    // resultJson: accepted for one release so a run started before the deploy fails cleanly.
+    args: { requestId: v.id("mcpReportRequests"), runToken: v.string(), parts: v.optional(v.number()), resultJson: v.optional(v.string()), watermark: v.optional(v.number()), error: v.optional(v.string()) }, returns: v.null(),
     handler: async (ctx, args) => {
         const row: Doc<"mcpReportRequests"> | null = await ctx.db.get("mcpReportRequests", args.requestId);
-        if (!row || row.runToken !== args.runToken || row.status !== "running")
+        if (!row || row.runToken !== args.runToken || row.status !== "running") {
+            await scheduleDeleteParts(ctx, args.requestId, args.runToken);
             return null;
+        }
         const sync = await readSyncRow(ctx);
         const job = JSON.parse(row.paramsJson) as ReportJob;
         const expired = (sync?.watermark ?? 0) > job.syncWatermark && (sync?.watermark ?? 0) > (args.watermark ?? 0);
-        await ctx.db.patch("mcpReportRequests", row._id, { resultJson: args.error || expired ? undefined : args.resultJson, error: args.error ?? (expired ? "sync_changed" : undefined), watermark: args.watermark, finishedAt: Date.now() });
+        const published = !args.error && !expired && args.parts !== undefined;
+        // A run started before parts existed still finishes with its inline answer.
+        const inline = !args.error && !expired && args.parts === undefined ? args.resultJson : undefined;
+        if (!published)
+            await scheduleDeleteParts(ctx, row._id, args.runToken);
+        await ctx.db.patch("mcpReportRequests", row._id, { resultJson: inline, payloadParts: published ? args.parts : undefined, payloadRunToken: published ? args.runToken : undefined, error: args.error ?? (expired ? "sync_changed" : published || inline !== undefined ? undefined : "warehouse_failed"), watermark: args.watermark, finishedAt: Date.now() });
         return null;
     },
 });
+/** Deletes one run's parts a few at a time, rescheduling until none remain. */
+export const deleteParts = internalMutation({
+    args: { requestId: v.id("mcpReportRequests"), runToken: v.string() }, returns: v.null(),
+    handler: async (ctx, args) => {
+        const row = await ctx.db.get("mcpReportRequests", args.requestId);
+        // A published answer of this run is still in use.
+        if (row && row.payloadRunToken === args.runToken)
+            return null;
+        const parts = await ctx.db.query("mcpReportPayloads").withIndex("by_requestId_and_runToken_and_index", q => q.eq("requestId", args.requestId).eq("runToken", args.runToken)).take(PART_DELETE_BATCH);
+        for (const part of parts)
+            await ctx.db.delete("mcpReportPayloads", part._id);
+        if (parts.length === PART_DELETE_BATCH)
+            await ctx.scheduler.runAfter(PART_DELETE_SPACING_MS, internal.mcp.reports.admission.deleteParts, args);
+        return null;
+    },
+});
+/** Pause between deletion batches, so cleanup never spends the write budget in a burst. */
+const PART_DELETE_SPACING_MS = 1_000; // the web's DELETE_BATCH_DELAY_MS
 /** Release the permit only after Workpool has finished the action. Releasing
  * inside the action's last mutation could briefly occupy both web workers. */
 export const onComplete = internalMutation({
@@ -106,8 +162,10 @@ export const onComplete = internalMutation({
         const row = await ctx.db.get("mcpReportRequests", context.requestId);
         if (!row || row.status !== "running" || row.runToken !== context.runToken || row.workId !== workId)
             return null;
-        const ready = result.kind === "success" && !row.error && row.resultJson !== undefined;
-        await ctx.db.patch("mcpReportRequests", row._id, { status: ready ? "ready" : "failed", error: ready ? undefined : row.error ?? "warehouse_failed", finishedAt: Date.now() });
+        const ready = result.kind === "success" && !row.error && (row.resultJson !== undefined || row.payloadParts !== undefined);
+        await ctx.db.patch("mcpReportRequests", row._id, { status: ready ? "ready" : "failed", error: ready ? undefined : row.error ?? "warehouse_failed", ...(ready ? {} : { payloadParts: undefined, payloadRunToken: undefined }), finishedAt: Date.now() });
+        if (!ready)
+            await scheduleDeleteParts(ctx, row._id, context.runToken);
         await recoverAndDispatch(ctx);
         return null;
     },

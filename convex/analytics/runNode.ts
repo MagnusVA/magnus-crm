@@ -16,6 +16,7 @@ import {
 import type { AnalyticsFilters } from "./definition";
 import { getReportDefinition } from "./registry";
 import { ANSWER_TOO_LARGE, MAX_ANSWER_BYTES, answerBytes, resolvedRangeValidator, splitPayload } from "./results";
+import { storeAnswerParts } from "../mcp/reports/payloads";
 
 // The Node build path (docs/agents/reporting.md): reports whose rows are too
 // large to pass into the `complete` mutation, or whose build needs more than
@@ -183,5 +184,147 @@ export const previewInNode = internalAction({
     const built: Built = await buildReportInNode(ctx, args);
     if (answerBytes(built.payloadJson) > MAX_ANSWER_BYTES) throw new Error(ANSWER_TOO_LARGE);
     return built.payloadJson;
+  },
+});
+
+/**
+ * The admin assistant's Node build: the answer is stored in parts under the
+ * request's run and only the part count comes back, so a multi-megabyte answer
+ * never passes through the V8 runner or into one document.
+ */
+export const storeAssistantAnswer = internalAction({
+  args: {
+    requestId: v.id("mcpReportRequests"),
+    runToken: v.string(),
+    reportId: v.string(),
+    tenantId: v.id("tenants"),
+    filtersJson: v.string(),
+    range: resolvedRangeValidator,
+  },
+  returns: v.number(),
+  handler: async (ctx, { requestId, runToken, ...build }): Promise<number> => {
+    const built: Built = await buildReportInNode(ctx, build);
+    log.info("mcp.node_build", {
+      reportId: build.reportId,
+      tenantId: build.tenantId,
+      rowsChars: built.rowsChars,
+      answerBytes: answerBytes(built.payloadJson),
+      ms: built.ms,
+    });
+    return await storeAnswerParts(ctx, { requestId, runToken }, built.payloadJson);
+  },
+});
+
+// Read-only parity actions. Existing production builds above stay unchanged.
+import { AsyncLocalStorage } from "node:async_hooks";
+import { queryWatermark, registerClickHouseAttemptScope, type ClickHouseAttemptHook } from "./clickhouse";
+import { fetchReportRows } from "./run";
+import { cappedBy, differences, canonical } from "../../scripts/analytics-parity-core.mjs";
+
+const parityAttemptScope = new AsyncLocalStorage<ClickHouseAttemptHook>();
+registerClickHouseAttemptScope(parityAttemptScope);
+
+const PARITY_LIMITATION = "Clock and Convex dimension context are not frozen. Unequal answers are rebuilt once; only identical differences present in both builds are reported. Warehouse watermarks bracket all builds; a changed watermark discards the comparison and retries once. Equal watermarks do not guarantee a transactional warehouse snapshot. Query seconds conservatively charge round-trip time, capped at the server's 30-second execution limit; each attempt reserves 30 seconds before starting. The CLI budget is shared locally, not across machines or other warehouse clients.";
+
+type ParityAttempt = { at: number; seconds: number; retry: boolean };
+
+/** Builds active and candidate back to back, without saving either answer. */
+export const compareInNode = internalAction({
+  args: {
+    tenantId: v.id("tenants"),
+    reportId: v.string(),
+    candidateId: v.optional(v.string()),
+    filtersJson: v.string(),
+    range: resolvedRangeValidator,
+    maxQueries: v.number(),
+    maxSeconds: v.number(),
+  },
+  returns: v.string(),
+  handler: async (ctx, args): Promise<string> => {
+    const attempts: ParityAttempt[] = [];
+    let builds = 0;
+    let discarded = 0;
+    let repeated = 0;
+    const hook: ClickHouseAttemptHook = {
+      beforeAttempt: retry => {
+        const seconds = attempts.reduce((total, attempt) => total + attempt.seconds, 0);
+        if (!Number.isFinite(args.maxQueries) || !Number.isFinite(args.maxSeconds) ||
+          attempts.length + 1 > args.maxQueries || seconds + 30 > args.maxSeconds) {
+          throw new Error("incomplete verification: hourly ClickHouse query budget would be exceeded");
+        }
+        attempts.push({ at: Date.now(), seconds: 0, retry });
+      },
+      afterAttempt: ms => { attempts[attempts.length - 1].seconds = Math.min(30, Math.max(0, ms / 1000)); },
+      onResponseError: (text, status, code) => {
+        if (code === "202" || code === "201" || /QUOTA_EXCEEDED|TOO_MANY_SIMULTANEOUS_QUERIES|quota/i.test(text)) {
+          throw new Error(`incomplete verification: warehouse quota or concurrency error (${status}, ${code ?? "unknown"}): ${text}`);
+        }
+      },
+    };
+    const build = async (reportId: string): Promise<unknown> => {
+      builds += 1;
+      const definition = getReportDefinition(reportId);
+      const input = { ...args, reportId };
+      let json: string;
+      if (definition.node) {
+        const built = await buildReportInNode(ctx, input);
+        json = built.payloadJson;
+      } else {
+        const rowsJson = await fetchReportRows(definition, {
+          tenantId: args.tenantId, filters: JSON.parse(args.filtersJson) as AnalyticsFilters, range: args.range,
+        });
+        json = await ctx.runQuery(internal.analytics.results.previewFinalize, {
+          reportId, tenantId: args.tenantId, filtersJson: args.filtersJson, range: args.range, rowsJson,
+        });
+      }
+      if (answerBytes(json) > MAX_ANSWER_BYTES) throw new Error(ANSWER_TOO_LARGE);
+      const answer: unknown = JSON.parse(json);
+      const cap = cappedBy(answer);
+      if (cap) throw new Error(`incomplete verification: ${reportId} is capped (${cap})`);
+      return answer;
+    };
+    const usage = () => ({ attempts, queries: attempts.length,
+      retries: attempts.filter(attempt => attempt.retry).length,
+      seconds: attempts.reduce((total, attempt) => total + attempt.seconds, 0), builds, discarded, repeated });
+    return await parityAttemptScope.run(hook, async () => {
+      try {
+        for (let syncTry = 0; syncTry < 2; syncTry += 1) {
+          const before = await queryWatermark();
+          if (before === null) throw new Error("incomplete verification: warehouse has no watermark");
+          let active = await build(args.reportId);
+          let candidate = args.candidateId ? await build(args.candidateId) : null;
+          let diff = args.candidateId ? differences(active, candidate, "", [], Number.POSITIVE_INFINITY) : [];
+          let unstable = 0;
+          if (diff.length > 0) {
+            repeated += 1;
+            const first = new Set(diff.map(entry => JSON.stringify(canonical(entry))));
+            active = await build(args.reportId);
+            candidate = await build(args.candidateId!);
+            const again = differences(active, candidate, "", [], Number.POSITIVE_INFINITY);
+            diff = again.filter(entry => first.has(JSON.stringify(canonical(entry))));
+            unstable = again.length - diff.length;
+          }
+          const after = await queryWatermark();
+          if (before !== after) {
+            discarded += 1;
+            if (syncTry === 0) continue;
+            throw new Error("incomplete verification: a sync landed during both comparison attempts");
+          }
+          return JSON.stringify({ status: unstable > 0 ? "incomplete" : "complete",
+            ...(unstable > 0 ? { error: "incomplete verification: repeated differences changed with clock or context" } : {}),
+            // Two 12 MB answers can exceed an action's return limit. Compare
+            // mode returns only its canonical diff and answer sizes.
+            ...(!args.candidateId ? { active } : {}),
+            answers: { activeBytes: answerBytes(JSON.stringify(active)),
+              candidateBytes: args.candidateId ? answerBytes(JSON.stringify(candidate)) : 0 },
+            differences: diff.slice(0, 20), differenceCount: diff.length,
+            unstable, watermark: before, usage: usage(), limitation: PARITY_LIMITATION });
+        }
+        throw new Error("incomplete verification: no stable comparison");
+      } catch (error) {
+        return JSON.stringify({ status: "incomplete", error: error instanceof Error ? error.message : String(error),
+          usage: usage(), limitation: PARITY_LIMITATION });
+      }
+    });
   },
 });

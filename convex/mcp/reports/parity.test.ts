@@ -23,7 +23,7 @@ describe("live page adapter parity", () => {
     for (const report of Object.keys(REPORT_PANELS) as Array<keyof typeof REPORT_PANELS>)
         it(`serves ${report}'s live breakdown within the gateway cap`, async () => {
             const f = await fixture();
-            const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report });
+            const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report });
             expect(result.status, JSON.stringify(result)).toBe("ready");
             const expected = REPORT_PANELS[report].filter(id => id !== "scorecard.answers");
             expect((result.panels as { id: string }[]).map(p => p.id)).toEqual(expected);
@@ -72,16 +72,16 @@ describe("live page adapter parity", () => {
                 }
             }
         }
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller, report: "scorecard", range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive }, limit: 25 });
+        const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller, report: "scorecard", range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive }, limit: 25 });
         expect(result.status, JSON.stringify(result)).toBe("ready");
         expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
         const pageCash = await f.t.withIdentity(identity).query(api.reports.scorecard.cash, { range: whole });
         expect((result.panels as { id: string; data: unknown }[]).find(p => p.id === "scorecard.cash")?.data).toEqual(safeText(pageCash as Json));
-        const member = await f.t.action(internal.mcp.reports.tools.report, { caller, report: "people", memberId: f.memberId, range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });
+        const member = await f.t.action(internal.mcp.reports.toolsNode.report, { caller, report: "people", memberId: f.memberId, range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });
         expect(member.status, JSON.stringify(member)).toBe("ready");
         expect((member.panels as { id: string }[]).map(p => p.id)).toEqual(["people.profile", "people.closers"]);
         expect(member.openInMagnus).toContain(`/workspace/reports/people/${f.memberId}`);
-        const numbers = await f.t.action(internal.mcp.reports.tools.numbers, { caller, metrics: ["finalCash", "cash"], range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });
+        const numbers = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller, metrics: ["finalCash", "cash"], range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });
         expect(numbers.status).toBe("ready");
         expect(JSON.stringify(numbers)).toContain('"currency":"USD"');
         expect(JSON.stringify(numbers)).not.toContain('"currency":"EUR"');
@@ -103,7 +103,7 @@ describe("incomplete parts of one page answer", () => {
         });
         const page = await f.adminWeb.query(api.reports.pipeline.getPipelineNow, {});
         expect(page.aging.partial).toBe(true);
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "pipeline" });
+        const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "pipeline" });
         expect(result.status).toBe("ready");
         expect(result.isPartial).toBe(true);
         const data = (result.panels as Array<{ id: string; data: Record<string, unknown> }>)[0].data;

@@ -5,7 +5,7 @@ import { internalQuery } from "../../_generated/server";
 import { requireMcpAdmin, loadInTenant, mcpCallerValidator, normalizeMcpId } from "../guard";
 import { analyticsArgsKey, canonicalJson } from "../../analytics/keys";
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
-import { findResult, readSyncRow, resultState } from "../../analytics/results";
+import { findResult, payloadIdsOf, readSyncRow, resultState } from "../../analytics/results";
 import { isClickHouseConfigured } from "../../analytics/clickhouse";
 import { ReportRequestError, planAssistantSources, cachedWindowFits, assertReportCells, rangePeriods, reportLimit, type SourceWindow, type AssistantRange } from "../../../lib/assistantReportPlan";
 import { settledThroughDate, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
@@ -166,28 +166,33 @@ export const prepare = internalQuery({ args: { caller: mcpCallerValidator, reque
         throw error;
     }
 } });
+/** Where a ready answer's JSON lives; read one at a time through jobAnswer. */
+// Pinned to the answer polling approved: a web row can be refreshed for
+// another window, and an assistant row republished by a later run.
+export type AnswerSource = { kind: "web"; resultId: string; startDate: string; endDateInclusive: string; watermark: number } | { kind: "mcp"; requestId: string; runToken: string | null };
 export type JobAnswer = {
     status: "ready" | "pending" | "failed" | "unavailable";
-    data?: unknown;
+    source?: AnswerSource;
     watermark?: number;
     reason?: string;
 };
-/** Reuse a fresh web-owned cache without updating even its lastRequestedAt. */
+/**
+ * A job's status from its row alone: never reads an answer, so one request's
+ * many panels can be polled within a query's read limit. A fresh web-owned
+ * cache is reused without updating even its lastRequestedAt.
+ */
 export async function readJob(ctx: QueryCtx, tenantId: Parameters<typeof findResult>[1], job: ReportJob): Promise<JobAnswer> {
     {
         const key = analyticsArgsKey({ filters: JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: job.window.dayStartHour } });
         const cached = await findResult(ctx, tenantId, job.report, key);
-        if (cached?.answer && cached.answer.watermark >= job.syncWatermark && cachedWindowFits(job.window, cached.answer)) {
-            const state = await resultState(ctx, cached);
-            if (state.payloadJson !== null)
-                return { status: "ready", data: JSON.parse(state.payloadJson), watermark: cached.answer.watermark };
-        }
+        if (cached?.answer && cached.answer.watermark >= job.syncWatermark && cachedWindowFits(job.window, cached.answer) && payloadIdsOf(cached).length > 0)
+            return { status: "ready", source: { kind: "web", resultId: cached._id, startDate: cached.answer.startDate, endDateInclusive: cached.answer.endDateInclusive, watermark: cached.answer.watermark }, watermark: cached.answer.watermark };
     }
     const row = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", tenantId).eq("key", job.key)).unique();
     if (!row || row.expiresAt <= Date.now())
         return { status: "pending" };
-    if (row.status === "ready" && row.resultJson !== undefined)
-        return { status: "ready", data: JSON.parse(row.resultJson), watermark: row.watermark };
+    if (row.status === "ready" && (row.resultJson !== undefined || row.payloadParts !== undefined))
+        return { status: "ready", source: { kind: "mcp", requestId: row._id, runToken: row.payloadRunToken ?? null }, watermark: row.watermark };
     if (row.status === "failed")
         return failedJobRetryable(row, Date.now()) ? { status: "pending" } : { status: "failed", reason: row.error ?? "warehouse_failed" };
     return { status: "pending" };
@@ -198,6 +203,34 @@ export const jobStates = internalQuery({ args: { caller: mcpCallerValidator, job
         for (const job of args.jobs)
             answers.push(await readJob(ctx, me.tenantId, job));
         return JSON.stringify(answers);
+    } });
+/**
+ * One ready answer's JSON text, or null when it is not complete: a part is
+ * missing (deleted, or a re-admitted run), or the row moved on. Callers treat
+ * null as pending. Returned as text so its arrays never cross as Convex arrays.
+ */
+export const jobAnswer = internalQuery({ args: { caller: mcpCallerValidator, source: v.union(v.object({ kind: v.literal("web"), resultId: v.string(), startDate: v.string(), endDateInclusive: v.string(), watermark: v.number() }), v.object({ kind: v.literal("mcp"), requestId: v.string(), runToken: v.union(v.string(), v.null()) })) }, returns: v.union(v.string(), v.null()), handler: async (ctx, args) => {
+        const me = await requireMcpAdmin(ctx, args.caller, { permission: "reports:view" });
+        if (args.source.kind === "web") {
+            const id = ctx.db.normalizeId("analyticsResults", args.source.resultId);
+            const row = id ? await ctx.db.get("analyticsResults", id) : null;
+            const pinned = args.source;
+            if (!row || row.tenantId !== me.tenantId || row.answer?.startDate !== pinned.startDate || row.answer.endDateInclusive !== pinned.endDateInclusive || row.answer.watermark !== pinned.watermark)
+                return null;
+            return (await resultState(ctx, row)).payloadJson;
+        }
+        const id = ctx.db.normalizeId("mcpReportRequests", args.source.requestId);
+        const row = id ? await ctx.db.get("mcpReportRequests", id) : null;
+        if (!row || row.tenantId !== me.tenantId || row.status !== "ready")
+            return null;
+        if (row.resultJson !== undefined)
+            return args.source.runToken === null ? row.resultJson : null;
+        if (row.payloadParts === undefined || row.payloadRunToken === undefined || row.payloadRunToken !== args.source.runToken)
+            return null;
+        const parts = await ctx.db.query("mcpReportPayloads").withIndex("by_requestId_and_runToken_and_index", q => q.eq("requestId", row._id).eq("runToken", row.payloadRunToken!)).take(row.payloadParts + 1);
+        if (parts.length !== row.payloadParts || parts.some((part, index) => part.index !== index || part.tenantId !== me.tenantId))
+            return null;
+        return parts.map(part => part.json).join("");
     } });
 
 /** Tool IDs arrive as strings; the planner loads each one in the tenant. */

@@ -114,7 +114,7 @@ describe("isolated assistant report admission", () => {
         const stale = (await rows(f)).find(r => r.status === "running")!;
         await f.t.run(ctx => ctx.db.patch("mcpReportRequests", stale._id, { startedAt: Date.now() - ASSISTANT_JOB_TIMEOUT_MS - 1 }));
         await f.t.mutation(internal.mcp.reports.admission.recover, {});
-        await f.t.mutation(internal.mcp.reports.admission.finish, { requestId: stale._id, runToken: stale.runToken!, resultJson: '{"bad":true}', watermark: f.watermark });
+        await f.t.mutation(internal.mcp.reports.admission.finish, { requestId: stale._id, runToken: stale.runToken!, parts: 1, watermark: f.watermark });
         expect((await rows(f)).find(r => r._id === stale._id)?.status).toBe("failed");
         expect((await rows(f)).filter(r => r.status === "running")).toHaveLength(1);
     });
@@ -140,12 +140,12 @@ describe("isolated assistant report admission", () => {
     });
     it("refuses a closer before reading or queueing", async () => {
         const f = await fixture();
-        await expect(f.t.action(internal.mcp.reports.tools.numbers, { caller: adminCaller(f.orgId, "test", "user_alex"), metrics: ["callsDue"], range: { kind: "preset", preset: "today" } })).rejects.toThrow("role");
+        await expect(f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: adminCaller(f.orgId, "test", "user_alex"), metrics: ["callsDue"], range: { kind: "preset", preset: "today" } })).rejects.toThrow("role");
         expect(await rows(f)).toHaveLength(0);
     });
     it("refuses oversized cells before querying metrics or admitting jobs", async () => {
         const f = await fixture();
-        await expect(f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["callsDue"], groupBy: "day", compareTo: "previous_period", range: { kind: "custom", startDate: "2026-01-01", endDateInclusive: "2026-03-01" } })).rejects.toThrow("60");
+        await expect(f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, metrics: ["callsDue"], groupBy: "day", compareTo: "previous_period", range: { kind: "custom", startDate: "2026-01-01", endDateInclusive: "2026-03-01" } })).rejects.toThrow("60");
         expect(await rows(f)).toHaveLength(0);
     });
     it("reads fresh web answers without touching the row or creating assistant jobs", async () => {
@@ -158,7 +158,7 @@ describe("isolated assistant report admission", () => {
             return ctx.db.insert("analyticsResults", { tenantId: f.tenantId, reportId: job.report, argsKey: analyticsArgsKey({ filters: JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: 1 } }), filtersJson: job.filtersJson, range: job.range, timeZone: job.window.timeZone, dayStartHour: 1, status: "ready", payloadId, answer: { startDate: job.window.startDate, endDateInclusive: job.window.endDateInclusive, watermark: f.watermark, completedAt: Date.now() }, lastRequestedAt: 123 });
         });
         const before = await f.t.run(ctx => ctx.db.get("analyticsResults", id));
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range: request.range });
+        const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "calls", range: request.range });
         expect(result.status).toBe("ready");
         expect(await rows(f)).toHaveLength(0);
         expect(await f.t.run(ctx => ctx.db.get("analyticsResults", id))).toEqual(before);
@@ -169,7 +169,7 @@ describe("report action results", () => {
         const f = await fixture();
         const { analyticsPool } = await import("../../analytics/pool");
         const spy = vi.spyOn(analyticsPool, "enqueueAction").mockImplementation(async () => "test-work" as import("@convex-dev/workpool").WorkId);
-        const promise = f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "people", range: { kind: "preset", preset: "last_month" } });
+        const promise = f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "people", range: { kind: "preset", preset: "last_month" } });
         let result: Record<string, unknown> | undefined;
         void promise.then(value => { result = value; });
         for (let i = 0; i < 81 && !result; i++)
@@ -192,7 +192,7 @@ describe("report action results", () => {
             }
         });
         const { kind: _kind, ...args } = request;
-        const result = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, ...args });
+        const result = await f.t.action(internal.mcp.reports.toolsNode.numbers, { caller: f.caller, ...args });
         expect(result.status).toBe("ready");
         expect(result.isPartial).toBe(true);
         expect((result.rows as Array<{

@@ -11,7 +11,11 @@ import {
 } from "../../../../lib/businessDay";
 import { meetingAttendanceDisplay } from "../../../../lib/status-config";
 import { internalQuery, type QueryCtx } from "../../../_generated/server";
-import { readLiveQueryRows } from "../../../lib/liveQueryBounds";
+import {
+  createLiveReadState,
+  readLiveQueryRows,
+  type LiveReadState,
+} from "../../../lib/liveQueryBounds";
 import { isMissedMeetingLoss } from "../../../opportunities/dealState";
 import { buildTeamReview } from "../../../team/reviewCore";
 import {
@@ -447,18 +451,28 @@ async function paged<T>(position: string | null, read: () => Promise<T>) {
  * The person has a deal created after this one: the No-shows and
  * cancellations page's "booked again" rule (operations/missedMeetings.ts).
  */
-async function bookedAgain(ctx: QueryCtx, deal: Doc<"opportunities">) {
-  const deals = await ctx.db
+async function bookedAgain(
+  ctx: QueryCtx,
+  deal: Doc<"opportunities">,
+  budget?: { state: LiveReadState; bytes: number },
+) {
+  const query = ctx.db
     .query("opportunities")
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", deal.tenantId).eq("leadId", deal.leadId),
     )
-    .order("desc")
-    .take(10);
+    .order("desc");
+  const deals = budget
+    ? (await readLiveQueryRows(query, 10, budget.state, budget.bytes)).rows
+    : await query.take(10);
   return deals.some((d) => d._id !== deal._id && d.createdAt > deal.createdAt);
 }
 /** Missed-meeting losses the queue shows: the web list's default window. */
 export const MISSED_MEETINGS_DAYS = 30;
+const MISSED_SUMMARY_ROWS = 1_000,
+  MISSED_SUMMARY_BYTES = 4 * 1024 * 1024,
+  // The person's other deals, read once per missed loss, share their own budget.
+  MISSED_HISTORY_BYTES = 4 * 1024 * 1024;
 async function missedWindow(ctx: QueryCtx, me: Admin, asOf: number) {
   const day = await getTenantBusinessDay(ctx, me.tenantId);
   const today = businessDateForInstant(asOf, day);
@@ -483,13 +497,14 @@ async function isOpenMissedMeeting(
   deal: Doc<"opportunities">,
   start: number,
   asOf: number,
+  budget?: { state: LiveReadState; bytes: number },
 ) {
   return (
     isMissedMeetingLoss(deal) !== null &&
     deal.lostAt !== undefined &&
     deal.lostAt >= start &&
     deal.lostAt <= asOf &&
-    !(await bookedAgain(ctx, deal))
+    !(await bookedAgain(ctx, deal, budget))
   );
 }
 type TeamReviewItem = Awaited<
@@ -639,7 +654,8 @@ export async function buildQueue(
               closer(r.assignedCloserId) &&
               (await isOpenMissedMeeting(ctx, r, start, asOf)),
           )
-          .paginate(filtered(at)),
+          // Each row also reads the person's deals: a smaller scan per page.
+          .paginate({ ...filtered(at), maximumRowsRead: 100 }),
       );
       items = await Promise.all(page.page.map((r) => missedItem(ctx, me, r)));
       done = page.isDone;
@@ -903,13 +919,23 @@ export async function buildQueueSummary(
               .eq("outcome", "lost")
               .gte("latestActivityAt", start),
         ),
-      500,
+      // Its own budget: the 30-day window bounds the deals (474 on
+      // production) and so the booked-again lookups, one per deal. Deal
+      // documents are large, so the shared 512 KB budget stopped near 400.
+      MISSED_SUMMARY_ROWS,
+      undefined,
+      MISSED_SUMMARY_BYTES,
     );
-    const open = await Promise.all(
-      s.rows.map((r) => isOpenMissedMeeting(ctx, r, start, now)),
-    );
-    const rows = s.rows.filter((_, i) => open[i]);
-    seen(rows.length, s.capped);
+    // One at a time, so the shared history budget stops the read cleanly.
+    const history = { state: createLiveReadState(), bytes: MISSED_HISTORY_BYTES };
+    const rows = [];
+    for (const r of s.rows) {
+      const open = await isOpenMissedMeeting(ctx, r, start, now, history);
+      // A capped read may have missed the newer deal, so this one is unknown.
+      if (history.state.capped) break;
+      if (open) rows.push(r);
+    }
+    seen(rows.length, s.capped || history.state.capped);
     oldest = rows.length ? Math.min(...rows.map((r) => r.lostAt!)) : null;
   } else if (queue === "unmatched_recordings") {
     const s = await readLiveQueryRows(

@@ -107,7 +107,8 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 
 | Task | Command |
 | --- | --- |
-| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`). A report whose Convex reader read only part of the range prints SKIP; the Reports readers cap at 300 calls and 512 KiB, so compare them at `yesterday` or a few days |
+| Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`). Any SKIP or missing required comparison fails as incomplete verification; use shorter ranges for capped live readers |
+| Compare candidate and active definitions (read-only) | `pnpm analytics:parity people --tenant <tenantId> --active people.closers --candidate people.closers.next --range last_month` (use registered definition IDs). Both build sequentially in one Node action; no answers are saved |
 | Switch a page to ClickHouse | `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'` |
 | Roll a page back | `npx convex run --prod analytics/switch:disable '{"tenantId":"…","page":"revenue"}'` |
 | Rerun the batch by hand | `npx convex run --prod analytics/run:runPostSyncBatch '{"force":true}'` |
@@ -122,6 +123,12 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 
 To preview a page before it's switched, add `?analytics=preview` to its URL.
 
+Parity requires every panel × range × filter tuple. With no coverage file, it uses the page's ordinary panel inventory, every `--range`, and every repeated `--filters` value. An explicit `--coverage <file>` supplies a JSON array such as `[{"reportId":"people.closers","range":"last_month","filters":{"memberId":null}}]`. Page-null `.next` and `.raw` definitions are excluded from ordinary API enumeration. Counts and minor-unit money compare exactly; only fractional derived values use relative tolerance.
+
+Parity runs one comparison at a time. Its local rolling hourly ledger defaults to 150 ClickHouse attempts and 300 seconds, including watermark reads, internal retries and discarded builds. Override with `--max-queries`, `--max-seconds`, and an optional shared `--budget-file`. Each attempt reserves the server's maximum 30 seconds before starting, then charges round-trip time capped at that execution limit. Quota and concurrency errors stop the run immediately. The ledger lock prevents concurrent local runs; it does not coordinate other machines or other warehouse clients. A lost action response reserves its entire remaining allowance for an hour.
+
+Candidate comparisons do not freeze the clock or Convex dimension context. Unequal answers trigger one rebuild of both definitions; only identical differences present in both builds are reported. Changing differences fail as incomplete verification. Watermark reads bracket all builds; if a sync lands, the comparison is discarded and retried once. Equal watermarks do not guarantee a transactional warehouse snapshot. The CLI prints this limitation and its query, retry, build and discard counts in the report.
+
 ### Switching the Reports pages
 
 The Reports pages (`scorecard`, `calls`, `people`, `attribution`) go live in this order, after the deploy:
@@ -129,7 +136,7 @@ The Reports pages (`scorecard`, `calls`, `people`, `attribution`) go live in thi
 1. The call-type backfill: preview, run, assert (above).
 2. The moved-slot re-projection: dry run, run, assert once the projections drain.
 3. A full Fivetran sync whose watermark is past both.
-4. `pnpm analytics:parity <page>` at `yesterday` and a few short custom ranges. Longer ranges SKIP, since the readers cap there.
+4. `pnpm analytics:parity <page>` at `yesterday` and a few short custom ranges. A range where the readers cap fails as incomplete verification, so choose ranges short enough for them.
 5. Open the page with `?analytics=preview` at Year to date and wait for it to finish: that runs the full production path (the Node build, the stored parts, `reports.get`). Check `analytics.node_build` in the logs for its rows, answer size and peak memory.
 6. `analytics/switch:enable` for that page; the `people` switch moves all four People reports. Do one page at a time (calls, scorecard, attribution, people), and after each check `magnus_app`'s queries and execution seconds per hour in `system.query_log` against its quota (600 queries, 900 seconds).
 

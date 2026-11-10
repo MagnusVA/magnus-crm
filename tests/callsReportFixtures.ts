@@ -280,9 +280,8 @@ export async function callsReportFixture() {
     );
     const credits = await ctx.db.query("dealAttributions").take(100);
     const all = await ctx.db.query("meetings").take(100);
-    const payments = (await ctx.db.query("paymentRecords").take(100)).filter(
-      (p) => p.status !== "disputed",
-    );
+    const allPayments = await ctx.db.query("paymentRecords").take(100);
+    const payments = allPayments.filter((p) => p.status !== "disputed");
     const deals = await ctx.db.query("opportunities").take(100);
     const configs = await ctx.db.query("eventTypeConfigs").take(100);
     const people = await ctx.db.query("leads").take(100);
@@ -346,6 +345,18 @@ export async function callsReportFixture() {
           .sort((a, b) => a.recordedAt - b.recordedAt)[0];
         return first && first.recordedAt >= from && first.recordedAt < to
           ? [{ payment_id: first._id }]
+          : [];
+      }),
+      firstPaymentDeals: deals.flatMap((d) => {
+        const dealPayments = payments.filter((p) => p.opportunityId === d._id);
+        const first = [...dealPayments].sort((a, b) => a.recordedAt - b.recordedAt)[0];
+        // Participation counts disputed payments too, as the SQL and live reader do.
+        const history = allPayments.filter((p) => p.opportunityId === d._id);
+        return first && first.recordedAt >= from && first.recordedAt < to
+          ? [{
+              opportunity_id: d._id,
+              closer_ids: [...new Set(history.flatMap((p) => (p.attributedCloserId ? [p.attributedCloserId] : [])))],
+            }]
           : [];
       }),
     };

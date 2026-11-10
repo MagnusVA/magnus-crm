@@ -88,6 +88,11 @@ LEFT ANY JOIN (
 ) AS person ON person.person_id = d.lead_id
 ORDER BY m.scheduled_at_ms, m.creation_time_ms, m.id`;
 
+// Share the exact evidence joins without changing calls.summary's SQL text.
+export const callEvidenceJoinsSql = callFactsSql.slice(
+  callFactsSql.indexOf("\nLEFT ANY JOIN"), callFactsSql.lastIndexOf("\nORDER BY"),
+);
+
 export type WarehouseCallEvidence = CallEvidence & {
   dealOutcome: "open" | "won" | "lost" | null;
   eventTypeConfigId: Id<"eventTypeConfigs"> | null;
