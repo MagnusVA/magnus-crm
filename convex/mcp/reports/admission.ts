@@ -65,6 +65,8 @@ export const admit = internalMutation({
             const existing = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", me.tenantId).eq("key", job.key)).unique();
             if (existing && existing.expiresAt > now && !failedJobRetryable(existing, now))
                 continue;
+            // A failed job retried on its own unexpired key isn't a new key.
+            const retry = existing !== null && existing.expiresAt > now;
             if (used >= ASSISTANT_DAILY_RUN_ALLOWANCE) {
                 reason = "assistant_daily_allowance_spent";
                 break;
@@ -73,7 +75,7 @@ export const admit = internalMutation({
                 reason = "assistant_minute_allowance_spent";
                 break;
             }
-            if (keyCount >= 30) {
+            if (!retry && keyCount >= 30) {
                 reason = "assistant_key_limit";
                 break;
             }
@@ -86,7 +88,8 @@ export const admit = internalMutation({
                 await ctx.db.insert("mcpReportRequests", fields);
             used++;
             minuteCount++;
-            keyCount++;
+            if (!retry)
+                keyCount++;
             waiting++;
             if (!running) {
                 await recoverAndDispatch(ctx);

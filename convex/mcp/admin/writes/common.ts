@@ -12,13 +12,24 @@ export function actorOf(me: McpUser): AdminActor {
   return { userId: me.userId, tenantId: me.tenantId, role: me.role, agentClient: me.agentClient };
 }
 
+/**
+ * A core's refusal: an expected error, a plain `Error` (cores refuse with
+ * those, as the web does), or Billing being off. Anything else is a bug.
+ */
+export function isCoreRefusal(error: unknown): error is Error {
+  return (
+    isExpectedError(error) ||
+    (error instanceof Error && (error.name === "Error" || error.name === "BillingOpsDisabledError"))
+  );
+}
+
 /** Cores refuse with plain `Error`s, as the web does; the agent reads the same sentence. */
 export async function asAgentError<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
     if (isExpectedError(error)) throw error;
-    if (error instanceof Error && error.name === "Error") throw rejectRequest("change.refused", error.message);
+    if (isCoreRefusal(error)) throw rejectRequest("change.refused", error.message);
     throw error;
   }
 }

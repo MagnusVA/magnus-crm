@@ -16,7 +16,7 @@ import type { CheckResult } from "../../../lib/outcomeCores";
 import { sha256Hex } from "../../confirm";
 import { mcpCallerValidator, requireMcpAdmin, loadInTenant } from "../../guard";
 import { appLink, preparePlan, prepareSingle, type AdminActor, type Committer, type Pins } from "../prepare";
-import { actorOf, asAgentError, ok } from "./common";
+import { actorOf, asAgentError, isCoreRefusal, ok } from "./common";
 
 /** Payment changes (docs/plans/admin-assistant.md §2: tools 7 and 12). */
 
@@ -64,9 +64,13 @@ export const correctPaymentCommitter: Committer<CorrectArgs> = {
     // What the correction does to enrollments and review, frozen at preview.
     // A refusal here (say, the payment became disputed) is a changed pin, so
     // the commit returns stale instead of failing.
+    // An unexpected failure still throws.
     effects: await describeCorrectionEffects(ctx, actor, args).then(
       (lines) => lines.join(" · "),
-      (error: unknown) => `refused: ${error instanceof Error ? error.message : "unknown"}`,
+      (error: unknown) => {
+        if (isCoreRefusal(error)) return `refused: ${error.message}`;
+        throw error;
+      },
     ),
   }),
   check: (ctx, actor, args) => checkCorrectPaymentAllowed(ctx, actor, args) as Promise<CheckResult<object>>,

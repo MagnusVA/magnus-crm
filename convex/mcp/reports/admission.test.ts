@@ -92,6 +92,21 @@ describe("isolated assistant report admission", () => {
         expect((await rows(f)).find(r => r._id === failed._id)?.status).not.toBe("failed");
         expect((await rows(f)).find(r => r.kind === "allowance")?.runCount).toBe(2);
     });
+    it("retries a failed job on its own key when the workspace holds 30 keys", async () => {
+        const f = await fixture();
+        const request = { caller: f.caller, jobs: jobs(f, 1) };
+        await f.t.mutation(internal.mcp.reports.admission.admit, request);
+        await advanceJob(f, true);
+        const failed = (await rows(f)).find(r => r.kind === "job")!;
+        await f.t.run(async ctx => {
+            for (let i = 0; i < 29; i++)
+                await ctx.db.insert("mcpReportRequests", { tenantId: f.tenantId, userId: f.adminId, key: `other:${i}`, report: "scorecard.funnel", kind: "job", paramsJson: "{}", status: "ready", resultJson: "{}", createdAt: Date.now(), expiresAt: Date.now() + 3_600_000 });
+        });
+        vi.advanceTimersByTime(61_000);
+        const result = await f.t.mutation(internal.mcp.reports.admission.admit, request);
+        expect(result.reason).toBeNull();
+        expect((await rows(f)).find(r => r._id === failed._id)?.status).not.toBe("failed");
+    });
     it("recovers an abandoned permit and rejects its late completion", async () => {
         const f = await fixture();
         await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: jobs(f, 2) });
