@@ -20,10 +20,15 @@ export function roleReports(answers: PageAnswers): Partial<RoleReports> {
 export function pageCurrency(answers: PageAnswers, page: string, requested?: string): string {
   const weights = page === "attribution" ? attributionCurrencyWeights(answer(answers, "attribution.lanes")) : scorecardCurrencyWeights(answer(answers, "scorecard.cash"), answer(answers, "scorecard.funnel"), answer(answers, "scorecard.origins"));
   const currencies = page === "people" ? rosterCurrencies(roleReports(answers)) : weights.map(w => w.currency);
+  const people = roleReports(answers);
+  const partialPeople = page === "people" && (people.closers?.partial || people.closers?.paymentsPartial || people.closers?.cohortPartial
+    || people.setters?.isTruncated || people.dmClosers?.isTruncated || people.leadGen?.isTruncated);
+  // A partial money panel may hold the requested currency. Absence in the
+  // available panels cannot establish that the currency is unknown.
   // Only an answer that carries money can say a currency is missing; a
   // selected panel without money inputs has none to check against.
-  if (requested !== undefined && currencies.length && ["people", "scorecard", "attribution"].includes(page) && !currencies.includes(requested.toUpperCase())) throw new ReportRequestError(`Unknown currency ${requested}. Available currencies: ${currencies.join(", ")}.`);
-  if (page === "people") return pickCurrency(currencies, requested?.toUpperCase() ?? null);
+  if (requested !== undefined && !partialPeople && currencies.length && ["people", "scorecard", "attribution"].includes(page) && !currencies.includes(requested.toUpperCase())) throw new ReportRequestError(`Unknown currency ${requested}. Available currencies: ${currencies.join(", ")}.`);
+  if (page === "people") return partialPeople && requested ? requested.toUpperCase() : pickCurrency(currencies, requested?.toUpperCase() ?? null);
   return shownCurrency(requested?.toUpperCase() ?? null, currencies, pickMainCurrency(weights));
 }
 

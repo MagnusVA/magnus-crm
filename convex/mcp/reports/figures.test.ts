@@ -410,3 +410,42 @@ describe("admin report regressions", () => {
     expect(result.comparisonOmitted).toMatchObject({ groups: 1 });
   });
 });
+
+it("keeps a People panel ready when a budget-limited currency panel held the requested currency", async () => {
+  const f = await fixture(true);
+  const request = { kind: "report" as const, report: "people" as const, panel: "closers", range, currency: "EUR" };
+  const plan = await warehouse(f, request);
+  await f.t.run(async ctx => {
+    for (const input of plan.inputs) if (input.job) {
+      const row = (await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", f.tenantId).eq("key", input.job!.key)).unique())!;
+      if (input.id === "people.setters") {
+        const data = JSON.parse(row.resultJson!);
+        data.rows[0].byCurrency = [{ currency: "EUR", amountMinor: 2000 }];
+        expect(data.rows.some((r: { byCurrency: { currency: string }[] }) => r.byCurrency.some(c => c.currency === "EUR"))).toBe(true);
+        // The panel holding EUR is lost to its warehouse budget. Available
+        // panels below retain USD only, so they cannot reject EUR.
+        await ctx.db.patch("mcpReportRequests", row._id, { status: "failed", error: "range_too_large", resultJson: undefined, finishedAt: Date.now() });
+      } else {
+        const data = JSON.parse(row.resultJson!);
+        if (Array.isArray(data.rows)) for (const r of data.rows) {
+          if (r.cash) r.cash = r.cash.filter((c: { currency: string }) => c.currency !== "EUR");
+          if (r.byCurrency) r.byCurrency = r.byCurrency.filter((c: { currency: string }) => c.currency !== "EUR");
+        }
+        if (data.unattributedCash) data.unattributedCash = data.unattributedCash.filter((c: { currency: string }) => c.currency !== "EUR");
+        await ctx.db.patch("mcpReportRequests", row._id, { resultJson: JSON.stringify(data) });
+      }
+    }
+  });
+  const result = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "people", panel: "closers", range, currency: "EUR" });
+  expect(result).toMatchObject({ status: "ready", isPartial: true });
+  expect(result.reasons).toContain("incomplete_input");
+  expect(panel(result, "people.closers")).toMatchObject({ currency: "EUR" });
+  const job = plan.inputs.find(i => i.id === "people.setters" && i.job)!.job!;
+  const [state] = JSON.parse(await f.t.query(internal.mcp.reports.planning.jobStates, { caller: f.caller, jobs: [job] }));
+  expect(state).toMatchObject({ status: "ready", source: { kind: "budget" } });
+  await f.t.run(async ctx => {
+    const row = (await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", f.tenantId).eq("key", job.key)).unique())!;
+    await ctx.db.patch("mcpReportRequests", row._id, { status: "running", runToken: "retry" });
+  });
+  expect(await f.t.query(internal.mcp.reports.planning.jobAnswer, { caller: f.caller, source: state.source })).toBeNull();
+});
