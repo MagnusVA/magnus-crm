@@ -4,6 +4,7 @@ import { emitDomainEvent, eventsForRecord } from "../lib/domainEvents";
 import { advanceLeadLifecycle, prospectEvidence } from "../lib/leadLifecycle";
 import { syncProspectConversions } from "../lib/prospectConversions";
 import { resolveLeadIdentity } from "../leads/identityResolution";
+import type { Provenance } from "../mcp/guard";
 
 // Every lead gen prospect is a person (docs/plans/phase-2-person-first.md
 // §4.1): the capture finds or creates them before it inserts the prospect.
@@ -65,6 +66,11 @@ export async function submissionEvents(
   });
 }
 
+/** An agent's write names the client; a web write adds nothing. */
+export function provenanceMetadata(provenance: Provenance | undefined) {
+  return provenance?.via === "mcp" ? { via: "mcp" as const, agentClient: provenance.agentClient } : {};
+}
+
 function captureMetadata(submission: Doc<"leadGenSubmissions">) {
   return {
     submissionId: submission._id,
@@ -80,7 +86,7 @@ export async function emitCaptureEvent(
   ctx: MutationCtx,
   submission: Doc<"leadGenSubmissions">,
   leadId: Id<"leads">,
-  options: { skipAnalytics?: boolean } = {},
+  options: { skipAnalytics?: boolean; provenance?: Provenance } = {},
 ): Promise<void> {
   await emitDomainEvent(ctx, {
     tenantId: submission.tenantId,
@@ -89,7 +95,7 @@ export async function emitCaptureEvent(
     eventType: LEAD_CAPTURED,
     source: "pipeline",
     actorUserId: submission.userId,
-    metadata: captureMetadata(submission),
+    metadata: { ...captureMetadata(submission), ...provenanceMetadata(options.provenance) },
     occurredAt: submission.submittedAt,
     skipAnalytics: options.skipAnalytics,
   });
@@ -100,7 +106,7 @@ export async function emitCaptureVoidedEvent(
   ctx: MutationCtx,
   submission: Doc<"leadGenSubmissions">,
   leadId: Id<"leads">,
-  options: { skipAnalytics?: boolean } = {},
+  options: { skipAnalytics?: boolean; provenance?: Provenance } = {},
 ): Promise<void> {
   if (submission.voidedAt === undefined) {
     throw new Error(`Submission ${submission._id} isn't voided`);
@@ -113,7 +119,7 @@ export async function emitCaptureVoidedEvent(
     source: "admin",
     actorUserId: submission.voidedByUserId,
     reason: submission.voidReason,
-    metadata: captureMetadata(submission),
+    metadata: { ...captureMetadata(submission), ...provenanceMetadata(options.provenance) },
     occurredAt: submission.voidedAt,
     skipAnalytics: options.skipAnalytics,
   });

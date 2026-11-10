@@ -3,7 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalQuery } from "../_generated/server";
 import { businessDateForInstant, countBusinessDays, addBusinessDays } from "../../lib/businessDay";
 import { resolveDashboardRange } from "../../lib/analyticsRange";
-import { rejectRequest } from "../lib/observability/errors";
+import { isExpectedError, rejectRequest } from "../lib/observability/errors";
 import type { CrmRole } from "../lib/roleMapping";
 import { rememberTenantBusinessDay } from "../lib/tenantBusinessDay";
 import schema from "../schema";
@@ -130,3 +130,34 @@ export const authorizeCaller = internalQuery({
     };
   },
 });
+
+/**
+ * The cores refuse with plain `Error`s, as the web always did; the gateway
+ * would send those as "Tool execution failed". Rethrow them so the agent
+ * reads the sentence a person would see.
+ */
+export async function withAgentErrors<T>(code: string, run: () => Promise<T> | T): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isExpectedError(error)) throw error;
+    if (error instanceof Error && error.name === "Error") throw rejectRequest(code, error.message);
+    throw error;
+  }
+}
+
+/**
+ * A list write's preview is a header, one numbered line per item, then notes.
+ * The commit builds the lines again and refuses when one differs from what
+ * was read back, except a line this same list already saved, which is
+ * reported instead (docs/plans/lead-gen-assistant.md §7).
+ */
+export function listPreview(header: string, lines: string[], notes: string[]): string {
+  return [header, ...lines.map((line, index) => `${index + 1}. ${line}`), ...notes].join("\n");
+}
+
+export function sameAsPreview(storedPreview: string, lines: string[], alreadyDone: boolean[]): boolean {
+  const stored = storedPreview.split("\n").slice(1, lines.length + 1);
+  if (stored.length !== lines.length) return false;
+  return lines.every((line, index) => alreadyDone[index] || stored[index] === `${index + 1}. ${line}`);
+}

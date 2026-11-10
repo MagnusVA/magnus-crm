@@ -170,6 +170,7 @@ import type * as leadGen_capture from "../leadGen/capture.js";
 import type * as leadGen_conversions from "../leadGen/conversions.js";
 import type * as leadGen_corrections from "../leadGen/corrections.js";
 import type * as leadGen_exports from "../leadGen/exports.js";
+import type * as leadGen_handleLookup from "../leadGen/handleLookup.js";
 import type * as leadGen_instagramPreview from "../leadGen/instagramPreview.js";
 import type * as leadGen_leadGenDealsAggregate from "../leadGen/leadGenDealsAggregate.js";
 import type * as leadGen_normalization from "../leadGen/normalization.js";
@@ -716,6 +717,7 @@ declare const fullApi: ApiFromModules<{
   "leadGen/conversions": typeof leadGen_conversions;
   "leadGen/corrections": typeof leadGen_corrections;
   "leadGen/exports": typeof leadGen_exports;
+  "leadGen/handleLookup": typeof leadGen_handleLookup;
   "leadGen/instagramPreview": typeof leadGen_instagramPreview;
   "leadGen/leadGenDealsAggregate": typeof leadGen_leadGenDealsAggregate;
   "leadGen/normalization": typeof leadGen_normalization;
