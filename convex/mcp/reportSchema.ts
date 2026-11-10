@@ -21,10 +21,19 @@ export const mcpReportTables = {
       v.literal("ready"),
       v.literal("failed"),
     ),
+    // Optional additions: widen only, no backfill or narrowing required.
+    kind: v.optional(v.union(v.literal("job"), v.literal("allowance"))),
+    watermark: v.optional(v.number()),
+    runToken: v.optional(v.string()),
+    workId: v.optional(v.string()),
+    runCount: v.optional(v.number()),
+    minuteStartedAt: v.optional(v.number()),
+    minuteCount: v.optional(v.number()),
     resultJson: v.optional(v.string()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     startedAt: v.optional(v.number()),
+    executingAt: v.optional(v.number()),
     finishedAt: v.optional(v.number()),
     // Answers expire with the next warehouse sync; rows are pruned after this.
     expiresAt: v.number(),
@@ -32,5 +41,6 @@ export const mcpReportTables = {
     .index("by_tenantId_and_key", ["tenantId", "key"])
     .index("by_status_and_createdAt", ["status", "createdAt"])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
-    .index("by_expiresAt", ["expiresAt"]),
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_tenantId_and_expiresAt", ["tenantId", "expiresAt"]),
 };

@@ -1,0 +1,43 @@
+import { dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, type ResolvedAnalyticsRange } from "./analyticsRange";
+import { addBusinessDays, businessDateForInstant, countBusinessDays, type BusinessDaySetting } from "./businessDay";
+
+export type AssistantRange = AnalyticsRange | { kind: "preset"; preset: "today" };
+export type SourceWindow = { engine: "convex" | "warehouse"; range: AnalyticsRange; window: ResolvedAnalyticsRange; label: "whole_range" | "history" | "today_live" };
+export type SourcePlan = { resolvedRange: ResolvedAnalyticsRange; windows: SourceWindow[] };
+
+/** Server equivalent of dashboardRangePlan + useAnalyticsSource/useAnalyticsReport.
+ * Kept free of Convex and React so both runtimes can import it. Pages retain their code.
+ */
+export function planAssistantSources(args: { range: AssistantRange; day: BusinessDaySetting; now: number; page: string; warehousePages: readonly string[]; reportId?: string }): SourcePlan {
+  const today = businessDateForInstant(args.now, args.day);
+  const range: AnalyticsRange = args.range.kind === "preset" && args.range.preset === "today"
+    ? { kind: "custom", startDate: today, endDateInclusive: today } : args.range as AnalyticsRange;
+  const resolvedRange = resolveAnalyticsRange(range, args.day, args.now);
+  const plan = dashboardRangePlan(args.range.kind === "custom"
+    ? { kind: "custom", startBusinessDate: resolvedRange.startDate, endBusinessDateInclusive: resolvedRange.endDateInclusive }
+    : args.range.kind === "preset" && ["today", "this_week", "this_month"].includes(args.range.preset)
+      ? args.range as { kind: "preset"; preset: "today" | "this_week" | "this_month" }
+      : { kind: "custom", startBusinessDate: resolvedRange.startDate, endBusinessDateInclusive: resolvedRange.endDateInclusive }, today);
+  const window = (engine: SourceWindow["engine"], r: AnalyticsRange, label: SourceWindow["label"]): SourceWindow => ({ engine, range: r, window: resolveAnalyticsRange(r, args.day, args.now), label });
+  if (plan.kind === "live" || !args.warehousePages.includes(args.page)) return { resolvedRange, windows: [window("convex", range, "whole_range")] };
+  if (plan.kind === "warehouse" || args.reportId === "team.outcomes") return { resolvedRange, windows: [window("warehouse", plan.range, "whole_range")] };
+  return { resolvedRange, windows: [window("warehouse", plan.history, "history"), window("convex", { kind: "custom", startDate: today, endDateInclusive: resolvedRange.endDateInclusive }, "today_live")] };
+}
+
+/** The exact split-cache match in use-analytics-report.ts, including day rollover. */
+export function cachedWindowFits(expected: ResolvedAnalyticsRange, answer: { startDate: string; endDateInclusive: string } | null | undefined) {
+  return !!answer && expected.startDate === answer.startDate && expected.endDateInclusive === answer.endDateInclusive;
+}
+
+export function reportLimit(limit = 10) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 25) throw new Error("Choose a limit from 1 to 25.");
+  return limit;
+}
+
+/** Called before any data query. Includes the omitted group in the output budget. */
+export function assertReportCells(periods: number, groups: number) {
+  if (periods * groups > 60) throw new Error("Choose at most 60 period × group cells.");
+}
+export function rangePeriods(range: ResolvedAnalyticsRange) {
+  return countBusinessDays(range.startDate, addBusinessDays(range.endDateInclusive, 1));
+}
