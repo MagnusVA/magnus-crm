@@ -61,10 +61,11 @@ const TIME = new Intl.DateTimeFormat(undefined, {
  */
 function appPath(cell: string): string | null {
   const text = cell.trim();
-  if (/^\/workspace\/[\w\-./?=&%]*$/.test(text)) return text;
-  if (!/^https?:\/\//i.test(text)) return null;
+  const bare = /^\/workspace\/[\w\-./?=&%]*$/.test(text);
+  if (!bare && !/^https?:\/\//i.test(text)) return null;
   try {
-    const url = new URL(text);
+    // Resolves "." and ".." first, so the path checked is the one opened.
+    const url = new URL(text, "https://magnus.invalid");
     return url.pathname.startsWith("/workspace/") ? `${url.pathname}${url.search}` : null;
   } catch {
     return null;

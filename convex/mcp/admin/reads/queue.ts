@@ -5,6 +5,7 @@ import { readLiveQueryRows } from "../../../lib/liveQueryBounds";
 import { isMissedMeetingLoss } from "../../../opportunities/dealState";
 import { buildTeamReview } from "../../../team/reviewCore";
 import { mcpCallerValidator, requireMcpAdmin, loadInTenant } from "../../guard";
+import { rejectRequest } from "../../../lib/observability/errors";
 import { formatLocal } from "../../time";
 import { appLink } from "../prepare";
 import {
@@ -501,7 +502,7 @@ export async function buildQueue(
     }
   } else if (args.queue === "booking_reviews") {
     if (args.closerId)
-      throw new Error("Booking reviews have no closer filter.");
+      throw rejectRequest("queue.no_closer_filter", "Booking reviews have no closer filter.");
     const page = args.itemId
       ? {
           page: [
@@ -554,7 +555,7 @@ export async function buildQueue(
     isPartial = !page.isDone;
     cursor = page.isDone ? null : page.continueCursor;
   } else if (args.queue === "team_review") {
-    if (args.closerId) throw new Error("Team review has no closer filter.");
+    if (args.closerId) throw rejectRequest("queue.no_closer_filter", "Team review has no closer filter.");
     const review = await buildTeamReview(ctx, me.tenantId);
     const offset = args.cursor ? Number(args.cursor) : 0;
     if (!Number.isSafeInteger(offset) || offset < 0) notFound();
@@ -577,7 +578,7 @@ export async function buildQueue(
     isPartial = !args.itemId && offset + limit < review.items.length;
     cursor = isPartial ? String(offset + limit) : null;
   } else {
-    if (args.closerId) throw new Error("Failed work has no closer filter.");
+    if (args.closerId) throw rejectRequest("queue.no_closer_filter", "Failed work has no closer filter.");
     if (args.itemId) {
       for (const table of [
         "meetingProjections",
@@ -594,10 +595,17 @@ export async function buildQueue(
           items = [failedItem(me, row)];
       }
     } else {
-      const c = args.cursor
-        ? (JSON.parse(args.cursor) as { source: number; cursor: string | null })
-        : { source: 0, cursor: null };
+      let c: { source: number; cursor: string | null } | null = { source: 0, cursor: null };
+      if (args.cursor) {
+        try {
+          c = JSON.parse(args.cursor) as typeof c;
+        } catch {
+          c = null;
+        }
+      }
       if (
+        !c ||
+        typeof c !== "object" ||
         !Number.isInteger(c.source) ||
         c.source < 0 ||
         c.source > 3 ||

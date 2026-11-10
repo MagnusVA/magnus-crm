@@ -269,3 +269,42 @@ describe("round 1 review fixes", () => {
     expect(await h.t.run((ctx) => ctx.db.query("mcpConfirmations").take(10))).toHaveLength(0);
   });
 });
+
+describe("review bot fixes", () => {
+  async function payment(h: Awaited<ReturnType<typeof fixture>>, fields: Record<string, unknown> = {}) {
+    return await h.t.run(async (ctx) => {
+      const programId = await insertProgram(ctx, h.tenantId, h.ownerId, "Coaching");
+      const id = await insertCloserPayment(ctx, { tenantId: h.tenantId, closerId: h.closerId, programId, amountMinor: 50000 });
+      if (Object.keys(fields).length) await ctx.db.patch("paymentRecords", id, fields);
+      await insertBillingPaymentAggregates(ctx, (await ctx.db.get("paymentRecords", id))!);
+      return id;
+    });
+  }
+
+  it("refuses a correction that matches the payment already", async () => {
+    const h = await fixture();
+    const paymentRecordId = await payment(h, { referenceCode: "SAME-1" });
+    await expect(
+      h.t.mutation(internal.mcp.admin.writes.payments.prepareCorrectPayment, {
+        caller: h.caller,
+        paymentRecordId,
+        amount: 500,
+        referenceCode: "SAME-1",
+        reason: "Double checking it",
+      }),
+    ).rejects.toThrow("Nothing to correct");
+  });
+
+  it("gives the core's own reason for a disputed payment", async () => {
+    const h = await fixture();
+    const paymentRecordId = await payment(h, { status: "disputed" });
+    await expect(
+      h.t.mutation(internal.mcp.admin.writes.payments.prepareCorrectPayment, {
+        caller: h.caller,
+        paymentRecordId,
+        amount: 400,
+        reason: "Wrong amount logged",
+      }),
+    ).rejects.toThrow("dispute");
+  });
+});

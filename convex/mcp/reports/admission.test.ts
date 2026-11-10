@@ -78,6 +78,20 @@ describe("isolated assistant report admission", () => {
         expect(saved.filter(r => r.status === "failed")).toHaveLength(1);
         expect(saved.filter(r => r.status === "running")).toHaveLength(1);
     });
+    it("admits a failed job again after a minute, and not before", async () => {
+        const f = await fixture();
+        const request = { caller: f.caller, jobs: jobs(f, 1) };
+        await f.t.mutation(internal.mcp.reports.admission.admit, request);
+        await advanceJob(f, true);
+        const failed = (await rows(f)).find(r => r.kind === "job")!;
+        expect(failed.status).toBe("failed");
+        await f.t.mutation(internal.mcp.reports.admission.admit, request);
+        expect((await rows(f)).find(r => r._id === failed._id)?.status).toBe("failed");
+        vi.advanceTimersByTime(61_000);
+        await f.t.mutation(internal.mcp.reports.admission.admit, request);
+        expect((await rows(f)).find(r => r._id === failed._id)?.status).not.toBe("failed");
+        expect((await rows(f)).find(r => r.kind === "allowance")?.runCount).toBe(2);
+    });
     it("recovers an abandoned permit and rejects its late completion", async () => {
         const f = await fixture();
         await f.t.mutation(internal.mcp.reports.admission.admit, { caller: f.caller, jobs: jobs(f, 2) });

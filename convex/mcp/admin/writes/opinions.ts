@@ -56,7 +56,10 @@ export const prepareDecideSecondOpinion = internalMutation({
     const allowed = await checkSecondOpinionCheckAllowed(ctx, actor, args);
     if (!allowed.ok) throw rejectRequest(allowed.code, allowed.message);
     const meeting = await ctx.db.get("meetings", row.meetingId);
-    const { timeZone, closerName } = await closerZone(ctx, me.tenantId, row.closerUserId);
+    // "X was right" names the closer who recorded the result; the call-back
+    // time is read in the meeting's current closer's zone, as the core reads it.
+    const { closerName } = await closerZone(ctx, me.tenantId, row.closerUserId);
+    const { timeZone } = await closerZone(ctx, me.tenantId, meeting?.assignedCloserId ?? row.closerUserId);
     const who = meeting?.leadName ?? "this person";
     const when = meeting ? formatLocal(meeting.scheduledAt, timeZone) : "";
     const reopenAt = args.reopen ? formatLocal(parseLocal(args.reopen.date, args.reopen.time, timeZone), timeZone) : null;

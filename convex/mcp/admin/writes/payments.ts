@@ -62,7 +62,12 @@ export const correctPaymentCommitter: Committer<CorrectArgs> = {
   pins: async (ctx, actor, args) => ({
     ...(await paymentPins(ctx, actor, args.paymentRecordId)),
     // What the correction does to enrollments and review, frozen at preview.
-    effects: (await describeCorrectionEffects(ctx, actor, args)).join(" · "),
+    // A refusal here (say, the payment became disputed) is a changed pin, so
+    // the commit returns stale instead of failing.
+    effects: await describeCorrectionEffects(ctx, actor, args).then(
+      (lines) => lines.join(" · "),
+      (error: unknown) => `refused: ${error instanceof Error ? error.message : "unknown"}`,
+    ),
   }),
   check: (ctx, actor, args) => checkCorrectPaymentAllowed(ctx, actor, args) as Promise<CheckResult<object>>,
   apply: async (ctx, actor, args, provenance) => {
@@ -88,18 +93,24 @@ export const prepareCorrectPayment = internalMutation({
       ? await ctx.db.get("opportunities", payment.opportunityId).then((d) => (d ? ctx.db.get("leads", d.leadId) : null))
       : null;
     const who = lead?.fullName ?? "this person";
+    // The core's own plan decides what changes, with its refusals as the
+    // admin's to read.
+    const planned = await checkCorrectPaymentAllowed(ctx, actor, args);
+    if (!planned.ok) throw rejectRequest(planned.code, planned.message);
+    if (!planned.changed) throw rejectRequest("correction.nothing", "That matches the payment already. Nothing to correct.");
+    const keys = new Set<string>(planned.changedKeys);
     const changes: string[] = [];
-    if (args.amount !== undefined) changes.push(`amount ${money(payment)} → ${formatMoney(toAmountMinor(args.amount), payment.currency)}`);
-    if (args.paymentType && args.paymentType !== payment.paymentType)
+    if (keys.has("amountMinor") && args.amount !== undefined)
+      changes.push(`amount ${money(payment)} → ${formatMoney(toAmountMinor(args.amount), payment.currency)}`);
+    if (keys.has("paymentType") && args.paymentType)
       changes.push(`type ${TYPE_LABEL[payment.paymentType] ?? payment.paymentType} → ${TYPE_LABEL[args.paymentType] ?? args.paymentType}`);
-    if (args.programId && args.programId !== payment.programId) {
+    if (keys.has("programId") && args.programId) {
       const program = await ctx.db.get("tenantPrograms", args.programId);
       changes.push(`program ${payment.programName} → ${program?.name ?? "another program"}`);
     }
-    if (args.referenceCode !== undefined) changes.push("reference code updated");
-    if (args.note !== undefined) changes.push("note updated");
-    if (!changes.length) throw rejectRequest("correction.nothing", "That matches the payment already. Nothing to correct.");
-    const effects = await describeCorrectionEffects(ctx, actor, args);
+    if (keys.has("referenceCode")) changes.push("reference code updated");
+    if (keys.has("note")) changes.push("note updated");
+    const effects = await asAgentError(() => describeCorrectionEffects(ctx, actor, args));
     const summary = `${who} · ${money(payment)} · ${changes.join(" · ")}`;
     return await prepareSingle(ctx, actor, correctPaymentCommitter, args, {
       action: "correct_payment",

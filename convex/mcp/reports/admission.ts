@@ -7,7 +7,7 @@ import type { Doc } from "../../_generated/dataModel";
 import { analyticsPool } from "../../analytics/pool";
 import { readSyncRow } from "../../analytics/results";
 import { requireMcpAdmin, mcpCallerValidator } from "../guard";
-import { ASSISTANT_DAILY_RUN_ALLOWANCE, ASSISTANT_MINUTE_JOB_ALLOWANCE, ASSISTANT_JOB_TIMEOUT_MS, SYNC_INTERVAL_MS, jobValidator, type ReportJob } from "./contracts";
+import { ASSISTANT_DAILY_RUN_ALLOWANCE, ASSISTANT_MINUTE_JOB_ALLOWANCE, ASSISTANT_JOB_TIMEOUT_MS, SYNC_INTERVAL_MS, failedJobRetryable, jobValidator, type ReportJob } from "./contracts";
 /** Serializes admission across tenants through indexed status range reads (Convex OCC).
  * Only running rows are dispatched. Two waiting rows stay outside the shared pool.
  */
@@ -63,7 +63,7 @@ export const admit = internalMutation({
         let reason: string | null = null;
         for (const job of jobs) {
             const existing = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", me.tenantId).eq("key", job.key)).unique();
-            if (existing && existing.expiresAt > now)
+            if (existing && existing.expiresAt > now && !failedJobRetryable(existing, now))
                 continue;
             if (used >= ASSISTANT_DAILY_RUN_ALLOWANCE) {
                 reason = "assistant_daily_allowance_spent";

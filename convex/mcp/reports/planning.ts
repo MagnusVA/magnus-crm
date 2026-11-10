@@ -10,7 +10,7 @@ import { planAssistantSources, cachedWindowFits, assertReportCells, rangePeriods
 import { settledThroughDate, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { addBusinessDays, businessDateForInstant, businessDayStart } from "../../../lib/businessDay";
 import type { AnalyticsFilters } from "../../analytics/definition";
-import { requestValidator, jobValidator, type ToolRequest, type ReportJob } from "./contracts";
+import { requestValidator, jobValidator, failedJobRetryable, type ToolRequest, type ReportJob } from "./contracts";
 import { assistantDefinition, REPORT_PANELS, CURRENT_REPORT_PAGES, LIVE_PANELS } from "./catalog";
 import { apiFilters, assistantApiAnswer, metricPage } from "./metrics";
 import { readFieldCatalog } from "../../reports/formFields";
@@ -143,7 +143,7 @@ export async function readJob(ctx: QueryCtx, tenantId: Parameters<typeof findRes
     if (row.status === "ready" && row.resultJson !== undefined)
         return { status: "ready", data: JSON.parse(row.resultJson), watermark: row.watermark };
     if (row.status === "failed")
-        return { status: "failed", reason: row.error ?? "warehouse_failed" };
+        return failedJobRetryable(row, Date.now()) ? { status: "pending" } : { status: "failed", reason: row.error ?? "warehouse_failed" };
     return { status: "pending" };
 }
 export const jobStates = internalQuery({ args: { caller: mcpCallerValidator, jobs: v.array(jobValidator) }, returns: v.string(), handler: async (ctx, args) => {

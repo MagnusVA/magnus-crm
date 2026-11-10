@@ -922,3 +922,11 @@ describe("round 1 review fixes", () => {
     expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(12288);
   });
 });
+
+describe("queue cursors", () => {
+  it("answers a malformed failed-work cursor as not found", async () => {
+    const f = await fixture();
+    for (const cursor of ["not json", "null", '{"source":9,"cursor":null}'])
+      await expect(f.t.query(reads.queue.run, { caller: f.caller, queue: "failed_work", cursor })).rejects.toThrow("can't find");
+  });
+});
