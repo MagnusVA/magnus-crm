@@ -93,7 +93,9 @@ const CARD_MERGED_PEOPLE = 3;
  * What a batch card shows (plan §6.1). The time zone needs the booking's
  * stored payload; the batch query fills it in with its own read budget.
  */
-export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = createLiveReadState()) {
+export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = createLiveReadState(),
+  mcp?: { viewerUserId: Id<"users"> },
+) {
   const allIds = await mergedLeadIds(ctx, lead.tenantId, lead._id);
   const ids = allIds.slice(0, CARD_MERGED_PEOPLE);
   const captures: Doc<"leadGenProspects">[] = [];
@@ -117,7 +119,9 @@ export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = crea
   return {
     handle: instagramHandle(lead), stage: lead.lifecycleStage, disposition: lead.disposition,
     capturedAt: capture?.firstCapturedAt ?? null,
-    capturedBy: worker?.tenantId === lead.tenantId ? worker.displayName ?? "Lead generator" : null,
+    capturedBy: worker?.tenantId === lead.tenantId
+      ? mcp ? worker.userId === mcp.viewerUserId ? "you" : "a teammate" : worker.displayName ?? "Lead generator"
+      : null,
     qualifiedAt: lead.lifecycleStageEnteredAt.qualified ?? null,
     newestDeal: newestDeal ? { opportunityId: newestDeal._id, stage: newestDeal.stage,
       outcome: newestDeal.outcome,
@@ -125,7 +129,7 @@ export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = crea
       lostReason: newestDeal.lostReason ? maskContactText(newestDeal.lostReason, [lead]) : null,
       createdAt: newestDeal.createdAt } : null,
     timeZone: null,
-    lastTouches: history.events.filter(eventIsTouch).slice(0, 3).map(touchSummary),
+    lastTouches: history.events.filter(event => eventIsTouch(event) && (!mcp || (event.entityType !== "payment" && !event.eventType.startsWith("payment.")))).slice(0, 3).map(touchSummary),
     capped: capped || history.capped,
   };
 }

@@ -253,6 +253,7 @@ import type * as lib_paymentTypes from "../lib/paymentTypes.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_prospectConversions from "../lib/prospectConversions.js";
 import type * as lib_respark_items from "../lib/respark/items.js";
+import type * as lib_respark_mcp from "../lib/respark/mcp.js";
 import type * as lib_respark_people from "../lib/respark/people.js";
 import type * as lib_respark_queryValidators from "../lib/respark/queryValidators.js";
 import type * as lib_respark_settings from "../lib/respark/settings.js";
@@ -800,6 +801,7 @@ declare const fullApi: ApiFromModules<{
   "lib/permissions": typeof lib_permissions;
   "lib/prospectConversions": typeof lib_prospectConversions;
   "lib/respark/items": typeof lib_respark_items;
+  "lib/respark/mcp": typeof lib_respark_mcp;
   "lib/respark/people": typeof lib_respark_people;
   "lib/respark/queryValidators": typeof lib_respark_queryValidators;
   "lib/respark/settings": typeof lib_respark_settings;
