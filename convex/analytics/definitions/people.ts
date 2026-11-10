@@ -10,6 +10,7 @@ import {
 } from "../../reports/lib/access";
 import { defineReport, nodeFinalize, rangeParams, type NodeBuild, type ReaderOutput, type ReportInput } from "../definition";
 import { docsFromRows } from "../rows";
+import type { SqlRow } from "../clickhouse";
 import { callCloserKeys, callFactsSql, buildWarehouseCallFacts, loadCallUsers } from "./calls";
 
 export type PeopleCloserFilters = { memberId: Id<"teamMembers"> | null };
@@ -30,6 +31,31 @@ INNER ANY JOIN (
   SELECT id, outcome FROM analytics.deals WHERE tenant_id = {tenant_id:String}
 ) AS d ON d.id = f.opportunity_id`;
 
+/**
+ * Deals whose first eligible payment falls in the range, with every closer
+ * who ever had a payment on them, so a member answer keeps only its own deals
+ * (the live reader's rule) and the merge can retract a win that moved.
+ */
+export const firstPaymentDealsSql = `
+SELECT f.opportunity_id AS opportunity_id, groupUniqArrayIf(p.attributed_closer_id, p.attributed_closer_id IS NOT NULL) AS closer_ids
+FROM (
+  SELECT opportunity_id, min(recorded_at_ms) AS first_paid_at_ms
+  FROM analytics.payments
+  WHERE tenant_id = {tenant_id:String} AND ifNull(status, '') != 'disputed' AND opportunity_id IS NOT NULL
+  GROUP BY opportunity_id
+  HAVING first_paid_at_ms >= {from_ms:Int64} AND first_paid_at_ms < {to_ms:Int64}
+) AS f
+INNER JOIN (
+  SELECT opportunity_id, attributed_closer_id FROM analytics.payments WHERE tenant_id = {tenant_id:String}
+) AS p ON p.opportunity_id = f.opportunity_id
+GROUP BY f.opportunity_id`;
+function firstPaymentDealIds(rows: SqlRow[], users: Doc<"users">[], memberId: Id<"teamMembers"> | null): Id<"opportunities">[] {
+  const member = new Set(users.filter(u => memberId !== null && u.teamMemberId === memberId).map(u => String(u._id)));
+  return rows
+    .filter(r => memberId === null || (r.closer_ids as string[]).some(id => member.has(id)))
+    .map(r => String(r.opportunity_id) as Id<"opportunities">);
+}
+
 export const firstPaymentSql = `
 SELECT argMin(id, (recorded_at_ms, creation_time_ms, id)) AS payment_id,
   min(recorded_at_ms) AS first_paid_at_ms
@@ -45,7 +71,7 @@ function liveArgs(input: ReportInput<PeopleCloserFilters>) {
     ...(input.filters.memberId ? { memberId: input.filters.memberId } : {}),
   };
 }
-export const CLOSER_QUERY_NAMES = ["meetings", "payments", "callPayments", "cohort", "firstPayments"] as const;
+export const CLOSER_QUERY_NAMES = ["meetings", "payments", "callPayments", "cohort", "firstPayments", "firstPaymentDeals"] as const;
 type CloserContext = { users: Doc<"users">[] };
 const closerNode: NodeBuild<PeopleCloserFilters, ReaderOutput<typeof getPeopleClosers>, CloserContext> = {
   keys: rows => [...new Set([...callCloserKeys(rows), ...docsFromRows<"paymentRecords">(rows.payments)
@@ -65,6 +91,7 @@ const closerNode: NodeBuild<PeopleCloserFilters, ReaderOutput<typeof getPeopleCl
       callPayments: docsFromRows<"paymentRecords">(input.rows.callPayments).filter(p => p.tenantId === input.tenantId),
       cohort: (input.rows.cohort ?? []).map(r => ({ meetingId: String(r.meeting_id) as Id<"meetings">, won: r.outcome === "won" })),
       firstPaymentIds: (input.rows.firstPayments ?? []).map(r => String(r.payment_id) as Id<"paymentRecords">),
+      firstPaymentDealIds: firstPaymentDealIds(input.rows.firstPaymentDeals ?? [], input.context.users, input.filters.memberId),
       cohortPartial: facts.partial, paymentsPartial: false,
     }, input.filters.memberId, input.range);
   },
@@ -100,6 +127,7 @@ export const peopleClosers = defineReport<
       },
       cohort: { sql: closerCohortSql, params },
       firstPayments: { sql: firstPaymentSql, params },
+      firstPaymentDeals: { sql: firstPaymentDealsSql, params },
     };
   },
   node: closerNode,

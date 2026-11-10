@@ -81,12 +81,11 @@ describe("People closers warehouse parity", () => {
       const raw = await f.t.query(internal.analytics.results.previewFinalize, {
         tenantId: f.tenantId, reportId: "people.closers", range,
         filtersJson: JSON.stringify({ memberId }),
-        rowsJson: JSON.stringify(projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS, payments: null, callPayments: null, firstPayments: null, cohort: null })),
+        rowsJson: JSON.stringify(projectWarehouseRows(f.rows, { meetings: CALL_COLUMNS, payments: null, callPayments: null, firstPayments: null, cohort: null, firstPaymentDeals: null })),
       });
-      // The unchanged raw SQL deliberately omits the new lifetime participation
-      // metadata. All original figures and the per-closer win sets still match.
-      const { firstPaymentDealIds, ...legacy } = live; void firstPaymentDealIds;
-      expect(JSON.parse(raw)).toEqual(JSON.parse(JSON.stringify(legacy)));
+      // Including firstPaymentDealIds, so history built by the active
+      // definition reconciles with today's live answer.
+      expect(JSON.parse(raw)).toEqual(JSON.parse(JSON.stringify(live)));
     }
   });
 });

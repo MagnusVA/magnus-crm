@@ -348,6 +348,16 @@ export async function callsReportFixture() {
           ? [{ payment_id: first._id }]
           : [];
       }),
+      firstPaymentDeals: deals.flatMap((d) => {
+        const dealPayments = payments.filter((p) => p.opportunityId === d._id);
+        const first = [...dealPayments].sort((a, b) => a.recordedAt - b.recordedAt)[0];
+        return first && first.recordedAt >= from && first.recordedAt < to
+          ? [{
+              opportunity_id: d._id,
+              closer_ids: [...new Set(dealPayments.flatMap((p) => (p.attributedCloserId ? [p.attributedCloserId] : [])))],
+            }]
+          : [];
+      }),
     };
   });
   return { t, ...fixture, rows };
