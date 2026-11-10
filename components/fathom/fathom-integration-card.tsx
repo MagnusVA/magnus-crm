@@ -116,7 +116,20 @@ function FathomSummary({ quiet }: { quiet: boolean }) {
           </Button>
         </ActionRow>
       ) : (
-        <FathomKeyForm replacing={false} quiet={quiet} onDone={() => {}} />
+        <>
+          <FathomKeyForm replacing={false} quiet={quiet} onDone={() => {}} />
+          {/* After a disconnect, leftover recordings and the second opinion still live on the page. */}
+          {connection ? (
+            <ActionRow>
+              <Button asChild variant="ghost" size="sm">
+                <Link href={FATHOM_SETTINGS_HREF}>
+                  Manage Fathom
+                  <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />
+                </Link>
+              </Button>
+            </ActionRow>
+          ) : null}
+        </>
       )}
     </section>
   );
