@@ -1,3 +1,5 @@
+import { captureFlag, findCaptureFlag } from "./captureFlags";
+import { loadStaffRedactor, type StaffRedactor } from "./assistantText";
 import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
@@ -79,6 +81,8 @@ export async function listMyRecentSubmissionsCore(
     .map(
       async (row): Promise<ActivityRow> => ({
         _id: row._id,
+        submissionId: row._id,
+        isVoided: row.voidedAt !== undefined,
         ...(options.includeVoided ? { voided: row.voidedAt !== undefined } : {}),
         submittedAt: row.submittedAt,
         type: "Capture",
@@ -128,6 +132,7 @@ export async function listMyRecentSubmissionsCore(
     maximumRowsRead: 1_000,
     maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
   });
+  let redactor: Promise<StaffRedactor> | undefined;
   return {
     ...page,
     page: await Promise.all(
@@ -137,8 +142,16 @@ export async function listMyRecentSubmissionsCore(
           : row.prospectId
             ? await ctx.db.get("leadGenProspects", row.prospectId)
             : null;
+        const flag = row.submissionId ? await findCaptureFlag(ctx, access.tenantId, row.submissionId) : null;
+        let dismissal;
+        if (flag?.resolutionNote) {
+          redactor ??= loadStaffRedactor(ctx, access.tenantId);
+          const lead = person?.tenantId === access.tenantId && "leadId" in person ? await ctx.db.get("leads", person.leadId) : null;
+          dismissal = (await redactor).safeNote(flag.resolutionNote, lead?.tenantId === access.tenantId ? [lead] : []);
+        }
         return {
           ...row,
+          ...(flag && { flag: { ...captureFlag(flag), ...(dismissal && { dismissal }) } }),
           prospect:
             person?.tenantId === access.tenantId
               ? {
@@ -339,6 +352,8 @@ const BUCKET_LABELS: Record<number, string> = {
 } as const;
 
 type ActivityRow = {
+  submissionId?: Id<"leadGenSubmissions">;
+  isVoided?: boolean;
   voided?: boolean;
   _id: string;
   submittedAt: number;

@@ -2,6 +2,7 @@ import { v, type Infer } from "convex/values";
 import { internal } from "../../_generated/api";
 import { internalAction, internalQuery } from "../../_generated/server";
 import { addBusinessDays, businessDayStart } from "../../../lib/businessDay";
+import { mcpCaptureFlag, mcpCaptureFlagValidator } from "../../leadGen/captureFlags";
 import { listRawSubmissionExportPageCore } from "../../leadGen/exports";
 import {
   decodeLeadGenCursor,
@@ -38,6 +39,7 @@ const suppliedText = v.object({
   personSupplied: v.literal(true),
 });
 const submissionValidator = v.object({
+  flag: v.optional(mcpCaptureFlagValidator),
   submissionId: v.id("leadGenSubmissions"),
   handle: v.union(suppliedText, v.null()),
   workerId: v.id("leadGenWorkers"),
@@ -135,7 +137,14 @@ export const readPage = internalQuery({
         "leadGenSubmissions",
         row.submissionId,
       );
+      const flag = row.flag ? mcpCaptureFlag(row.flag, me.timeZone) : null;
+      if (flag) {
+        // The added reason shares the existing per-row text budget.
+        text(flag.reason.text);
+        textTruncated ||= flag.reason.truncated;
+      }
       rows.push({
+        ...(flag && { flag }),
         submissionId: row.submissionId,
         handle: supplied(row.normalizedHandle),
         workerId: row.workerId,

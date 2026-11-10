@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../../_generated/server";
 import { lookupHandle, mergeLookups, stageLabel, verdictLine, type HandleLookup } from "../../leadGen/handleLookup";
+import { captureFlag, findCaptureFlag, mcpCaptureFlag, mcpCaptureFlagValidator } from "../../leadGen/captureFlags";
+import { trimLeadGenText } from "../../leadGen/floor";
+import { visibleContactAgain } from "../../lib/contactAgain";
 import { leadGenOriginKindValidator, leadGenSourceValidator } from "../../leadGen/validators";
 import { rejectRequest } from "../../lib/observability/errors";
 import { LEAD_GEN_ADMIN_ROLES, LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser } from "../guard";
@@ -34,6 +37,7 @@ const verdictValidator = v.union(
 );
 
 const captureValidator = v.object({
+  flag: v.optional(mcpCaptureFlagValidator),
   submissionId: v.id("leadGenSubmissions"),
   specialist: v.string(),
   team: v.union(v.string(), v.null()),
@@ -48,6 +52,7 @@ const captureValidator = v.object({
 });
 
 const resultValidator = v.object({
+  contactAgain: v.optional(v.object({ date: v.string(), note: v.optional(v.object({ text: v.string(), personSupplied: v.literal(true), truncated: v.boolean() })) })),
   input: v.string(),
   handle: v.union(v.string(), v.null()),
   verdict: verdictValidator,
@@ -102,7 +107,9 @@ function captureRows(ctx: QueryCtx, me: McpUser) {
     }
     const origin = submission.originValue ? trim(submission.originValue) : null;
     const reason = submission.voidReason ? trim(submission.voidReason) : null;
+    const flag = await findCaptureFlag(ctx, me.tenantId, submission._id);
     return {
+      ...(flag && { flag: mcpCaptureFlag(captureFlag(flag), me.timeZone) }),
       submissionId: submission._id,
       specialist,
       team,
@@ -164,7 +171,10 @@ export const check = internalQuery({
         });
         continue;
       }
+      const contact = lookup.lead ? visibleContactAgain(lookup.lead) : null;
       const row = {
+        ...(contact && { contactAgain: { date: contact.date,
+          ...(isAdmin && { note: { text: trimLeadGenText(contact.note), personSupplied: true as const, truncated: trimLeadGenText(contact.note) !== contact.note } }) } }),
         input: lookup.input,
         handle: lookup.handle,
         verdict: lookup.verdict,

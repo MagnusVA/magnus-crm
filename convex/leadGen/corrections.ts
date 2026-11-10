@@ -6,6 +6,7 @@ import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { applyLeadGenAggregateDelta } from "./aggregates";
 import { emitCaptureVoidedEvent } from "./prospectPeople";
+import { closeCaptureFlagAsVoided } from "./captureFlags";
 import { refreshResparkTeam } from "../lib/respark/state";
 
 const MIN_CORRECTION_REASON_LENGTH = 3;
@@ -55,7 +56,9 @@ export async function voidSubmissionCore(
     throw new Error("Submission not found");
   }
 
-  if (submission.voidedAt) {
+  await closeCaptureFlagAsVoided(ctx, { tenantId, userId }, submission._id);
+
+  if (submission.voidedAt !== undefined) {
     log.info("lead_gen.submission.void_skipped", {
       reason: "already_voided",
       tenantId,

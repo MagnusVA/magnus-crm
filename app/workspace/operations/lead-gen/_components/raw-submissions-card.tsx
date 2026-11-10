@@ -4,6 +4,7 @@ import { useId, useMemo, useState } from "react";
 import { usePaginatedQuery } from "convex/react";
 import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { CaptureFlag } from "@/convex/leadGen/captureFlags";
 import type { Id } from "@/convex/_generated/dataModel";
 import { DetailCard, DetailCardFooter } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
@@ -23,6 +24,7 @@ import { VoidSubmissionDialog } from "./void-submission-dialog";
 const PAGE_SIZE = 25;
 
 type RawSubmissionRow = {
+  flag?: CaptureFlag;
   submissionId: Id<"leadGenSubmissions">;
   prospectId: Id<"leadGenProspects">;
   submittedAt: number;
@@ -143,7 +145,7 @@ function Origin({ row }: { row: RawSubmissionRow }) {
   );
 }
 
-function Status({ row, when }: { row: RawSubmissionRow; when: ReturnType<typeof useWhen> }) {
+function CaptureStatus({ row, when }: { row: RawSubmissionRow; when: ReturnType<typeof useWhen> }) {
   if (!row.voidedAt) {
     return (
       <span className="font-condensed text-[13px] font-bold tracking-[0.08em] text-muted-foreground uppercase">Active</span>
@@ -161,6 +163,15 @@ function Status({ row, when }: { row: RawSubmissionRow; when: ReturnType<typeof 
       ) : null}
     </div>
   );
+}
+
+function Status({ row, when }: { row: RawSubmissionRow; when: ReturnType<typeof useWhen> }) {
+  return <div className="flex flex-col gap-1">
+    <CaptureStatus row={row} when={when} />
+    {row.flag ? <p className="text-[13px] text-muted-foreground" title={row.flag.reason}>
+      {row.flag.state === "open" ? "Flagged" : row.flag.state === "dismissed" ? "Flag dismissed" : "Flag closed"} · {row.flag.reason}
+    </p> : null}
+  </div>;
 }
 
 function VoidAction({ row }: { row: RawSubmissionRow }) {

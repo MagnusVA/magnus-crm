@@ -7,6 +7,7 @@ import { lookupHandle, mergeLookups, verdictLine, type HandleLookup } from "../.
 import { normalizeLeadGenOrigin } from "../../leadGen/normalization";
 import { leadGenOriginKindValidator, leadGenSourceValidator } from "../../leadGen/validators";
 import { rejectRequest } from "../../lib/observability/errors";
+import { maskContactText } from "../../lib/respark/people";
 import { rememberTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { issueConfirmation, markConfirmationUsed, redeemConfirmation, sha256Hex, stableJson } from "../confirm";
 import { LEAD_GEN_ROLES, mcpCallerValidator, requireMcpUser, type McpUser } from "../guard";
@@ -76,6 +77,7 @@ async function planCapture(ctx: MutationCtx, me: McpUser, workerId: Id<"leadGenW
   const origin = await withAgentErrors("capture.refused", () => normalizeLeadGenOrigin(submitted));
 
   const warnings: string[] = [];
+  const postNotes: string[] = [];
   if (rankable && origin.originValue && !POST_OR_REEL_URL.test(origin.originValue)) {
     warnings.push("The origin doesn't look like a post or reel link. It may be a profile.");
   }
@@ -85,6 +87,27 @@ async function planCapture(ctx: MutationCtx, me: McpUser, workerId: Id<"leadGenW
       .query("leadGenOriginPreviews")
       .withIndex("by_tenantId_and_originKey", (q) => q.eq("tenantId", me.tenantId).eq("originKey", originKey))
       .first();
+    if (known) {
+      // Cached identity is advisory, and cannot add a numbered preview line.
+      const oneLine = (value: string | undefined) => {
+        const safe = maskContactText(value ?? "", [])
+          .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return { text: safe.slice(0, 180), truncated: safe.length > 180 };
+      };
+      const authorText = oneLine(known.authorName);
+      const handleText = oneLine(known.handle);
+      const author = authorText.text;
+      const handle = handleText.text.replace(/^@/, "");
+      const rawDate = known.postedOn ?? "";
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && !Number.isNaN(Date.parse(rawDate)) && new Date(rawDate).toISOString().slice(0, 10) === rawDate ? rawDate : "";
+      const identity = author || handle;
+      if (identity || date) {
+        const by = author && handle ? `${author} (@${handle})` : author || `@${handle}`;
+        postNotes.push(`Post${identity ? ` by ${JSON.stringify({ text: by, personSupplied: true, truncated: authorText.truncated || handleText.truncated })}` : ""}${date ? `, posted on ${date}` : ""}.`);
+      }
+    }
     if (!known) warnings.push("This post or reel hasn't been used as an origin before. Check it's the right one.");
   }
 
@@ -148,7 +171,7 @@ async function planCapture(ctx: MutationCtx, me: McpUser, workerId: Id<"leadGenW
   const previewText = listPreview(
     `Save ${willSave} of ${lines.length} ${lines.length === 1 ? "handle" : "handles"} as ${me.user.fullName ?? me.user.email}, from ${from}:`,
     textLines,
-    [...warnings.map((warning) => `Warning: ${warning}`), "A lead gen can't undo a capture."],
+    [...postNotes, ...warnings.map((warning) => `Warning: ${warning}`), "A lead gen can't undo a capture."],
   );
 
   return { lines, textLines, willSave, warnings, previewText, submitted };

@@ -10,6 +10,8 @@ import { findResult, registerRequest, resultState } from "../../analytics/result
 import { analyticsRangeValidator } from "../../analytics/schema";
 import { deriveOverviewRange, toPublicOverviewRange } from "../../dashboard/overviewRange";
 import { getMyActivitySummaryCore, getOwnLeadGenProfile, leadGenProfileValidator, listMyRecentSubmissionsCore } from "../../leadGen/activity";
+import type { SafeNoteResult } from "../../leadGen/assistantText";
+import { mcpCaptureFlag, mcpCaptureFlagValidator, type CaptureFlag } from "../../leadGen/captureFlags";
 import { leadGenBusinessDayBlocked } from "../../lib/businessDayRebuildState";
 import { rejectRequest } from "../../lib/observability/errors";
 import { McpProjectionBudget, mcpPersonTextValidator } from "../../lib/respark/mcp";
@@ -26,7 +28,11 @@ const summaryValidator = v.object({ range: rangeValidator, submissions: v.number
 type Summary = Infer<typeof summaryValidator>;
 const metricsValidator = v.object({ rawLeads: v.number(), resparks: v.number(), entries: v.number(), notAFit: v.number(),
   scheduledHours: v.number(), leadsPerHour: nullableNumber });
-const recentRowValidator = v.object({ id: v.string(), submittedAt: v.number(), type: v.string(), source: v.string(),
+const recentRowValidator = v.object({
+  submissionId: v.optional(v.id("leadGenSubmissions")),
+  flag: v.optional(v.object({ ...mcpCaptureFlagValidator.fields,
+    dismissal: v.optional(v.object({ note: v.union(mcpPersonTextValidator, v.null()), withheld: v.union(v.literal("staff_roster_too_large"), v.null()) })) })),
+  id: v.string(), submittedAt: v.number(), type: v.string(), source: v.string(),
   originKind: v.string(), originValue: v.union(mcpPersonTextValidator, v.null()), handle: v.union(v.string(), v.null()), voided: v.boolean() });
 const activityReadResultValidator = v.object({ state: v.union(v.literal("ready"), v.literal("pending"), v.literal("failed")),
   profile: leadGenProfileValidator, range: rangeValidator, source: v.union(v.literal("live"), v.literal("warehouse")),
@@ -39,6 +45,16 @@ const activityResultValidator = v.object({ ...activityReadResultValidator.fields
 type ActivityResult = Infer<typeof activityResultValidator>;
 type ActivityReadResult = Infer<typeof activityReadResultValidator>;
 type ActivityRead = { result: ActivityReadResult; todaySummary: Summary | null; history: AnalyticsRange | null };
+
+function activityFlag(flag: CaptureFlag & { dismissal?: SafeNoteResult }, timeZone: string, budget: McpProjectionBudget) {
+  const projected = mcpCaptureFlag(flag, timeZone);
+  budget.textTruncated ||= projected.reason.truncated;
+  const dismissal = flag.dismissal;
+  if (!dismissal) return projected;
+  const note = dismissal.note ? budget.personText(dismissal.note.text) : null;
+  if (note && dismissal.note) note.truncated ||= dismissal.note.truncated;
+  return { ...projected, dismissal: { note, withheld: dismissal.withheld } };
+}
 
 function activityPlan(me: McpUser, args: LeadGenRangeArgs) {
   const day = me.tenant.businessDay ?? DEFAULT_BUSINESS_DAY;
@@ -79,7 +95,10 @@ export const readActivity = internalQuery({
     if (!worker || !worker.isActive || profile.noTeam) return { result: { ...base, isPartial: true }, todaySummary: null, history: null };
     if (await leadGenBusinessDayBlocked(ctx, me.tenantId)) return { result: { ...base, state: "pending", isPartial: true, asOf: null }, todaySummary: null, history: null };
     const recent = await listMyRecentSubmissionsCore(ctx, me, { range: info.range, paginationOpts: { cursor, numItems: 25 } }, { includeVoided: true });
-    const rows = recent.page.map(row => ({ id: row._id, submittedAt: row.submittedAt, type: row.type, source: row.source,
+    const rows = recent.page.map(row => ({
+      ...(row.submissionId && { submissionId: row.submissionId }),
+      ...(row.flag && { flag: activityFlag(row.flag, me.timeZone, budget) }),
+      id: row._id, submittedAt: row.submittedAt, type: row.type, source: row.source,
       originKind: row.originKind, originValue: row.originValue ? budget.personText(row.originValue) : null,
       handle: row.prospect?.normalizedHandle ? budget.text(row.prospect.normalizedHandle) : null, voided: row.voided ?? false }));
     const liveRange = info.history ? info.plan.kind === "split" ? { kind: "custom" as const, startBusinessDate: info.today, endBusinessDateInclusive: info.today } : null : info.range;

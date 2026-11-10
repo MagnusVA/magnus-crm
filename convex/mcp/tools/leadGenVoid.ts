@@ -61,6 +61,7 @@ export const voidCapture = internalMutation({
 
     if (!redeemed) {
       if (submission.voidedAt !== undefined) {
+        await withAgentErrors("void.refused", () => voidSubmissionCore(ctx, me, { submissionId, reason }, { via: "mcp", agentClient: me.agentClient }));
         return {
           preview: `${specialist}'s capture of ${handle} on ${when} was already voided on ${formatLocal(submission.voidedAt, me.timeZone)}. Nothing to do.`,
           alreadyVoided: true,

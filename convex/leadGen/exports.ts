@@ -1,3 +1,4 @@
+import { captureFlag, findCaptureFlag } from "./captureFlags";
 import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -425,12 +426,14 @@ async function hydrateRawSubmissionRows(
     [...new Set(rows.map((row) => row.prospectId))],
   );
 
-  return rows.map((row) => {
+  return Promise.all(rows.map(async (row) => {
     const worker = workers.get(row.workerId);
     const team = row.teamId ? teams.get(row.teamId) : null;
     const prospect = prospects.get(row.prospectId);
+    const flag = await findCaptureFlag(ctx, tenantId, row._id);
 
     return {
+      ...(flag && { flag: captureFlag(flag) }),
       submissionId: row._id,
       prospectId: row.prospectId,
       submittedAt: row.submittedAt,
@@ -451,7 +454,7 @@ async function hydrateRawSubmissionRows(
       voidedAt: row.voidedAt ?? null,
       voidReason: row.voidReason ?? null,
     };
-  });
+  }));
 }
 
 async function hydrateSummaryExportRows(
