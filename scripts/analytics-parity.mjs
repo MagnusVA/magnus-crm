@@ -37,7 +37,7 @@ export function main(argv = process.argv.slice(2), injectedRun) {
     return 2;
   }
   // Flags that take a value; one given without it (or followed by another flag) is an error.
-  const VALUE_FLAGS = ["range", "tz", "tenant", "filters", "active", "candidate", "coverage", "max-queries", "max-seconds"];
+  const VALUE_FLAGS = ["range", "tz", "tenant", "filters", "active", "candidate", "coverage", "max-queries", "max-seconds", "budget-file"];
   const missing = args.flatMap((arg, index) => {
     const name = arg.startsWith("--") ? arg.slice(2) : null;
     if (!name || !VALUE_FLAGS.includes(name)) return [];

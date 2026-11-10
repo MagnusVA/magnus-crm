@@ -930,8 +930,10 @@ export async function buildQueueSummary(
     const history = { state: createLiveReadState(), bytes: MISSED_HISTORY_BYTES };
     const rows = [];
     for (const r of s.rows) {
-      if (await isOpenMissedMeeting(ctx, r, start, now, history)) rows.push(r);
+      const open = await isOpenMissedMeeting(ctx, r, start, now, history);
+      // A capped read may have missed the newer deal, so this one is unknown.
       if (history.state.capped) break;
+      if (open) rows.push(r);
     }
     seen(rows.length, s.capped || history.state.capped);
     oldest = rows.length ? Math.min(...rows.map((r) => r.lostAt!)) : null;
