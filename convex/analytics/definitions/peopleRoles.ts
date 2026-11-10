@@ -82,9 +82,12 @@ relevant_deals AS (
   AND opportunity_id IN (SELECT opportunity_id FROM relevant_deals)`),
     qualifications: query(`SELECT ${QUALIFICATION_COLUMNS.join(", ")} FROM range_qualifications`),
   };
-  queries.firstPayments = query(`SELECT * FROM analytics.payments WHERE tenant_id = {tenant_id:String}
-  AND opportunity_id IN (SELECT opportunity_id FROM relevant_deals)
-  AND ifNull(status, '') != 'disputed'
+  queries.firstPayments = query(`SELECT * FROM (
+  SELECT * FROM analytics.payments WHERE tenant_id = {tenant_id:String}
+    AND opportunity_id IN (SELECT opportunity_id FROM relevant_deals)
+    AND status IN ('recorded', 'verified')
+  ORDER BY recorded_at_ms, creation_time_ms, id LIMIT 1 BY opportunity_id, status
+)
 ORDER BY recorded_at_ms, id LIMIT 1 BY opportunity_id`);
   if (role === "dm_closer") return { ...queries,
     meetings: query(`SELECT ${DM_MEETING_COLUMNS.join(", ")} FROM analytics.meetings WHERE tenant_id = {tenant_id:String}

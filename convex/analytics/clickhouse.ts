@@ -111,6 +111,20 @@ export class RowsBudgetExceededError extends Error {
 
 type ClickHouseBody = { data?: unknown; rows?: unknown; exception?: unknown };
 
+/** Optional parity instrumentation. Ordinary callers have no active scope. */
+export type ClickHouseAttemptHook = {
+  beforeAttempt(retry: boolean): void;
+  afterAttempt(elapsedMs: number): void;
+  onResponseError?(text: string, status: number, exceptionCode: string | null): void;
+};
+
+// Node parity supplies AsyncLocalStorage. Keeping only its structural API here
+// leaves this client usable in both Convex runtimes, with no Node imports.
+const attemptScopes: Array<{ getStore(): ClickHouseAttemptHook | undefined }> = [];
+export function registerClickHouseAttemptScope(scope: { getStore(): ClickHouseAttemptHook | undefined }) {
+  attemptScopes.push(scope);
+}
+
 /**
  * The rows of a response that is whole. A query that fails after ClickHouse
  * began sending rows (a row or time limit, for example) still answers 200:
@@ -154,62 +168,70 @@ async function post(
     let wakeRetries = 0;
     let busyRetries = 0;
     for (;;) {
-      let response: Response;
+      const hook = attemptScopes.map(scope => scope.getStore()).find(value => value !== undefined);
+      hook?.beforeAttempt(wakeRetries > 0 || busyRetries > 0);
+      const attemptStarted = Date.now();
       try {
-        response = await fetch(url, {
-          method: "POST",
-          body: query.sql,
-          headers: {
-            Authorization: `Basic ${btoa(`${config.user}:${config.password}`)}`,
-            "Content-Type": "text/plain; charset=utf-8",
-          },
-          signal: controller.signal,
-        });
-      } catch (error) {
-        if (controller.signal.aborted) {
-          throw new ClickHouseQueryError("The reporting database didn't answer in time.", null);
-        }
-        // A service waking from idle can drop the first connection.
-        if (wakeRetries < WAKE_RETRIES) {
-          wakeRetries += 1;
-          await sleep(WAKE_RETRY_DELAY_MS);
-          continue;
-        }
-        throw new ClickHouseQueryError(
-          `The reporting database couldn't be reached: ${String(error).slice(0, ERROR_TEXT_LIMIT)}`,
-          null,
-        );
-      }
-      if (!response.ok) {
-        const text = (await response.text()).slice(0, ERROR_TEXT_LIMIT);
-        const busy =
-          response.headers.get("X-ClickHouse-Exception-Code") === "202" ||
-          text.includes("TOO_MANY_SIMULTANEOUS_QUERIES");
-        // Busy first, so a busy 502 or 503 doesn't also use the wake retries.
-        if (busy) {
-          if (busyRetries < BUSY_RETRY_DELAYS_MS.length) {
-            // Jittered, so runs that collided don't collide again.
-            await sleep(BUSY_RETRY_DELAYS_MS[busyRetries] * (0.5 + Math.random()));
-            busyRetries += 1;
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            body: query.sql,
+            headers: {
+              Authorization: `Basic ${btoa(`${config.user}:${config.password}`)}`,
+              "Content-Type": "text/plain; charset=utf-8",
+            },
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (controller.signal.aborted) {
+            throw new ClickHouseQueryError("The reporting database didn't answer in time.", null);
+          }
+          // A service waking from idle can drop the first connection.
+          if (wakeRetries < WAKE_RETRIES) {
+            wakeRetries += 1;
+            await sleep(WAKE_RETRY_DELAY_MS);
             continue;
           }
-        } else if ((response.status === 502 || response.status === 503) && wakeRetries < WAKE_RETRIES) {
-          wakeRetries += 1;
-          await sleep(WAKE_RETRY_DELAY_MS);
-          continue;
+          throw new ClickHouseQueryError(
+            `The reporting database couldn't be reached: ${String(error).slice(0, ERROR_TEXT_LIMIT)}`,
+            null,
+          );
         }
-        throw new ClickHouseQueryError(text || `HTTP ${response.status}`, response.status);
+        if (!response.ok) {
+          const text = (await response.text()).slice(0, ERROR_TEXT_LIMIT);
+          hook?.onResponseError?.(text, response.status, response.headers.get("X-ClickHouse-Exception-Code"));
+          const busy =
+            response.headers.get("X-ClickHouse-Exception-Code") === "202" ||
+            text.includes("TOO_MANY_SIMULTANEOUS_QUERIES");
+          // Busy first, so a busy 502 or 503 doesn't also use the wake retries.
+          if (busy) {
+            if (busyRetries < BUSY_RETRY_DELAYS_MS.length) {
+              // Jittered, so runs that collided don't collide again.
+              await sleep(BUSY_RETRY_DELAYS_MS[busyRetries] * (0.5 + Math.random()));
+              busyRetries += 1;
+              continue;
+            }
+          } else if ((response.status === 502 || response.status === 503) && wakeRetries < WAKE_RETRIES) {
+            wakeRetries += 1;
+            await sleep(WAKE_RETRY_DELAY_MS);
+            continue;
+          }
+          throw new ClickHouseQueryError(text || `HTTP ${response.status}`, response.status);
+        }
+        let body: ClickHouseBody;
+        if (budget) {
+          const text = await response.text();
+          if (text.length > budget.remainingChars) throw new RowsBudgetExceededError();
+          budget.remainingChars -= text.length;
+          body = JSON.parse(text) as ClickHouseBody;
+        } else {
+          body = (await response.json()) as ClickHouseBody;
+        }
+        return completeRows(body, response.status);
+      } finally {
+        hook?.afterAttempt(Date.now() - attemptStarted);
       }
-      let body: ClickHouseBody;
-      if (budget) {
-        const text = await response.text();
-        if (text.length > budget.remainingChars) throw new RowsBudgetExceededError();
-        budget.remainingChars -= text.length;
-        body = JSON.parse(text) as ClickHouseBody;
-      } else {
-        body = (await response.json()) as ClickHouseBody;
-      }
-      return completeRows(body, response.status);
     }
   } finally {
     clearTimeout(timer);

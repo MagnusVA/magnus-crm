@@ -37,6 +37,7 @@ import type * as analytics_definitions_leadGenShared from "../analytics/definiti
 import type * as analytics_definitions_operations from "../analytics/definitions/operations.js";
 import type * as analytics_definitions_overview from "../analytics/definitions/overview.js";
 import type * as analytics_definitions_people from "../analytics/definitions/people.js";
+import type * as analytics_definitions_peopleClosersNext from "../analytics/definitions/peopleClosersNext.js";
 import type * as analytics_definitions_peopleRoles from "../analytics/definitions/peopleRoles.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_definitions_scorecard from "../analytics/definitions/scorecard.js";
@@ -662,6 +663,7 @@ declare const fullApi: ApiFromModules<{
   "analytics/definitions/operations": typeof analytics_definitions_operations;
   "analytics/definitions/overview": typeof analytics_definitions_overview;
   "analytics/definitions/people": typeof analytics_definitions_people;
+  "analytics/definitions/peopleClosersNext": typeof analytics_definitions_peopleClosersNext;
   "analytics/definitions/peopleRoles": typeof analytics_definitions_peopleRoles;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/definitions/scorecard": typeof analytics_definitions_scorecard;

@@ -5,6 +5,7 @@ import { internal } from "../convex/_generated/api";
 import type { Id, TableNames } from "../convex/_generated/dataModel";
 import type schema from "../convex/schema";
 import type { ResolvedAnalyticsRange } from "../lib/analyticsRange";
+import type { QueryCtx } from "../convex/_generated/server";
 
 /** Fields each view leaves out (clickhouse/migrations/0002_views.sql). */
 const VIEW_OMITTED_FIELDS: Partial<Record<TableNames, readonly string[]>> = {
@@ -57,6 +58,68 @@ export function rowFromDoc(table: TableNames, doc: Record<string, unknown>): Rec
     else row[snake(key)] = value;
   }
   return row;
+}
+
+/**
+ * Evaluate the ORDER BY / LIMIT 1 BY stages of a fixture query, inside out.
+ * This deliberately reads the SQL's keys, so removing a stage or changing
+ * its ordering changes the fixture result. It does not execute other SQL.
+ * Callers supply rows already restricted by the query's WHERE clause.
+ */
+export function orderedLimitByRows(sql: string, rows: Array<Record<string, unknown>>) {
+  const stages = [...sql.matchAll(/ORDER BY ([a-z_, ]+) LIMIT 1 BY ([a-z_, ]+)/g)];
+  expect(stages.length, "fixture query needs an ORDER BY / LIMIT 1 BY stage").toBeGreaterThan(0);
+  for (const stage of stages) {
+    const order = stage[1].split(",").map(key => key.trim());
+    const partition = stage[2].trim().split(",").map(key => key.trim());
+    const seen = new Set<string>();
+    rows = [...rows].sort((a, b) => {
+      for (const key of order) {
+        const left = a[key], right = b[key];
+        if (left === right) continue;
+        return typeof left === "number" && typeof right === "number"
+          ? left - right : String(left).localeCompare(String(right));
+      }
+      return 0;
+    }).filter(row => {
+      const key = JSON.stringify(partition.map(column => row[column]));
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  return rows;
+}
+
+/**
+ * Convex-test generates ids in creation order, unlike production. Rekey only
+ * indexed first-payment results so the real live reader compares opaque ids
+ * across statuses while its per-status index keeps the original order.
+ */
+export function withOpaquePaymentIds(ctx: QueryCtx, ids: Record<string, Id<"paymentRecords">>): QueryCtx {
+  return { ...ctx, db: new Proxy(ctx.db, {
+    get(db, key, receiver) {
+      if (key !== "query") return Reflect.get(db, key, receiver);
+      return (table: TableNames) => {
+        const query = db.query(table);
+        if (table !== "paymentRecords") return query;
+        return new Proxy(query, { get(query, key, receiver) {
+          if (key !== "withIndex") return Reflect.get(query, key, receiver);
+          return (...args: unknown[]) => {
+            const indexed = Reflect.apply(query.withIndex, query, args);
+            if (args[0] !== "by_opportunityId_and_status_and_recordedAt") return indexed;
+            return new Proxy(indexed, { get(indexed, key, receiver) {
+              if (key !== "first") return Reflect.get(indexed, key, receiver);
+              return async () => {
+                const payment = await indexed.first();
+                return payment ? { ...payment, _id: ids[payment._id] ?? payment._id } : null;
+              };
+            } });
+          };
+        } });
+      };
+    },
+  }) };
 }
 
 /** Apply the SQL's named queries and projections before exercising a finalizer. */

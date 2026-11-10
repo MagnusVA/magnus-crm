@@ -11,6 +11,20 @@ import { resolvedRangeValidator } from "./results";
 import { fetchReportRows } from "./run";
 import { analyticsPageValidator, analyticsRangeValidator } from "./schema";
 
+/** Candidate twins are internal verification tools, not external API panels. */
+export function ordinaryParityDefinitions(page: string) {
+  return listReportDefinitions().filter(definition =>
+    definition.page === (page === "api" ? null : page) &&
+    !(definition.page === null && /\.(next|raw)$/.test(definition.id)));
+}
+
+/** Independent panel inventory makes an omitted plan item fail coverage. */
+export const requiredReports = internalQuery({
+  args: { page: v.union(analyticsPageValidator, v.literal("api")) },
+  returns: v.array(v.string()),
+  handler: async (_ctx, { page }) => ordinaryParityDefinitions(page).map(definition => definition.id),
+});
+
 // Read-only helpers for `pnpm analytics:parity` (scripts/analytics-parity.mjs),
 // which compares each report's Convex reader with its ClickHouse path on
 // production before the page is switched (§12.1). Nothing here writes.
@@ -76,6 +90,7 @@ export const plan = internalQuery({
     range: analyticsRangeValidator,
     timeZone: v.string(),
     filtersJson: v.optional(v.string()),
+    reportIds: v.optional(v.array(v.string())),
   },
   returns: v.array(
     v.union(
@@ -100,8 +115,8 @@ export const plan = internalQuery({
     };
     const now = Date.now();
     const items = [];
-    for (const definition of listReportDefinitions()) {
-      if (definition.page !== (args.page === "api" ? null : args.page)) continue;
+    const definitions = args.reportIds ? args.reportIds.map(getReportDefinition) : ordinaryParityDefinitions(args.page);
+    for (const definition of definitions) {
       let filters: AnalyticsFilters;
       try {
         filters = await definition.parseFilters(ctx, raw, viewer);
@@ -125,6 +140,16 @@ export const plan = internalQuery({
     }
     return items;
   },
+});
+
+/** One budgeted warehouse comparison at a time; every retry returns usage. */
+export const runBudgeted = internalAction({
+  args: {
+    tenantId: v.id("tenants"), reportId: v.string(), candidateId: v.optional(v.string()),
+    filtersJson: v.string(), range: resolvedRangeValidator, maxQueries: v.number(), maxSeconds: v.number(),
+  },
+  returns: v.string(),
+  handler: async (ctx, args): Promise<string> => await ctx.runAction(internal.analytics.runNode.compareInNode, args),
 });
 
 /** The new path's answer for one report, computed and returned, never saved. */
