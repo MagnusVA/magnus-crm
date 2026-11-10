@@ -6,18 +6,36 @@ import { appLink } from "../admin/prepare";
 import { numbersArgs, reportArgs, ASSISTANT_COLD_WAIT_MS, type ToolRequest } from "./contracts";
 import type { Prepared, JobAnswer } from "./planning";
 import { incomplete, withholdIncomplete, safeText, boundPanel, capAnswer, type Json } from "./output";
-import { mergeMetricWindows, boundMetricRows, metricDelta, NON_ADDITIVE, type MetricRow } from "../../../lib/assistantReportMerge";
+import { boundMetricRows, metricDelta, NON_ADDITIVE, type MetricRow } from "../../../lib/assistantReportMerge";
 import { addBusinessDays } from "../../../lib/businessDay";
 import { mergeReportPanel } from "./merge";
 import { REPORT_DEFINITIONS } from "./catalog";
 import { gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES } from "../../../lib/assistantReportMerge";
-import { METRIC_DEFINITIONS } from "./metrics";
+import { METRIC_DEFINITIONS, projectNumbers, metricPanels } from "./metrics";
+import { shapePanel } from "../../../lib/reporting/pageFigures/panels";
 const rowKey = (r: MetricRow) => JSON.stringify([r.id, r.group, r.period, r.currency ?? null, r.label ?? null]);
-type Loaded = {
+export type Loaded = {
     input: Prepared["inputs"][number];
     data: unknown;
     watermark: number | null;
 };
+/**
+ * Apply the page's own window merge before any projection. The page merges
+ * whatever its partial flags say and shows the result with those flags, so
+ * the merged answer keeps them; figures that depend on a flagged part come
+ * back as lower bounds, and comparisons still need complete inputs.
+ */
+export function mergedPageAnswers(loaded: Loaded[], period: string): Map<string, unknown> {
+    const result = new Map<string, unknown>();
+    const panelKey = (l: Loaded) => `${l.input.id}${l.input.team ? ".team" : ""}`;
+    const selected = loaded.filter(l => l.input.period === period);
+    for (const key of new Set(selected.map(panelKey))) {
+        const parts = selected.filter(l => panelKey(l) === key);
+        if (parts.length === 1) result.set(key, parts[0].data);
+        else if (parts.length === 2) result.set(key, mergeReportPanel(parts[0].input.id, parts[0].data, parts[1].data));
+    }
+    return result;
+}
 export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: ToolRequest): Promise<Record<string, unknown>> {
     const started = Date.now();
     const prepared: Prepared = JSON.parse(await ctx.runQuery(internal.mcp.reports.planning.prepare, { caller, request }));
@@ -83,31 +101,14 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         base.reasons.push("incomplete_input");
     }
     if (request.kind === "numbers") {
+        const currentAnswers = mergedPageAnswers(loaded, "current");
         const periodRows = (period: string) => {
-            const result: MetricRow[] = [];
-            const selected = loaded.filter(l => l.input.period === period);
-            for (const filters of new Set(selected.map(l => JSON.stringify(l.input.filters)))) {
-                const inputs = selected.filter(l => JSON.stringify(l.input.filters) === filters);
-                const rows = (i: Loaded) => {
-                    const actual = (i.data as {
-                        rows: MetricRow[];
-                    }).rows;
-                    if (request.groupBy && request.groupBy !== "day")
-                        return actual;
-                    for (const id of String(i.input.filters.metrics).split(","))
-                        if (!actual.some(r => r.id === id)) {
-                            const ratio = ["show_rate", "close_rate"].includes(id);
-                            const money = ["final_cash", "cash_collected", "deposits", "average_deal_size"].includes(id);
-                            actual.push({ id, value: ratio || money ? null : 0, unit: ratio ? "ratio" : money ? "minor" : "count", group: null, period: request.groupBy === "day" ? i.input.window.window.startDate : "total", ...(ratio || money ? { nullReason: ratio ? "no_denominator" : "no_payments" } : {}) });
-                        }
-                    return actual;
-                };
-                if (inputs.length === 2)
-                    result.push(...mergeMetricWindows(rows(inputs[0]), rows(inputs[1]), complete));
-                else
-                    result.push(...rows(inputs[0]));
-            }
-            return result;
+            const merged = period === "current" ? currentAnswers : mergedPageAnswers(loaded, period);
+            return projectNumbers(merged, request, currentAnswers).map(row => {
+                const deps = metricPanels(row.id as typeof request.metrics[number], request);
+                const lowerBound = loaded.some(l => l.input.period === period && deps.includes(l.input.id) && incomplete(l.data));
+                return lowerBound && row.value !== null ? { ...row, lowerBound: true } : row;
+            });
         };
         const rows = periodRows("current");
         const comparison = request.compareTo ? periodRows("comparison") : [];
@@ -122,7 +123,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
             const aligned = dayOffset === null ? r : { ...r, period: addBusinessDays(prepared.resolvedRange.startDate, dayOffset) };
             return [rowKey(aligned), r];
         }));
-        const withDeltas = bounded.rows.map(r => ({ ...r, ...(request.compareTo ? metricDelta(r, baselines.get(rowKey(r)) ?? (complete && !NON_ADDITIVE.has(r.id) ? { ...r, value: 0 } : undefined), complete) : {}) }));
+        const withDeltas = bounded.rows.map(r => ({ ...r, ...(request.compareTo ? metricDelta(r, baselines.get(rowKey(r)) ?? (complete && !NON_ADDITIVE.has(r.id) ? { ...r, value: 0 } : undefined), complete && !r.lowerBound && !baselines.get(rowKey(r))?.lowerBound) : {}) }));
         const groupRows = (items: Array<MetricRow & Record<string, unknown>>) => {
             const result = new Map<string, {
                 group: string | null;
@@ -158,30 +159,22 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
     let panels: Json[] = [];
     let omitted: Json[] = [];
     const rawPanels: Json[] = [];
-    for (const id of new Set(loaded.map(l => l.input.id))) {
-        const parts = loaded.filter(l => l.input.id === id);
-        const full = parts.every(p => !incomplete(p.data));
-        if (!full) {
+    const pageAnswers = mergedPageAnswers(loaded, "current");
+    for (const id of new Set(loaded.filter(l => !l.input.team).map(l => l.input.id))) {
+        if (request.panel && request.panel !== id && request.panel !== id.split(".")[1]) continue;
+        if (request.report === "people" && request.role && request.role !== "everyone" && id !== `people.${request.role}` && id !== "people.profile") continue;
+        if (!pageAnswers.has(id)) {
+            rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
             base.isPartial = true;
             base.reasons.push("incomplete_input");
-            // One source: keep its complete parts as the page shows them.
-            // Two windows are merged only when both are complete.
-            if (parts.length === 1)
-                rawPanels.push({ id, ...(id === "pipeline.now" ? { scope: "current_state_ignores_range" } : {}), data: withholdIncomplete(parts[0].data) as Json });
-            else
-                rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
             continue;
         }
-        if (parts.length === 2) {
-            const joined = mergeReportPanel(id, parts[0].data, parts[1].data);
-            if (incomplete(joined)) {
-                base.isPartial = true;
-                base.reasons.push("incomplete_input");
-                rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
-            } else rawPanels.push({ id, data: joined as Json });
-        }
-        else
-            rawPanels.push({ id, ...(id === "pipeline.now" ? { scope: "current_state_ignores_range" } : {}), data: parts[0].data as Json });
+        const shaped = shapePanel(id, pageAnswers.get(id), pageAnswers, request);
+        const lowerBound = incomplete(pageAnswers.get(id)) || incomplete(pageAnswers.get(`${id}.team`)) || id === "people.members" && loaded.some(l => l.input.id.startsWith("people.") && incomplete(l.data));
+        rawPanels.push({ ...shaped, ...(lowerBound ? { lowerBound: true } : {}),
+            data: withholdIncomplete(shaped.data),
+            ...(id === "pipeline.now" ? { scope: "current_state_ignores_range" } : {}),
+        } as Json);
     }
     const clean = rawPanels.map(panel => safeText(panel));
     for (let displayLimit = prepared.limit; displayLimit >= 1; displayLimit--) {

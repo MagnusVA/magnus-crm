@@ -4,6 +4,7 @@ import { adminFixture, adminCaller } from "../../../tests/mcpAdminFixtures";
 import { internal, api } from "../../_generated/api";
 import { resolveAnalyticsRange } from "../../../lib/analyticsRange";
 import { ASSISTANT_DAILY_RUN_ALLOWANCE, ASSISTANT_JOB_TIMEOUT_MS, type ReportJob } from "./contracts";
+import { readLivePanel } from "./live";
 import { analyticsArgsKey } from "../../analytics/keys";
 import type { Prepared } from "./planning";
 async function fixture() {
@@ -139,12 +140,12 @@ describe("isolated assistant report admission", () => {
     });
     it("refuses a closer before reading or queueing", async () => {
         const f = await fixture();
-        await expect(f.t.action(internal.mcp.reports.tools.numbers, { caller: adminCaller(f.orgId, "test", "user_alex"), metrics: ["calls_held"], range: { kind: "preset", preset: "today" } })).rejects.toThrow("role");
+        await expect(f.t.action(internal.mcp.reports.tools.numbers, { caller: adminCaller(f.orgId, "test", "user_alex"), metrics: ["callsDue"], range: { kind: "preset", preset: "today" } })).rejects.toThrow("role");
         expect(await rows(f)).toHaveLength(0);
     });
     it("refuses oversized cells before querying metrics or admitting jobs", async () => {
         const f = await fixture();
-        await expect(f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["calls_held"], groupBy: "day", compareTo: "previous_period", range: { kind: "custom", startDate: "2026-01-01", endDateInclusive: "2026-03-01" } })).rejects.toThrow("60");
+        await expect(f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["callsDue"], groupBy: "day", compareTo: "previous_period", range: { kind: "custom", startDate: "2026-01-01", endDateInclusive: "2026-03-01" } })).rejects.toThrow("60");
         expect(await rows(f)).toHaveLength(0);
     });
     it("reads fresh web answers without touching the row or creating assistant jobs", async () => {
@@ -153,7 +154,7 @@ describe("isolated assistant report admission", () => {
         const plan: Prepared = JSON.parse(await f.t.query(internal.mcp.reports.planning.prepare, { caller: f.caller, request }));
         const job = plan.inputs[0].job!;
         const id = await f.t.run(async (ctx) => {
-            const payloadId = await ctx.db.insert("analyticsPayloads", { tenantId: f.tenantId, json: '{"rows":[],"totals":{},"isPaymentDataTruncated":false}' });
+            const payloadId = await ctx.db.insert("analyticsPayloads", { tenantId: f.tenantId, json: JSON.stringify(await readLivePanel(ctx, f.tenantId, "calls.summary", {}, job.window)) });
             return ctx.db.insert("analyticsResults", { tenantId: f.tenantId, reportId: job.report, argsKey: analyticsArgsKey({ filters: JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: 1 } }), filtersJson: job.filtersJson, range: job.range, timeZone: job.window.timeZone, dayStartHour: 1, status: "ready", payloadId, answer: { startDate: job.window.startDate, endDateInclusive: job.window.endDateInclusive, watermark: f.watermark, completedAt: Date.now() }, lastRequestedAt: 123 });
         });
         const before = await f.t.run(ctx => ctx.db.get("analyticsResults", id));
@@ -182,12 +183,12 @@ describe("report action results", () => {
     });
     it("a truncated warehouse input suppresses a comparison's delta", async () => {
         const f = await fixture();
-        const request = { kind: "numbers" as const, metrics: ["calls_held" as const], range: { kind: "preset" as const, preset: "last_month" as const }, compareTo: "previous_period" as const };
+        const request = { kind: "numbers" as const, metrics: ["callsDue" as const], range: { kind: "preset" as const, preset: "last_month" as const }, compareTo: "previous_period" as const };
         const plan: Prepared = JSON.parse(await f.t.query(internal.mcp.reports.planning.prepare, { caller: f.caller, request }));
         await f.t.run(async (ctx) => {
             for (const [index, input] of plan.inputs.entries()) {
                 const job = input.job!;
-                await ctx.db.insert("mcpReportRequests", { tenantId: f.tenantId, userId: f.adminId, key: job.key, report: job.report, kind: "job", paramsJson: JSON.stringify(job), status: "ready", resultJson: JSON.stringify({ rows: [{ id: "calls_held", value: 4, unit: "count", period: "total", group: null }], partial: index === 0 }), watermark: f.watermark, createdAt: Date.now(), expiresAt: Date.now() + 3600000 });
+                await ctx.db.insert("mcpReportRequests", { tenantId: f.tenantId, userId: f.adminId, key: job.key, report: job.report, kind: "job", paramsJson: JSON.stringify(job), status: "ready", resultJson: JSON.stringify({ ...(await readLivePanel(ctx, f.tenantId, "calls.summary", {}, job.window) as import("../../reports/calls").CallsSummary), counts: { scheduled: 4, moved: 0, canceled: 0, upcoming: 0, due: 4, held: 0, noShow: 0, notRecorded: 4, rebooked: 0, rebookedHeld: 0, rebookedNoShow: 0 }, partial: index === 0 }), watermark: f.watermark, createdAt: Date.now(), expiresAt: Date.now() + 3600000 });
             }
         });
         const { kind: _kind, ...args } = request;
@@ -198,7 +199,7 @@ describe("report action results", () => {
             periods: Array<{
                 metrics: unknown[];
             }>;
-        }>)[0].periods[0].metrics[0]).toMatchObject({ value: null, delta: null, nullReason: "incomplete_input" });
+        }>)[0].periods[0].metrics[0]).toMatchObject({ value: 4, lowerBound: true, delta: null, nullReason: "incomplete_input" });
     });
     it("expires assistant answers after the next sync", async () => {
         const f = await fixture();

@@ -81,10 +81,10 @@ describe("live page adapter parity", () => {
         expect(member.status, JSON.stringify(member)).toBe("ready");
         expect((member.panels as { id: string }[]).map(p => p.id)).toEqual(["people.profile", "people.closers"]);
         expect(member.openInMagnus).toContain(`/workspace/reports/people/${f.memberId}`);
-        const numbers = await f.t.action(internal.mcp.reports.tools.numbers, { caller, metrics: ["final_cash", "deposits"], range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });
+        const numbers = await f.t.action(internal.mcp.reports.tools.numbers, { caller, metrics: ["finalCash", "cash"], range: { kind: "custom", startDate: whole.startDate, endDateInclusive: whole.endDateInclusive } });
         expect(numbers.status).toBe("ready");
         expect(JSON.stringify(numbers)).toContain('"currency":"USD"');
-        expect(JSON.stringify(numbers)).toContain('"currency":"EUR"');
+        expect(JSON.stringify(numbers)).not.toContain('"currency":"EUR"');
     });
     it("bounds lists without exposing contacts or treating names as instructions", () => {
         const omissions: Json[] = [];
@@ -107,8 +107,9 @@ describe("incomplete parts of one page answer", () => {
         expect(result.status).toBe("ready");
         expect(result.isPartial).toBe(true);
         const data = (result.panels as Array<{ id: string; data: Record<string, unknown> }>)[0].data;
-        expect(data.aging).toMatchObject({ value: null, nullReason: "incomplete_input" });
+        expect(data.aging).toMatchObject({ partial: true, lowerBound: true });
         expect(data.noNextStep).toEqual(page.noNextStep);
+        expect((result.panels as Array<{ figures: { openDeals: number } }>)[0].figures.openDeals).toBe(page.stages.reduce((sum, stage) => sum + stage.count, 0));
         expect((data.stages as Array<{ stage: string; count: number }>).map(s => [s.stage, s.count])).toEqual(page.stages.map(s => [s.stage, s.count]));
     });
 });

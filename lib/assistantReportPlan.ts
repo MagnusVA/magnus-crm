@@ -1,7 +1,7 @@
-import { dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, type ResolvedAnalyticsRange } from "./analyticsRange";
+import { dashboardRangePlan, resolveAnalyticsRange, type AnalyticsRange, resolveDashboardRange, type ResolvedAnalyticsRange } from "./analyticsRange";
 import { addBusinessDays, businessDateForInstant, countBusinessDays, type BusinessDaySetting } from "./businessDay";
 
-export type AssistantRange = AnalyticsRange | { kind: "preset"; preset: "today" };
+export type AssistantRange = AnalyticsRange | { kind: "preset"; preset: "today" | "last_week" | "year_to_date" };
 export type SourceWindow = { engine: "convex" | "warehouse"; range: AnalyticsRange; window: ResolvedAnalyticsRange; label: "whole_range" | "history" | "today_live" };
 export type SourcePlan = { resolvedRange: ResolvedAnalyticsRange; windows: SourceWindow[] };
 
@@ -10,8 +10,8 @@ export type SourcePlan = { resolvedRange: ResolvedAnalyticsRange; windows: Sourc
  */
 export function planAssistantSources(args: { range: AssistantRange; day: BusinessDaySetting; now: number; page: string; warehousePages: readonly string[]; reportId?: string; settledThrough?: string }): SourcePlan {
   const today = businessDateForInstant(args.now, args.day);
-  const range: AnalyticsRange = args.range.kind === "preset" && args.range.preset === "today"
-    ? { kind: "custom", startDate: today, endDateInclusive: today } : args.range as AnalyticsRange;
+  const range: AnalyticsRange = args.range.kind === "preset" && ["today", "last_week", "year_to_date"].includes(args.range.preset)
+    ? (() => { const dates = resolveDashboardRange({ kind: "preset", preset: args.range.preset }, today); return { kind: "custom" as const, startDate: dates.startBusinessDate, endDateInclusive: dates.endBusinessDateInclusive }; })() : args.range as AnalyticsRange;
   const resolvedRange = resolveAnalyticsRange(range, args.day, args.now);
   const plan = dashboardRangePlan(args.range.kind === "preset" && !("throughYesterday" in args.range && args.range.throughYesterday)
     ? { kind: "preset", preset: args.range.preset }

@@ -3,6 +3,7 @@ import { internal } from "../../_generated/api";
 import { v } from "convex/values";
 import { mcpCallerValidator } from "../guard";
 import { adminReadTools } from "./adminReads";
+import { adminReportListTools } from "./adminReportLists";
 import { adminReportTools } from "./adminReports";
 import { adminWriteTools } from "./adminWrites";
 
@@ -23,6 +24,7 @@ export const ADMIN = { roles: ["tenant_master", "tenant_admin"] };
 export const adminTools: McpToolRegistration[] = [
   ...adminReadTools,
   ...adminReportTools,
+  ...adminReportListTools,
   ...adminWriteTools,
   defineMcpMutation({
     name: "magnus_commit",

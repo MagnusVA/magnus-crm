@@ -8,20 +8,13 @@ export function incomplete(value: unknown): boolean {
     return Object.entries(value).some(([key, v]) => /truncat|capped|partial|incomplete/i.test(key) && v === true || incomplete(v));
 }
 const flaggedKey = /truncat|capped|partial|incomplete/i;
-/**
- * One page answer with only its incomplete parts withheld: an object flagged
- * partial becomes `{nullReason: "incomplete_input"}` (keeping its identity
- * fields), and every complete sibling stays as the page shows it.
- */
+/** Keep the known figures the page shows, with its partial/lower-bound warning. */
 export function withholdIncomplete(value: unknown): unknown {
-    if (Array.isArray(value))
-        return value.map(withholdIncomplete);
-    if (!value || typeof value !== "object")
-        return value;
+    if (Array.isArray(value)) return value.map(withholdIncomplete);
+    if (!value || typeof value !== "object") return value;
     const entries = Object.entries(value);
-    if (entries.some(([key, v]) => flaggedKey.test(key) && v === true))
-        return { ...Object.fromEntries(entries.filter(([key, v]) => (identityKey.test(key) || key === "stage") && typeof v !== "object")), value: null, nullReason: "incomplete_input" };
-    return Object.fromEntries(entries.map(([key, v]) => [key, withholdIncomplete(v)]));
+    return { ...Object.fromEntries(entries.map(([key, v]) => [key, withholdIncomplete(v)])),
+        ...(entries.some(([key, v]) => flaggedKey.test(key) && v === true) ? { lowerBound: true } : {}) };
 }
 const derivedKey = /rate|ratio|average|avg|distinct|unique|cohort|opportunitiesWithReminderChains|chainLengthHistogram|wonDeals|perHour|perDay|percent|share|quota|target|velocity|age|duration|at$|date|daySpan|hourly|limit/i;
 const identityKey = /^(id|key|.*Id|source|originKey|periodKey|bucket|fieldKey|paymentType)$/;
@@ -116,7 +109,9 @@ export function boundPanel(value: Json, limit: number, complete: boolean, omissi
         if (!sourceComplete && complete) {
             omissions.push({ scope: path, rows: null, remainder: null, nullReason: "incomplete_input" });
         }
-        const hidden = value.slice(limit);
+        // These are fixed categories, not paginated record lists on the page.
+        const appliedLimit = /\/(?:showRateWays|slotSteps|dueSteps|leadTime|lanes|roles)$/.test(path) ? Math.max(limit, value.length) : /\/topFive$/.test(path) ? Math.max(limit, 5) : limit;
+        const hidden = value.slice(appliedLimit);
         if (hidden.length) {
             const sums = new Map<string, number>();
             const sum = (v: Json, prefix = "", inheritedCurrency: string | null = null) => {
@@ -139,7 +134,7 @@ export function boundPanel(value: Json, limit: number, complete: boolean, omissi
             const remainder: Json = Object.fromEntries(sums);
             omissions.push({ scope: path, rows: hidden.length, remainder: sourceComplete ? remainder : null, ...(!sourceComplete ? { nullReason: "incomplete_input" } : {}) });
         }
-        return value.slice(0, limit).map((v, i) => boundPanel(v, limit, complete, omissions, `${path}/${i}`));
+        return value.slice(0, appliedLimit).map((v, i) => boundPanel(v, limit, complete, omissions, `${path}/${i}`));
     }
     if (value && typeof value === "object")
         return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, boundPanel(v, limit, complete, omissions, `${path}/${k}`)]));

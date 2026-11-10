@@ -12,11 +12,12 @@ import { addBusinessDays, businessDateForInstant, businessDayStart } from "../..
 import type { AnalyticsFilters } from "../../analytics/definition";
 import { requestValidator, jobValidator, failedJobRetryable, type ToolRequest, type ReportJob } from "./contracts";
 import { assistantDefinition, REPORT_PANELS, CURRENT_REPORT_PAGES, LIVE_PANELS } from "./catalog";
-import { apiFilters, assistantApiAnswer, metricPage } from "./metrics";
+import { metricPanels, validateNumbers } from "./metrics";
 import { readFieldCatalog } from "../../reports/formFields";
 import { readMemberProfile } from "../../reports/member";
 export type PanelInput = {
     id: string;
+    team?: boolean;
     filters: AnalyticsFilters;
     period: "current" | "comparison";
     window: SourceWindow;
@@ -69,22 +70,20 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
     const groups = request.kind === "numbers" && request.groupBy && request.groupBy !== "day" ? limit + 1 : 1;
     assertReportCells(periods * (compare ? 2 : 1), groups);
     if (request.kind === "numbers") {
-        if (!request.metrics.length || request.metrics.length > 17)
-            throw new Error("Choose 1 to 17 metrics.");
-        // Validate supported metric/group combinations before reading report inputs.
-        apiFilters({ metrics: request.metrics.join(","), group_by: request.groupBy === "day" ? "none" : request.groupBy ?? "none", granularity: request.groupBy === "day" ? "day" : "total" });
+        validateNumbers(request);
     }
     else {
         if (request.programId && !["scorecard", "calls"].includes(request.report) || request.closerId && request.report !== "calls" || request.callType && request.report !== "calls" || request.memberId && request.report !== "people" || request.fieldKey && request.report !== "scorecard" || request.teamId && request.report !== "lead_gen")
             throw new Error("Choose filters supported by this report: programId for scorecard/calls, closerId and callType for calls, memberId for people, fieldKey for scorecard, teamId for lead_gen.");
-        if (request.memberId) await loadInTenant(ctx, me, "teamMembers", request.memberId);
-        if (request.programId)
-            await loadInTenant(ctx, me, "tenantPrograms", request.programId);
-        if (request.closerId)
-            await loadInTenant(ctx, me, "users", request.closerId);
-        if (request.teamId)
-            await loadInTenant(ctx, me, "attributionTeams", request.teamId);
+
+        if (request.teamId) await loadInTenant(ctx, me, "attributionTeams", request.teamId);
+        if (request.panel && !REPORT_PANELS[request.report].some(id => id === request.panel || id.split(".")[1] === request.panel) && !(request.memberId && ["profile", "people.profile"].includes(request.panel))) throw new Error("Choose a panel belonging to this report.");
+        if (request.role && !["people", "attribution"].includes(request.report)) throw new Error("role is supported by People and Attribution.");
+        if (request.report === "people" && request.role && !["everyone", "closers", "setters", "dm_closers", "lead_gen"].includes(request.role)) throw new Error("People role must match a tab: everyone, closers, setters, dm_closers, lead_gen.");
     }
+    if (request.memberId) await loadInTenant(ctx, me, "teamMembers", request.memberId);
+    if (request.programId) await loadInTenant(ctx, me, "tenantPrograms", request.programId);
+    if (request.closerId) await loadInTenant(ctx, me, "users", request.closerId);
     const inputs: PanelInput[] = [];
     let reportPanels: readonly string[] = request.kind === "report" ? REPORT_PANELS[request.report] : [];
     let fieldKey: string | undefined;
@@ -99,9 +98,25 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
         const rolePanels = { closer: "people.closers", setter: "people.setters", dm_closer: "people.dm_closers", lead_gen: "people.lead_gen" };
         reportPanels = ["people.profile", ...(profile?.roles ?? []).map(role => rolePanels[role])];
     }
-    const panels = request.kind === "numbers"
-        ? [...new Set(request.metrics.map(metricPage))].map(page => ({ id: "mcp.metrics", page, raw: { metrics: request.metrics.filter(m => metricPage(m) === page).join(","), group_by: request.groupBy === "day" ? "none" : request.groupBy ?? "none", granularity: request.groupBy === "day" ? "day" : "total" } as AnalyticsFilters }))
-        : reportPanels.map(id => ({ id, page: id.split(".")[0], raw: { ...(request.programId ? { programId: request.programId } : {}), ...(request.teamId ? { teamId: request.teamId } : {}), ...(request.closerId ? { closerId: request.closerId } : {}), ...(request.memberId ? { memberId: request.memberId } : {}), ...(request.callType ? { callType: request.callType } : {}), ...(fieldKey ? { fieldKey } : {}) } as AnalyticsFilters }));
+    const ids = request.kind === "numbers" ? [...new Set(request.metrics.flatMap(m => metricPanels(m, request)))] : reportPanels;
+    // A currency selector on People considers every role, even when a tab is selected.
+    // Scorecard's default currency weighs its cash, funnel and origins panels.
+    const expanded = request.kind !== "numbers" ? ids : [...new Set([
+        ...ids,
+        ...(ids.some(id => id.startsWith("people.")) ? ["people.closers", "people.setters", "people.dm_closers", "people.lead_gen"] : []),
+        ...(ids.some(id => id.startsWith("scorecard.")) ? ["scorecard.cash", "scorecard.funnel", "scorecard.origins"] : []),
+    ])];
+    const panels = expanded.map(id => ({ id, team: false, page: id.split(".")[0], raw: {
+        ...(request.programId ? { programId: request.programId } : {}),
+        ...(request.kind === "report" && request.teamId ? { teamId: request.teamId } : {}),
+        ...(request.closerId ? { closerId: request.closerId } : {}),
+        ...(request.memberId ? { memberId: request.memberId } : {}),
+        ...(request.kind === "report" && request.callType ? { callType: request.callType } : {}),
+        ...(fieldKey ? { fieldKey } : {}),
+    } as AnalyticsFilters }));
+    if (request.kind === "report" && request.memberId) {
+        for (const panel of [...panels]) if (panel.id !== "people.profile") panels.push({ ...panel, team: true, raw: { memberId: null } });
+    }
     for (const period of ["current", ...(compare ? ["comparison"] : [])] as Array<"current" | "comparison">) {
         for (const panel of panels) {
             const currentState = LIVE_PANELS.has(panel.id);
@@ -113,7 +128,7 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
                     key: canonicalJson({ report: panel.id, args: analyticsArgsKey({ filters, range: window.range, day }), from: window.window.startDate, to: window.window.endDateInclusive, syncWatermark }),
                     report: panel.id, filtersJson: canonicalJson(filters), range: window.range, window: window.window, syncWatermark,
                 } : null;
-                inputs.push({ id: panel.id, filters, period, window, job });
+                inputs.push({ id: panel.id, ...(panel.team ? { team: true } : {}), filters, period, window, job });
             }
         }
     }
@@ -129,12 +144,12 @@ export type JobAnswer = {
 /** Reuse a fresh web-owned cache without updating even its lastRequestedAt. */
 export async function readJob(ctx: QueryCtx, tenantId: Parameters<typeof findResult>[1], job: ReportJob): Promise<JobAnswer> {
     {
-        const key = analyticsArgsKey({ filters: job.report === "mcp.metrics" ? apiFilters(JSON.parse(job.filtersJson)) : JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: job.window.dayStartHour } });
-        const cached = await findResult(ctx, tenantId, job.report === "mcp.metrics" ? "api.metrics" : job.report, key);
+        const key = analyticsArgsKey({ filters: JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: job.window.dayStartHour } });
+        const cached = await findResult(ctx, tenantId, job.report, key);
         if (cached?.answer && cached.answer.watermark >= job.syncWatermark && cachedWindowFits(job.window, cached.answer)) {
             const state = await resultState(ctx, cached);
             if (state.payloadJson !== null)
-                return { status: "ready", data: job.report === "mcp.metrics" ? assistantApiAnswer(JSON.parse(state.payloadJson), String(JSON.parse(job.filtersJson).metrics)) : JSON.parse(state.payloadJson), watermark: cached.answer.watermark };
+                return { status: "ready", data: JSON.parse(state.payloadJson), watermark: cached.answer.watermark };
         }
     }
     const row = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", tenantId).eq("key", job.key)).unique();

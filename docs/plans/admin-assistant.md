@@ -19,8 +19,9 @@ The gateway registers one list for every role. `authorize` in `convex/mcp/http.t
 | Tool | Kind | What it does | Code |
 |---|---|---|---|
 | `magnus_brief` | read | The floor now: today's numbers per closer, queue counts and ages, who is out, health and freshness. Call first | `convex/mcp/admin/reads/` |
-| `magnus_numbers` | read | Named metrics for a range using the current Reports or Operations source switch, optionally compared and grouped; Magnus computes every difference | `convex/mcp/reports/` |
-| `magnus_report` | read | Scorecard, Calls, People (optionally one member), Attribution or Pipeline as its page shows it; also the existing Operations Qualifications and Lead Gen dashboards. Log stays in Magnus | `convex/mcp/reports/` |
+| `magnus_numbers` | read | Report dictionary terms (`lib/reporting/definitions.ts`) as the pages compute them, from the pages' own readers and merges, optionally compared with another period and grouped where the page's data allows | `convex/mcp/reports/` |
+| `magnus_report` | read | Scorecard, Calls, People (optionally one member, with team medians), Attribution or Pipeline as its page shows it, with the page's figures computed from the full answer before lists are cut; also the Operations Qualifications and Lead Gen dashboards | `convex/mcp/reports/` |
+| `magnus_report_list` | read | The pages' paged lists and drill-downs: Pipeline's open deals and owed calls, the Log, a member's work log, a deal's credit chain, and the Scorecard's booking questions | `convex/mcp/reports/lists.ts` |
 | `magnus_end_of_day` | read | Who saved an end-of-day report for a business day, and the numbers Magnus counted | `convex/mcp/admin/reads/endOfDay.ts` |
 | `magnus_lookup` | read | Find or open one person, deal, meeting, payment or team member | `convex/mcp/admin/reads/` |
 | `magnus_queue` | read | One review queue, or one item in it | `convex/mcp/admin/reads/queue.ts` |
@@ -44,7 +45,7 @@ Everything else is a hand-off: the result links to the page that does it. That c
 - Lists never carry email, phone, receipt links, reference codes, notes or transcripts. One record asked for by ID may include contact details or notes only when the call asks for them.
 - Lists default to 10 rows, 25 at most, with `isPartial` and a reason when more exist.
 - Every record carries `openInMagnus` and `allowedActions`: the admin tools that apply to it now, given its state and the caller's switches.
-- Numbers come from Magnus. A difference or a ranking is returned only when every input is complete; otherwise the metric carries `nullReason: "incomplete_input"`. Money is per currency, never summed across currencies.
+- Numbers come from Magnus, with the page's definition. A report's figures are worked out from the page's full answer with the page's own functions (`lib/reporting/pageFigures/`), before any list is cut, so they match the page. Where a page shows a figure as a lower bound, the tool returns it with `lowerBound: true`. A difference the tool computes itself (a comparison in `magnus_numbers`) is returned only when every input is complete; otherwise it carries `nullReason: "incomplete_input"`. Money is per currency, never summed across currencies.
 - Report tools plan their source as the page does, including each page's warehouse switch. A cold warehouse answer returns `status: "pending"` with `retryAfterSeconds`, never zeros. The assistant has its own runner and request table (`mcpReportRequests`), never registers a web cache key, and holds at most one running and two waiting jobs, so the web always keeps a worker.
 - Answers are capped at 12 KiB.
 

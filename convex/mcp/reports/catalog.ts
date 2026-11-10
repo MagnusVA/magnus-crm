@@ -1,7 +1,6 @@
 import { getReportDefinition } from "../../analytics/registry";
 import { termHelp } from "../../../lib/reporting/definitions";
-import { numbersDefinition } from "./metrics";
-export const assistantDefinition = (id: string) => id === "mcp.metrics" ? numbersDefinition : getReportDefinition(id);
+export const assistantDefinition = (id: string) => getReportDefinition(id);
 export const REPORT_PANELS = {
     scorecard: ["scorecard.funnel", "scorecard.cash", "scorecard.follow_through", "scorecard.origins", "scorecard.answers"],
     calls: ["calls.summary"],

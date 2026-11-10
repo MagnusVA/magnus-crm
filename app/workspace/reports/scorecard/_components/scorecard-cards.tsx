@@ -34,6 +34,9 @@ import {
   cashPerWonDeal,
   channelLabel,
   groupByWeek,
+  orderOrigins,
+  orderPrograms,
+  orderFollowThrough,
   weekLabel,
   type CashCurrency,
 } from "./scorecard-shape";
@@ -387,7 +390,7 @@ export function FollowThroughCard({
   /** The closer's team member, when their login is linked to one. */
   memberFor: (userId: Id<"users">) => Id<"teamMembers"> | undefined;
 }) {
-  const closers = data ? [...data.byCloser].sort((a, b) => b.due - a.due || a.name.localeCompare(b.name)) : [];
+  const closers = data ? orderFollowThrough(data.byCloser) : [];
   const { rows: shownClosers, pager } = usePagedRows(closers, { resetKey: programKey });
   return (
     <ReportCard
@@ -512,9 +515,8 @@ export function OriginsCard({
           <BarList
             label="Deals won and cash by first-touch channel"
             labelColumn="9rem"
-            rows={[...rows]
+            rows={orderOrigins(rows, currency)
               .map((origin) => ({ origin, cash: inCurrency(origin.cash, currency)?.cashMinor ?? 0 }))
-              .sort((a, b) => (byCash ? b.cash - a.cash : 0) || b.origin.dealsWon - a.origin.dealsWon)
               .map(({ origin, cash }) => ({
                 key: origin.channel,
                 label: channelLabel(origin.channel),
@@ -547,7 +549,7 @@ export function ProgramsTableCard({
   /** The band's program filter, which the pager starts over on. */
   programKey: string;
 }) {
-  const programs = entry ? [...entry.byProgram].sort((a, b) => b.cashMinor - a.cashMinor || a.name.localeCompare(b.name)) : [];
+  const programs = entry ? orderPrograms(entry.byProgram) : [];
   // One page of programs; the Total row under them stays on every page and
   // totals every program.
   const { rows: shownPrograms, pager } = usePagedRows(programs, { resetKey: `${currency}|${programKey}` });

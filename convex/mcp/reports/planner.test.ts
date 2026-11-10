@@ -62,13 +62,13 @@ describe("page-path source parity", () => {
     });
     it("enforces cells without invoking a reader", () => { let reads = 0; expect(() => { assertReportCells(31, 2); reads++; }).toThrow("60"); expect(reads).toBe(0); });
 });
-const row = (id = "calls_held", value: number | null = 2): MetricRow => ({ id, value, unit: "count", period: "total", group: null });
+const row = (id = "callsDue", value: number | null = 2): MetricRow => ({ id, value, unit: "count", period: "total", group: null });
 describe("safe reporting math", () => {
     it("adds counts; keeps cohorts, distincts and ratios separate", () => {
-        const merged = mergeMetricWindows([row(), row("close_rate", .5), row("unique_prospects", 2)], [row(), row("close_rate", .8), row("unique_prospects", 3)], true);
-        expect(merged.find(r => r.id === "calls_held")?.value).toBe(4);
-        expect(merged.filter(r => r.id === "close_rate").map(r => r.label)).toEqual(["history_as_of_watermark", "today_live"]);
-        expect(merged.filter(r => r.id === "unique_prospects")).toHaveLength(2);
+        const merged = mergeMetricWindows([row(), row("closeRate", .5), row("bookRate", 2)], [row(), row("closeRate", .8), row("bookRate", 3)], true);
+        expect(merged.find(r => r.id === "callsDue")?.value).toBe(4);
+        expect(merged.filter(r => r.id === "closeRate").map(r => r.label)).toEqual(["history_as_of_watermark", "today_live"]);
+        expect(merged.filter(r => r.id === "bookRate")).toHaveLength(2);
     });
     it("withholds deltas, ranks and remainders from truncated inputs", () => {
         expect(metricDelta(row(), row(), false)).toEqual({ delta: null, percentChange: null, nullReason: "incomplete_input" });
@@ -76,11 +76,11 @@ describe("safe reporting math", () => {
         expect(incomplete({ isPaymentDataTruncated: true })).toBe(true);
     });
     it("compares rates in percentage points; leaves a zero baseline percent null", () => {
-        expect(metricDelta({ ...row("show_rate", .6), unit: "ratio" }, { ...row("show_rate", .5), unit: "ratio" }, true).delta).toBeCloseTo(10);
-        expect(metricDelta(row(), row("calls_held", 0), true).percentChange).toBe(null);
+        expect(metricDelta({ ...row("showRate", .6), unit: "ratio" }, { ...row("showRate", .5), unit: "ratio" }, true).delta).toBeCloseTo(10);
+        expect(metricDelta(row(), row("callsDue", 0), true).percentChange).toBe(null);
     });
     it("computes omitted sums per currency", () => {
-        const rows = ["USD", "EUR"].flatMap(currency => ["a", "b", "c"].map(group => ({ ...row("final_cash", 10), unit: "minor" as const, currency, group })));
+        const rows = ["USD", "EUR"].flatMap(currency => ["a", "b", "c"].map(group => ({ ...row("finalCash", 10), unit: "minor" as const, currency, group })));
         const result = boundMetricRows(rows, 1, true);
         expect(result.omitted.remainder?.map(r => [r.currency, r.value])).toEqual([["USD", 20], ["EUR", 20]]);
     });
@@ -108,4 +108,18 @@ it("withholds remainders for page-cut tails and keeps payment remainders per cur
   const payments: import("./output").Json[] = [];
   boundPanel([{ currency: "USD", amountMinor: 10 }, { currency: "USD", amountMinor: 20 }, { currency: "EUR", amountMinor: 30 }], 1, true, payments);
   expect(payments[0]).toMatchObject({ remainder: { "USD.amountMinor": 20, "EUR.amountMinor": 30 } });
+});
+
+it("resolves Last week and Year to date to the picker's business dates", async () => {
+    const { resolveDashboardRange } = await import("../../../lib/analyticsRange");
+    for (const preset of ["last_week", "year_to_date"] as const) {
+        for (const now of [Date.parse("2026-11-09T06:59:59Z"), Date.parse("2026-11-09T07:00:00Z"), Date.parse("2026-01-01T08:00:00Z")]) {
+            const { businessDateForInstant } = await import("../../../lib/businessDay");
+            const date = businessDateForInstant(now, day);
+            const dates = resolveDashboardRange({ kind: "preset", preset }, date);
+            const plan = planAssistantSources({ range: { kind: "preset", preset }, day, now, page: "calls", warehousePages: pages });
+            expect(plan.resolvedRange).toMatchObject({ startDate: dates.startBusinessDate, endDateInclusive: dates.endBusinessDateInclusive });
+            expect(plan.windows.map(w => w.engine)).toEqual(dashboardRangePlan({ kind: "preset", preset }, date).kind === "split" ? ["warehouse", "convex"] : [dashboardRangePlan({ kind: "preset", preset }, date).kind === "live" ? "convex" : "warehouse"]);
+        }
+    }
 });

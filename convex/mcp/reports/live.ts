@@ -9,14 +9,12 @@ import { readPeopleRole } from "../../reports/peopleRoles";
 import { readMemberProfile, readReportMembers } from "../../reports/member";
 import { readLanes, readPaths } from "../../reports/attribution";
 import { readPipelineNow } from "../../reports/pipeline";
-import { readLiveNumbers } from "./metrics";
 import { readOperationsPanel } from "./operations";
 import { readLeadGenPanel } from "./leadGen";
 /** The caller authorizes first. These are the exact load/build paths used by
  * the page queries, whose public auth and member guards stay in place.
  */
 export async function readLivePanel(ctx: QueryCtx, tenantId: Id<"tenants">, id: string, filters: AnalyticsFilters, range: ResolvedAnalyticsRange): Promise<unknown> {
-    if (id === "mcp.metrics") return readLiveNumbers(ctx, tenantId, filters, range);
     if (id.startsWith("lead_gen.")) return readLeadGenPanel(ctx, tenantId, id, filters, range);
     if (id === "qualifications.dashboard") return readOperationsPanel(ctx, tenantId, id, range);
     const dates = { startDate: range.fromMs, endDate: range.toMs };

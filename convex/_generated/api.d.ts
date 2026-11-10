@@ -343,6 +343,7 @@ import type * as mcp_reports_conversionReader from "../mcp/reports/conversionRea
 import type * as mcp_reports_directoryReader from "../mcp/reports/directoryReader.js";
 import type * as mcp_reports_leadGen from "../mcp/reports/leadGen.js";
 import type * as mcp_reports_leadGenReader from "../mcp/reports/leadGenReader.js";
+import type * as mcp_reports_lists from "../mcp/reports/lists.js";
 import type * as mcp_reports_live from "../mcp/reports/live.js";
 import type * as mcp_reports_merge from "../mcp/reports/merge.js";
 import type * as mcp_reports_metrics from "../mcp/reports/metrics.js";
@@ -368,6 +369,7 @@ import type * as mcp_tools_tasks from "../mcp/tools/tasks.js";
 import type * as mcp_tools_today from "../mcp/tools/today.js";
 import type * as mcp_toolsets_admin from "../mcp/toolsets/admin.js";
 import type * as mcp_toolsets_adminReads from "../mcp/toolsets/adminReads.js";
+import type * as mcp_toolsets_adminReportLists from "../mcp/toolsets/adminReportLists.js";
 import type * as mcp_toolsets_adminReports from "../mcp/toolsets/adminReports.js";
 import type * as mcp_toolsets_adminWrites from "../mcp/toolsets/adminWrites.js";
 import type * as mcp_toolsets_closer from "../mcp/toolsets/closer.js";
@@ -936,6 +938,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/reports/directoryReader": typeof mcp_reports_directoryReader;
   "mcp/reports/leadGen": typeof mcp_reports_leadGen;
   "mcp/reports/leadGenReader": typeof mcp_reports_leadGenReader;
+  "mcp/reports/lists": typeof mcp_reports_lists;
   "mcp/reports/live": typeof mcp_reports_live;
   "mcp/reports/merge": typeof mcp_reports_merge;
   "mcp/reports/metrics": typeof mcp_reports_metrics;
@@ -961,6 +964,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/tools/today": typeof mcp_tools_today;
   "mcp/toolsets/admin": typeof mcp_toolsets_admin;
   "mcp/toolsets/adminReads": typeof mcp_toolsets_adminReads;
+  "mcp/toolsets/adminReportLists": typeof mcp_toolsets_adminReportLists;
   "mcp/toolsets/adminReports": typeof mcp_toolsets_adminReports;
   "mcp/toolsets/adminWrites": typeof mcp_toolsets_adminWrites;
   "mcp/toolsets/closer": typeof mcp_toolsets_closer;

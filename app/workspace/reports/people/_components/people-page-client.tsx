@@ -16,7 +16,7 @@ import { currentAnswers } from "@/lib/reporting/export";
 import { ReportExportMenu } from "../../_components/report-export-menu";
 import { REPORT_PAGE } from "../../_components/report-ui";
 import { ReportRangeMessage, ReportRangePicker, useReportRange } from "../../_components/use-report-range";
-import { buildEveryone, buildPeopleDocument, parseRosterTab, PEOPLE_TERMS, rosterCurrencies, withRosterTab, type RosterTab } from "./people-data";
+import { rosterCounts, buildPeopleDocument, parseRosterTab, PEOPLE_TERMS, rosterCurrencies, withRosterTab, type RosterTab } from "./people-data";
 import { formatCount, pickCurrency, rangeQuery } from "./report-format";
 import { CurrencySelect, DefinitionsCard, ReportBandWithRow } from "./report-parts";
 import { ClosersTable, EveryoneTable, RoleTable, RosterCard, type RosterFrame } from "./roster-tables";
@@ -105,15 +105,7 @@ export function PeoplePageClient() {
     () => new Set<string>((members?.members ?? []).filter((member) => !member.isActive).map((member) => member.teamMemberId)),
     [members],
   );
-  const counts = reports
-    ? {
-        everyone: buildEveryone(memberList, reports).everyone.length,
-        closer: reports.closers.rows.length,
-        setter: reports.setters.rows.filter((row) => row.teamMemberId).length,
-        dm_closer: reports.dmClosers.rows.filter((row) => row.teamMemberId).length,
-        lead_gen: reports.leadGen.rows.filter((row) => row.teamMemberId).length,
-      }
-    : null;
+  const counts = reports ? rosterCounts(memberList, reports) : null;
   const query = rangeQuery(searchParams);
   const links = { memberHref: (teamMemberId: Id<"teamMembers">) => `/workspace/reports/people/${teamMemberId}${query}` };
 

@@ -1,5 +1,5 @@
-export type MetricRow = { id: string; value: number | null; unit: "count" | "minor" | "ratio"; currency?: string; group: string | null; period: string; label?: string; nullReason?: string };
-export const NON_ADDITIVE = new Set(["unique_prospects", "close_rate", "show_rate", "average_deal_size"]);
+export type MetricRow = { id: string; value: number | null; unit: "count" | "minor" | "ratio" | "minutes" | "per_hour"; currency?: string; scope?: string; lowerBound?: boolean; group: string | null; period: string; label?: string; nullReason?: string };
+export const NON_ADDITIVE = new Set(["closeRate", "showRate", "recorded", "showRateFloor", "firstCallShowRate", "timeToRecord", "cashPerWonDeal", "attributionCoverage", "perScheduledHour", "bookRate", "tasksOnTime"]);
 export const isAdditive = (id: string) => !NON_ADDITIVE.has(id);
 const key = (r: MetricRow) => JSON.stringify([r.id, r.group, r.period, r.currency ?? null]);
 
@@ -29,7 +29,10 @@ export function metricDelta(current: MetricRow, baseline: MetricRow | undefined,
 /** Rank and calculate omitted groups only from a complete set. Currency remains part of every key. */
 export function boundMetricRows(rows: MetricRow[], limit: number, complete: boolean) {
   const groups = [...new Set(rows.map(r => r.group))];
-  if (!complete) return { rows: rows.slice(0, limit).map(r => ({ ...r, value: null, nullReason: "incomplete_input" })), omitted: { groups: Math.max(0, groups.length - limit), remainder: null, nullReason: "incomplete_input" } };
+  if (!complete) {
+    const kept = new Set(groups.slice(0, limit));
+    return { rows: rows.filter(r => kept.has(r.group)), omitted: { groups: Math.max(0, groups.length - limit), remainder: null, nullReason: "incomplete_input" } };
+  }
   const rankable = rows.every(r => isAdditive(r.id) && !r.label);
   const sameCurrency = new Set(rows.map(r => r.currency ?? "")).size <= 1;
   const scores = new Map(groups.map(group => [group, rows.find(r => r.group === group)?.value ?? 0]));
