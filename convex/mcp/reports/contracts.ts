@@ -11,7 +11,8 @@ export const numbersArgs = {
     limit: v.optional(v.number()),
 };
 export const reportArgs = {
-    report: v.union(v.literal("revenue"), v.literal("booked_vs_sold"), v.literal("team"), v.literal("pipeline"), v.literal("goals"), v.literal("leads"), v.literal("reminders"), v.literal("qualifications"), v.literal("lead_gen")),
+    report: v.union(v.literal("scorecard"), v.literal("calls"), v.literal("people"), v.literal("attribution"), v.literal("pipeline"), v.literal("qualifications"), v.literal("lead_gen")),
+    memberId: v.optional(v.id("teamMembers")), fieldKey: v.optional(v.string()), callType: v.optional(v.union(v.literal("new"), v.literal("follow_up"))),
     range: v.optional(rangeValidator), programId: v.optional(v.id("tenantPrograms")), closerId: v.optional(v.id("users")), teamId: v.optional(v.id("attributionTeams")), limit: v.optional(v.number()),
 };
 export const requestValidator = v.union(v.object({ kind: v.literal("numbers"), ...numbersArgs }), v.object({ kind: v.literal("report"), ...reportArgs }));

@@ -1,4 +1,3 @@
-import type { ReaderArgs } from "../analytics/assistantTypes";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -590,50 +589,4 @@ function getSlackDisplayName(setter: SlackSetter): string {
   return displayName && displayName.length > 0
     ? displayName
     : setter.slackUserId;
-}
-
-/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
-export async function readMcpGetQualificationReport(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getQualificationReport>) {
-    
-
-    const selectedSlackUserId = args.slackUserId?.trim() || undefined;
-    const setting = await getTenantBusinessDay(ctx, tenantId);
-    const { periods, rangeStart, rangeEnd } = qualificationReportRange(args, setting);
-
-    const eventResult = await listQualificationEventsForRange(ctx, {
-      tenantId,
-      start: rangeStart,
-      end: rangeEnd,
-      slackUserId: selectedSlackUserId,
-    });
-    const opportunityById = await loadOpportunityMapForQualificationEvents(
-      ctx,
-      eventResult.rows,
-    );
-    const legacyOpportunityAggregateCount =
-      await countLegacyOpportunityAggregate(ctx, {
-        tenantId,
-        start: rangeStart,
-        end: rangeEnd,
-        slackUserId: selectedSlackUserId,
-      });
-
-    return await buildQualificationReport(ctx, tenantId, args, setting, {
-      summary: summarizeQualificationEvents(eventResult.rows, opportunityById),
-      byPeriodStart: new Map(
-        periods.map((period) => [
-          period.start,
-          summarizeQualificationEvents(
-            eventResult.rows.filter(
-              (event) =>
-                event.submittedAt >= period.start && event.submittedAt < period.end,
-            ),
-            opportunityById,
-          ),
-        ]),
-      ),
-      bySlackUserId: summarizeBySetter(eventResult.rows, opportunityById),
-      eventsTruncated: eventResult.truncated,
-      legacyOpportunityAggregateCount,
-    });
 }

@@ -65,7 +65,7 @@ export const prepareSetGoal = internalMutation({
         action: "set_goal",
         target: { kind: "goal", id: "daily_qualifications", label: "Daily qualification goal" },
         summary: `Daily qualification goal · ${show(before)} → ${show(value)}`,
-        preview: { goal: "Daily qualification goal", before: show(before), after: show(value), openInMagnus: appLink("/workspace/reports/slack-qualifications") },
+        preview: { goal: "Daily qualification goal", before: show(before), after: show(value), openInMagnus: appLink("/workspace/team/goals") },
       });
     }
     if (!teamId) throw rejectRequest("goal.invalid", "Name the DM team, by ID from magnus_team.");
@@ -76,7 +76,7 @@ export const prepareSetGoal = internalMutation({
       action: "set_goal",
       target: { kind: "team", id: team._id, label: team.displayName },
       summary: `${team.displayName} daily booking quota · ${show(before)} → ${show(value)}`,
-      preview: { team: team.displayName, before: show(before), after: show(value), openInMagnus: appLink("/workspace/reports/booked-calls") },
+      preview: { team: team.displayName, before: show(before), after: show(value), openInMagnus: appLink("/workspace/team/goals") },
     });
   },
 });

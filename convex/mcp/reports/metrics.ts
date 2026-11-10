@@ -8,7 +8,13 @@ import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import type { MetricRow } from "../../../lib/assistantReportMerge";
 export const ASSISTANT_METRICS = [...API_METRICS, "final_cash"] as const;
 export type AssistantMetric = typeof ASSISTANT_METRICS[number];
-export const metricPage = (metric: string) => ["leads_captured", "unique_prospects", "resparks"].includes(metric) ? "lead_gen" : ["qualifications", "new_qualified_people"].includes(metric) ? "qualifications" : ["calls_booked", "calls_scheduled", "calls_held", "no_shows", "cancellations", "show_rate", "close_rate", "deals_won"].includes(metric) ? "team" : "revenue";
+export function metricPage(metric: string) {
+    if (["leads_captured", "unique_prospects", "resparks"].includes(metric)) return "lead_gen";
+    if (["qualifications", "new_qualified_people"].includes(metric)) return "qualifications";
+    if (metric === "close_rate") return "people";
+    if (["calls_scheduled", "calls_held", "no_shows", "cancellations", "show_rate"].includes(metric)) return "calls";
+    return "scorecard";
+}
 export const METRIC_DEFINITIONS: Record<AssistantMetric, string> = {
     leads_captured: "Non-voided lead capture submissions by submission time.", unique_prospects: "Distinct prospect IDs captured in the window; distinct across the whole window.",
     resparks: "Respark batch items worked with result resparked.", qualifications: "Slack qualification events by submission time.", new_qualified_people: "Qualification events that created an opportunity.",

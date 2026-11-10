@@ -1,6 +1,7 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v, type Infer } from "convex/values";
-import { query } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import { query, type QueryCtx } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
 import { dealAttributionRoleValidator } from "../lib/attribution/validators";
 import { isMovedSlot, isReplacement } from "../lib/callType";
 import { createLiveReadState, readLiveDocuments, readLiveQueryRows } from "../lib/liveQueryBounds";
@@ -98,16 +99,14 @@ export const getLanes = query({
   args: rangeArgs, returns: attributionLanesValidator,
   handler: async (ctx, args): Promise<AttributionLanes> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
-    return buildAttributionLanes(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+    return readLanes(ctx, tenantId, args);
   },
 });
 export const getPaths = query({
   args: rangeArgs, returns: attributionPathsValidator,
   handler: async (ctx, args): Promise<AttributionPaths> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
-    return buildAttributionPaths(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+    return readPaths(ctx, tenantId, args);
   },
 });
 
@@ -219,3 +218,15 @@ export const getDealChain = query({
     return buildDealChain(dimensions, facts, deal, person?.tenantId === tenantId ? person.fullName ?? "Unknown person" : "Unknown person");
   },
 });
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readLanes(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getLanes>): Promise<AttributionLanes> {
+  const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
+  return buildAttributionLanes(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readPaths(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getPaths>): Promise<AttributionPaths> {
+  const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
+  return buildAttributionPaths(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+}

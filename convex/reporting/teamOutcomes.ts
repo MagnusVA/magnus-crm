@@ -1,4 +1,3 @@
-import type { ReaderArgs } from "../analytics/assistantTypes";
 import { meetingAttendanceDisplay } from "../../lib/status-config";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -277,17 +276,3 @@ export const getTeamOutcomeMix = query({
     return await buildTeamOutcomeMix(ctx, tenantId, outcomes, inputs.isTruncated);
   },
 });
-
-/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
-export async function readMcpGetTeamOutcomeMix(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getTeamOutcomeMix>) {
-  const { startDate, endDate } = args;
-    assertValidDateRange(startDate, endDate);
-
-    
-
-    const inputs = await readTeamOutcomeInputs(ctx, tenantId, startDate, endDate);
-    // Each meeting's outcome from its deal's stage, outcome and loss
-    // (docs/plans/phase-5-deal-status.md §6.6).
-    const outcomes = await meetingOutcomesByStage(ctx, inputs);
-    return await buildTeamOutcomeMix(ctx, tenantId, outcomes, inputs.isTruncated);
-}

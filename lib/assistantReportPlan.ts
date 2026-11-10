@@ -8,20 +8,18 @@ export type SourcePlan = { resolvedRange: ResolvedAnalyticsRange; windows: Sourc
 /** Server equivalent of dashboardRangePlan + useAnalyticsSource/useAnalyticsReport.
  * Kept free of Convex and React so both runtimes can import it. Pages retain their code.
  */
-export function planAssistantSources(args: { range: AssistantRange; day: BusinessDaySetting; now: number; page: string; warehousePages: readonly string[]; reportId?: string }): SourcePlan {
+export function planAssistantSources(args: { range: AssistantRange; day: BusinessDaySetting; now: number; page: string; warehousePages: readonly string[]; reportId?: string; settledThrough?: string }): SourcePlan {
   const today = businessDateForInstant(args.now, args.day);
   const range: AnalyticsRange = args.range.kind === "preset" && args.range.preset === "today"
     ? { kind: "custom", startDate: today, endDateInclusive: today } : args.range as AnalyticsRange;
   const resolvedRange = resolveAnalyticsRange(range, args.day, args.now);
-  const plan = dashboardRangePlan(args.range.kind === "custom"
-    ? { kind: "custom", startBusinessDate: resolvedRange.startDate, endBusinessDateInclusive: resolvedRange.endDateInclusive }
-    : args.range.kind === "preset" && ["today", "this_week", "this_month"].includes(args.range.preset)
-      ? args.range as { kind: "preset"; preset: "today" | "this_week" | "this_month" }
-      : { kind: "custom", startBusinessDate: resolvedRange.startDate, endBusinessDateInclusive: resolvedRange.endDateInclusive }, today);
+  const plan = dashboardRangePlan(args.range.kind === "preset" && !("throughYesterday" in args.range && args.range.throughYesterday)
+    ? { kind: "preset", preset: args.range.preset }
+    : { kind: "custom", startBusinessDate: resolvedRange.startDate, endBusinessDateInclusive: resolvedRange.endDateInclusive }, today, args.settledThrough);
   const window = (engine: SourceWindow["engine"], r: AnalyticsRange, label: SourceWindow["label"]): SourceWindow => ({ engine, range: r, window: resolveAnalyticsRange(r, args.day, args.now), label });
   if (plan.kind === "live" || !args.warehousePages.includes(args.page)) return { resolvedRange, windows: [window("convex", range, "whole_range")] };
-  if (plan.kind === "warehouse" || args.reportId === "team.outcomes") return { resolvedRange, windows: [window("warehouse", plan.range, "whole_range")] };
-  return { resolvedRange, windows: [window("warehouse", plan.history, "history"), window("convex", { kind: "custom", startDate: today, endDateInclusive: resolvedRange.endDateInclusive }, "today_live")] };
+  if (plan.kind === "warehouse" || args.reportId === "scorecard.answers") return { resolvedRange, windows: [window("warehouse", plan.range, "whole_range")] };
+  return { resolvedRange, windows: [window("warehouse", plan.history, "history"), window("convex", { kind: "custom", startDate: plan.liveStartDate, endDateInclusive: resolvedRange.endDateInclusive }, "today_live")] };
 }
 
 /** The exact split-cache match in use-analytics-report.ts, including day rollover. */

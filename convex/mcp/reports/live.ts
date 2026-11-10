@@ -2,58 +2,42 @@ import type { QueryCtx } from "../../_generated/server";
 import type { Id } from "../../_generated/dataModel";
 import type { AnalyticsFilters } from "../../analytics/definition";
 import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
-import { readMcpGetRevenueMetrics, readMcpGetRevenueDetails } from "../../reporting/revenue";
-import { readMcpGetRevenueTrend } from "../../reporting/revenueTrend";
-import { readMcpGetBookedVsSoldMatrix } from "../../reporting/bookedVsSold";
-import { readMcpGetTeamPerformanceMetrics, readMcpGetTeamOperationsDimensions } from "../../reporting/teamPerformance";
-import { readMcpGetTeamOutcomeMix } from "../../reporting/teamOutcomes";
-import { readMcpGetActionsPerCloserPerDay } from "../../reporting/teamActions";
-import { readMcpGetPipelineDistribution, readMcpGetPipelineAging, readMcpGetPipelineBacklogAndLoss, readMcpGetSchedulingShowRateByOperationsDimensions } from "../../reporting/pipelineHealth";
-import { readMcpGetLeadConversionMetrics } from "../../reporting/leadConversion";
-import { readMcpGetFormResponseKpis, readMcpGetAnswerDistribution } from "../../reporting/formResponseAnalytics";
-import { readMcpGetReminderOutcomeFunnel } from "../../reporting/remindersReporting";
-import { readMcpGetQualificationReport } from "../../reporting/slackQualifications";
-import { addBusinessDays } from "../../../lib/businessDay";
-import { assistantDefinition } from "./catalog";
+import { readFunnel, readCash, readFollowThrough, readOrigins, readAnswers } from "../../reports/scorecard";
+import { readCallsSummary } from "../../reports/calls";
+import { readPeopleClosers } from "../../reports/people";
+import { readPeopleRole } from "../../reports/peopleRoles";
+import { readMemberProfile, readReportMembers } from "../../reports/member";
+import { readLanes, readPaths } from "../../reports/attribution";
+import { readPipelineNow } from "../../reports/pipeline";
 import { readLiveNumbers } from "./metrics";
-import { readOperationsPanel, readGoals } from "./operations";
+import { readOperationsPanel } from "./operations";
 import { readLeadGenPanel } from "./leadGen";
-/** Typed adapters use the same load path and builders as each public page reader.
- * Tenant identity has already passed requireMcpAdmin; no synthetic web session.
+/** The caller authorizes first. These are the exact load/build paths used by
+ * the page queries, whose public auth and member guards stay in place.
  */
 export async function readLivePanel(ctx: QueryCtx, tenantId: Id<"tenants">, id: string, filters: AnalyticsFilters, range: ResolvedAnalyticsRange): Promise<unknown> {
-    if (id === "mcp.metrics")
-        return readLiveNumbers(ctx, tenantId, filters, range);
-    if (id === "goals.assembly")
-        return readGoals(ctx, tenantId);
-    if (id.startsWith("lead_gen."))
-        return readLeadGenPanel(ctx, tenantId, id, filters, range);
-    if (id === "qualifications.dashboard" || id === "booked_calls.dashboard")
-        return readOperationsPanel(ctx, tenantId, id, range);
-    if (id === "pipeline.distribution")
-        return readMcpGetPipelineDistribution(ctx, tenantId, {});
-    if (id === "pipeline.aging")
-        return readMcpGetPipelineAging(ctx, tenantId, {});
-    const a = assistantDefinition(id).live.args({ tenantId, filters, range });
+    if (id === "mcp.metrics") return readLiveNumbers(ctx, tenantId, filters, range);
+    if (id.startsWith("lead_gen.")) return readLeadGenPanel(ctx, tenantId, id, filters, range);
+    if (id === "qualifications.dashboard") return readOperationsPanel(ctx, tenantId, id, range);
     const dates = { startDate: range.fromMs, endDate: range.toMs };
-    const payment = { ...dates, ...(filters.programId ? { programId: filters.programId as Id<"tenantPrograms"> } : {}) };
-    const dimensions = { startDayKey: range.startDate, endDayKeyExclusive: addBusinessDays(range.endDateInclusive, 1), ...(filters.bookingProgramId ? { bookingProgramId: filters.bookingProgramId as Id<"tenantPrograms"> } : {}), ...(filters.attributionTeamId ? { attributionTeamId: filters.attributionTeamId as Id<"attributionTeams"> } : {}) };
+    const program = filters.programId ? { programId: filters.programId as Id<"tenantPrograms"> } : {};
+    const memberId = filters.memberId as Id<"teamMembers"> | null;
     switch (id) {
-        case "revenue.metrics": return readMcpGetRevenueMetrics(ctx, tenantId, payment);
-        case "revenue.details": return readMcpGetRevenueDetails(ctx, tenantId, payment);
-        case "revenue.trend": return readMcpGetRevenueTrend(ctx, tenantId, { ...payment, granularity: (filters.granularity ?? "day") as "day" | "week" | "month" });
-        case "revenue.booked_vs_sold": return readMcpGetBookedVsSoldMatrix(ctx, tenantId, { ...dates, ...(payment.programId ? { paymentProgramId: payment.programId } : {}) });
-        case "team.metrics": return readMcpGetTeamPerformanceMetrics(ctx, tenantId, dates);
-        case "team.operations": return readMcpGetTeamOperationsDimensions(ctx, tenantId, dimensions);
-        case "team.outcomes": return readMcpGetTeamOutcomeMix(ctx, tenantId, dates);
-        case "team.actions": return readMcpGetActionsPerCloserPerDay(ctx, tenantId, dates);
-        case "pipeline.backlog_and_loss": return readMcpGetPipelineBacklogAndLoss(ctx, tenantId, dates);
-        case "pipeline.show_rate": return readMcpGetSchedulingShowRateByOperationsDimensions(ctx, tenantId, dimensions);
-        case "leads.conversion_metrics": return readMcpGetLeadConversionMetrics(ctx, tenantId, dates);
-        case "leads.form_kpis": return readMcpGetFormResponseKpis(ctx, tenantId, dates);
-        case "leads.answer_distribution": return readMcpGetAnswerDistribution(ctx, tenantId, { ...dates, fieldKey: String(a.fieldKey) });
-        case "reminders.funnel": return readMcpGetReminderOutcomeFunnel(ctx, tenantId, payment);
-        case "slack_qualifications.report": return readMcpGetQualificationReport(ctx, tenantId, { startBusinessDate: range.startDate, endBusinessDateExclusive: addBusinessDays(range.endDateInclusive, 1), granularity: "day" });
+        case "scorecard.funnel": return readFunnel(ctx, tenantId, { range, ...program });
+        case "scorecard.cash": return readCash(ctx, tenantId, { range, ...program });
+        case "scorecard.follow_through": return readFollowThrough(ctx, tenantId, { range, ...program });
+        case "scorecard.origins": return readOrigins(ctx, tenantId, { range, ...program });
+        case "scorecard.answers": return readAnswers(ctx, tenantId, { range, ...program, fieldKey: String(filters.fieldKey) });
+        case "calls.summary": return readCallsSummary(ctx, tenantId, { ...dates, ...program, ...(filters.closerId ? { closerId: filters.closerId as Id<"users"> } : {}), ...(filters.callType ? { callType: filters.callType as "new" | "follow_up" } : {}) });
+        case "people.members": return readReportMembers(ctx, tenantId);
+        case "people.profile": return readMemberProfile(ctx, tenantId, memberId!);
+        case "people.closers": return readPeopleClosers(ctx, tenantId, dates, memberId);
+        case "people.setters": return readPeopleRole(ctx, tenantId, dates, "setter", memberId);
+        case "people.dm_closers": return readPeopleRole(ctx, tenantId, dates, "dm_closer", memberId);
+        case "people.lead_gen": return readPeopleRole(ctx, tenantId, dates, "lead_gen", memberId);
+        case "attribution.lanes": return readLanes(ctx, tenantId, dates);
+        case "attribution.paths": return readPaths(ctx, tenantId, dates);
+        case "pipeline.now": return readPipelineNow(ctx, tenantId, {});
         default: throw new Error("Unsupported report panel.");
     }
 }

@@ -233,7 +233,7 @@ export async function buildHealth(ctx: QueryCtx, me: Admin, area?: Area) {
           ? ["refresh_overdue"]
           : [],
       lastSyncEndedAt,
-      "/workspace/reports",
+      "/workspace/reports/scorecard",
     );
   }
   if (wants("sign_in"))

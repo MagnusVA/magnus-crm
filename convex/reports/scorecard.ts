@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -214,11 +215,36 @@ const answersValidator = v.object({ fieldKey: v.string(), label: v.string(),
 const args = { range: scorecardRangeValidator, programId: v.optional(v.id("tenantPrograms")) };
 export const funnel = query({ args, returns: funnelValidator, handler: async (ctx, args): Promise<FunnelOutput> => {
   const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-  await assertScorecardRange(ctx, tenantId, args.range);
-  return buildFunnel(await loadScorecardFacts(ctx, tenantId, args.range, true), args.range, args, await loadLifecycle(ctx, tenantId, args.range));
+  return readFunnel(ctx, tenantId, args);
 } });
 export const cash = query({ args, returns: cashOutputValidator, handler: async (ctx, args): Promise<CashOutput> => {
   const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+  return readCash(ctx, tenantId, args);
+} });
+export const followThrough = query({ args, returns: followThroughValidator, handler: async (ctx, args): Promise<FollowThroughOutput> => {
+  const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+  return readFollowThrough(ctx, tenantId, args);
+} });
+export const origins = query({ args, returns: originsValidator, handler: async (ctx, args): Promise<OriginsOutput> => {
+  const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+  return readOrigins(ctx, tenantId, args);
+} });
+export const answers = query({ args: { ...args, fieldKey: v.string() }, returns: answersValidator, handler: async (ctx, args): Promise<AnswersOutput> => {
+  const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+  return readAnswers(ctx, tenantId, args);
+} });
+
+// Export the pure lifecycle builder beside the other builders for parity fixtures.
+export { buildLifecycle };
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readFunnel(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof funnel>): Promise<FunnelOutput> {
+  await assertScorecardRange(ctx, tenantId, args.range);
+  return buildFunnel(await loadScorecardFacts(ctx, tenantId, args.range, true), args.range, args, await loadLifecycle(ctx, tenantId, args.range));
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readCash(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof cash>): Promise<CashOutput> {
   await assertScorecardRange(ctx, tenantId, args.range);
   const facts = await loadScorecardFacts(ctx, tenantId, args.range, false);
   const names = new Map<string, string>();
@@ -226,25 +252,25 @@ export const cash = query({ args, returns: cashOutputValidator, handler: async (
     const program = await ctx.db.get("tenantPrograms", id); if (program?.tenantId === tenantId) names.set(id, program.name);
   }
   return buildCash(facts, args.range, args, names);
-} });
-export const followThrough = query({ args, returns: followThroughValidator, handler: async (ctx, args): Promise<FollowThroughOutput> => {
-  const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readFollowThrough(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof followThrough>): Promise<FollowThroughOutput> {
   await assertScorecardRange(ctx, tenantId, args.range);
   const { reminders, users } = await loadReminders(ctx, tenantId, args.range);
   const deals = new Map<string, Doc<"opportunities"> | null>();
   if (args.programId) for (const r of reminders) if (!deals.has(r.opportunityId)) deals.set(r.opportunityId, await ctx.db.get("opportunities", r.opportunityId));
   return buildFollowThrough(reminders.filter(r => !args.programId || deals.get(r.opportunityId)?.firstBookingProgramId === args.programId), users, args.range, Date.now());
-} });
-export const origins = query({ args, returns: originsValidator, handler: async (ctx, args): Promise<OriginsOutput> => {
-  const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readOrigins(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof origins>): Promise<OriginsOutput> {
   await assertScorecardRange(ctx, tenantId, args.range);
   return buildOrigins(await loadScorecardFacts(ctx, tenantId, args.range, false), args.range, args);
-} });
-export const answers = query({ args: { ...args, fieldKey: v.string() }, returns: answersValidator, handler: async (ctx, args): Promise<AnswersOutput> => {
-  const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readAnswers(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof answers>): Promise<AnswersOutput> {
   await assertScorecardRange(ctx, tenantId, args.range); const key = normalizeFieldKey(args.fieldKey);
   return buildAnswers(await loadAnswers(ctx, tenantId, args.range, args, key), key, await answerLabel(ctx, tenantId, key));
-} });
-
-// Export the pure lifecycle builder beside the other builders for parity fixtures.
-export { buildLifecycle };
+}

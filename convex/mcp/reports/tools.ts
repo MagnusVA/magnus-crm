@@ -5,9 +5,10 @@ import { mcpCallerValidator, type McpCaller } from "../guard";
 import { appLink } from "../admin/prepare";
 import { numbersArgs, reportArgs, ASSISTANT_COLD_WAIT_MS, type ToolRequest } from "./contracts";
 import type { Prepared, JobAnswer } from "./planning";
-import { incomplete, mergePanel, currencySafe, safeText, boundPanel, capAnswer, focusCloser, type Json } from "./output";
+import { incomplete, withholdIncomplete, safeText, boundPanel, capAnswer, type Json } from "./output";
 import { mergeMetricWindows, boundMetricRows, metricDelta, NON_ADDITIVE, type MetricRow } from "../../../lib/assistantReportMerge";
 import { addBusinessDays } from "../../../lib/businessDay";
+import { mergeReportPanel } from "./merge";
 import { REPORT_DEFINITIONS } from "./catalog";
 import { gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES } from "../../../lib/assistantReportMerge";
 import { METRIC_DEFINITIONS } from "./metrics";
@@ -51,7 +52,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
     }
     // Recheck access, day boundaries and sync after waiting, before reading live.
     const rechecked: Prepared = JSON.parse(await ctx.runQuery(internal.mcp.reports.planning.prepare, { caller, request }));
-    if (rechecked.syncWatermark !== prepared.syncWatermark || rechecked.resolvedRange.startDate !== prepared.resolvedRange.startDate || rechecked.resolvedRange.endDateInclusive !== prepared.resolvedRange.endDateInclusive)
+    if (JSON.stringify(rechecked.inputs) !== JSON.stringify(prepared.inputs) || rechecked.syncWatermark !== prepared.syncWatermark || rechecked.resolvedRange.startDate !== prepared.resolvedRange.startDate || rechecked.resolvedRange.endDateInclusive !== prepared.resolvedRange.endDateInclusive)
         return pending();
     const byKey = new Map(jobs.map((j, i) => [j.key, answers[i]]));
     const loaded: Loaded[] = [];
@@ -161,21 +162,28 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         const parts = loaded.filter(l => l.input.id === id);
         const full = parts.every(p => !incomplete(p.data));
         if (!full) {
-            rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
+            base.isPartial = true;
+            base.reasons.push("incomplete_input");
+            // One source: keep its complete parts as the page shows them.
+            // Two windows are merged only when both are complete.
+            if (parts.length === 1)
+                rawPanels.push({ id, ...(id === "pipeline.now" ? { scope: "current_state_ignores_range" } : {}), data: withholdIncomplete(parts[0].data) as Json });
+            else
+                rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
             continue;
         }
         if (parts.length === 2) {
-            const joined = mergePanel(parts[0].data as Json, parts[1].data as Json);
-            if (joined.separate) {
+            const joined = mergeReportPanel(id, parts[0].data, parts[1].data);
+            if (incomplete(joined)) {
                 base.isPartial = true;
-                base.reasons.push("non_additive_split");
-            }
-            rawPanels.push({ id, data: joined.combined, ...(joined.separate ? { separate: joined.separate } : {}) });
+                base.reasons.push("incomplete_input");
+                rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
+            } else rawPanels.push({ id, data: joined as Json });
         }
         else
-            rawPanels.push({ id, ...(id === "pipeline.distribution" || id === "pipeline.aging" ? { scope: "current_state_ignores_range" } : {}), data: parts[0].data as Json });
+            rawPanels.push({ id, ...(id === "pipeline.now" ? { scope: "current_state_ignores_range" } : {}), data: parts[0].data as Json });
     }
-    const clean = rawPanels.map(panel => safeText(currencySafe(request.closerId ? focusCloser(panel, request.closerId) : panel)));
+    const clean = rawPanels.map(panel => safeText(panel));
     for (let displayLimit = prepared.limit; displayLimit >= 1; displayLimit--) {
         omitted = [];
         panels = clean.map(panel => boundPanel(panel, displayLimit, complete, omitted));
@@ -192,7 +200,7 @@ export async function runReportTool(ctx: ActionCtx, caller: McpCaller, request: 
         base.reasons.push("row_limit");
     }
     base.reasons = [...new Set(base.reasons)];
-    return capAnswer({ ...base, status: "ready", panels, omitted, ...(request.closerId ? { filterScope: { closerId: request.closerId, lists: "selected_closer", pageTotals: "workspace" } } : {}) });
+    return capAnswer({ ...base, status: "ready", panels, omitted });
 }
 export const numbers = internalAction({ args: { caller: mcpCallerValidator, ...numbersArgs }, returns: v.any(), handler: async (ctx, { caller, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "numbers", ...args }) });
 export const report = internalAction({ args: { caller: mcpCallerValidator, ...reportArgs }, returns: v.any(), handler: async (ctx, { caller, ...args }): Promise<Record<string, unknown>> => runReportTool(ctx, caller, { kind: "report", ...args }) });

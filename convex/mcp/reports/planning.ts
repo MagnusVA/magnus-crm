@@ -7,12 +7,14 @@ import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { findResult, readSyncRow, resultState } from "../../analytics/results";
 import { isClickHouseConfigured } from "../../analytics/clickhouse";
 import { planAssistantSources, cachedWindowFits, assertReportCells, rangePeriods, reportLimit, type SourceWindow, type AssistantRange } from "../../../lib/assistantReportPlan";
-import type { ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
-import { addBusinessDays, businessDateForInstant } from "../../../lib/businessDay";
+import { settledThroughDate, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
+import { addBusinessDays, businessDateForInstant, businessDayStart } from "../../../lib/businessDay";
 import type { AnalyticsFilters } from "../../analytics/definition";
 import { requestValidator, jobValidator, type ToolRequest, type ReportJob } from "./contracts";
-import { assistantDefinition, REPORT_PANELS } from "./catalog";
+import { assistantDefinition, REPORT_PANELS, CURRENT_REPORT_PAGES, LIVE_PANELS } from "./catalog";
 import { apiFilters, assistantApiAnswer, metricPage } from "./metrics";
+import { readFieldCatalog } from "../../reports/formFields";
+import { readMemberProfile } from "../../reports/member";
 export type PanelInput = {
     id: string;
     filters: AnalyticsFilters;
@@ -56,11 +58,14 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
     const limit = reportLimit(request.limit);
     const day = await getTenantBusinessDay(ctx, me.tenantId);
     const today = businessDateForInstant(Date.now(), day);
-    const range = request.kind === "report" && request.report === "goals" ? { kind: "custom" as const, startDate: addBusinessDays(today, -30), endDateInclusive: addBusinessDays(today, -1) } : request.range ?? { kind: "preset" as const, preset: "today" as const };
-    const base = planAssistantSources({ range, day, now: Date.now(), page: "revenue", warehousePages: me.tenant.analyticsReports ?? [] });
+    const range = request.range ?? { kind: "preset" as const, preset: "today" as const };
+    const sync = await readSyncRow(ctx);
+    const syncWatermark = sync?.watermark ?? 0;
+    const settledThrough = settledThroughDate(today, sync?.watermark ?? null, businessDayStart(today, day));
+    const base = planAssistantSources({ range, day, now: Date.now(), page: "", warehousePages: [] });
     const compare = request.kind === "numbers" ? comparisonRange(request, base.resolvedRange) : null;
     // No data reader, cache lookup or job runs before this output-size check.
-    const periods = request.kind === "numbers" && request.groupBy === "day" || request.kind === "report" && request.report === "revenue" ? rangePeriods(base.resolvedRange) : 1;
+    const periods = request.kind === "numbers" && request.groupBy === "day" ? rangePeriods(base.resolvedRange) : 1;
     const groups = request.kind === "numbers" && request.groupBy && request.groupBy !== "day" ? limit + 1 : 1;
     assertReportCells(periods * (compare ? 2 : 1), groups);
     if (request.kind === "numbers") {
@@ -70,6 +75,9 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
         apiFilters({ metrics: request.metrics.join(","), group_by: request.groupBy === "day" ? "none" : request.groupBy ?? "none", granularity: request.groupBy === "day" ? "day" : "total" });
     }
     else {
+        if (request.programId && !["scorecard", "calls"].includes(request.report) || request.closerId && request.report !== "calls" || request.callType && request.report !== "calls" || request.memberId && request.report !== "people" || request.fieldKey && request.report !== "scorecard" || request.teamId && request.report !== "lead_gen")
+            throw new Error("Choose filters supported by this report: programId for scorecard/calls, closerId and callType for calls, memberId for people, fieldKey for scorecard, teamId for lead_gen.");
+        if (request.memberId) await loadInTenant(ctx, me, "teamMembers", request.memberId);
         if (request.programId)
             await loadInTenant(ctx, me, "tenantPrograms", request.programId);
         if (request.closerId)
@@ -77,18 +85,29 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
         if (request.teamId)
             await loadInTenant(ctx, me, "attributionTeams", request.teamId);
     }
-    const sync = await readSyncRow(ctx);
-    const syncWatermark = sync?.watermark ?? 0;
     const inputs: PanelInput[] = [];
+    let reportPanels: readonly string[] = request.kind === "report" ? REPORT_PANELS[request.report] : [];
+    let fieldKey: string | undefined;
+    if (request.kind === "report" && request.report === "scorecard") {
+        const catalog = await readFieldCatalog(ctx, me.tenantId);
+        // Same default selection as Scorecard's defaultAnswerField.
+        fieldKey = request.fieldKey ?? (catalog.find(f => /income|revenue|earn|salary|budget|invest|make per/iu.test(f.currentLabel)) ?? catalog[0])?.fieldKey;
+        if (!fieldKey) reportPanels = reportPanels.filter(id => id !== "scorecard.answers");
+    }
+    if (request.kind === "report" && request.report === "people" && request.memberId) {
+        const profile = await readMemberProfile(ctx, me.tenantId, request.memberId);
+        const rolePanels = { closer: "people.closers", setter: "people.setters", dm_closer: "people.dm_closers", lead_gen: "people.lead_gen" };
+        reportPanels = ["people.profile", ...(profile?.roles ?? []).map(role => rolePanels[role])];
+    }
     const panels = request.kind === "numbers"
         ? [...new Set(request.metrics.map(metricPage))].map(page => ({ id: "mcp.metrics", page, raw: { metrics: request.metrics.filter(m => metricPage(m) === page).join(","), group_by: request.groupBy === "day" ? "none" : request.groupBy ?? "none", granularity: request.groupBy === "day" ? "day" : "total" } as AnalyticsFilters }))
-        : REPORT_PANELS[request.report].map(id => ({ id, page: id.split(".")[0], raw: { ...(request.programId ? { programId: request.programId, bookingProgramId: request.programId } : {}), ...(request.teamId ? { teamId: request.teamId, attributionTeamId: request.teamId } : {}), ...(request.closerId ? { closerId: request.closerId } : {}) } as AnalyticsFilters }));
+        : reportPanels.map(id => ({ id, page: id.split(".")[0], raw: { ...(request.programId ? { programId: request.programId } : {}), ...(request.teamId ? { teamId: request.teamId } : {}), ...(request.closerId ? { closerId: request.closerId } : {}), ...(request.memberId ? { memberId: request.memberId } : {}), ...(request.callType ? { callType: request.callType } : {}), ...(fieldKey ? { fieldKey } : {}) } as AnalyticsFilters }));
     for (const period of ["current", ...(compare ? ["comparison"] : [])] as Array<"current" | "comparison">) {
         for (const panel of panels) {
-            const currentState = ["pipeline.distribution", "pipeline.aging", "goals.assembly"].includes(panel.id);
+            const currentState = LIVE_PANELS.has(panel.id);
             const definition = currentState ? null : assistantDefinition(panel.id);
             const filters = definition ? await definition.parseFilters(ctx, panel.raw, me) : panel.raw;
-            const plan = planAssistantSources({ range: period === "comparison" ? compare! : range, day, now: Date.now(), page: currentState ? "" : panel.page, warehousePages: currentState ? [] : me.tenant.analyticsReports ?? [], reportId: panel.id });
+            const plan = planAssistantSources({ range: period === "comparison" ? compare! : range, day, now: Date.now(), page: currentState ? "" : panel.page, warehousePages: currentState ? [] : me.tenant.analyticsReports ?? [], reportId: panel.id, ...(CURRENT_REPORT_PAGES.some(page => page === panel.page) ? { settledThrough } : {}) });
             for (const window of plan.windows) {
                 const job = window.engine === "warehouse" ? {
                     key: canonicalJson({ report: panel.id, args: analyticsArgsKey({ filters, range: window.range, day }), from: window.window.startDate, to: window.window.endDateInclusive, syncWatermark }),
@@ -98,7 +117,7 @@ export async function prepareReport(ctx: QueryCtx, caller: Parameters<typeof req
             }
         }
     }
-    return { resolvedRange: base.resolvedRange, businessDay: { timeZone: day.timeZone, startHour: day.dayStartHour }, inputs, limit, syncWatermark, configured: isClickHouseConfigured(), path: request.kind === "numbers" ? "/workspace/reports/revenue" : request.report === "goals" ? "/workspace/team/goals" : request.report === "lead_gen" || request.report === "qualifications" ? `/workspace/operations/${request.report === "lead_gen" ? "lead-gen" : "qualifications"}` : `/workspace/reports/${request.report === "booked_vs_sold" ? "revenue" : request.report}` };
+    return { resolvedRange: base.resolvedRange, businessDay: { timeZone: day.timeZone, startHour: day.dayStartHour }, inputs, limit, syncWatermark, configured: isClickHouseConfigured(), path: request.kind === "numbers" ? "/workspace/reports/scorecard" : request.report === "lead_gen" || request.report === "qualifications" ? `/workspace/operations/${request.report === "lead_gen" ? "lead-gen" : "qualifications"}` : `/workspace/reports/${request.report}${request.report === "people" && request.memberId ? `/${request.memberId}` : ""}` };
 }
 export const prepare = internalQuery({ args: { caller: mcpCallerValidator, request: requestValidator }, returns: v.string(), handler: async (ctx, args) => JSON.stringify(await prepareReport(ctx, args.caller, args.request)) });
 export type JobAnswer = {

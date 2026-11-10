@@ -1,13 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { dashboardRangePlan, resolveAnalyticsRange } from "../../../lib/analyticsRange";
+import { dashboardRangePlan, resolveAnalyticsRange, settledThroughDate } from "../../../lib/analyticsRange";
 import { planAssistantSources, cachedWindowFits, assertReportCells } from "../../../lib/assistantReportPlan";
 import { mergeMetricWindows, metricDelta, boundMetricRows, gatewayAnswerBytes, type MetricRow } from "../../../lib/assistantReportMerge";
+import { businessDayStart } from "../../../lib/businessDay";
 import { currencySafe, mergePanel, incomplete, safeText, capAnswer, boundPanel } from "./output";
 const day = { timeZone: "America/Tegucigalpa", dayStartHour: 1 };
 const now = Date.parse("2026-11-09T18:00:00Z");
 const today = "2026-11-09";
-const pages = ["revenue", "team", "pipeline", "goals", "leads", "reminders", "qualifications", "lead_gen"];
+const pages = ["scorecard", "calls", "people", "attribution", "qualifications", "lead_gen"];
 const ranges = [
+    { kind: "preset" as const, preset: "yesterday" as const },
+    { kind: "preset" as const, preset: "last_month" as const },
+    { kind: "preset" as const, preset: "last_90_days" as const },
     { kind: "preset" as const, preset: "today" as const },
     { kind: "custom" as const, startBusinessDate: "2026-11-05", endBusinessDateInclusive: "2026-11-05" },
     { kind: "custom" as const, startBusinessDate: "2026-11-01", endBusinessDateInclusive: "2026-11-05" },
@@ -27,13 +31,30 @@ describe("page-path source parity", () => {
                         expect(actual.windows[0].range).toEqual(pagePlan.history);
                 }
             });
-    it("keeps team outcomes whole, and leaves a cold cache on its planned source", () => {
-        const plan = planAssistantSources({ day, now, range: { kind: "preset", preset: "this_month" }, page: "team", warehousePages: ["team"], reportId: "team.outcomes" });
+    it("keeps Scorecard answers whole, and leaves a cold cache on its planned source", () => {
+        const plan = planAssistantSources({ day, now, range: { kind: "preset", preset: "this_month" }, page: "scorecard", warehousePages: ["scorecard"], reportId: "scorecard.answers" });
         expect(plan.windows).toHaveLength(1);
         expect(plan.windows[0].engine).toBe("warehouse");
         expect(plan.windows[0].window.endDateInclusive).toBe(today);
         expect(cachedWindowFits(plan.windows[0].window, null)).toBe(false);
     });
+    for (const page of ["scorecard", "calls", "people", "attribution"]) {
+        for (const watermark of [null, businessDayStart(today, day) - 1, businessDayStart(today, day)]) {
+            it(`${page} matches the page plan at watermark ${watermark}`, () => {
+                const settledThrough = settledThroughDate(today, watermark, businessDayStart(today, day));
+                for (const range of ranges) {
+                    const pagePlan = dashboardRangePlan(range, today, settledThrough);
+                    const input = range.kind === "custom" ? { kind: "custom" as const, startDate: range.startBusinessDate, endDateInclusive: range.endBusinessDateInclusive } : range;
+                    const plan = planAssistantSources({ day, now, range: input, page, warehousePages: [page], settledThrough });
+                    expect(plan.windows.map(w => w.engine)).toEqual(pagePlan.kind === "live" ? ["convex"] : pagePlan.kind === "warehouse" ? ["warehouse"] : ["warehouse", "convex"]);
+                    if (pagePlan.kind === "split") {
+                        expect(plan.windows[0].range).toEqual(pagePlan.history);
+                        expect(plan.windows[1].window.startDate).toBe(pagePlan.liveStartDate);
+                    }
+                }
+            });
+        }
+    }
     it("rejects last night's split answer after business midnight", () => {
         const range = resolveAnalyticsRange({ kind: "custom", startDate: "2026-11-01", endDateInclusive: "2026-11-08" }, day, now);
         expect(cachedWindowFits(range, { startDate: "2026-11-01", endDateInclusive: "2026-11-07" })).toBe(false);

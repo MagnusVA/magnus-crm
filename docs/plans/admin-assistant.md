@@ -19,8 +19,8 @@ The gateway registers one list for every role. `authorize` in `convex/mcp/http.t
 | Tool | Kind | What it does | Code |
 |---|---|---|---|
 | `magnus_brief` | read | The floor now: today's numbers per closer, queue counts and ages, who is out, health and freshness. Call first | `convex/mcp/admin/reads/` |
-| `magnus_numbers` | read | Named metrics for a range, optionally compared and grouped; Magnus computes every difference | `convex/mcp/reports/` |
-| `magnus_report` | read | One named report as its page shows it | `convex/mcp/reports/` |
+| `magnus_numbers` | read | Named metrics for a range using the current Reports or Operations source switch, optionally compared and grouped; Magnus computes every difference | `convex/mcp/reports/` |
+| `magnus_report` | read | Scorecard, Calls, People (optionally one member), Attribution or Pipeline as its page shows it; also the existing Operations Qualifications and Lead Gen dashboards. Log stays in Magnus | `convex/mcp/reports/` |
 | `magnus_end_of_day` | read | Who saved an end-of-day report for a business day, and the numbers Magnus counted | `convex/mcp/admin/reads/endOfDay.ts` |
 | `magnus_lookup` | read | Find or open one person, deal, meeting, payment or team member | `convex/mcp/admin/reads/` |
 | `magnus_queue` | read | One review queue, or one item in it | `convex/mcp/admin/reads/queue.ts` |

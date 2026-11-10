@@ -7,6 +7,22 @@ export function incomplete(value: unknown): boolean {
         return false;
     return Object.entries(value).some(([key, v]) => /truncat|capped|partial|incomplete/i.test(key) && v === true || incomplete(v));
 }
+const flaggedKey = /truncat|capped|partial|incomplete/i;
+/**
+ * One page answer with only its incomplete parts withheld: an object flagged
+ * partial becomes `{nullReason: "incomplete_input"}` (keeping its identity
+ * fields), and every complete sibling stays as the page shows it.
+ */
+export function withholdIncomplete(value: unknown): unknown {
+    if (Array.isArray(value))
+        return value.map(withholdIncomplete);
+    if (!value || typeof value !== "object")
+        return value;
+    const entries = Object.entries(value);
+    if (entries.some(([key, v]) => flaggedKey.test(key) && v === true))
+        return { ...Object.fromEntries(entries.filter(([key, v]) => (identityKey.test(key) || key === "stage") && typeof v !== "object")), value: null, nullReason: "incomplete_input" };
+    return Object.fromEntries(entries.map(([key, v]) => [key, withholdIncomplete(v)]));
+}
 const derivedKey = /rate|ratio|average|avg|distinct|unique|cohort|opportunitiesWithReminderChains|chainLengthHistogram|wonDeals|perHour|perDay|percent|share|quota|target|velocity|age|duration|at$|date|daySpan|hourly|limit/i;
 const identityKey = /^(id|key|.*Id|source|originKey|periodKey|bucket|fieldKey|paymentType)$/;
 // Unknown numeric fields are non-additive until explicitly classified here.
@@ -85,8 +101,8 @@ export function safeText(value: Json, key = ""): Json {
         return value.map(v => safeText(v, key));
     if (value && typeof value === "object")
         return Object.fromEntries(Object.entries(value).filter(([k]) => !/email|phone|receipt|proof|referenceCode|transcript|notes|imageUrl|avatar|picture|handle/i.test(k)).map(([k, v]) => [k, safeText(v, k)]));
-    if (typeof value === "string" && /name|label|title|answer|originValue|utm|username|text/i.test(key))
-        return { text: /\S+@\S+\.\S+/.test(value) ? "Hidden contact detail" : value.slice(0, 240), by: /lead|answer/i.test(key) ? "person" : "integration" };
+    if (typeof value === "string" && /name|label|title|answer|originValue|utm|username|text|^reason$|^channel$/i.test(key))
+        return { text: /\S+@\S+\.\S+|^\+?[\d(). -]{7,}$/.test(value) ? "Hidden contact detail" : value.slice(0, 240), by: /lead|person|answer/i.test(key) ? "person" : /closer/i.test(key) ? "closer" : "integration" };
     return value;
 }
 /** Bound every displayed list; the remainder is calculated from all omitted

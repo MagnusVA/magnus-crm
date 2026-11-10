@@ -11,7 +11,7 @@ async function fixture() {
     vi.setSystemTime(Date.parse("2026-11-09T18:00:00Z"));
     const f = await adminFixture();
     workpool.register(f.t, "analyticsWorkpool");
-    await f.t.run(ctx => ctx.db.patch("tenants", f.tenantId, { businessDayAppliedVersion: 0, analyticsReports: ["team", "revenue"] }));
+    await f.t.run(ctx => ctx.db.patch("tenants", f.tenantId, { businessDayAppliedVersion: 0, analyticsReports: ["team", "revenue", "calls", "people", "scorecard"] }));
     const watermark = Date.now() - 3600000;
     await f.t.run(ctx => ctx.db.insert("analyticsSync", { beatAt: Date.now(), watermark }));
     vi.stubEnv("CLICKHOUSE_URL", "https://clickhouse.example:8443");
@@ -26,7 +26,7 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 function jobs(f: Fixture, count = 4): ReportJob[] {
     const range = { kind: "custom" as const, startDate: "2026-10-01", endDateInclusive: "2026-10-31" };
     const window = resolveAnalyticsRange(range, { timeZone: "America/Tegucigalpa", dayStartHour: 1 }, Date.now());
-    return ["team.metrics", "team.operations", "team.outcomes", "team.actions"].slice(0, count).map(report => ({ key: `test:${report}`, report, range, window, syncWatermark: f.watermark, filtersJson: report === "team.operations" ? '{"bookingProgramId":null,"attributionTeamId":null,"dmCloserId":null}' : "{}" }));
+    return ["scorecard.funnel", "scorecard.cash", "scorecard.follow_through", "scorecard.origins"].slice(0, count).map(report => ({ key: `test:${report}`, report, range, window, syncWatermark: f.watermark, filtersJson: '{"programId":null}' }));
 }
 async function rows(f: Fixture) { return f.t.run(ctx => ctx.db.query("mcpReportRequests").take(100)); }
 async function advanceJob(f: Fixture, fail = false) {
@@ -120,7 +120,7 @@ describe("isolated assistant report admission", () => {
     });
     it("reads fresh web answers without touching the row or creating assistant jobs", async () => {
         const f = await fixture();
-        const request = { kind: "report" as const, report: "booked_vs_sold" as const, range: { kind: "preset" as const, preset: "last_month" as const } };
+        const request = { kind: "report" as const, report: "calls" as const, range: { kind: "preset" as const, preset: "last_month" as const } };
         const plan: Prepared = JSON.parse(await f.t.query(internal.mcp.reports.planning.prepare, { caller: f.caller, request }));
         const job = plan.inputs[0].job!;
         const id = await f.t.run(async (ctx) => {
@@ -128,7 +128,7 @@ describe("isolated assistant report admission", () => {
             return ctx.db.insert("analyticsResults", { tenantId: f.tenantId, reportId: job.report, argsKey: analyticsArgsKey({ filters: JSON.parse(job.filtersJson), range: job.range, day: { timeZone: job.window.timeZone, dayStartHour: 1 } }), filtersJson: job.filtersJson, range: job.range, timeZone: job.window.timeZone, dayStartHour: 1, status: "ready", payloadId, answer: { startDate: job.window.startDate, endDateInclusive: job.window.endDateInclusive, watermark: f.watermark, completedAt: Date.now() }, lastRequestedAt: 123 });
         });
         const before = await f.t.run(ctx => ctx.db.get("analyticsResults", id));
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "booked_vs_sold", range: request.range });
+        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range: request.range });
         expect(result.status).toBe("ready");
         expect(await rows(f)).toHaveLength(0);
         expect(await f.t.run(ctx => ctx.db.get("analyticsResults", id))).toEqual(before);
@@ -139,7 +139,7 @@ describe("report action results", () => {
         const f = await fixture();
         const { analyticsPool } = await import("../../analytics/pool");
         const spy = vi.spyOn(analyticsPool, "enqueueAction").mockImplementation(async () => "test-work" as import("@convex-dev/workpool").WorkId);
-        const promise = f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "team", range: { kind: "preset", preset: "last_month" } });
+        const promise = f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "people", range: { kind: "preset", preset: "last_month" } });
         let result: Record<string, unknown> | undefined;
         void promise.then(value => { result = value; });
         for (let i = 0; i < 81 && !result; i++)
@@ -180,7 +180,7 @@ describe("report action results", () => {
         expect(row.status).toBe("ready");
         const sync = await f.t.run(ctx => ctx.db.query("analyticsSync").first());
         await f.t.run(ctx => ctx.db.patch("analyticsSync", sync!._id, { watermark: f.watermark + 1000 }));
-        const request = { kind: "report" as const, report: "team" as const, range: { kind: "preset" as const, preset: "last_month" as const } };
+        const request = { kind: "report" as const, report: "people" as const, range: { kind: "preset" as const, preset: "last_month" as const } };
         const plan: Prepared = JSON.parse(await f.t.query(internal.mcp.reports.planning.prepare, { caller: f.caller, request }));
         expect(plan.syncWatermark).toBe(f.watermark + 1000);
         expect(plan.inputs[0].job?.key).not.toBe(row.key);

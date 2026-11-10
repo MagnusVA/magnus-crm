@@ -16,10 +16,16 @@ export const run = internalAction({
             const watermark = await queryWatermark();
             if (watermark === null)
                 throw new Error("waiting_for_first_sync");
-            const rowsJson = await fetchReportRows(assistantDefinition(job.report), { tenantId, filters: JSON.parse(job.filtersJson), range: job.window });
-            // Existing reports finalize through the page engine. The assistant-only
-            // metric adapter shares the API's SQL/facts but is not a web cache key.
-            const rawJson: string = await ctx.runQuery(internal.analytics.results.previewFinalize, { tenantId, reportId: job.report === "mcp.metrics" ? "api.metrics" : job.report, filtersJson: job.report === "mcp.metrics" ? JSON.stringify(apiFilters(JSON.parse(job.filtersJson))) : job.filtersJson, range: job.window, rowsJson });
+            const definition = assistantDefinition(job.report);
+            let rawJson: string;
+            if (definition.node) {
+                rawJson = await ctx.runAction(internal.analytics.runNode.previewInNode, { tenantId, reportId: job.report, filtersJson: job.filtersJson, range: job.window });
+            } else {
+                const rowsJson = await fetchReportRows(assistantDefinition(job.report), { tenantId, filters: JSON.parse(job.filtersJson), range: job.window });
+                // Existing reports finalize through the page engine. The assistant-only
+                // metric adapter shares the API's SQL/facts but is not a web cache key.
+                rawJson = await ctx.runQuery(internal.analytics.results.previewFinalize, { tenantId, reportId: job.report === "mcp.metrics" ? "api.metrics" : job.report, filtersJson: job.report === "mcp.metrics" ? JSON.stringify(apiFilters(JSON.parse(job.filtersJson))) : job.filtersJson, range: job.window, rowsJson });
+            }
             const resultJson = job.report === "mcp.metrics" ? JSON.stringify(assistantApiAnswer(JSON.parse(rawJson), String(JSON.parse(job.filtersJson).metrics))) : rawJson;
             await ctx.runMutation(internal.mcp.reports.admission.finish, { ...args, resultJson, watermark });
         }

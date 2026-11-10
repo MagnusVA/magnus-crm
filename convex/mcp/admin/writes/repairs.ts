@@ -154,7 +154,7 @@ export const prepareRepair = internalMutation({
         return await go(
           `Retry the ${row.eventType} delivery from ${when}`,
           { kind: "delivery", id: row._id, label: `${row.eventType} · ${when}` },
-          { delivery: { event: row.eventType, when, status: row.status }, effect: "Magnus processes the booking again. The outcome shows in magnus_health.", openInMagnus: appLink("/workspace/operations/booking-health") },
+          { delivery: { event: row.eventType, when, status: row.status }, effect: "Magnus processes the booking again. The outcome shows in magnus_health.", openInMagnus: appLink("/workspace/operations") },
         );
       }
       case "retry_projection": {
@@ -167,7 +167,7 @@ export const prepareRepair = internalMutation({
         return await go(
           `Rebuild the failed ${action.projection} projection`,
           { kind: "projection", id: action.id, label: `${action.projection} projection` },
-          { projection: { kind: action.projection, status: row.status }, effect: "Magnus rebuilds the report rows for this record.", openInMagnus: appLink("/workspace/operations/work-status") },
+          { projection: { kind: action.projection, status: row.status }, effect: "Magnus rebuilds the report rows for this record.", openInMagnus: appLink("/workspace/operations") },
         );
       }
       case "link_fathom_recorder": {
@@ -203,7 +203,7 @@ export const prepareRepair = internalMutation({
           {
             recording: { title, recorded },
             ...(meetingLabel ? { meeting: { text: meetingLabel, by: "person" } } : { result: "Not a sales call" }),
-            openInMagnus: appLink("/workspace/recordings"),
+            openInMagnus: appLink("/workspace/settings/fathom"),
           },
         );
       }

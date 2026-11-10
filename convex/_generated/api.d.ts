@@ -344,6 +344,7 @@ import type * as mcp_reports_directoryReader from "../mcp/reports/directoryReade
 import type * as mcp_reports_leadGen from "../mcp/reports/leadGen.js";
 import type * as mcp_reports_leadGenReader from "../mcp/reports/leadGenReader.js";
 import type * as mcp_reports_live from "../mcp/reports/live.js";
+import type * as mcp_reports_merge from "../mcp/reports/merge.js";
 import type * as mcp_reports_metrics from "../mcp/reports/metrics.js";
 import type * as mcp_reports_operations from "../mcp/reports/operations.js";
 import type * as mcp_reports_output from "../mcp/reports/output.js";
@@ -936,6 +937,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/reports/leadGen": typeof mcp_reports_leadGen;
   "mcp/reports/leadGenReader": typeof mcp_reports_leadGenReader;
   "mcp/reports/live": typeof mcp_reports_live;
+  "mcp/reports/merge": typeof mcp_reports_merge;
   "mcp/reports/metrics": typeof mcp_reports_metrics;
   "mcp/reports/operations": typeof mcp_reports_operations;
   "mcp/reports/output": typeof mcp_reports_output;

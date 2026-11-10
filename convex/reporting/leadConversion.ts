@@ -1,4 +1,3 @@
-import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -269,18 +268,3 @@ export const getLeadConversionMetrics = query({
     return await buildLeadConversionMetrics(ctx, tenantId, { newLeads, list, facts });
   },
 });
-
-/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
-export async function readMcpGetLeadConversionMetrics(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getLeadConversionMetrics>) {
-  const { startDate, endDate } = args;
-    assertValidDateRange(startDate, endDate);
-
-    
-
-    // A new lead is a person who reached Qualified in the range, not a row
-    // created in it (docs/plans/phase-1-foundations.md §7.1).
-    const newLeads = await countLeadStageEntries(ctx, tenantId, "qualified", startDate, endDate);
-    const list = await conversionsFromEnrollments(ctx, tenantId, startDate, endDate);
-    const facts = await loadLeadConversionFacts(ctx, list.conversions);
-    return await buildLeadConversionMetrics(ctx, tenantId, { newLeads, list, facts });
-}

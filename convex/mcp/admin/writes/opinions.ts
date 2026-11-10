@@ -70,7 +70,7 @@ export const prepareDecideSecondOpinion = internalMutation({
         recorded: row.record?.kind ?? null,
         decision: verdict,
         ...(reopenAt ? { reopen: `Call-back ${reopenAt}, ${closerName}'s time. The deal moves to Follow-up.` } : {}),
-        openInMagnus: appLink(`/workspace/second-opinions/${row._id}`),
+        openInMagnus: appLink(`/workspace/pipeline/second-opinions/${row._id}`),
       },
     });
   },
