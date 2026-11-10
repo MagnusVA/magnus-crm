@@ -302,7 +302,7 @@ export const settings = query({
         );
       if (members.rows.some((m) => !m.ignored && !m.matchedUserId))
         warnings.push(
-          "Unlinked members' recordings wait up to 7 days. Link each sales recorder below.",
+          "Unlinked members' recordings wait up to 7 days, then are deleted. Link each sales recorder under Members.",
         );
     }
     return {
