@@ -116,7 +116,8 @@ function AiAssistantsSettings() {
       <div className="border-b border-border px-4 py-2.5">
         <NoteLine>
           Your team can connect Claude, ChatGPT or a terminal agent to Magnus. Each agent signs in as its person and
-          sees only what they can: closers work their own day; the owner and admins read the whole workspace.
+          sees only what they can: closers work their own day; lead generators work their own captures and respark
+          batch; the owner and admins read the whole workspace.
         </NoteLine>
       </div>
       <ul className="border-b border-border last:border-b-0">

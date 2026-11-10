@@ -34,17 +34,17 @@ export function projectContactAgain(lead: Doc<"leads">, redactor?: StaffRedactor
     withheldReason: safe?.withheld ?? null };
 }
 
-async function resolveTarget(ctx: QueryCtx, access: TenantUserResult, target: Target, now: number, reading = false) {
+async function resolveTarget(ctx: QueryCtx, access: TenantUserResult, target: Target, now: number) {
   const { tenantId, userId, role } = access;
   if ([target.submissionId, target.itemId, target.leadId].filter(Boolean).length !== 1) {
     throw rejectRequest("contact_again.target", "Choose one capture or one person.");
   }
   const admin = isAdminRole(role);
-  if (role === "closer" && !(reading && target.leadId)) {
+  if (role === "closer") {
     throw rejectRequest("contact_again.forbidden", "Only an admin can change this date.");
   }
   if (target.leadId) {
-    if (!admin && role !== "closer") throw rejectRequest("contact_again.proof", "Choose one of your captures or a person in your held batch.");
+    if (!admin) throw rejectRequest("contact_again.proof", "Choose one of your captures or a person in your held batch.");
     const lead = await ctx.db.get("leads", target.leadId);
     if (!lead || lead.tenantId !== tenantId) throw rejectRequest("contact_again.not_found", "Person not found.");
     return lead;
@@ -110,8 +110,10 @@ export const getContactAgain = query({
   args: { ...contactAgainTargetArgs, currentBusinessDate: v.optional(v.string()) },
   returns: v.object({ contactAgain: v.union(contactAgainViewValidator, v.null()), canEdit: v.boolean(), hidden: v.boolean() }),
   handler: async (ctx, args) => {
-    const access = await requireTenantUser(ctx, ["tenant_master", "tenant_admin", "lead_generator", "closer"]);
-    const lead = await resolveTarget(ctx, access, args, Date.now(), true);
+    // No closer: a closer's person card shows the date from the person it
+    // already loaded, and a lead id alone must not open another person's note.
+    const access = await requireTenantUser(ctx, ["tenant_master", "tenant_admin", "lead_generator"]);
+    const lead = await resolveTarget(ctx, access, args, Date.now());
     const redactor = access.role === "lead_generator" ? await loadStaffRedactor(ctx, access.tenantId) : undefined;
     return { contactAgain: projectContactAgain(lead, redactor), canEdit: access.role !== "closer", hidden: contactAgainForbidden(lead) !== null };
   },

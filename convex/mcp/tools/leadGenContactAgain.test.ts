@@ -121,10 +121,12 @@ describe("contact-again through MCP", () => {
     expect(await f.web().query(api.leadGen.contactAgain.getContactAgain, { submissionId: p.submissionId })).toMatchObject({ hidden: true, contactAgain: null });
   });
 
-  it("allows an admin without a capture and makes closers read-only", async () => {
+  it("allows an admin without a capture and gives a closer neither the query nor the mutation", async () => {
     const f = await fixture(); const p = await f.capture("admin.date", "user_dani");
     await f.web("user_admin").mutation(api.leadGen.contactAgain.setContactAgain, { leadId: p.leadId, date: DATE, note: "Alex Rivera agreed on $3,000" });
-    expect(await f.web("user_alex").query(api.leadGen.contactAgain.getContactAgain, { leadId: p.leadId })).toMatchObject({ canEdit: false, contactAgain: { note: { text: "Alex Rivera agreed on $3,000" } } });
+    expect(await f.web("user_admin").query(api.leadGen.contactAgain.getContactAgain, { leadId: p.leadId })).toMatchObject({ canEdit: true, contactAgain: { note: { text: "Alex Rivera agreed on $3,000" } } });
+    // A closer reads the date on a person card they can already open, never by lead id here.
+    await expect(f.web("user_alex").query(api.leadGen.contactAgain.getContactAgain, { leadId: p.leadId })).rejects.toThrow();
     await expect(f.web("user_alex").mutation(api.leadGen.contactAgain.setContactAgain, { leadId: p.leadId, date: null })).rejects.toThrow();
     await expect(f.web().query(api.leadGen.contactAgain.getContactAgain, { leadId: p.leadId })).rejects.toThrow();
   });
