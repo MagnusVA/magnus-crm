@@ -1,0 +1,992 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`web paths write what they wrote before the split > adminCancelPendingFollowUp 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010020domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "00000000000000000010019followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.expired",
+        "fromStatus": "pending",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "opportunityId": "0000000000000010009opportunities",
+          "reason": "closer_initiated",
+          "type": "manual_reminder",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "expired",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000000000000010019followUps",
+        "removed": [],
+        "set": {
+          "status": "expired",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminCancelTask, on a deal at Follow-up 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010023domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "00000000000000000010019followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.expired",
+        "fromStatus": "pending",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "opportunityId": "0000000000000010009opportunities",
+          "origin": "admin_task_canceled",
+          "reason": "admin_initiated",
+          "type": "manual_reminder",
+        },
+        "occurredAt": 1790858520000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "expired",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000000000000010019followUps",
+        "removed": [],
+        "set": {
+          "status": "expired",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminCreateFollowUp, from the meeting 1`] = `
+{
+  "result": {
+    "followUpId": "00000000000000000010019followUps",
+    "schedulingLinkUrl": "https://calendly.com/closer/sales-call?utm_source=ptdom&utm_medium=follow_up&utm_campaign=0000000000000010009opportunities&utm_content=00000000000000000010019followUps&utm_term=000000000000000000000010002users",
+  },
+  "written": {
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010020domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "00000000000000000010019followUps",
+          "entityType": "followUp",
+          "eventType": "followUp.created",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "reason": "admin_initiated",
+            "type": "scheduling_link",
+          },
+          "occurredAt": 1790858400000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+        },
+        {
+          "_id": "00000000000000010021domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "0000000000000010009opportunities",
+          "entityType": "opportunity",
+          "eventType": "opportunity.stage_changed",
+          "fromStatus": "booked",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "fromOutcome": "open",
+            "toOutcome": "open",
+          },
+          "occurredAt": 1790858400000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "follow_up",
+        },
+        {
+          "_id": "00000000000000010022domainEvents",
+          "entityId": "000000000000000000000010005leads",
+          "entityType": "lead",
+          "eventType": "lead.lifecycle_stage_changed",
+          "fromStatus": "booked",
+          "leadId": "000000000000000000000010005leads",
+          "occurredAt": 1790856000000,
+          "reason": "meeting_held",
+          "source": "system",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "showed",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "followUps": {
+      "added": [
+        {
+          "_id": "00000000000000000010019followUps",
+          "closerId": "000000000000000000000010002users",
+          "createdAt": 1790858400000,
+          "createdByUserId": "000000000000000000000010001users",
+          "createdSource": "admin",
+          "leadId": "000000000000000000000010005leads",
+          "opportunityId": "0000000000000010009opportunities",
+          "reason": "admin_initiated",
+          "schedulingLinkUrl": "https://calendly.com/closer/sales-call?utm_source=ptdom&utm_medium=follow_up&utm_campaign=0000000000000010009opportunities&utm_content=00000000000000000010019followUps&utm_term=000000000000000000000010002users",
+          "sourceMeetingId": "000000000000000000010012meetings",
+          "status": "pending",
+          "tenantId": "0000000000000000000010000tenants",
+          "type": "scheduling_link",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "leadCustomerSearchRows": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000010006leadCustomerSearchRows",
+          "removed": [],
+          "set": {
+            "latestActivityAt": 1790858400000,
+            "searchText": "000000000000000000000010005leads test lead lead@example.com 0000000000000010009opportunities follow-up calendly 000000000000000000010012meetings",
+            "updatedAt": 1790858400000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "leads": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000000000000010005leads",
+          "removed": [],
+          "set": {
+            "lastTouch": {
+              "eventId": "00000000000000010021domainEvents",
+              "eventType": "opportunity.stage_changed",
+              "occurredAt": 1790858400000,
+            },
+            "lifecycleStage": "showed",
+            "lifecycleStageEnteredAt": {
+              "booked": 1790762400000,
+              "in_conversation": 1790762400000,
+              "prospect": 1790762400000,
+              "qualified": 1790762400000,
+              "showed": 1790856000000,
+            },
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "meetingProjections": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "00000000010015meetingProjections",
+          "removed": [],
+          "set": {
+            "generation": 2,
+            "requestedAt": 1790858400000,
+            "status": "queued",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "meetings": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000000000010012meetings",
+          "removed": [],
+          "set": {
+            "heldMarkedAt": 1790858400000,
+            "status": "held",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunities": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000010009opportunities",
+          "removed": [
+            "nextMeetingAt",
+            "nextMeetingId",
+          ],
+          "set": {
+            "latestActivityAt": 1790858400000,
+            "stage": "follow_up",
+            "updatedAt": 1790858400000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunitySearch": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000010010opportunitySearch",
+          "removed": [],
+          "set": {
+            "latestActivityAt": 1790858400000,
+            "updatedAt": 1790858400000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminCreateManualReminder, from the meeting 1`] = `
+{
+  "result": {
+    "followUpId": "00000000000000000010019followUps",
+  },
+  "written": {
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010020domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "0000000000000010009opportunities",
+          "entityType": "opportunity",
+          "eventType": "opportunity.stage_changed",
+          "fromStatus": "booked",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "fromOutcome": "open",
+            "toOutcome": "open",
+          },
+          "occurredAt": 1790858400000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "follow_up",
+        },
+        {
+          "_id": "00000000000000010021domainEvents",
+          "entityId": "000000000000000000000010005leads",
+          "entityType": "lead",
+          "eventType": "lead.lifecycle_stage_changed",
+          "fromStatus": "booked",
+          "leadId": "000000000000000000000010005leads",
+          "occurredAt": 1790856000000,
+          "reason": "meeting_held",
+          "source": "system",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "showed",
+        },
+        {
+          "_id": "00000000000000010022domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "00000000000000000010019followUps",
+          "entityType": "followUp",
+          "eventType": "followUp.created",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "contactMethod": "text",
+            "reason": "admin_initiated",
+            "type": "manual_reminder",
+          },
+          "occurredAt": 1790858400000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "followUps": {
+      "added": [
+        {
+          "_id": "00000000000000000010019followUps",
+          "closerId": "000000000000000000000010002users",
+          "contactMethod": "text",
+          "createdAt": 1790858400000,
+          "createdByUserId": "000000000000000000000010001users",
+          "createdSource": "admin",
+          "leadId": "000000000000000000000010005leads",
+          "opportunityId": "0000000000000010009opportunities",
+          "reason": "admin_initiated",
+          "reminderNote": "Ask about the budget",
+          "reminderScheduledAt": 1791031200000,
+          "sourceMeetingId": "000000000000000000010012meetings",
+          "status": "pending",
+          "tenantId": "0000000000000000000010000tenants",
+          "type": "manual_reminder",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "leadCustomerSearchRows": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000010006leadCustomerSearchRows",
+          "removed": [],
+          "set": {
+            "latestActivityAt": 1790858400000,
+            "searchText": "000000000000000000000010005leads test lead lead@example.com 0000000000000010009opportunities follow-up calendly 000000000000000000010012meetings",
+            "updatedAt": 1790858400000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "leads": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000000000000010005leads",
+          "removed": [],
+          "set": {
+            "lastTouch": {
+              "eventId": "00000000000000010020domainEvents",
+              "eventType": "opportunity.stage_changed",
+              "occurredAt": 1790858400000,
+            },
+            "lifecycleStage": "showed",
+            "lifecycleStageEnteredAt": {
+              "booked": 1790762400000,
+              "in_conversation": 1790762400000,
+              "prospect": 1790762400000,
+              "qualified": 1790762400000,
+              "showed": 1790856000000,
+            },
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "meetingProjections": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "00000000010015meetingProjections",
+          "removed": [],
+          "set": {
+            "generation": 2,
+            "requestedAt": 1790858400000,
+            "status": "queued",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "meetings": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000000000010012meetings",
+          "removed": [],
+          "set": {
+            "heldMarkedAt": 1790858400000,
+            "status": "held",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunities": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000010009opportunities",
+          "removed": [
+            "nextMeetingAt",
+            "nextMeetingId",
+          ],
+          "set": {
+            "latestActivityAt": 1790858400000,
+            "stage": "follow_up",
+            "updatedAt": 1790858400000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunitySearch": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000010010opportunitySearch",
+          "removed": [],
+          "set": {
+            "latestActivityAt": 1790858400000,
+            "updatedAt": 1790858400000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminCreateRescheduleLink, after a no-show 1`] = `
+{
+  "result": {
+    "followUpId": "00000000000000000010021followUps",
+    "schedulingLinkUrl": "https://calendly.com/closer/sales-call?utm_source=ptdom&utm_medium=noshow_resched&utm_campaign=0000000000000010009opportunities&utm_content=000000000000000000010012meetings&utm_term=000000000000000000000010002users",
+  },
+  "written": {
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010022domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "0000000000000010009opportunities",
+          "entityType": "opportunity",
+          "eventType": "opportunity.stage_changed",
+          "fromStatus": "closed",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "fromOutcome": "lost",
+            "toOutcome": "open",
+          },
+          "occurredAt": 1790858520000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "follow_up",
+        },
+        {
+          "_id": "00000000000000010023domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "00000000000000000010021followUps",
+          "entityType": "followUp",
+          "eventType": "followUp.created",
+          "leadId": "000000000000000000000010005leads",
+          "metadata": {
+            "reason": "no_show_follow_up",
+            "type": "scheduling_link",
+          },
+          "occurredAt": 1790858520000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "followUps": {
+      "added": [
+        {
+          "_id": "00000000000000000010021followUps",
+          "closerId": "000000000000000000000010002users",
+          "createdAt": 1790858520000,
+          "createdByUserId": "000000000000000000000010001users",
+          "createdSource": "admin",
+          "leadId": "000000000000000000000010005leads",
+          "opportunityId": "0000000000000010009opportunities",
+          "reason": "no_show_follow_up",
+          "schedulingLinkUrl": "https://calendly.com/closer/sales-call?utm_source=ptdom&utm_medium=noshow_resched&utm_campaign=0000000000000010009opportunities&utm_content=000000000000000000010012meetings&utm_term=000000000000000000000010002users",
+          "sourceMeetingId": "000000000000000000010012meetings",
+          "status": "pending",
+          "tenantId": "0000000000000000000010000tenants",
+          "type": "scheduling_link",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "leadCustomerSearchRows": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000010006leadCustomerSearchRows",
+          "removed": [],
+          "set": {
+            "latestActivityAt": 1790858520000,
+            "searchText": "000000000000000000000010005leads test lead lead@example.com 0000000000000010009opportunities follow-up calendly 000000000000000000010012meetings",
+            "updatedAt": 1790858520000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "leads": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000000000000010005leads",
+          "removed": [],
+          "set": {
+            "lastTouch": {
+              "eventId": "00000000000000010022domainEvents",
+              "eventType": "opportunity.stage_changed",
+              "occurredAt": 1790858520000,
+            },
+            "resparkGroup": "out",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunities": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000010009opportunities",
+          "removed": [
+            "lostAt",
+            "lostReason",
+          ],
+          "set": {
+            "latestActivityAt": 1790858520000,
+            "outcome": "open",
+            "stage": "follow_up",
+            "updatedAt": 1790858520000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunitySearch": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000010010opportunitySearch",
+          "removed": [],
+          "set": {
+            "latestActivityAt": 1790858520000,
+            "updatedAt": 1790858520000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminMarkAsLost, from the deal, with no reason 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010019domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "0000000000000010009opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010006leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010005leads test lead lead@example.com 0000000000000010009opportunities lost calendly 000000000000000000010012meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010005leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010019domainEvents",
+            "eventType": "opportunity.marked_lost",
+            "occurredAt": 1790858400000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010009opportunities",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostByUserId": "000000000000000000000010001users",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010010opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminMarkAsLost, from the meeting 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010019domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "0000000000000010009opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "reason": "Went with a competitor",
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010020domainEvents",
+        "entityId": "000000000000000000000010005leads",
+        "entityType": "lead",
+        "eventType": "lead.lifecycle_stage_changed",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010005leads",
+        "occurredAt": 1790856000000,
+        "reason": "meeting_held",
+        "source": "system",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "showed",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010006leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010005leads test lead lead@example.com 0000000000000010009opportunities lost calendly 000000000000000000010012meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010005leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010019domainEvents",
+            "eventType": "opportunity.marked_lost",
+            "occurredAt": 1790858400000,
+          },
+          "lifecycleStage": "showed",
+          "lifecycleStageEnteredAt": {
+            "booked": 1790762400000,
+            "in_conversation": 1790762400000,
+            "prospect": 1790762400000,
+            "qualified": 1790762400000,
+            "showed": 1790856000000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010015meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010012meetings",
+        "removed": [],
+        "set": {
+          "heldMarkedAt": 1790858400000,
+          "status": "held",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010009opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostByUserId": "000000000000000000000010001users",
+          "lostReason": "Went with a competitor",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010010opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > adminMarkNoShow 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010019domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "0000000000000010009opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.marked_lost",
+        "fromStatus": "booked",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "fromOutcome": "open",
+          "toOutcome": "lost",
+        },
+        "occurredAt": 1790858400000,
+        "reason": "late_cancel",
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "closed",
+      },
+      {
+        "_id": "00000000000000010020domainEvents",
+        "actorUserId": "000000000000000000000010001users",
+        "entityId": "000000000000000000010012meetings",
+        "entityType": "meeting",
+        "eventType": "meeting.no_show",
+        "fromStatus": "scheduled",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "noteProvided": true,
+        },
+        "occurredAt": 1790858400000,
+        "reason": "late_cancel",
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "no_show",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010006leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "searchText": "000000000000000000000010005leads test lead lead@example.com 0000000000000010009opportunities lost no show calendly 000000000000000000010012meetings",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010005leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010020domainEvents",
+            "eventType": "meeting.no_show",
+            "occurredAt": 1790858400000,
+          },
+          "resparkGroup": "had_call",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010015meetingProjections",
+        "removed": [],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1790858400000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "meetings": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000010012meetings",
+        "removed": [],
+        "set": {
+          "noShowMarkedAt": 1790858400000,
+          "noShowMarkedByUserId": "000000000000000000000010001users",
+          "noShowNote": "Texted at noon",
+          "noShowReason": "late_cancel",
+          "noShowSource": "admin_manual",
+          "status": "no_show",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010009opportunities",
+        "removed": [
+          "nextMeetingAt",
+          "nextMeetingId",
+        ],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "lostAt": 1790858400000,
+          "lostReason": "no_show",
+          "outcome": "lost",
+          "stage": "closed",
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunitySearch": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010010opportunitySearch",
+        "removed": [],
+        "set": {
+          "latestActivityAt": 1790858400000,
+          "updatedAt": 1790858400000,
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > refuses with the same messages 1`] = `
+{
+  "cancel a pending follow-up on a closed deal": "Only a follow-up on a deal still waiting for its call's result can be canceled; the deal is "Lost: no-show"",
+  "cancel a task on a closed deal": "Only a task on an open deal can be canceled; the deal is "Lost: no-show"",
+  "closer calls an admin action": "{"code":"auth.insufficient_permissions","message":"Insufficient permissions"}",
+  "lost after a no-show": "Cannot mark as lost: the deal is "Lost: no-show"",
+  "no-show twice": "Meeting is not scheduled (current: no_show)",
+  "reminder in the past": "Reminder must be scheduled in the future",
+  "reschedule link on a booked deal": "Can only create reschedule links for no-show opportunities",
+}
+`;

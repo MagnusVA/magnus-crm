@@ -3,6 +3,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { getIdentityOrgId } from "../lib/identity";
 import { expectedError, rejectRequest } from "../lib/observability/errors";
+import type { TableNames } from "../_generated/dataModel";
+import { FAMILY_LABELS, type WriteFamily } from "./families";
 import { logRequestContext } from "../lib/observability/log";
 import { hasPermission } from "../lib/permissions";
 import type { CrmRole } from "../lib/roleMapping";
@@ -19,7 +21,7 @@ import {
  * any tool (docs/plans/closer-assistant.md §6.1). Adding a role later means
  * writing its toolset and adding it here.
  */
-export const MCP_TOOLSET_ROLES = ["closer"] as const satisfies readonly CrmRole[];
+export const MCP_TOOLSET_ROLES = ["closer", "tenant_master", "tenant_admin"] as const satisfies readonly CrmRole[];
 
 export function roleHasMcpToolset(role: CrmRole): boolean {
   return (MCP_TOOLSET_ROLES as readonly CrmRole[]).includes(role);
@@ -194,3 +196,78 @@ export async function requireMcpUser(
 }
 
 export { clientDisplayName } from "../../lib/agentClient";
+
+// ── Admin assistants (docs/plans/admin-assistant.md §4) ──────────────────
+
+/**
+ * The kinds of change this user's assistant may make right now: the role is
+ * in the tenant's write roles and the tenant is active. Empty means reads only.
+ */
+export function writeFamiliesFor(user: Doc<"users">, tenant: Doc<"tenants">): WriteFamily[] {
+  const access = tenant.mcpAccess;
+  if (!access || tenant.status !== "active") return [];
+  if (user.role !== "tenant_master" && user.role !== "tenant_admin") return [];
+  if (!(access.writeRoles ?? []).includes(user.role)) return [];
+  return [...(access.writeFamilies ?? [])];
+}
+
+/**
+ * The latest moment a switch or a block changed for this user. Anything an
+ * assistant prepared before it never applies, even if the change was later
+ * reversed.
+ */
+export function accessChangedAt(user: Doc<"users">, tenant: Doc<"tenants">): number {
+  const access = tenant.mcpAccess;
+  return Math.max(
+    access?.changedAt ?? 0,
+    access?.writeChangedAt ?? 0,
+    user.mcpBlockChangedAt ?? 0,
+  );
+}
+
+/**
+ * The admin tools' guard. On top of `requireMcpUser`, a write tool names its
+ * kind of change, and the role must be switched on for it. Tools are internal
+ * functions, so this is the only boundary they have.
+ */
+export async function requireMcpAdmin(
+  ctx: QueryCtx | MutationCtx,
+  caller: McpCaller,
+  options: { family?: WriteFamily; permission?: Parameters<typeof hasPermission>[1] } = {},
+): Promise<McpUser & { writeFamilies: WriteFamily[] }> {
+  const me = await requireMcpUser(ctx, caller, ["tenant_master", "tenant_admin"]);
+  const reject: typeof rejectRequest =
+    "scheduler" in ctx ? rejectRequest : (code, message) => expectedError(code, message);
+  if (options.permission && !hasPermission(me.role, options.permission)) {
+    throw reject("mcp.permission_denied", "Your role can't do that in this workspace.");
+  }
+  const writeFamilies = writeFamiliesFor(me.user, me.tenant);
+  if (options.family && !writeFamilies.includes(options.family)) {
+    throw reject(
+      "mcp.family_off",
+      `${FAMILY_LABELS[options.family]} changes are switched off for assistants in this workspace. The owner turns them on in Settings › AI assistants.`,
+    );
+  }
+  return { ...me, writeFamilies };
+}
+
+/**
+ * Loads a row by ID for an admin tool and answers the same "not found" for a
+ * missing row and for another workspace's row, so a tool never says anything
+ * about other tenants.
+ */
+export async function loadInTenant<T extends TableNames>(
+  ctx: QueryCtx | MutationCtx,
+  me: { tenantId: Id<"tenants"> },
+  table: T,
+  id: Id<T>,
+  what = "that record",
+): Promise<Doc<T>> {
+  const row = (await ctx.db.get(table, id)) as (Doc<T> & { tenantId?: Id<"tenants"> }) | null;
+  if (!row || row.tenantId !== me.tenantId) {
+    const reject: typeof rejectRequest =
+      "scheduler" in ctx ? rejectRequest : (code, message) => expectedError(code, message);
+    throw reject("mcp.not_found", `Magnus can't find ${what}.`);
+  }
+  return row;
+}

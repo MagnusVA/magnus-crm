@@ -1,6 +1,7 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v, type Infer } from "convex/values";
-import { query } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import { query, type QueryCtx } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
 import { dealAttributionRoleValidator } from "../lib/attribution/validators";
 import { isMovedSlot, isReplacement } from "../lib/callType";
 import { createLiveReadState, readLiveDocuments, readLiveQueryRows } from "../lib/liveQueryBounds";
@@ -98,16 +99,14 @@ export const getLanes = query({
   args: rangeArgs, returns: attributionLanesValidator,
   handler: async (ctx, args): Promise<AttributionLanes> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
-    return buildAttributionLanes(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+    return readLanes(ctx, tenantId, args);
   },
 });
 export const getPaths = query({
   args: rangeArgs, returns: attributionPathsValidator,
   handler: async (ctx, args): Promise<AttributionPaths> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
-    return buildAttributionPaths(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+    return readPaths(ctx, tenantId, args);
   },
 });
 
@@ -175,47 +174,77 @@ export const getDealNames = query({
   returns: v.array(v.object({ opportunityId: v.id("opportunities"), name: v.string() })),
   handler: async (ctx, { opportunityIds }) => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const ids = [...new Set(opportunityIds)].slice(0, MAX_DEAL_NAMES);
-    const names = await Promise.all(ids.map(async (opportunityId) => {
-      const deal = await ctx.db.get("opportunities", opportunityId);
-      if (!deal || deal.tenantId !== tenantId) return null;
-      const person = await ctx.db.get("leads", deal.leadId);
-      const name = person?.tenantId === tenantId ? person.fullName?.trim() : undefined;
-      return { opportunityId, name: name || "Unknown person" };
-    }));
-    return names.filter((entry) => entry !== null);
+    return readDealNames(ctx, tenantId, opportunityIds);
   },
 });
+
+/** Trusted callers must authorize the tenant before reading this page. */
+export async function readDealNames(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  opportunityIds: Id<"opportunities">[],
+) {
+  const ids = [...new Set(opportunityIds)].slice(0, MAX_DEAL_NAMES);
+  const names = await Promise.all(ids.map(async (opportunityId) => {
+    const deal = await ctx.db.get("opportunities", opportunityId);
+    if (!deal || deal.tenantId !== tenantId) return null;
+    const person = await ctx.db.get("leads", deal.leadId);
+    const name = person?.tenantId === tenantId ? person.fullName?.trim() : undefined;
+    return { opportunityId, name: name || "Unknown person" };
+  }));
+  return names.filter((entry) => entry !== null);
+}
 
 export const getDealChain = query({
   args: { opportunityId: v.id("opportunities") }, returns: dealChainValidator,
   handler: async (ctx, { opportunityId }): Promise<DealChain> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const deal = await ctx.db.get("opportunities", opportunityId);
-    if (!deal || deal.tenantId !== tenantId) throw new Error("Deal not found.");
-    const [creditScan, meetingScan, paymentScan, dimensions, person] = await Promise.all([
-      readLiveQueryRows(ctx.db.query("dealAttributions").withIndex("by_tenantId_and_opportunityId_and_role", q =>
-        q.eq("tenantId", tenantId).eq("opportunityId", opportunityId)), 200),
-      readLiveQueryRows(ctx.db.query("meetings").withIndex("by_opportunityId", q => q.eq("opportunityId", opportunityId)), 200),
-      readLiveQueryRows(ctx.db.query("paymentRecords").withIndex("by_opportunityId_and_recordedAt", q => q.eq("opportunityId", opportunityId)), 1000),
-      loadCreditDimensions(ctx, tenantId), ctx.db.get("leads", deal.leadId),
-    ]);
-    const facts: CreditFacts = { payments: paymentScan.rows.filter(p => p.tenantId === tenantId), attributions: creditScan.rows,
-      meetings: meetingScan.rows.filter(m => m.tenantId === tenantId), deals: [deal], firstPayments: [], qualifications: [],
-      captures: [], prospects: [], resparks: [], people: [], isTruncated: creditScan.capped || meetingScan.capped || paymentScan.capped };
-    // A successor or predecessor can have moved to another deal. The chain
-    // still describes this slot's reschedule history, through explicit links.
-    const relatedState = createLiveReadState();
-    const previousIds = facts.meetings.flatMap(meeting => meeting.rescheduledFromMeetingId ? [meeting.rescheduledFromMeetingId] : []);
-    const previous = await readLiveDocuments([...new Set(previousIds)], id => ctx.db.get("meetings", id), relatedState);
-    const successors = await readLiveDocuments(facts.meetings, meeting => ctx.db.query("meetings")
-      .withIndex("by_rescheduledFromMeetingId", q => q.eq("rescheduledFromMeetingId", meeting._id)).first(), relatedState);
-    const meetings = new Map(facts.meetings.map(meeting => [meeting._id, meeting]));
-    for (const meeting of [...previous.rows, ...successors.rows]) {
-      if (meeting.tenantId === tenantId) meetings.set(meeting._id, meeting);
-    }
-    facts.meetings = [...meetings.values()];
-    facts.isTruncated ||= relatedState.capped;
-    return buildDealChain(dimensions, facts, deal, person?.tenantId === tenantId ? person.fullName ?? "Unknown person" : "Unknown person");
+    return readDealChain(ctx, tenantId, opportunityId);
   },
 });
+
+/** Trusted callers must authorize the tenant before reading this page. */
+export async function readDealChain(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  opportunityId: Id<"opportunities">,
+): Promise<DealChain> {
+  const deal = await ctx.db.get("opportunities", opportunityId);
+  if (!deal || deal.tenantId !== tenantId) throw new Error("Deal not found.");
+  const [creditScan, meetingScan, paymentScan, dimensions, person] = await Promise.all([
+    readLiveQueryRows(ctx.db.query("dealAttributions").withIndex("by_tenantId_and_opportunityId_and_role", q =>
+      q.eq("tenantId", tenantId).eq("opportunityId", opportunityId)), 200),
+    readLiveQueryRows(ctx.db.query("meetings").withIndex("by_opportunityId", q => q.eq("opportunityId", opportunityId)), 200),
+    readLiveQueryRows(ctx.db.query("paymentRecords").withIndex("by_opportunityId_and_recordedAt", q => q.eq("opportunityId", opportunityId)), 1000),
+    loadCreditDimensions(ctx, tenantId), ctx.db.get("leads", deal.leadId),
+  ]);
+  const facts: CreditFacts = { payments: paymentScan.rows.filter(p => p.tenantId === tenantId), attributions: creditScan.rows,
+    meetings: meetingScan.rows.filter(m => m.tenantId === tenantId), deals: [deal], firstPayments: [], qualifications: [],
+    captures: [], prospects: [], resparks: [], people: [], isTruncated: creditScan.capped || meetingScan.capped || paymentScan.capped };
+  // A successor or predecessor can have moved to another deal. The chain
+  // still describes this slot's reschedule history, through explicit links.
+  const relatedState = createLiveReadState();
+  const previousIds = facts.meetings.flatMap(meeting => meeting.rescheduledFromMeetingId ? [meeting.rescheduledFromMeetingId] : []);
+  const previous = await readLiveDocuments([...new Set(previousIds)], id => ctx.db.get("meetings", id), relatedState);
+  const successors = await readLiveDocuments(facts.meetings, meeting => ctx.db.query("meetings")
+    .withIndex("by_rescheduledFromMeetingId", q => q.eq("rescheduledFromMeetingId", meeting._id)).first(), relatedState);
+  const meetings = new Map(facts.meetings.map(meeting => [meeting._id, meeting]));
+  for (const meeting of [...previous.rows, ...successors.rows]) {
+    if (meeting.tenantId === tenantId) meetings.set(meeting._id, meeting);
+  }
+  facts.meetings = [...meetings.values()];
+  facts.isTruncated ||= relatedState.capped;
+  return buildDealChain(dimensions, facts, deal, person?.tenantId === tenantId ? person.fullName ?? "Unknown person" : "Unknown person");
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readLanes(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getLanes>): Promise<AttributionLanes> {
+  const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
+  return buildAttributionLanes(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+}
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readPaths(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getPaths>): Promise<AttributionPaths> {
+  const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
+  return buildAttributionPaths(await loadCreditDimensions(ctx, tenantId), await loadCreditFacts(ctx, tenantId, range), range);
+}

@@ -26,7 +26,7 @@ export function stableJson(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
 }
 
-function randomToken(): string {
+export function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   return `ct_${btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, (c) => ({ "+": "-", "/": "_", "=": "" })[c] ?? "")}`;
 }
@@ -58,7 +58,7 @@ export async function issueConfirmation(
  */
 export async function redeemConfirmation(
   ctx: MutationCtx,
-  who: { userId: Id<"users"> },
+  who: { userId: Id<"users">; tenantId?: Id<"tenants"> },
   tool: string,
   token: string | undefined,
   args: unknown,
@@ -69,7 +69,7 @@ export async function redeemConfirmation(
   if (!token) {
     throw rejectRequest(
       "confirm.token_required",
-      "Preview first with confirm: false, read the preview to the closer, then commit with its confirmToken.",
+      "Preview first with confirm: false, read the preview to the person you're helping, then commit with its confirmToken.",
     );
   }
   const tokenHash = await sha256Hex(token);
@@ -77,23 +77,30 @@ export async function redeemConfirmation(
     .query("mcpConfirmations")
     .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
     .first();
-  if (!row || row.userId !== who.userId || row.tool !== tool) {
+  if (
+    !row ||
+    row.userId !== who.userId ||
+    (who.tenantId !== undefined && row.tenantId !== who.tenantId) ||
+    row.tool !== tool
+  ) {
     throw rejectRequest(
       "confirm.token_unknown",
-      "That preview token isn't valid. Preview again, then ask the closer.",
+      "That preview token isn't valid. Preview again, then ask before committing.",
+    );
+  }
+  // The arguments are compared before a replay, so a retry with different
+  // arguments is never told the first action succeeded.
+  if (row.argsHash !== (await sha256Hex(stableJson(args)))) {
+    throw rejectRequest(
+      "confirm.args_changed",
+      "These details differ from the preview. Preview again, then ask before committing.",
     );
   }
   if (row.usedAt !== undefined) {
     return { kind: "replay", result: row.resultJson ? JSON.parse(row.resultJson) : null };
   }
   if (row.expiresAt < Date.now()) {
-    throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask the closer.");
-  }
-  if (row.argsHash !== (await sha256Hex(stableJson(args)))) {
-    throw rejectRequest(
-      "confirm.args_changed",
-      "These details differ from the preview. Preview again, then ask the closer.",
-    );
+    throw rejectRequest("confirm.expired", "That preview expired. Preview it again, then ask before committing.");
   }
   return { kind: "fresh", confirmationId: row._id };
 }

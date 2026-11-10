@@ -1,0 +1,96 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`web paths write what they wrote before the split > setTeamBookingQuota 1`] = `
+{
+  "result": "0000000000010003attributionTeams",
+  "written": {
+    "attributionTeams": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000010003attributionTeams",
+          "removed": [],
+          "set": {
+            "bookingDailyQuota": 40,
+            "updatedAt": 1792497900000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > setTeamBookingQuota 2`] = `
+{
+  "result": "0000000000010003attributionTeams",
+  "written": {
+    "attributionTeams": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000010003attributionTeams",
+          "removed": [
+            "bookingDailyQuota",
+          ],
+          "set": {},
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > setTeamBookingQuota 3`] = `"{"code":"attribution.rejected","message":"Daily booking goal must be an integer between 0 and 5000."}"`;
+
+exports[`web paths write what they wrote before the split > setTeamDailyGoal 1`] = `
+{
+  "result": {
+    "dailyTeamQualificationGoal": 12,
+  },
+  "written": {
+    "tenants": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000000000010000tenants",
+          "removed": [],
+          "set": {
+            "slackQualificationDailyTeamQuota": 12,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > setTeamDailyGoal 2`] = `
+{
+  "result": {
+    "dailyTeamQualificationGoal": null,
+  },
+  "written": {
+    "tenants": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000000000010000tenants",
+          "removed": [
+            "slackQualificationDailyTeamQuota",
+          ],
+          "set": {},
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > setTeamDailyGoal 3`] = `"Daily team goal must be an integer between 0 and 5000."`;
+
+exports[`web paths write what they wrote before the split > setTeamDailyGoal 4`] = `"{"code":"auth.insufficient_permissions","message":"Insufficient permissions"}"`;

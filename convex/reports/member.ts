@@ -73,7 +73,7 @@ export function profileFromRecords(member: Doc<"teamMembers">, records: MemberRe
   };
 }
 
-async function readMemberProfile(
+export async function readMemberProfile(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   memberId: Id<"teamMembers">,
@@ -137,31 +137,36 @@ export const listReportMembers = query({
   returns: reportMembersValidator,
   handler: async (ctx): Promise<ReportMembers> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    const data = await readTeamRecords(ctx, tenantId);
-    const group = <T extends { teamMemberId?: Id<"teamMembers"> }>(rows: readonly T[]) => {
-      const byMember = new Map<Id<"teamMembers">, T[]>();
-      for (const row of rows) {
-        if (!row.teamMemberId) continue;
-        byMember.set(row.teamMemberId, [...(byMember.get(row.teamMemberId) ?? []), row]);
-      }
-      return byMember;
-    };
-    const users = group(data.users);
-    const slackUsers = group(data.slack);
-    const dmClosers = group(data.dmClosers);
-    const workers = group(data.leadGen);
-    return {
-      members: data.members
-        .map((member) =>
-          profileFromRecords(member, {
-            users: users.get(member._id) ?? [],
-            slackUsers: slackUsers.get(member._id) ?? [],
-            dmClosers: dmClosers.get(member._id) ?? [],
-            workers: workers.get(member._id) ?? [],
-          }),
-        )
-        .sort((a, b) => a.name.localeCompare(b.name) || a.teamMemberId.localeCompare(b.teamMemberId)),
-      capped: data.capped,
-    };
+    return readReportMembers(ctx, tenantId);
   },
 });
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readReportMembers(ctx: QueryCtx, tenantId: Id<"tenants">): Promise<ReportMembers> {
+  const data = await readTeamRecords(ctx, tenantId);
+  const group = <T extends { teamMemberId?: Id<"teamMembers"> }>(rows: readonly T[]) => {
+    const byMember = new Map<Id<"teamMembers">, T[]>();
+    for (const row of rows) {
+      if (!row.teamMemberId) continue;
+      byMember.set(row.teamMemberId, [...(byMember.get(row.teamMemberId) ?? []), row]);
+    }
+    return byMember;
+  };
+  const users = group(data.users);
+  const slackUsers = group(data.slack);
+  const dmClosers = group(data.dmClosers);
+  const workers = group(data.leadGen);
+  return {
+    members: data.members
+      .map((member) =>
+        profileFromRecords(member, {
+          users: users.get(member._id) ?? [],
+          slackUsers: slackUsers.get(member._id) ?? [],
+          dmClosers: dmClosers.get(member._id) ?? [],
+          workers: workers.get(member._id) ?? [],
+        }),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name) || a.teamMemberId.localeCompare(b.teamMemberId)),
+    capped: data.capped,
+  };
+}

@@ -1,0 +1,62 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`web paths write what they wrote before the split > recovery.retry 1`] = `
+{
+  "webhookDeliveries": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000010006webhookDeliveries",
+        "removed": [
+          "processedAt",
+          "reason",
+        ],
+        "set": {
+          "generation": 2,
+          "status": "queued",
+          "workId": "<work>",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "webhookRecoveryAttempts": {
+    "added": [
+      {
+        "_id": "000010011webhookRecoveryAttempts",
+        "actorUserId": "000000000000000000000010001users",
+        "deliveryId": "000000000010006webhookDeliveries",
+        "previousGeneration": 1,
+        "previousReason": "host_not_linked",
+        "previousStatus": "blocked",
+        "requestedAt": 1792573200000,
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > workStatus.retry 1`] = `
+{
+  "meetingProjections": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "00000000010015meetingProjections",
+        "removed": [
+          "reason",
+        ],
+        "set": {
+          "generation": 2,
+          "requestedAt": 1792573200000,
+          "status": "queued",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;

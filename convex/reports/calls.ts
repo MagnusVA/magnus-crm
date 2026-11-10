@@ -1,6 +1,7 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import {
   businessDateForInstant,
   type BusinessDaySetting,
@@ -289,23 +290,28 @@ export const getCallsSummary = query({
   },
   handler: async (ctx, args): Promise<CallsSummary> => {
     const { tenantId } = await requireTenantUser(ctx, [...REPORT_ADMIN_ROLES]);
-    assertValidDateRange(args.startDate, args.endDate);
-    const meetings = await readRangeMeetings(
-      ctx,
-      tenantId,
-      args.startDate,
-      args.endDate,
-    );
-    const facts = await loadCallFacts(
-      ctx,
-      tenantId,
-      meetings.rows,
-      args.asOf ?? Date.now(),
-    );
-    return buildCallsSummary(
-      { facts: facts.facts, partial: facts.partial || meetings.capped },
-      args,
-      await getTenantBusinessDay(ctx, tenantId),
-    );
+    return readCallsSummary(ctx, tenantId, args);
   },
 });
+
+/** Shared load/build path. Trusted callers must authorize the tenant first. */
+export async function readCallsSummary(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getCallsSummary>): Promise<CallsSummary> {
+  assertValidDateRange(args.startDate, args.endDate);
+  const meetings = await readRangeMeetings(
+    ctx,
+    tenantId,
+    args.startDate,
+    args.endDate,
+  );
+  const facts = await loadCallFacts(
+    ctx,
+    tenantId,
+    meetings.rows,
+    args.asOf ?? Date.now(),
+  );
+  return buildCallsSummary(
+    { facts: facts.facts, partial: facts.partial || meetings.capped },
+    args,
+    await getTenantBusinessDay(ctx, tenantId),
+  );
+}

@@ -7,6 +7,13 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { log } from "../lib/observability/log";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
 import { enqueueDelivery } from "./delivery";
 import { deliveryStatus } from "./schema";
 
@@ -107,6 +114,51 @@ export async function retryDelivery(
     eventType: row.eventType,
     occurredAt: row.occurredAt,
   });
+}
+
+export type RetryDeliveryArgs = {
+  deliveryId: Id<"webhookDeliveries">;
+  generation: number;
+};
+
+/**
+ * Retries one blocked or failed delivery at the generation the caller saw:
+ * the one-delivery core of `retry`. It refuses the same way the manifest
+ * retry does: a delivery that moved on (another generation) is stale, and
+ * only a blocked or failed one with its payload can be retried. The
+ * status and reason are the row's own, since the generation changes with
+ * every attempt. No event covers a retry; the recovery attempt row names
+ * the actor, and an agent's retry is logged with its provenance.
+ */
+export async function retryDeliveryCore(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: RetryDeliveryArgs,
+  provenance: Provenance,
+): Promise<null> {
+  assertCoreRole(actor, ["tenant_admin", "tenant_master"]);
+  const row = await ctx.db.get("webhookDeliveries", args.deliveryId);
+  if (!row || row.tenantId !== actor.tenantId)
+    throw new Error("Delivery not found");
+  await retryOne(ctx, actor.tenantId, actor.userId, {
+    deliveryId: args.deliveryId,
+    generation: args.generation,
+    status: row.status,
+    reason: row.reason,
+    rawAvailable: true,
+    eventType: row.eventType,
+    occurredAt: row.occurredAt,
+  });
+  if (provenance.via === "mcp") {
+    log.info("pipeline.delivery.retried", {
+      tenantId: actor.tenantId,
+      actorUserId: actor.userId,
+      deliveryId: args.deliveryId,
+      generation: args.generation,
+      ...provenanceMetadata(provenance),
+    });
+  }
+  return null;
 }
 
 function checkSelection(ids: Id<"webhookDeliveries">[]) {

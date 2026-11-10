@@ -89,9 +89,39 @@ export const mcpTables = {
     usedAt: v.optional(v.number()),
     // JSON of the commit's result, returned again on a retry.
     resultJson: v.optional(v.string()),
+    // ── Admin assistants (docs/plans/admin-assistant.md §4). Unset on closer tokens.
+    // "single" commits through magnus_commit; "plan" is approved in Magnus.
+    kind: v.optional(v.union(v.literal("single"), v.literal("plan"))),
+    family: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    // The prepared tool's normalized arguments, applied as stored.
+    argsJson: v.optional(v.string()),
+    // What the commit must repeat: { action, target, summary }.
+    echoJson: v.optional(v.string()),
+    // Field values the change depends on, compared again at commit.
+    pinsJson: v.optional(v.string()),
+    // Rows a plan shows on its approval page.
+    planJson: v.optional(v.string()),
+    status: v.optional(
+      v.union(
+        v.literal("waiting"),
+        v.literal("applied"),
+        v.literal("stale"),
+        v.literal("refused"),
+        v.literal("declined"),
+      ),
+    ),
+    approvedByUserId: v.optional(v.id("users")),
+    approvedVia: v.optional(v.string()),
+    agentClient: v.optional(v.string()),
+    // A used admin confirmation is kept as a receipt until then.
+    keepUntil: v.optional(v.number()),
   })
     .index("by_tokenHash", ["tokenHash"])
-    .index("by_expiresAt", ["expiresAt"]),
+    .index("by_expiresAt", ["expiresAt"])
+    .index("by_keepUntil_and_expiresAt", ["keepUntil", "expiresAt"])
+    .index("by_tenantId_and_usedAt", ["tenantId", "usedAt"])
+    .index("by_tenantId_and_kind_and_status", ["tenantId", "kind", "status"]),
 
   // The client name each MCP session started with. The gateway doesn't pass
   // clientInfo to tools, so the HTTP mount records it on initialize and

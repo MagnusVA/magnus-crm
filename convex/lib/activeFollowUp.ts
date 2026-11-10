@@ -77,6 +77,8 @@ export async function expireUnfinishedFollowUp(
     opportunity: Doc<"opportunities">;
     source: "closer" | "admin";
     actorUserId: Id<"users">;
+    /** Extra event metadata, such as an agent's provenance. */
+    metadata?: { via?: "mcp"; agentClient?: string };
   },
 ): Promise<void> {
   const { followUp, opportunity } = args;
@@ -107,6 +109,7 @@ export async function expireUnfinishedFollowUp(
       type: followUp.type,
       reason: followUp.reason,
       opportunityId: opportunity._id,
+      ...args.metadata,
     },
     occurredAt: now,
   });

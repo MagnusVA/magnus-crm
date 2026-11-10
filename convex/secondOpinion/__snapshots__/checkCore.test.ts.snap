@@ -1,0 +1,159 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the web check > reopens a no-show at Follow-up and records it 1`] = `
+{
+  "domainEvents": {
+    "added": [
+      {
+        "_id": "00000000000000010015domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "0000000000000010006opportunities",
+        "entityType": "opportunity",
+        "eventType": "opportunity.stage_changed",
+        "fromStatus": "closed",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "fromOutcome": "lost",
+          "toOutcome": "open",
+        },
+        "occurredAt": 1792519200000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+        "toStatus": "follow_up",
+      },
+      {
+        "_id": "00000000000000010016domainEvents",
+        "actorUserId": "000000000000000000000010002users",
+        "entityId": "00000000000000000010014followUps",
+        "entityType": "followUp",
+        "eventType": "followUp.created",
+        "leadId": "000000000000000000000010005leads",
+        "metadata": {
+          "contactMethod": "call",
+          "reason": "no_show_follow_up",
+          "type": "manual_reminder",
+        },
+        "occurredAt": 1792519200000,
+        "source": "admin",
+        "tenantId": "0000000000000000000010000tenants",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "followUps": {
+    "added": [
+      {
+        "_id": "00000000000000000010014followUps",
+        "closerId": "000000000000000000000010003users",
+        "contactMethod": "call",
+        "createdAt": 1792519200000,
+        "createdByUserId": "000000000000000000000010002users",
+        "createdSource": "admin",
+        "leadId": "000000000000000000000010005leads",
+        "opportunityId": "0000000000000010006opportunities",
+        "reason": "no_show_follow_up",
+        "reminderScheduledAt": 1792684800000,
+        "sourceMeetingId": "000000000000000000010007meetings",
+        "status": "pending",
+        "tenantId": "0000000000000000000010000tenants",
+        "type": "manual_reminder",
+      },
+    ],
+    "changed": [],
+    "deleted": [],
+  },
+  "leadCustomerSearchRows": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000010012leadCustomerSearchRows",
+        "removed": [],
+        "set": {
+          "searchText": "000000000000000000000010005leads grace grace@example.com 0000000000000010006opportunities follow-up",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "leads": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000000000000010005leads",
+        "removed": [],
+        "set": {
+          "lastTouch": {
+            "eventId": "00000000000000010015domainEvents",
+            "eventType": "opportunity.stage_changed",
+            "occurredAt": 1792519200000,
+          },
+          "resparkGroup": "out",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010006opportunities",
+        "removed": [
+          "lostAt",
+          "lostReason",
+        ],
+        "set": {
+          "latestActivityAt": 1792519200000,
+          "outcome": "open",
+          "stage": "follow_up",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "secondOpinions": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000010013secondOpinions",
+        "removed": [],
+        "set": {
+          "review": {
+            "at": 1792519200000,
+            "byUserId": "000000000000000000000010002users",
+            "outcome": "second_opinion_right",
+            "reopened": true,
+          },
+          "reviewState": "checked",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;
+
+exports[`the web check > writes the review and a second_opinion.checked event 1`] = `
+{
+  "secondOpinions": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "000000000000010013secondOpinions",
+        "removed": [],
+        "set": {
+          "review": {
+            "at": 1792519200000,
+            "byUserId": "000000000000000000000010002users",
+            "outcome": "closer_right",
+            "reopened": false,
+          },
+          "reviewState": "checked",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+}
+`;

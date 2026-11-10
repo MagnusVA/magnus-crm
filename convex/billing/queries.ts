@@ -1,10 +1,10 @@
+import { buildPaymentDetail } from "./queriesCore";
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { countBillingPayments } from "./aggregates";
 import {
-  enrichBillingPaymentDetail,
   enrichBillingPaymentListRows,
   enrichBillingPaymentRows,
 } from "./enrichment";
@@ -86,12 +86,7 @@ export const getPaymentDetail = query({
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
 
-    const payment = await ctx.db.get("paymentRecords", paymentRecordId);
-    if (!payment || payment.tenantId !== tenantId) {
-      return null;
-    }
-
-    return await enrichBillingPaymentDetail(ctx, tenantId, payment);
+    return await buildPaymentDetail(ctx, tenantId, paymentRecordId);
   },
 });
 

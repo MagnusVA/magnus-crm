@@ -254,10 +254,7 @@ const argsValidator = { startDate: v.number(), endDate: v.number(), memberId: v.
 async function readRole(ctx: QueryCtx, args: { startDate: number; endDate: number; memberId?: Id<"teamMembers"> }, role: PeopleRole,
   viewer: TenantUserResult): Promise<PeopleRoleReport> {
   const memberId = await resolveMemberFilter(ctx, args.memberId, viewer);
-  const range = await reportRange(ctx, viewer.tenantId, args.startDate, args.endDate);
-  const dimensions = await loadCreditDimensions(ctx, viewer.tenantId);
-  return buildPeopleRole(dimensions, await loadCreditFacts(ctx, viewer.tenantId, range, role), range, role, memberId,
-    await loadRoleHours(ctx, viewer.tenantId, dimensions, role, range), Date.now());
+  return readPeopleRole(ctx, viewer.tenantId, args, role, memberId);
 }
 export const getSetters = query({ args: argsValidator, returns: peopleRoleReportValidator,
   handler: async (ctx, args): Promise<PeopleRoleReport> => {
@@ -274,3 +271,11 @@ export const getLeadGen = query({ args: argsValidator, returns: peopleRoleReport
     const viewer = await requireTenantUser(ctx, [...MEMBER_REPORT_ROLES]);
     return readRole(ctx, args, "lead_gen", viewer);
   } });
+
+/** Shared tenant reader; the caller resolves and authorizes the member. */
+export async function readPeopleRole(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDate: number; endDate: number }, role: PeopleRole, memberId: Id<"teamMembers"> | null): Promise<PeopleRoleReport> {
+  const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
+  const dimensions = await loadCreditDimensions(ctx, tenantId);
+  return buildPeopleRole(dimensions, await loadCreditFacts(ctx, tenantId, range, role), range, role, memberId,
+    await loadRoleHours(ctx, tenantId, dimensions, role, range), Date.now());
+}

@@ -1,8 +1,16 @@
 import { expectedError } from "../lib/observability/errors";
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import { normalizeAttributionTeamInput } from "../lib/attribution/teamInput";
 import { log } from "../lib/observability/log";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  WEB,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
 import { requireTenantUser } from "../requireTenantUser";
 
 // Matches MAX_DAILY_TEAM_GOAL in reporting/slackQualifications.ts.
@@ -120,6 +128,55 @@ export const updateTeam = mutation({
   },
 });
 
+export type SetTeamBookingQuotaArgs = {
+  teamId: Id<"attributionTeams">;
+  bookingDailyQuota: number | null;
+};
+
+/**
+ * Sets or clears a team's daily booked-calls goal: the core of
+ * `setTeamBookingQuota`. No event covers a goal; the change is logged with
+ * its provenance.
+ */
+export async function setTeamBookingQuotaCore(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: SetTeamBookingQuotaArgs,
+  provenance: Provenance,
+): Promise<Id<"attributionTeams">> {
+  assertCoreRole(actor, ["tenant_master", "tenant_admin"]);
+  const { tenantId } = actor;
+  const team = await ctx.db.get("attributionTeams", args.teamId);
+  if (!team || team.tenantId !== tenantId) {
+    throw expectedError("attribution.rejected", "Attribution team not found.");
+  }
+
+  if (
+    args.bookingDailyQuota !== null &&
+    (!Number.isInteger(args.bookingDailyQuota) ||
+      args.bookingDailyQuota < 0 ||
+      args.bookingDailyQuota > MAX_BOOKING_DAILY_QUOTA)
+  ) {
+    throw expectedError("attribution.rejected", 
+      `Daily booking goal must be an integer between 0 and ${MAX_BOOKING_DAILY_QUOTA}.`,
+    );
+  }
+
+  await ctx.db.patch("attributionTeams", args.teamId, {
+    bookingDailyQuota: args.bookingDailyQuota ?? undefined,
+    updatedAt: Date.now(),
+  });
+  log.info("attribution.team_booking_quota.set", {
+    tenantId,
+    actorUserId: actor.userId,
+    teamId: args.teamId,
+    bookingDailyQuota: args.bookingDailyQuota,
+    via: provenance.via,
+    ...provenanceMetadata(provenance),
+  });
+  return args.teamId;
+}
+
 // NIM-17: set or clear the per-team daily booked-calls goal shown on the
 // Booked Calls page. Pass null to clear the goal.
 export const setTeamBookingQuota = mutation({
@@ -129,31 +186,11 @@ export const setTeamBookingQuota = mutation({
   },
   returns: v.id("attributionTeams"),
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
+    const actor = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-    const team = await ctx.db.get("attributionTeams", args.teamId);
-    if (!team || team.tenantId !== tenantId) {
-      throw expectedError("attribution.rejected", "Attribution team not found.");
-    }
-
-    if (
-      args.bookingDailyQuota !== null &&
-      (!Number.isInteger(args.bookingDailyQuota) ||
-        args.bookingDailyQuota < 0 ||
-        args.bookingDailyQuota > MAX_BOOKING_DAILY_QUOTA)
-    ) {
-      throw expectedError("attribution.rejected", 
-        `Daily booking goal must be an integer between 0 and ${MAX_BOOKING_DAILY_QUOTA}.`,
-      );
-    }
-
-    await ctx.db.patch("attributionTeams", args.teamId, {
-      bookingDailyQuota: args.bookingDailyQuota ?? undefined,
-      updatedAt: Date.now(),
-    });
-    return args.teamId;
+    return await setTeamBookingQuotaCore(ctx, actor, args, WEB);
   },
 });
 

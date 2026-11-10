@@ -1,3 +1,4 @@
+import { buildBookingReviewCount } from "./bookingReviewsCore";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -5,7 +6,6 @@ import {
   internalQuery,
   mutation,
   query,
-  type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
 import { followMergeChain } from "../leads/identityResolution";
@@ -14,10 +14,8 @@ import {
   createLiveReadState,
   LIVE_QUERY_BYTE_BUDGET,
   readLiveDocuments,
-  readLiveQueryRows,
 } from "../lib/liveQueryBounds";
 import { areNamesSimilar } from "../lib/normalization";
-import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import { dealLabelOf, type DealLabel } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
@@ -34,7 +32,6 @@ import { retryDelivery } from "./recovery";
 
 const ADMIN_ROLES = ["tenant_master", "tenant_admin"] as const;
 const LIST_PAGE_LIMIT = 50;
-const OPEN_COUNT_LIMIT = 99;
 const DEALS_PER_PERSON = 10;
 const IDENTIFIERS_PER_PERSON = 20;
 
@@ -360,17 +357,7 @@ export const openCount = query({
   returns: v.object({ count: v.number(), capped: v.boolean() }),
   handler: async (ctx) => {
     const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
-    // A bounded live read, not an aggregate: the banner shows "99+" past the
-    // bound, and the queue is empty on most days.
-    const { rows, capped } = await readLiveQueryRows(
-      ctx.db
-        .query("bookingReviews")
-        .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-          q.eq("tenantId", tenantId).eq("status", "open"),
-        ),
-      OPEN_COUNT_LIMIT,
-    );
-    return { count: rows.length, capped };
+    return await buildBookingReviewCount(ctx, tenantId);
   },
 });
 

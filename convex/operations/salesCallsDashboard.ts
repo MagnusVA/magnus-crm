@@ -1,11 +1,9 @@
-import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
+import { readSalesCallsDashboard } from "./salesCallsDashboardCore";
 import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
-import { requireReportingReady } from "./reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import {
-  deriveOverviewRange,
   overviewRangeValidator,
   type DerivedOverviewRange,
 } from "../dashboard/overviewRange";
@@ -23,16 +21,13 @@ import {
   systemLossReasonValidator,
 } from "../opportunities/dealLabelValidators";
 import {
-  getNonDisputedPaymentsInRange,
   getUserDisplayName,
   reportingUserIdentity,
   summarizePaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
 import {
   closeRateOf,
-  countCloseRateCohort,
   emptyCloseRateTally,
-  readCloseRateCohort,
   tallyCloseRate,
   totalCloseRateTally,
   type CloseRateCohortCount,
@@ -43,9 +38,6 @@ import { requireTenantUser } from "../requireTenantUser";
 import type { MeetingStatsCount } from "./meetingStats";
 import { enrichPhoneSalesRows } from "./phoneSales";
 
-// Matches overviewOperations: the daily-stats rollup read is bounded and the
-// result is flagged as capped past this many rows.
-const MAX_OPERATIONS_STATS_ROWS = 8192;
 const LIVE_DIMENSION_LIMIT = 300;
 // Search fan-out bounds — same values as bookedCallsDashboard.
 const SEARCH_OPPORTUNITY_LIMIT = 30;
@@ -349,45 +341,7 @@ export const getSalesCallsDashboard = query({
       "tenant_master",
       "tenant_admin",
     ]);
-    await requireReportingReady(ctx, tenantId);
-
-    const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
-
-    // The cohort window is the meeting buckets' window: operationsStartDate
-    // and operationsEndDate are the starts of the first and the day-after-last
-    // business days, the same days the buckets' dayKeys cover.
-    const [statsScan, paymentScan, cohort] = await Promise.all([
-      readLiveQueryRows(
-        ctx.db
-          .query("operationsMeetingStatsV2")
-          .withIndex("by_tenantId_and_dayKey", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .gte("dayKey", range.operationsStartDayKey)
-              .lt("dayKey", range.operationsEndDayKeyExclusive),
-          ),
-        MAX_OPERATIONS_STATS_ROWS,
-        undefined,
-        4 * 1024 * 1024,
-      ),
-      getNonDisputedPaymentsInRange(
-        ctx,
-        tenantId,
-        range.operationsStartDate,
-        range.operationsEndDate,
-      ),
-      readCloseRateCohort(ctx, tenantId, {
-        start: range.operationsStartDate,
-        end: range.operationsEndDate,
-      }),
-    ]);
-    return await buildSalesCallsDashboard(ctx, tenantId, range, {
-      statsRows: statsScan.rows,
-      statsCapped: statsScan.capped,
-      paymentScan,
-      closeRateCohort: countCloseRateCohort(cohort.deals),
-      closeRateCohortCapped: cohort.capped,
-    });
+    return await readSalesCallsDashboard(ctx, tenantId, args.range);
   },
 });
 

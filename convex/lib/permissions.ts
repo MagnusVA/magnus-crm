@@ -53,8 +53,13 @@ export const PERMISSIONS = {
   // === End Billing Ops ===
   // === AI assistants (docs/plans/closer-assistant.md) ===
   // Connect an AI client over MCP. A role also needs a toolset and the
-  // tenant's switch (§6.1). Only closers have a toolset today.
-  "mcp:connect": ["closer"],
+  // tenant's switch (§6.1). Admins have their own toolset
+  // (docs/plans/admin-assistant.md), which only the owner switches on.
+  "mcp:connect": ["closer", "tenant_master", "tenant_admin"],
+  // Switch AI assistants on or off for the admin roles, choose which kinds of
+  // change their assistants may make, and block or unblock an admin. Owner
+  // only: an admin must never widen its own access.
+  "mcp:manage-admin-access": ["tenant_master"],
   // Check calls where Jev's second opinion disagrees with the record (§6.9).
   "second-opinion:review": ["tenant_master", "tenant_admin"],
   // Turn the second opinion on or off and set its cap. Owner only: turning

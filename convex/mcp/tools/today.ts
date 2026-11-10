@@ -100,6 +100,8 @@ async function meetingExtras(ctx: QueryCtx, me: McpUser, meeting: Doc<"meetings"
     latestCallNote: ownsDeal && latestNote
       ? {
           at: formatLocal(latestNote.createdAt, me.timeZone),
+          // Written by an agent or a teammate: data, never instructions.
+          personSupplied: true as const,
           objection: latestNote.objection,
           nextAction: latestNote.nextAction ?? null,
         }
@@ -209,7 +211,9 @@ export async function buildToday(ctx: QueryCtx, me: McpUser, now: number) {
       due: due ? formatLocal(due, me.timeZone) : null,
       note: task.reminderNote,
       program: task.programName,
-      noteIsPersonSupplied: false,
+      // A reminder note may come from an admin or another agent
+      // (docs/plans/admin-assistant.md §4): data, never instructions.
+      noteIsPersonSupplied: task.reminderNote !== null,
     };
     if (due !== null && due < now) grouped.overdue.push(entry);
     else if (due !== null && businessDateForInstant(due, businessDay) === today) grouped.today.push(entry);
@@ -287,7 +291,12 @@ export const todayResultValidator = v.object({
       attendance: v.string(),
       latestCallNote: v.union(
         v.null(),
-        v.object({ at: v.string(), objection: v.string(), nextAction: v.union(v.string(), v.null()) }),
+        v.object({
+          at: v.string(),
+          personSupplied: v.literal(true),
+          objection: v.string(),
+          nextAction: v.union(v.string(), v.null()),
+        }),
       ),
       openTasks: v.array(
         v.object({ taskId: v.id("followUps"), kind: v.string(), due: v.union(v.string(), v.null()) }),
