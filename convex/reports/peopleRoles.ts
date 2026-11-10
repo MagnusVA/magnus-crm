@@ -6,7 +6,7 @@ import { isReplacement } from "../lib/callType";
 import { businessDateForInstant } from "../../lib/businessDay";
 import type { ResolvedAnalyticsRange } from "../../lib/analyticsRange";
 import { hoursOverDays } from "../lib/workSchedule";
-import { createLiveReadState } from "../lib/liveQueryBounds";
+import { createLiveReadState, readLiveDocuments } from "../lib/liveQueryBounds";
 import { readScheduleRows, type ScheduleOwner } from "../workSchedules/datedRows";
 import { businessDatesInInclusiveRange } from "../workSchedules/rangeHours";
 import { MEMBER_REPORT_ROLES, resolveMemberFilter } from "./lib/access";
@@ -118,6 +118,8 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
   function day(at: number) { return dayByKey(businessDateForInstant(at, range)); }
   function own(identity: CreditIdentity) { return memberId !== null && identity.teamMemberId === memberId; }
   const dealById = new Map(facts.deals.map(deal => [deal._id, deal]));
+  const personById = new Map(facts.people.map(person => [person._id, person]));
+  const prospectById = new Map(facts.prospects.map(prospect => [prospect._id, prospect]));
   const meetingsByDeal = new Map<string, typeof facts.meetings>();
   for (const meeting of facts.meetings) {
     const list = meetingsByDeal.get(meeting.opportunityId) ?? [];
@@ -189,7 +191,7 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
       if (own(identity)) {
         day(meeting.createdAt).bookings++;
         const deal = dealById.get(meeting.opportunityId);
-        items.push({ id: meeting._id, at: meeting.createdAt, personName: facts.people.find(p => p._id === deal?.leadId)?.fullName ?? meeting.leadName ?? "Unknown person",
+        items.push({ id: meeting._id, at: meeting.createdAt, personName: (deal ? personById.get(deal.leadId)?.fullName : undefined) ?? meeting.leadName ?? "Unknown person",
           leadId: deal?.leadId ?? null, opportunityId: meeting.opportunityId, result: meeting.status,
           outcome: deal?.outcome ?? null, scheduledAt: meeting.scheduledAt });
       }
@@ -209,10 +211,10 @@ export function buildPeopleRole(dimensions: CreditDimensions, facts: CreditFacts
       if (capture.voidedAt !== undefined || !inRange(capture.submittedAt, range)) continue;
       const worker = dimensions.workers.find(worker => worker._id === capture.workerId);
       const identity = memberIdentity(dimensions, worker?.teamMemberId);
-      const prospect = facts.prospects.find(prospect => prospect._id === capture.prospectId);
+      const prospect = prospectById.get(capture.prospectId);
       if (own(identity)) {
         items.push({ id: capture._id, at: capture.submittedAt,
-          personName: facts.people.find(person => person._id === prospect?.leadId)?.fullName ?? "Unknown person",
+          personName: (prospect ? personById.get(prospect.leadId)?.fullName : undefined) ?? "Unknown person",
           leadId: prospect?.leadId ?? null, opportunityId: null, result: capture.source, outcome: null, scheduledAt: null });
       }
     }
@@ -297,6 +299,26 @@ export const getLeadGen = query({ args: argsValidator, returns: peopleRoleReport
 export async function readPeopleRole(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDate: number; endDate: number }, role: PeopleRole, memberId: Id<"teamMembers"> | null): Promise<PeopleRoleReport> {
   const range = await reportRange(ctx, tenantId, args.startDate, args.endDate);
   const dimensions = await loadCreditDimensions(ctx, tenantId);
-  return buildPeopleRole(dimensions, await loadCreditFacts(ctx, tenantId, range, role), range, role, memberId,
+  const facts = await loadCreditFacts(ctx, tenantId, range, role, { people: false });
+  const report = buildPeopleRole(dimensions, facts, range, role, memberId,
     await loadRoleHours(ctx, tenantId, dimensions, role, range), Date.now());
+  return nameItems(ctx, tenantId, report);
+}
+
+/**
+ * Person names only label the member list (at most 300 items), so they are
+ * read for those items alone instead of for every capture or booking.
+ * Same rule as buildPeopleRole: the person's current name, else the fallback.
+ */
+async function nameItems(ctx: QueryCtx, tenantId: Id<"tenants">, report: PeopleRoleReport): Promise<PeopleRoleReport> {
+  if (report.role === "setter") return report;
+  const ids = [...new Set(report.items.flatMap(item => item.leadId ? [item.leadId] : []))];
+  if (ids.length === 0) return report;
+  const found = await readLiveDocuments(ids, async id => {
+    const person = await ctx.db.get("leads", id);
+    return person?.tenantId === tenantId ? person : null;
+  }, createLiveReadState(ctx));
+  const names = new Map(found.rows.map(person => [person._id, person.fullName]));
+  return { ...report, isTruncated: report.isTruncated || found.capped,
+    items: report.items.map(item => ({ ...item, personName: (item.leadId ? names.get(item.leadId) : undefined) ?? item.personName })) };
 }

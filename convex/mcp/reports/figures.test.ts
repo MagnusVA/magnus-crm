@@ -449,3 +449,24 @@ it("keeps a People panel ready when a budget-limited currency panel held the req
   });
   expect(await f.t.query(internal.mcp.reports.planning.jobAnswer, { caller: f.caller, source: state.source })).toBeNull();
 });
+
+it("keeps a panel complete when a supporting panel is only a lower bound, and flags that panel when asked for", async () => {
+  const f = await fixture(true);
+  const closers = { kind: "report" as const, report: "people" as const, panel: "closers", range };
+  const plan = await warehouse(f, closers);
+  await f.t.run(async ctx => {
+    const input = plan.inputs.find(i => i.id === "people.lead_gen" && i.job)!;
+    const row = (await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", f.tenantId).eq("key", input.job!.key)).unique())!;
+    // Loaded, but stopped near a read limit: a lower bound, not a lost panel.
+    await ctx.db.patch("mcpReportRequests", row._id, { resultJson: JSON.stringify({ ...JSON.parse(row.resultJson!), isTruncated: true }) });
+  });
+  const closersAnswer = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "people", panel: "closers", range });
+  expect(closersAnswer.status).toBe("ready");
+  expect(closersAnswer.reasons).not.toContain("incomplete_input");
+  expect(panel(closersAnswer, "people.closers").lowerBound).toBeUndefined();
+  await warehouse(f, { ...closers, panel: "lead_gen" });
+  const leadGenAnswer = await f.t.action(internal.mcp.reports.toolsNode.report, { caller: f.caller, report: "people", panel: "lead_gen", range });
+  expect(leadGenAnswer).toMatchObject({ status: "ready", isPartial: true });
+  expect(leadGenAnswer.reasons).toContain("incomplete_input");
+  expect(panel(leadGenAnswer, "people.lead_gen").lowerBound).toBe(true);
+});

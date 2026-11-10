@@ -11,8 +11,9 @@ export const split = from + DAY, to = split + DAY;
 export const range = { fromMs: from, toMs: to, startDate: "2026-09-28", endDateInclusive: "2026-09-29", ...DEFAULT_BUSINESS_DAY };
 export const identity = { subject: "admin", org_id: "org_c" };
 
-export async function createRoleFixture() {
-  const t = convexTest({ schema, modules: convexTestModules, transactionLimits: true });
+/** Convex's own transaction limits are enforced; pass lower ones to test running into them. */
+export async function createRoleFixture(transactionLimits: Parameters<typeof convexTest>[0]["transactionLimits"] = true) {
+  const t = convexTest({ schema, modules: convexTestModules, transactionLimits });
   const fixture = await t.run(async ctx => {
     const tenantId = await ctx.db.insert("tenants", { companyName: "Reports", contactEmail: "reports@example.invalid",
       workosOrgId: "org_c", status: "active", inviteExpiresAt: to, createdBy: "test" });

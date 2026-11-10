@@ -141,13 +141,20 @@ export async function loadCreditDimensions(ctx: QueryCtx, tenantId: Id<"tenants"
   return { members, users, slackUsers, dmClosers, workers, teams };
 }
 
-/** Related history is bounded too, so a long deal can't exhaust a live query. */
+/**
+ * Reads until the transaction nears a Convex limit (see liveQueryBounds), then
+ * stops and marks the facts truncated. Related history per deal stays bounded
+ * so one long deal can't use the budget. `people: false` skips the person
+ * documents, which only name list items; the People reader names its final
+ * items itself.
+ */
 export async function loadCreditFacts(
   ctx: QueryCtx, tenantId: Id<"tenants">, range: ResolvedAnalyticsRange, role?: PeopleRole,
+  options: { people?: boolean } = {},
 ): Promise<CreditFacts> {
   const facts = emptyCreditFacts();
-  const state = createLiveReadState();
-  async function rows<T>(query: AsyncIterable<T>, limit = 2500) {
+  const state = createLiveReadState(ctx);
+  async function rows<T>(query: AsyncIterable<T>, limit = Infinity) {
     return (await readLiveQueryRows(query, limit, state)).rows;
   }
   async function documents<Table extends TableNames>(table: Table, ids: Id<Table>[]) {
@@ -189,15 +196,15 @@ export async function loadCreditFacts(
     for (const meeting of await rows(ctx.db.query("meetings").withIndex("by_opportunityId", q => q.eq("opportunityId", id)), 200)) {
       if (meeting.tenantId === tenantId) meetingMap.set(meeting._id, meeting);
     }
-    const first = await Promise.all((["recorded", "verified"] as const).map(status => ctx.db.query("paymentRecords")
-      .withIndex("by_opportunityId_and_status_and_recordedAt", q => q.eq("opportunityId", id).eq("status", status)).first()));
+    const first = (await readLiveDocuments(["recorded", "verified"] as const, status => ctx.db.query("paymentRecords")
+      .withIndex("by_opportunityId_and_status_and_recordedAt", q => q.eq("opportunityId", id).eq("status", status)).first(), state)).rows;
     const payment = first.filter((p): p is Doc<"paymentRecords"> => p !== null && p.tenantId === tenantId)
       .sort((a, b) => a.recordedAt - b.recordedAt || a._id.localeCompare(b._id))[0];
     if (payment) facts.firstPayments.push(payment);
   }
   facts.attributions = [...attributionMap.values()];
   facts.meetings = [...meetingMap.values()];
-  if (role) facts.people = await documents("leads", [
+  if (role && options.people !== false) facts.people = await documents("leads", [
     ...facts.deals.map(deal => deal.leadId), ...facts.prospects.flatMap(p => p.leadId ? [p.leadId] : []),
     ...facts.qualifications.flatMap(q => q.leadId ? [q.leadId] : []),
   ]);

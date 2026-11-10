@@ -154,7 +154,16 @@ async function executeReportTool(ctx: ActionCtx, caller: McpCaller, request: Too
         base.isPartial = true;
         base.reasons.push("warehouse_as_of_watermark");
     }
-    const complete = loaded.every(l => !incomplete(l.data));
+    // Panels loaded only to pick the currency or count the role tabs leave the
+    // answer complete when they loaded, even as a lower bound; the panels it
+    // shows, or its metrics read, decide. A supporting panel lost to its budget
+    // may hold the chosen currency, so it still makes the answer partial.
+    const shownPanel = (id: string) => request.kind === "numbers"
+        ? request.metrics.some(metric => metricPanels(metric, request).includes(id))
+        : !(request.panel && request.panel !== id && request.panel !== id.split(".")[1])
+            && !(request.report === "people" && request.role && request.role !== "everyone" && id !== `people.${request.role}` && id !== "people.profile");
+    const lost = (l: Loaded) => l.input.job !== null && byKey.get(l.input.job.key)?.source?.kind === "budget";
+    const complete = loaded.every(l => !(shownPanel(l.input.id) || lost(l)) || !incomplete(l.data));
     if (!complete) {
         base.isPartial = true;
         base.reasons.push("incomplete_input");
@@ -227,8 +236,7 @@ async function executeReportTool(ctx: ActionCtx, caller: McpCaller, request: Too
     const rawPanels: Json[] = [];
     const pageAnswers = mergedPageAnswers(loaded, "current");
     for (const id of new Set(loaded.filter(l => !l.input.team).map(l => l.input.id))) {
-        if (request.panel && request.panel !== id && request.panel !== id.split(".")[1]) continue;
-        if (request.report === "people" && request.role && request.role !== "everyone" && id !== `people.${request.role}` && id !== "people.profile") continue;
+        if (!shownPanel(id)) continue;
         if (!pageAnswers.has(id)) {
             rawPanels.push({ id, value: null, nullReason: "incomplete_input" });
             base.isPartial = true;
