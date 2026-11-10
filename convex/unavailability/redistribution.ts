@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
+import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
@@ -273,6 +274,22 @@ export const autoDistributeMeetings = mutation({
         fromUserId: meeting.fromCloserId,
         at: now,
       });
+      await emitDomainEvent(ctx, {
+        tenantId,
+        entityType: "opportunity",
+        entityId: meeting.opportunityId,
+        eventType: "opportunity.reassigned",
+        source: "admin",
+        actorUserId: userId,
+        metadata: {
+          fromCloserId: meeting.fromCloserId,
+          toCloserId: bestCandidate.closerId,
+          meetingId: meeting.meetingId,
+          unavailabilityId: args.unavailabilityId,
+          mode: "auto_distributed",
+        },
+        occurredAt: now,
+      });
 
       bestCandidate.meetings.push({
         meetingId: meeting.meetingId,
@@ -290,7 +307,8 @@ export const autoDistributeMeetings = mutation({
       });
     }
 
-    // No domain event covers reassignment, so this line is the outcome record.
+    // Each reassigned deal has its `opportunity.reassigned` event; this line
+    // records the run.
     log.info("unavailability.redistribution.auto_distributed", {
       tenantId,
       unavailabilityId: args.unavailabilityId,
@@ -410,6 +428,22 @@ export const manuallyResolveMeeting = mutation({
         toUserId: targetCloser._id,
         fromUserId: unavailability.closerId,
         at: now,
+      });
+      await emitDomainEvent(ctx, {
+        tenantId,
+        entityType: "opportunity",
+        entityId: opportunity._id,
+        eventType: "opportunity.reassigned",
+        source: "admin",
+        actorUserId: userId,
+        metadata: {
+          fromCloserId: unavailability.closerId,
+          toCloserId: targetCloser._id,
+          meetingId: args.meetingId,
+          unavailabilityId: args.unavailabilityId,
+          mode: "manually_assigned",
+        },
+        occurredAt: now,
       });
 
       log.info("unavailability.redistribution.manual_assigned", {

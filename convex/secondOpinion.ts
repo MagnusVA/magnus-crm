@@ -1,12 +1,22 @@
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { query, mutation, type QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import { query, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
-import { requireTenantUser, type TenantUserResult } from "./requireTenantUser";
+import { requireTenantUser } from "./requireTenantUser";
 import { hasPermission } from "./lib/permissions";
 import { rejectRequest } from "./lib/observability/errors";
 import { log } from "./lib/observability/log";
+import { emitDomainEvent } from "./lib/domainEvents";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  toCheckResult,
+  WEB,
+  type CheckResult,
+  type CoreActor,
+  type Provenance,
+} from "./lib/outcomeCores";
 import { businessDayClosed, hasResult } from "./secondOpinion/trigger";
 import { monthRange, monthSummary } from "./secondOpinion/month";
 import { adminCreateFollowUpCore } from "./admin/meetingActions";
@@ -56,7 +66,7 @@ const reviewOutcome = v.union(
 );
 const SHADOW_MS = 14 * 86400_000;
 
-function maySee(me: TenantUserResult, tenant: Doc<"tenants">) {
+function maySee(me: CoreActor, tenant: Doc<"tenants">) {
   return (
     tenant.secondOpinion?.mode === "on" ||
     (tenant.secondOpinion?.mode === "shadow" && me.role === "tenant_master")
@@ -64,7 +74,7 @@ function maySee(me: TenantUserResult, tenant: Doc<"tenants">) {
 }
 async function view(
   ctx: QueryCtx,
-  me: TenantUserResult,
+  me: CoreActor,
   opinion: Doc<"secondOpinions">,
 ) {
   const meeting = await ctx.db.get("meetings", opinion.meetingId);
@@ -377,6 +387,142 @@ export const getForReview = query({
     return row ? view(ctx, me, row) : null;
   },
 });
+export type SecondOpinionCheckArgs = {
+  secondOpinionId: Id<"secondOpinions">;
+  outcome: "closer_right" | "second_opinion_right";
+  reopen?: { date: string; time: string };
+};
+
+/**
+ * Every check `check` makes, in its order, with no write: the review is open
+ * to this admin, and a reopen names a no-show and a real call-back time.
+ */
+async function checkSecondOpinionCheck(
+  ctx: QueryCtx | MutationCtx,
+  me: CoreActor,
+  args: SecondOpinionCheckArgs,
+) {
+  assertCoreRole(me, ["tenant_master", "tenant_admin"]);
+  const row = await ctx.db.get("secondOpinions", args.secondOpinionId);
+  const detail = row ? await view(ctx, me, row) : null;
+  if (!row || !detail?.canReview || row.reviewState !== "open")
+    throw rejectRequest(
+      "second_opinion.review_denied",
+      "This disagreement isn't open for review.",
+    );
+  if (!args.reopen) return { row, reopen: null };
+  if (args.outcome !== "second_opinion_right" || !detail.canReopen)
+    throw rejectRequest(
+      "second_opinion.reopen_invalid",
+      "Only a no-show can be reopened from this check.",
+    );
+  const meeting = await ctx.db.get("meetings", row.meetingId);
+  if (!meeting)
+    throw rejectRequest(
+      "second_opinion.meeting_missing",
+      "The meeting no longer exists.",
+    );
+  const closer = await ctx.db.get("users", meeting.assignedCloserId);
+  const tenant = await ctx.db.get("tenants", me.tenantId);
+  let scheduledAt: number;
+  try {
+    scheduledAt = parseLocalDateTime(
+      args.reopen.date,
+      args.reopen.time,
+      closer?.timezone ??
+        tenant?.businessDay?.timeZone ??
+        "America/Tegucigalpa",
+    );
+  } catch {
+    throw rejectRequest(
+      "second_opinion.callback_invalid",
+      "Choose a real date and time in the closer's time zone.",
+    );
+  }
+  return { row, reopen: { meeting, scheduledAt } };
+}
+
+/**
+ * Whether `secondOpinionCheckCore` would record this review, without
+ * writing. A reopen's call-back time is checked here only for being a real
+ * time; that it is in the future is checked when it is written.
+ */
+export async function checkSecondOpinionCheckAllowed(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: SecondOpinionCheckArgs,
+): Promise<
+  CheckResult<{
+    secondOpinionId: Id<"secondOpinions">;
+    meetingId: Id<"meetings">;
+    reopen: { opportunityId: Id<"opportunities">; scheduledAt: number } | null;
+  }>
+> {
+  return await toCheckResult(async () => {
+    const { row, reopen } = await checkSecondOpinionCheck(ctx, actor, args);
+    return {
+      secondOpinionId: row._id,
+      meetingId: row.meetingId,
+      reopen: reopen
+        ? { opportunityId: reopen.meeting.opportunityId, scheduledAt: reopen.scheduledAt }
+        : null,
+    };
+  });
+}
+
+/**
+ * Records an admin's review of an open disagreement, and reopens a no-show
+ * deal with a call-back when asked: the core of `check`. It emits
+ * `second_opinion.checked` on the meeting, with the outcome, whether it
+ * reopened, and the provenance.
+ */
+export async function secondOpinionCheckCore(
+  ctx: MutationCtx,
+  me: CoreActor,
+  args: SecondOpinionCheckArgs,
+  provenance: Provenance,
+): Promise<null> {
+  const { row, reopen } = await checkSecondOpinionCheck(ctx, me, args);
+  if (reopen) {
+    await adminCreateFollowUpCore(
+      ctx,
+      me,
+      {
+        opportunityId: reopen.meeting.opportunityId,
+        meetingId: reopen.meeting._id,
+        callBack: { scheduledAt: reopen.scheduledAt },
+      },
+      provenance,
+    );
+  }
+  const at = Date.now();
+  await ctx.db.patch("secondOpinions", row._id, {
+    reviewState: "checked",
+    review: {
+      outcome: args.outcome,
+      byUserId: me.userId,
+      at,
+      reopened: Boolean(args.reopen),
+    },
+  });
+  await emitDomainEvent(ctx, {
+    tenantId: me.tenantId,
+    entityType: "meeting",
+    entityId: row.meetingId,
+    eventType: "second_opinion.checked",
+    source: "admin",
+    actorUserId: me.userId,
+    metadata: {
+      secondOpinionId: row._id,
+      outcome: args.outcome,
+      reopened: Boolean(args.reopen),
+      ...provenanceMetadata(provenance),
+    },
+    occurredAt: at,
+  });
+  return null;
+}
+
 export const check = mutation({
   args: {
     secondOpinionId: v.id("secondOpinions"),
@@ -386,57 +532,6 @@ export const check = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const me = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
-    const row = await ctx.db.get("secondOpinions", args.secondOpinionId);
-    const detail = row ? await view(ctx, me, row) : null;
-    if (!row || !detail?.canReview || row.reviewState !== "open")
-      throw rejectRequest(
-        "second_opinion.review_denied",
-        "This disagreement isn't open for review.",
-      );
-    if (args.reopen) {
-      if (args.outcome !== "second_opinion_right" || !detail.canReopen)
-        throw rejectRequest(
-          "second_opinion.reopen_invalid",
-          "Only a no-show can be reopened from this check.",
-        );
-      const meeting = await ctx.db.get("meetings", row.meetingId);
-      if (!meeting)
-        throw rejectRequest(
-          "second_opinion.meeting_missing",
-          "The meeting no longer exists.",
-        );
-      const closer = await ctx.db.get("users", meeting.assignedCloserId);
-      const tenant = await ctx.db.get("tenants", me.tenantId);
-      let scheduledAt: number;
-      try {
-        scheduledAt = parseLocalDateTime(
-          args.reopen.date,
-          args.reopen.time,
-          closer?.timezone ??
-            tenant?.businessDay?.timeZone ??
-            "America/Tegucigalpa",
-        );
-      } catch {
-        throw rejectRequest(
-          "second_opinion.callback_invalid",
-          "Choose a real date and time in the closer's time zone.",
-        );
-      }
-      await adminCreateFollowUpCore(ctx, me, {
-        opportunityId: meeting.opportunityId,
-        meetingId: meeting._id,
-        callBack: { scheduledAt },
-      });
-    }
-    await ctx.db.patch("secondOpinions", row._id, {
-      reviewState: "checked",
-      review: {
-        outcome: args.outcome,
-        byUserId: me.userId,
-        at: Date.now(),
-        reopened: Boolean(args.reopen),
-      },
-    });
-    return null;
+    return await secondOpinionCheckCore(ctx, me, args, WEB);
   },
 });

@@ -11,6 +11,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import type { CrmRole } from "../lib/roleMapping";
 import { rejectRequest } from "../lib/observability/errors";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { provenanceMetadata, WEB, type Provenance } from "../lib/outcomeCores";
 import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { actionItem } from "./validators";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
@@ -109,6 +110,7 @@ export async function recordMatch(
     meetingId: Id<"meetings">;
     recordingId: Id<"callRecordings">;
     actorUserId?: Id<"users">;
+    provenance?: Provenance;
   },
 ) {
   await emitDomainEvent(ctx, {
@@ -118,7 +120,10 @@ export async function recordMatch(
     eventType: "meeting.recording_matched",
     source: "system",
     actorUserId: args.actorUserId,
-    metadata: { recordingId: args.recordingId },
+    metadata: {
+      recordingId: args.recordingId,
+      ...provenanceMetadata(args.provenance ?? WEB),
+    },
   });
   await onRecordingMatched(ctx, args);
 }
@@ -132,11 +137,16 @@ export type AttachArgs = {
   meetingId?: Id<"meetings">;
   notASalesCall?: boolean;
 };
-/** Mutation core for the web UI and MCP. A closer may only resolve their own unmatched recording. */
+/**
+ * Mutation core for the web UI and MCP. A closer may only resolve their own
+ * unmatched recording. `provenance` tags the `meeting.recording_matched`
+ * event of a manual match.
+ */
 export async function attachRecordingCore(
   ctx: MutationCtx,
   actor: RecordingActor,
   args: AttachArgs,
+  provenance: Provenance = WEB,
 ): Promise<null> {
   if (Boolean(args.meetingId) === Boolean(args.notASalesCall))
     throw rejectRequest(
@@ -192,6 +202,7 @@ export async function attachRecordingCore(
     meetingId,
     recordingId: row._id,
     actorUserId: actor.userId,
+    provenance,
   });
   return null;
 }

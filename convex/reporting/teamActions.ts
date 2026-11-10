@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -107,3 +108,45 @@ export const getActionsPerCloserPerDay = query({
     );
   },
 });
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetActionsPerCloserPerDay(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getActionsPerCloserPerDay>) {
+  const { startDate, endDate } = args;
+    assertValidDateRange(startDate, endDate);
+
+    
+
+    // Closer events only, through the source index, so the pipeline's
+    // touches (about 1,000 a day, docs/plans/phase-2-person-first.md §8)
+    // don't use up the scan.
+    const eventRows = await ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_source_and_occurredAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("source", "closer")
+          .gte("occurredAt", startDate)
+          .lt("occurredAt", endDate),
+      )
+      .take(MAX_EVENTS_SCAN + 1);
+
+    const events = eventRows.slice(0, MAX_EVENTS_SCAN);
+    const closerActions = new Map<Id<"users">, number>();
+
+    for (const event of events) {
+      if (!event.actorUserId) {
+        continue;
+      }
+
+      closerActions.set(
+        event.actorUserId,
+        (closerActions.get(event.actorUserId) ?? 0) + 1,
+      );
+    }
+
+    return await buildActionsPerCloserPerDay(
+      ctx,
+      { startDate, endDate },
+      { closerActions, isTruncated: eventRows.length > MAX_EVENTS_SCAN },
+    );
+}

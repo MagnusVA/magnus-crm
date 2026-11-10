@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
   attendanceDayBounds,
@@ -581,3 +582,51 @@ export const getTeamOperationsDimensions = query({
     return await buildTeamOperationsDimensions(ctx, tenantId, args, meetingCounts);
   },
 });
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetTeamPerformanceMetrics(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getTeamPerformanceMetrics>) {
+  const { startDate, endDate } = args;
+    assertValidDateRange(startDate, endDate);
+
+    
+
+    const paymentScan = await getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      startDate,
+      endDate,
+    );
+    return await buildTeamPerformanceMetrics(ctx, tenantId, { startDate, endDate }, {
+      countMeetings: async (keys, from, to) =>
+        await meetingsByStatus.countBatch(ctx, keys.map((key) => ({
+          namespace: tenantId,
+          bounds: makeTupleDateBounds(
+            [key.closerId, key.classification, key.status],
+            from,
+            to,
+          ),
+        }))),
+      paymentScan,
+      closeRateCohort: await readTeamCloseRateCohort(ctx, tenantId, startDate, endDate),
+    });
+}
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetTeamOperationsDimensions(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getTeamOperationsDimensions>) {
+    
+    await requireReportingReady(ctx, tenantId);
+
+    if (args.startDayKey >= args.endDayKeyExclusive) {
+      throw new Error("startDayKey must be before endDayKeyExclusive");
+    }
+    // A team or DM closer filter reads the credited meetings' rows
+    // (dealAttributions); otherwise the buckets.
+    const meetingCounts = await readMeetingStatsCounts(ctx, {
+      tenantId,
+      startDayKey: args.startDayKey,
+      endDayKeyExclusive: args.endDayKeyExclusive,
+      attributionTeamId: args.attributionTeamId,
+      dmCloserId: args.dmCloserId,
+    });
+    return await buildTeamOperationsDimensions(ctx, tenantId, args, meetingCounts);
+}

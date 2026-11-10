@@ -1,7 +1,20 @@
+import { buildWorkHealth } from "./workStatusCore";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { reportError } from "../lib/observability/log";
-import { internalMutation, mutation, query } from "../_generated/server";
+import { log, reportError } from "../lib/observability/log";
+import {
+  assertCoreRole,
+  provenanceMetadata,
+  WEB,
+  type CoreActor,
+  type Provenance,
+} from "../lib/outcomeCores";
+import {
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+} from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   requestMeetingProjection,
@@ -81,6 +94,55 @@ export const list = query({
     };
   },
 });
+export type RetryProjectionArgs = {
+  kind: "meeting" | "opportunity";
+  id: string;
+  generation: number;
+};
+
+/**
+ * Requeues one failed projection at the generation the caller saw: the core
+ * of `retry`. No event covers a retry, so an agent's is recorded with its
+ * provenance in a log line.
+ */
+export async function retryProjectionCore(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: RetryProjectionArgs,
+  provenance: Provenance,
+): Promise<null> {
+  assertCoreRole(actor, ["tenant_admin", "tenant_master"]);
+  const { tenantId } = actor;
+  if (args.kind === "meeting") {
+    const id = ctx.db.normalizeId("meetingProjections", args.id);
+    const row = id ? await ctx.db.get("meetingProjections", id) : null;
+    if (!row || row.tenantId !== tenantId)
+      throw new Error("Projection not found");
+    if (row.generation !== args.generation || row.status !== "failed")
+      throw new Error("Projection retry is stale or work has not failed");
+    await requestMeetingProjection(ctx, tenantId, row.meetingId);
+  } else {
+    const id = ctx.db.normalizeId("opportunityProjectionJobs", args.id);
+    const row = id ? await ctx.db.get("opportunityProjectionJobs", id) : null;
+    if (!row || row.tenantId !== tenantId)
+      throw new Error("Projection not found");
+    if (row.generation !== args.generation || row.status !== "failed")
+      throw new Error("Projection retry is stale or work has not failed");
+    await requestOpportunityProjections(ctx, row.opportunityId);
+  }
+  if (provenance.via === "mcp") {
+    log.info("operations.projection.retried", {
+      tenantId,
+      actorUserId: actor.userId,
+      kind: args.kind,
+      projectionId: args.id,
+      generation: args.generation,
+      ...provenanceMetadata(provenance),
+    });
+  }
+  return null;
+}
+
 export const retry = mutation({
   args: {
     kind: v.union(v.literal("meeting"), v.literal("opportunity")),
@@ -89,28 +151,11 @@ export const retry = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
+    const actor = await requireTenantUser(ctx, [
       "tenant_admin",
       "tenant_master",
     ]);
-    if (args.kind === "meeting") {
-      const id = ctx.db.normalizeId("meetingProjections", args.id);
-      const row = id ? await ctx.db.get("meetingProjections", id) : null;
-      if (!row || row.tenantId !== tenantId)
-        throw new Error("Projection not found");
-      if (row.generation !== args.generation || row.status !== "failed")
-        throw new Error("Projection retry is stale or work has not failed");
-      await requestMeetingProjection(ctx, tenantId, row.meetingId);
-    } else {
-      const id = ctx.db.normalizeId("opportunityProjectionJobs", args.id);
-      const row = id ? await ctx.db.get("opportunityProjectionJobs", id) : null;
-      if (!row || row.tenantId !== tenantId)
-        throw new Error("Projection not found");
-      if (row.generation !== args.generation || row.status !== "failed")
-        throw new Error("Projection retry is stale or work has not failed");
-      await requestOpportunityProjections(ctx, row.opportunityId);
-    }
-    return null;
+    return await retryProjectionCore(ctx, actor, args, WEB);
   },
 });
 const queueSummary = v.object({
@@ -127,47 +172,7 @@ export const health = query({
       "tenant_admin",
       "tenant_master",
     ]);
-    const tenant = await ctx.db.get("tenants", tenantId);
-    const queues = [];
-    for (const status of ["queued", "failed"] as const) {
-      const meetings = await ctx.db
-        .query("meetingProjections")
-        .withIndex("by_tenantId_and_status_and_requestedAt", (q) =>
-          q.eq("tenantId", tenantId).eq("status", status),
-        )
-        .take(101);
-      const opportunities = await ctx.db
-        .query("opportunityProjectionJobs")
-        .withIndex("by_tenantId_and_status_and_requestedAt", (q) =>
-          q.eq("tenantId", tenantId).eq("status", status),
-        )
-        .take(101);
-      for (const [name, rows] of [
-        ["meetings", meetings],
-        ["opportunities", opportunities],
-      ] as const)
-        queues.push({
-          kind: `${name}:${status}`,
-          count: Math.min(rows.length, 100),
-          capped: rows.length > 100,
-          oldestRequestedAt: rows[0]?.requestedAt,
-        });
-    }
-    for (const status of ["queued", "failed", "blocked"] as const) {
-      const rows = await ctx.db
-        .query("webhookDeliveries")
-        .withIndex("by_tenantId_and_status_and_receivedAt", (q) =>
-          q.eq("tenantId", tenantId).eq("status", status),
-        )
-        .take(101);
-      queues.push({
-        kind: `webhooks:${status}`,
-        count: Math.min(rows.length, 100),
-        capped: rows.length > 100,
-        oldestRequestedAt: rows[0]?.receivedAt,
-      });
-    }
-    return { verified: tenant?.meetingProjectionVersion === 2, queues };
+    return await buildWorkHealth(ctx, tenantId);
   },
 });
 

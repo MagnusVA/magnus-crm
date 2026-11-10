@@ -1,0 +1,273 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`web paths write what they wrote before the split > correctPayment, note and reference only 1`] = `
+{
+  "result": {
+    "changed": true,
+    "paymentRecordId": "000000000000010021paymentRecords",
+    "returnedToReview": false,
+    "status": "recorded",
+  },
+  "written": {
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010029domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "000000000000010021paymentRecords",
+          "entityType": "payment",
+          "eventType": "payment.corrected",
+          "fromStatus": "recorded",
+          "leadId": "000000000000000000000010007leads",
+          "metadata": {
+            "note": {
+              "from": null,
+              "to": "Paid by wire",
+            },
+            "referenceCode": {
+              "from": null,
+              "to": "INV-7",
+            },
+            "returnedToReview": false,
+          },
+          "occurredAt": 1790858460000,
+          "reason": "Add the invoice",
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "recorded",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "leadCustomerSearchRows": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000010008leadCustomerSearchRows",
+          "removed": [],
+          "set": {
+            "updatedAt": 1790858460000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "paymentRecords": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000010021paymentRecords",
+          "removed": [],
+          "set": {
+            "note": "Paid by wire",
+            "referenceCode": "INV-7",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > correctPayment, nothing changed 1`] = `
+{
+  "result": {
+    "changed": false,
+    "paymentRecordId": "000000000000010021paymentRecords",
+    "returnedToReview": false,
+    "status": "recorded",
+  },
+  "written": {},
+}
+`;
+
+exports[`web paths write what they wrote before the split > correctPayment, program and amount on a reviewed payment 1`] = `
+{
+  "result": {
+    "changed": true,
+    "paymentRecordId": "000000000000010021paymentRecords",
+    "returnedToReview": true,
+    "status": "recorded",
+  },
+  "written": {
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010030domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "000000000000010021paymentRecords",
+          "entityType": "payment",
+          "eventType": "payment.corrected",
+          "fromStatus": "verified",
+          "leadId": "000000000000000000000010007leads",
+          "metadata": {
+            "amountMinor": {
+              "from": 100000,
+              "to": 75025,
+            },
+            "programId": {
+              "from": "000000000000010003tenantPrograms",
+              "to": "000000000000010004tenantPrograms",
+            },
+            "programName": {
+              "from": "Program A",
+              "to": "Program B",
+            },
+            "returnedToReview": true,
+          },
+          "occurredAt": 1790858460000,
+          "reason": "Wrong program",
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "recorded",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "enrollments": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000000010026enrollments",
+          "removed": [],
+          "set": {
+            "programId": "000000000000010004tenantPrograms",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "leadCustomerSearchRows": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000010008leadCustomerSearchRows",
+          "removed": [],
+          "set": {
+            "searchText": "000000000000000000000010007leads test lead lead@example.com 0000000000000010011opportunities won calendly program b 000000000000000000010014meetings",
+            "totalPaidMinor": 75025,
+            "updatedAt": 1790858460000,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunities": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000010011opportunities",
+          "removed": [],
+          "set": {
+            "soldProgramId": "000000000000010004tenantPrograms",
+            "soldProgramName": "Program B",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "opportunityProjectionJobs": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0010023opportunityProjectionJobs",
+          "removed": [],
+          "set": {
+            "dirty": true,
+          },
+        },
+      ],
+      "deleted": [],
+    },
+    "paymentRecords": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000010021paymentRecords",
+          "removed": [
+            "verifiedAt",
+            "verifiedByUserId",
+          ],
+          "set": {
+            "amountMinor": 75025,
+            "programId": "000000000000010004tenantPrograms",
+            "programName": "Program B",
+            "status": "recorded",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > markReviewed 1`] = `
+{
+  "result": null,
+  "written": {
+    "domainEvents": {
+      "added": [
+        {
+          "_id": "00000000000000010029domainEvents",
+          "actorUserId": "000000000000000000000010001users",
+          "entityId": "000000000000010021paymentRecords",
+          "entityType": "payment",
+          "eventType": "payment.verified",
+          "fromStatus": "recorded",
+          "leadId": "000000000000000000000010007leads",
+          "metadata": {
+            "amountMinor": 100000,
+            "currency": "USD",
+            "paymentType": "pif",
+            "programId": "000000000000010003tenantPrograms",
+            "programName": "Program A",
+          },
+          "occurredAt": 1790858460000,
+          "source": "admin",
+          "tenantId": "0000000000000000000010000tenants",
+          "toStatus": "verified",
+        },
+      ],
+      "changed": [],
+      "deleted": [],
+    },
+    "paymentRecords": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "000000000000010021paymentRecords",
+          "removed": [],
+          "set": {
+            "status": "verified",
+            "statusChangedAt": 1790858460000,
+            "verifiedAt": 1790858460000,
+            "verifiedByUserId": "000000000000000000000010001users",
+          },
+        },
+      ],
+      "deleted": [],
+    },
+  },
+}
+`;
+
+exports[`web paths write what they wrote before the split > markReviewed, already reviewed 1`] = `
+{
+  "result": null,
+  "written": {},
+}
+`;
+
+exports[`web paths write what they wrote before the split > refuses with the same messages 1`] = `
+{
+  "Billing Ops off": "Billing Ops is not enabled for this tenant.",
+  "blank reason": "A correction reason is required.",
+  "closer reviews": "{"code":"auth.insufficient_permissions","message":"Insufficient permissions"}",
+  "correct a disputed payment": "Disputed payments must be repaired through a dispute flow.",
+  "review a disputed payment": "Disputed payments cannot be marked reviewed.",
+}
+`;

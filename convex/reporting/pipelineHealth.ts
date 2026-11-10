@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { readMeetingStatsCounts, type MeetingStatsCount } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
@@ -796,4 +797,154 @@ export async function buildSchedulingShowRate(
     attendanceCountsPartial: attendance.attendanceCountsPartial,
     truncated,
   };
+}
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetPipelineDistribution(ctx: QueryCtx, tenantId: Id<"tenants">, _args: ReaderArgs<typeof getPipelineDistribution>) {
+    
+
+    return {
+      distribution: await readPipelineDistributionByStage(ctx, tenantId),
+    };
+}
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetPipelineAging(ctx: QueryCtx, tenantId: Id<"tenants">, _args: ReaderArgs<typeof getPipelineAging>) {
+    
+
+    const now = Date.now();
+    const aging = await scanPipelineAgingByStage(ctx, tenantId, now);
+    const agingByStage = {} as Record<
+      OpenPipelineStage,
+      { averageAgeDays: number | null; count: number; oldestAgeDays: number | null }
+    >;
+    for (const stage of OPEN_PIPELINE_STAGES) {
+      const { count, totalAgeDays, oldestAgeDays } = aging.groups[stage];
+      agingByStage[stage] = {
+        count,
+        averageAgeDays: count > 0 ? totalAgeDays / count : null,
+        oldestAgeDays: count > 0 ? oldestAgeDays : null,
+      };
+    }
+
+    const velocity = await readPipelineVelocityByStage(ctx, tenantId, now);
+
+    const staleOpportunities = aging.staleCandidates
+      .sort((left, right) => right.ageDays - left.ageDays)
+      .slice(0, MAX_STALE_OPPORTUNITIES);
+
+    const leadIds = [
+      ...new Set(staleOpportunities.map((entry) => entry.opportunity.leadId)),
+    ];
+    const closerIds = [
+      ...new Set(
+        staleOpportunities
+          .map((entry) => entry.opportunity.assignedCloserId)
+          .filter((closerId): closerId is Id<"users"> => closerId !== undefined),
+      ),
+    ];
+    const [leadDocs, closerDocs] = await Promise.all([
+      Promise.all(leadIds.map(async (leadId) => [leadId, await ctx.db.get("leads", leadId)] as const)),
+      Promise.all(
+        closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
+      ),
+    ]);
+    const leadById = new Map(leadDocs);
+    const closerById = new Map(closerDocs);
+
+    return {
+      agingByStage,
+      velocityDays: velocity.velocityDays,
+      staleCount: aging.staleCount,
+      staleOpps: await Promise.all(staleOpportunities.map(
+        async ({ opportunity, ageDays, nextMeetingAt }) => {
+          const assignedCloser = opportunity.assignedCloserId
+            ? closerById.get(opportunity.assignedCloserId)
+            : null;
+          const { stage, outcome } = dealStageOf(opportunity);
+          return {
+            opportunityId: opportunity._id,
+            position: dealPosition(stage, outcome),
+            ageDays: Math.round(ageDays * 10) / 10,
+            nextMeetingAt,
+            assignedCloserId: opportunity.assignedCloserId ?? null,
+            assignedCloserName: assignedCloser
+              ? getUserDisplayName(assignedCloser)
+              : null,
+            assignedCloser: assignedCloser
+              ? await reportingUserIdentity(ctx, assignedCloser, "Removed closer")
+              : null,
+            leadId: opportunity.leadId,
+            leadName:
+              leadById.get(opportunity.leadId)?.fullName ??
+              leadById.get(opportunity.leadId)?.email ??
+              null,
+          };
+        },
+      )),
+      isAgingTruncated: aging.capped,
+      isVelocityTruncated: velocity.truncated,
+    };
+}
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetPipelineBacklogAndLoss(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getPipelineBacklogAndLoss>) {
+  const { startDate, endDate } = args;
+    assertValidDateRange(startDate, endDate);
+
+    
+
+    const pendingFollowUpRows = await ctx.db
+      .query("followUps")
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "pending"),
+      )
+      .take(MAX_UNRESOLVED_REMINDER_SCAN_ROWS);
+
+    const noShowRows = await ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_status_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("status", "no_show")
+          .gte("scheduledAt", startDate)
+          .lt("scheduledAt", endDate),
+      )
+      .take(MAX_NO_SHOW_SCAN_ROWS);
+
+    // Closed lost by lostAt, leaving out the system's losses. The read
+    // passes over those too, so it can stop at its bound: truncated.
+    const losses = await readLossesByStage(ctx, tenantId, startDate, endDate);
+
+    return await buildPipelineBacklogAndLoss(ctx, {
+      pendingFollowUps: pendingFollowUpRows,
+      noShowSources: noShowRows
+        .slice(0, REPORT_ROW_CAP)
+        .map((meeting) => ({ noShowSource: meeting.noShowSource, count: 1 })),
+      isNoShowSourceTruncated: noShowRows.length > REPORT_ROW_CAP,
+      lossCounts: countLossesByActor(losses.losses),
+      isLossAttributionTruncated: losses.truncated,
+    });
+}
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetSchedulingShowRateByOperationsDimensions(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getSchedulingShowRateByOperationsDimensions>) {
+    
+    await requireReportingReady(ctx, tenantId);
+
+    if (args.startDayKey >= args.endDayKeyExclusive) {
+      throw new Error("startDayKey must be before endDayKeyExclusive");
+    }
+
+    // A team or DM closer filter reads the credited meetings' rows
+    // (dealAttributions); otherwise the buckets.
+    const meetingStats = await readMeetingStatsCounts(ctx, {
+      tenantId,
+      startDayKey: args.startDayKey,
+      endDayKeyExclusive: args.endDayKeyExclusive,
+      attributionTeamId: args.attributionTeamId,
+      dmCloserId: args.dmCloserId,
+    });
+
+    return await buildSchedulingShowRate(ctx, tenantId, args, meetingStats);
 }

@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
@@ -136,3 +137,16 @@ export const getRevenueTrend = query({
     return await buildRevenueTrend(ctx, tenantId, args, paymentScan);
   },
 });
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetRevenueTrend(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getRevenueTrend>) {
+    
+    assertValidDateRange(args.startDate, args.endDate);
+    const paymentScan = await getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      args.startDate,
+      args.endDate,
+    );
+    return await buildRevenueTrend(ctx, tenantId, args, paymentScan);
+}

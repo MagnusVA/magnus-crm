@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -304,3 +305,33 @@ export const getRevenueDetails = query({
     return await buildRevenueDetails(ctx, args, paymentScan);
   },
 });
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetRevenueMetrics(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getRevenueMetrics>) {
+    assertValidDateRange(args.startDate, args.endDate);
+
+    
+
+    const paymentScan = await getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      args.startDate,
+      args.endDate,
+    );
+    return await buildRevenueMetrics(ctx, tenantId, args, paymentScan);
+}
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetRevenueDetails(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getRevenueDetails>) {
+    assertValidDateRange(args.startDate, args.endDate);
+
+    
+
+    const paymentScan = await getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      args.startDate,
+      args.endDate,
+    );
+    return await buildRevenueDetails(ctx, args, paymentScan);
+}

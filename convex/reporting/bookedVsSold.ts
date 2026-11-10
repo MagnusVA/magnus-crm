@@ -1,3 +1,4 @@
+import type { ReaderArgs } from "../analytics/assistantTypes";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -154,3 +155,18 @@ export const getBookedVsSoldMatrix = query({
     return await buildBookedVsSoldMatrix(ctx, tenantId, args, paymentScan);
   },
 });
+
+/** Trusted tenant adapter for assistant reports; the web wrapper remains unchanged. */
+export async function readMcpGetBookedVsSoldMatrix(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof getBookedVsSoldMatrix>) {
+    assertValidDateRange(args.startDate, args.endDate);
+
+    
+
+    const paymentScan = await getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      args.startDate,
+      args.endDate,
+    );
+    return await buildBookedVsSoldMatrix(ctx, tenantId, args, paymentScan);
+}

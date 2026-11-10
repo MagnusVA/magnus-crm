@@ -620,3 +620,7 @@ const definition: ReportDefinition<ApiMetricsFilters, ApiMetricsAnswer> = {
 };
 
 export const apiReports = [definition as unknown as AnyReportDefinition];
+
+// Trusted assistant adapters need base facts to expose final_cash separately,
+// while leaving the external API's catalog and its public behavior unchanged.
+export { liveFacts as assistantLiveFacts, factsFromSqlRows as assistantSqlFacts };
