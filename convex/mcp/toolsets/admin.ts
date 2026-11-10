@@ -2,6 +2,9 @@ import { defineMcpMutation, type McpToolRegistration } from "convex-mcp-gateway"
 import { internal } from "../../_generated/api";
 import { v } from "convex/values";
 import { mcpCallerValidator } from "../guard";
+import { adminReadTools } from "./adminReads";
+import { adminReportTools } from "./adminReports";
+import { adminWriteTools } from "./adminWrites";
 
 /**
  * The admin toolset (docs/plans/admin-assistant.md §2). Every tool is an
@@ -18,6 +21,9 @@ import { mcpCallerValidator } from "../guard";
 export const ADMIN = { roles: ["tenant_master", "tenant_admin"] };
 
 export const adminTools: McpToolRegistration[] = [
+  ...adminReadTools,
+  ...adminReportTools,
+  ...adminWriteTools,
   defineMcpMutation({
     name: "magnus_commit",
     title: "Apply a prepared change",

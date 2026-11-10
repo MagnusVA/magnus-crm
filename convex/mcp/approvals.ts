@@ -63,6 +63,20 @@ async function canApprove(
   if (accessChangedAt(user, tenant) > (row.createdAt ?? 0)) {
     return deny("plan.access_changed", "Assistant access changed after this was prepared, so it can't be applied. Ask your assistant to prepare it again.");
   }
+  // The owner approving another admin's plan: that admin's block, then or
+  // since, kills the plan as it kills their chat tokens.
+  if (row.userId !== me.userId) {
+    const proposer = await ctx.db.get("users", row.userId);
+    if (
+      !proposer ||
+      proposer.deletedAt !== undefined ||
+      !proposer.isActive ||
+      proposer.mcpBlockedAt !== undefined ||
+      (proposer.mcpBlockChangedAt ?? 0) > (row.createdAt ?? 0)
+    ) {
+      return deny("plan.proposer_blocked", "The admin who prepared this was blocked or removed since, so it can't be applied.");
+    }
+  }
   // 3. Already decided: the page shows the stored outcome.
   if (row.usedAt !== undefined) return deny("plan.decided", "This plan has already been decided.");
   // 4. Expiry and the rest.
