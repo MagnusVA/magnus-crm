@@ -84,9 +84,9 @@ export function FiguresCard({
       {loading ? (
         <RowsSkeleton rows={2} rowHeight="h-20" label={`Loading ${ROLE_LABEL[role].toLowerCase()} figures`} />
       ) : (
-        <dl className="grid grid-cols-2 gap-px bg-border @2xl/figures:grid-cols-3 @5xl/figures:grid-cols-4">
+        <dl className="-mr-px -mb-px grid grid-cols-2 @2xl/figures:grid-cols-3 @5xl/figures:grid-cols-4">
           {figures.map((figure) => (
-            <div key={figure.key} className="flex min-w-0 flex-col gap-1 bg-card px-4 py-3">
+            <div key={figure.key} className="flex min-w-0 flex-col gap-1 border-r border-b px-4 py-3">
               <dt className={LABEL}>{figure.term ? <HelpTip tip={termHelp(figure.term)}>{figure.label}</HelpTip> : figure.label}</dt>
               <dd className="flex flex-col gap-0.5">
                 <span
@@ -106,23 +106,6 @@ export function FiguresCard({
               </dd>
             </div>
           ))}
-          {/* Spare cells square the last row, so no rule colour shows through. */}
-          {[0, 1, 2].map((index) => {
-            const spare = (columns: number) => index < (columns - (figures.length % columns)) % columns;
-            if (!spare(2) && !spare(3) && !spare(4)) return null;
-            return (
-              <div
-                key={`spare-${index}`}
-                aria-hidden="true"
-                className={cn(
-                  "bg-card",
-                  spare(2) ? "block" : "hidden",
-                  spare(3) ? "@2xl/figures:block" : "@2xl/figures:hidden",
-                  spare(4) ? "@5xl/figures:block" : "@5xl/figures:hidden",
-                )}
-              />
-            );
-          })}
         </dl>
       )}
     </ReportCard>
@@ -256,7 +239,7 @@ export function CallsList({
   phrase: string;
   reloading: boolean;
 }) {
-  const { rows: shown, pager } = usePagedRows(calls ?? [], { pageSize: LIST_PAGE_SIZE, resetKey: phrase });
+  const { rows: shown, pager } = usePagedRows(calls ?? [], { pageSize: LIST_PAGE_SIZE });
   return (
     <ReportCard
       title="Calls"
@@ -339,7 +322,7 @@ export function ItemsList({
   phrase: string;
   reloading: boolean;
 }) {
-  const { rows: shown, pager } = usePagedRows(items ?? [], { pageSize: LIST_PAGE_SIZE, resetKey: phrase });
+  const { rows: shown, pager } = usePagedRows(items ?? [], { pageSize: LIST_PAGE_SIZE });
   return (
     <ReportCard
       title={ITEM_TITLE[role]}

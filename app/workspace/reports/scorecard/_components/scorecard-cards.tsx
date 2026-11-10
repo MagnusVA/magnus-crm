@@ -376,16 +376,19 @@ export function FollowThroughCard({
   data,
   reloading,
   phrase,
+  programKey,
   memberFor,
 }: {
   data: FollowThroughOutput | undefined;
   reloading: boolean;
   phrase: string;
+  /** The band's program filter, which the pager starts over on. */
+  programKey: string;
   /** The closer's team member, when their login is linked to one. */
   memberFor: (userId: Id<"users">) => Id<"teamMembers"> | undefined;
 }) {
   const closers = data ? [...data.byCloser].sort((a, b) => b.due - a.due || a.name.localeCompare(b.name)) : [];
-  const { rows: shownClosers, pager } = usePagedRows(closers, { resetKey: phrase });
+  const { rows: shownClosers, pager } = usePagedRows(closers, { resetKey: programKey });
   return (
     <ReportCard
       title="Follow-through"
@@ -534,17 +537,20 @@ export function ProgramsTableCard({
   currency,
   reloading,
   phrase,
+  programKey,
 }: {
   entry: CashCurrency | undefined;
   loaded: boolean;
   currency: string;
   reloading: boolean;
   phrase: string;
+  /** The band's program filter, which the pager starts over on. */
+  programKey: string;
 }) {
   const programs = entry ? [...entry.byProgram].sort((a, b) => b.cashMinor - a.cashMinor || a.name.localeCompare(b.name)) : [];
   // One page of programs; the Total row under them stays on every page and
   // totals every program.
-  const { rows: shownPrograms, pager } = usePagedRows(programs, { resetKey: `${currency}|${phrase}` });
+  const { rows: shownPrograms, pager } = usePagedRows(programs, { resetKey: `${currency}|${programKey}` });
   const numberCell = (value: ReactNode, extra?: string) => <td className={cn(FIGURE_15, "px-2.5 text-right whitespace-nowrap", extra)}>{value}</td>;
   return (
     <ReportCard

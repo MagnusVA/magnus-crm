@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useId, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { FreshnessWords, type FreshnessSummary } from "@/app/workspace/_components/analytics/analytics-freshness";
@@ -87,6 +87,7 @@ export function DefinitionsCard({ terms }: { terms: readonly ReportTermKey[] }) 
           </span>
           <Button size="xs" variant="outline" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((value) => !value)}>
             {open ? "Hide" : "Show"}
+            <span className="sr-only"> how these are counted</span>
             <ChevronDownIcon
               data-icon="inline-end"
               aria-hidden="true"
@@ -252,14 +253,15 @@ export function PeopleTable<Row>({
     ));
   const fold = (row: Row) =>
     columns.map((column, index) => (
-      // The separator sits outside the unbroken pair, so the line can wrap there.
-      <Fragment key={column.key}>
+      // One span per column, so a rule can hide a column with its separator.
+      // The separator sits outside the unbroken pair, so the line wraps there.
+      <span key={column.key}>
         {index > 0 ? " · " : null}
         <span className="whitespace-nowrap">
           <span className="text-muted-foreground">{column.label} </span>
           <span className={cn(FIGURE_15, column.owed?.(row) && "text-warning-ink")}>{column.value(row)}</span>
         </span>
-      </Fragment>
+      </span>
     ));
   return (
     <>

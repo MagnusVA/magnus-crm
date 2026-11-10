@@ -404,6 +404,29 @@ describe("Pipeline pages", () => {
     });
   });
 
+  it("keeps an owed call whose credit history is too long to read", async () => {
+    const f = await callsReportFixture();
+    await f.t.run(async (ctx) => {
+      const { _id, _creationTime, ...credit } = (await ctx.db.query("dealAttributions").first())!;
+      void _id;
+      void _creationTime;
+      // One row past what the enrichment reads for a call.
+      for (let index = 0; index < 101; index++)
+        await ctx.db.insert("dealAttributions", {
+          ...credit,
+          meetingId: f.owed,
+          opportunityId: f.owedDeal,
+          attributedAt: index,
+          createdAt: index,
+        });
+    });
+    const answer = await f.t.withIdentity(identity).query(api.reports.pipeline.listOwedCalls, {
+      endedBy: now,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(answer.page).toMatchObject([{ meetingId: f.owed, closerId: f.beto, closerName: "Beto", leadName: "Person" }]);
+  });
+
   it("removes a call from the owed page when it is marked held", async () => {
     const f = await callsReportFixture();
     const viewer = f.t.withIdentity(identity);

@@ -387,9 +387,19 @@ export function ByDayCard({ summary, reloading, phrase }: CardProps) {
  * Calls due with no result yet, oldest first, a page of ten at a time; each
  * opens the call and the deal. The summary carries the oldest 200.
  */
-export function OwedCard({ summary, reloading, phrase, now }: CardProps & { now: number }) {
+export function OwedCard({
+  summary,
+  reloading,
+  phrase,
+  now,
+  filterKey,
+}: CardProps & {
+  now: number;
+  /** The band's filters, which the list starts over on. */
+  filterKey: string;
+}) {
   const words = summary ? owedWords(summary.owedTotal, summary.owed.length, phrase) : null;
-  const { rows, pager } = usePagedRows(summary?.owed ?? [], { resetKey: phrase });
+  const { rows, pager } = usePagedRows(summary?.owed ?? [], { resetKey: filterKey });
   return (
     <ReportCard
       title="Still owed a result"

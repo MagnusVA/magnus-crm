@@ -248,25 +248,37 @@ export const listOwedCalls = query({
       args.endedBy,
     );
     const byMeeting = new Map(facts.map((fact) => [fact.meeting._id, fact]));
+    // Bounded enrichment can stop before the end of a page. A call it didn't
+    // reach still owes a result, so it stays in the list under the closer it
+    // is assigned to now, which is who has to record it.
+    const assigned = new Map<Id<"users">, string>();
+    for (const meeting of result.page) {
+      const closerId = meeting.assignedCloserId;
+      if (byMeeting.has(meeting._id) || assigned.has(closerId)) continue;
+      const closer = await ctx.db.get("users", closerId);
+      assigned.set(
+        closerId,
+        closer?.tenantId === tenantId
+          ? getUserDisplayName(closer)
+          : "Removed closer",
+      );
+    }
     return {
       ...result,
-      // Bounded enrichment can omit a call. Keep its cursor position and the
-      // source order, without guessing historical closer credit for that call.
-      page: result.page.flatMap((meeting) => {
+      page: result.page.map((meeting) => {
         const fact = byMeeting.get(meeting._id);
-        return fact
-          ? [
-            {
-              meetingId: meeting._id,
-              opportunityId: meeting.opportunityId,
-              scheduledAt: meeting.scheduledAt,
-              endsAt: meeting.scheduledAt + meeting.durationMinutes * 60_000,
-              closerId: fact.closerId,
-              closerName: fact.closerName,
-              leadName: fact.leadName,
-            },
-          ]
-          : [];
+        return {
+          meetingId: meeting._id,
+          opportunityId: meeting.opportunityId,
+          scheduledAt: meeting.scheduledAt,
+          endsAt: meeting.scheduledAt + meeting.durationMinutes * 60_000,
+          closerId: fact?.closerId ?? meeting.assignedCloserId,
+          closerName:
+            fact?.closerName ??
+            assigned.get(meeting.assignedCloserId) ??
+            "Removed closer",
+          leadName: fact?.leadName ?? meeting.leadName ?? "Unknown person",
+        };
       }),
     };
   },

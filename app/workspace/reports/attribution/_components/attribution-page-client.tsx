@@ -165,7 +165,10 @@ export function AttributionPageClient() {
         phrase={lanes.phrase}
         onShowRole={(next) => {
           setRole(next);
-          document.getElementById(RESPONSIBLE_CARD_ID)?.scrollIntoView({ block: "nearest" });
+          const card = document.getElementById(RESPONSIBLE_CARD_ID);
+          card?.scrollIntoView({ block: "nearest" });
+          // Focus lands on the table's role filter, which names the role now shown.
+          card?.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true });
         }}
       />
 

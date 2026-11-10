@@ -56,7 +56,7 @@ export function AnswersCard({
 }) {
   const fields = answerFields(catalog);
   const rows = answers?.answers ?? [];
-  const { rows: shown, pager } = usePagedRows(rows, { resetKey: `${fieldKey ?? ""}|${programKey}|${phrase}` });
+  const { rows: shown, pager } = usePagedRows(rows, { resetKey: `${fieldKey ?? ""}|${programKey}` });
   return (
     <ReportCard
       title="What predicts a sale"

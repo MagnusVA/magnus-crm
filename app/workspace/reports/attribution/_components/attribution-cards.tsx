@@ -124,31 +124,29 @@ function LaneColumn({ view, currency, onShowRole }: { view: LaneView; currency: 
       ) : (
         <p className="text-[13px] text-muted-foreground">No one credited in this role.</p>
       )}
-      <dl className="mt-auto flex flex-col gap-0.5 border-t pt-2 text-[13px] text-muted-foreground">
-        {view.sharedMinor > 0 ? (
+      <div className="mt-auto flex flex-col gap-0.5 border-t pt-2 text-[13px] text-muted-foreground">
+        <dl className="flex flex-col gap-0.5">
+          {view.sharedMinor > 0 ? (
+            <div className="flex items-baseline justify-between gap-3">
+              <dt>
+                <HelpTip tip={termHelp("shared")}>{REPORT_TERMS.shared.label}</HelpTip>
+              </dt>
+              <dd className={cn(FIGURE_15, "text-foreground")}>{formatMoney(view.sharedMinor, currency)}</dd>
+            </div>
+          ) : null}
           <div className="flex items-baseline justify-between gap-3">
-            <dt>
-              <HelpTip tip={termHelp("shared")}>{REPORT_TERMS.shared.label}</HelpTip>
-            </dt>
-            <dd className={cn(FIGURE_15, "text-foreground")}>{formatMoney(view.sharedMinor, currency)}</dd>
+            <dt>No credit in this role</dt>
+            <dd className={cn(FIGURE_15, view.uncreditedMinor > 0 ? "text-foreground" : undefined)}>{formatMoney(view.uncreditedMinor, currency)}</dd>
           </div>
-        ) : null}
-        <div className="flex items-baseline justify-between gap-3">
-          <dt>No credit in this role</dt>
-          <dd className={cn(FIGURE_15, view.uncreditedMinor > 0 ? "text-foreground" : undefined)}>{formatMoney(view.uncreditedMinor, currency)}</dd>
-        </div>
+        </dl>
         {more > 0 ? (
           <div>
-            <button
-              type="button"
-              onClick={() => onShowRole(view.role)}
-              className={cn(detailLinkClass, "text-[13px] font-medium")}
-            >
+            <button type="button" onClick={() => onShowRole(view.role)} className={cn(detailLinkClass, "text-[13px] font-medium")}>
               {formatCount(more)} more in the table
             </button>
           </div>
         ) : null}
-      </dl>
+      </div>
     </li>
   );
 }
@@ -234,7 +232,7 @@ export function ResponsibleCard({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const filtered = (rows ?? []).filter((row) => role === ALL_ROLES || row.role === role);
-  const { rows: shown, pager } = usePagedRows(filtered, { resetKey: `${role}|${currency}|${phrase}` });
+  const { rows: shown, pager } = usePagedRows(filtered, { resetKey: `${role}|${currency}` });
   return (
     <ReportCard
       title="Who is responsible for how much"
@@ -269,7 +267,7 @@ export function ResponsibleCard({
             <HelpTip tip={termHelp("creditedCash")}>{REPORT_TERMS.creditedCash.label}</HelpTip> counts each deal once per role,
             in {currency}. Open a person&apos;s deals to see each one&apos;s chain.
           </ReportNote>
-          <PageRows pager={pager}>
+          <PageRows pager={pager} steady={open === null}>
             <div role="table" aria-label="Credited cash by person and role">
               <div role="row" className={cn("grid border-b", RESPONSIBLE_COLUMNS)}>
                 <span role="columnheader" className={cn(COLUMN_HEAD, "pl-4")}>
@@ -350,7 +348,7 @@ export function PathsCard({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const max = Math.max(...(rows ?? []).map((row) => row.amountMinor), 0);
-  const { rows: shown, pager } = usePagedRows(rows ?? [], { resetKey: `${currency}|${phrase}` });
+  const { rows: shown, pager } = usePagedRows(rows ?? [], { resetKey: currency });
   return (
     <ReportCard
       title="Paths that paid"
@@ -366,7 +364,7 @@ export function PathsCard({
       ) : (
         <>
           {isTruncated ? <ReportNote lead="Partial.">Some payments in the range weren&apos;t read.</ReportNote> : null}
-          <PageRows pager={pager}>
+          <PageRows pager={pager} steady={open === null}>
             <ul aria-label="Paths that paid">
               {shown.map((row) => {
                 const expanded = open === row.key;

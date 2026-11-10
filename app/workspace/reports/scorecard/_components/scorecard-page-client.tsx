@@ -281,6 +281,7 @@ export function ScorecardPageClient() {
           currency={currency}
           reloading={cash.reloading}
           phrase={cash.phrase}
+          programKey={programId ?? ""}
         />
         <OriginsCard data={origins.data} currency={currency} reloading={origins.reloading} phrase={origins.phrase} />
       </div>
@@ -290,6 +291,7 @@ export function ScorecardPageClient() {
           data={follow.data}
           reloading={follow.reloading}
           phrase={follow.phrase}
+          programKey={programId ?? ""}
           memberFor={(userId) => team?.byUserId.get(userId)}
         />
         <AnswersCard

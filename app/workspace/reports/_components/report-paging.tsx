@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { DetailCardFooter } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { Button } from "@/components/ui/button";
@@ -37,21 +38,35 @@ export type PagerState = {
 };
 
 /**
+ * What a pager starts over on. Every report keeps its range (and People its
+ * tab) in the URL, so the URL's parameters are part of every key: a new
+ * range resets every pager on the page, whatever its words are ("in this
+ * range" names every custom range). A card adds what the URL doesn't hold:
+ * a filter, a currency, a search.
+ */
+function usePageKey(resetKey: string | undefined) {
+  return `${useSearchParams().toString()}|${resetKey ?? ""}`;
+}
+
+/**
  * One page of rows the browser already holds. The page goes back to the
- * first when `resetKey` changes (a new range, filter or sort), and steps
- * back by itself when the rows shrink under it.
+ * first when the URL's parameters or `resetKey` change (a new range, tab,
+ * filter or search), and steps back by itself when the rows shrink under it.
  */
 export function usePagedRows<T>(
   rows: readonly T[],
   { pageSize = LIST_PAGE_SIZE, resetKey }: { pageSize?: number; resetKey?: string } = {},
 ): { rows: T[]; pager: PagerState } {
-  const [state, setState] = useState({ page: 0, key: resetKey });
+  const key = usePageKey(resetKey);
+  const [state, setState] = useState({ page: 0, key });
   // Reset during render, so a new filter never paints its old page.
-  const page = state.key === resetKey ? state.page : 0;
-  if (state.key !== resetKey) setState({ page: 0, key: resetKey });
+  const page = state.key === key ? state.page : 0;
   const view = pageWindow(rows.length, pageSize, page);
+  // Stored, not only shown: rows that shrink and grow back must not return to
+  // a page the reader never chose.
+  if (state.key !== key || state.page !== view.page) setState({ page: view.page, key });
   const shown = rows.slice(view.start, view.end);
-  const go = (next: number) => setState({ page: Math.min(Math.max(next, 0), view.lastPage), key: resetKey });
+  const go = (next: number) => setState({ page: Math.min(Math.max(next, 0), view.lastPage), key });
   return {
     rows: shown,
     pager: {
@@ -95,7 +110,8 @@ export function useKeptCursorList<T>(list: CursorList<T>): CursorList<T> {
  * shows a window of what has loaded and asks for one page ahead, which makes
  * Next show its rows at once. `total` is the count the page's summary gives,
  * when it has one; the list's own length replaces it once every row loaded.
- * The page goes back to the first when `resetKey` changes (new arguments).
+ * The page goes back to the first when the URL's parameters or `resetKey`
+ * change (new arguments).
  *
  * A filtered query can answer with a short page while more rows remain on
  * the server. Next then fills the page shown before it moves on.
@@ -109,15 +125,18 @@ export function useCursorPages<T>(
     resetKey,
   }: { pageSize?: number; total?: number | null; totalIsMinimum?: boolean; resetKey?: string } = {},
 ): { rows: T[]; firstLoad: boolean; pager: PagerState } {
-  const [state, setState] = useState({ page: 0, key: resetKey });
-  const page = state.key === resetKey ? state.page : 0;
-  if (state.key !== resetKey) setState({ page: 0, key: resetKey });
-  const setPage = (next: number) => setState({ page: next, key: resetKey });
+  const key = usePageKey(resetKey);
+  const [state, setState] = useState({ page: 0, key });
   const loaded = list.results.length;
   const exhausted = list.status === "Exhausted";
   const firstLoad = list.status === "LoadingFirstPage";
+  const wanted = state.key === key ? state.page : 0;
   // A row leaving the list (a call gets its result) can empty the last page.
-  const { page: current, lastPage: last, start, end } = pageWindow(loaded, pageSize, page);
+  // While rows are still loading, a page past them is one Next asked for.
+  const { page: current, lastPage: last, start, end } = pageWindow(loaded, pageSize, wanted);
+  const page = exhausted ? current : wanted;
+  if (state.key !== key || state.page !== page) setState({ page, key });
+  const setPage = (next: number) => setState({ page: next, key });
   const shown = list.results.slice(start, end);
   const moreOnServer = list.status === "CanLoadMore" || list.status === "LoadingMore";
   const known = exhausted ? loaded : total === null ? null : Math.max(total, loaded);
@@ -171,49 +190,50 @@ export function ReportPager({
   children?: ReactNode;
 }) {
   if (!pager.paged) return children ? <DetailCardFooter className={cn("font-normal", className)}>{children}</DetailCardFooter> : null;
+  // `aria-disabled`, not `disabled`: a button that disables itself while it
+  // has focus would drop the focus to the page.
+  const step = (label: string, enabled: boolean, onClick: () => void, icon: ReactNode) => (
+    <Button
+      size="icon-sm"
+      variant="outline"
+      aria-label={`${label} ${noun}`}
+      title={label}
+      aria-disabled={!enabled}
+      onClick={() => {
+        if (enabled) onClick();
+      }}
+      className="aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-background"
+    >
+      {icon}
+    </Button>
+  );
   return (
     <DetailCardFooter className={cn("font-normal", className)}>
       <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[13px]" aria-live="polite">
-        <span>
-          <span className={COUNT}>
-            {pager.from.toLocaleString("en-US")}–{pager.to.toLocaleString("en-US")}
+        {pager.to > 0 ? (
+          <span>
+            <span className={COUNT}>
+              {pager.from.toLocaleString("en-US")}–{pager.to.toLocaleString("en-US")}
+            </span>
+            {pager.total !== null ? (
+              <>
+                {" of "}
+                <span className={COUNT}>
+                  {pager.total.toLocaleString("en-US")}
+                  {pager.totalIsMinimum ? "+" : ""}
+                </span>
+              </>
+            ) : pager.hasNext ? (
+              " of more"
+            ) : null}
+            <span className="sr-only"> {noun}</span>
           </span>
-          {pager.total !== null ? (
-            <>
-              {" of "}
-              <span className={COUNT}>
-                {pager.total.toLocaleString("en-US")}
-                {pager.totalIsMinimum ? "+" : ""}
-              </span>
-            </>
-          ) : pager.hasNext ? (
-            " of more"
-          ) : null}
-          <span className="sr-only"> {noun}</span>
-        </span>
+        ) : null}
         {children}
       </p>
       <div className="flex shrink-0 items-center gap-1.5">
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label={`Previous ${noun}`}
-          title="Previous"
-          disabled={!pager.hasPrevious}
-          onClick={pager.previous}
-        >
-          <ChevronLeftIcon aria-hidden="true" />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label={`Next ${noun}`}
-          title="Next"
-          disabled={!pager.hasNext}
-          onClick={pager.next}
-        >
-          <ChevronRightIcon aria-hidden="true" />
-        </Button>
+        {step("Previous", pager.hasPrevious, pager.previous, <ChevronLeftIcon aria-hidden="true" />)}
+        {step("Next", pager.hasNext, pager.next, <ChevronRightIcon aria-hidden="true" />)}
       </div>
     </DetailCardFooter>
   );
@@ -226,15 +246,18 @@ export function ReportPager({
  */
 export function PageRows({
   pager,
+  steady = true,
   className,
   children,
 }: {
   pager: PagerState;
+  /** False while a row is opened out, so its extra height isn't taken for a page's. */
+  steady?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const fullHeight = useRef<number | null>(null);
+  const fullPage = useRef<{ width: number; height: number } | null>(null);
   const { paged, full } = pager;
   // Written to the element, not to state: measuring must not render again.
   useLayoutEffect(() => {
@@ -242,8 +265,11 @@ export function PageRows({
     if (!element) return;
     element.style.minHeight = "";
     if (!paged) return;
-    if (full) fullHeight.current = element.offsetHeight;
-    else if (fullHeight.current !== null) element.style.minHeight = `${fullHeight.current}px`;
+    const width = element.offsetWidth;
+    if (full) {
+      if (steady) fullPage.current = { width, height: element.offsetHeight };
+      // A height measured at another width belongs to another row layout.
+    } else if (fullPage.current?.width === width) element.style.minHeight = `${fullPage.current.height}px`;
   });
   return (
     <div

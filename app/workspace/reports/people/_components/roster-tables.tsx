@@ -256,7 +256,8 @@ export function ClosersTable({
               ),
             }}
             columns={columns}
-            total={{ cell: <span>Total</span>, row: total }}
+            // While a search narrows the rows, the label says the total doesn't follow it.
+            total={{ cell: <span>{matching.length < rows.length ? "Total, all closers" : "Total"}</span>, row: total }}
             wide="@5xl/people"
           />
         </PageRows>
@@ -433,7 +434,7 @@ const CASH_ROLES: readonly MemberRole[] = ["closer", "setter", "dm_closer", "lea
  * (the `ROLE_ABSENT_FOLD` rule on the rows' wrapper).
  */
 const ROLE_ABSENT = "data-role-absent";
-const ROLE_ABSENT_FOLD = "[&_li>p>span:has(>span>[data-role-absent])]:hidden";
+const ROLE_ABSENT_FOLD = "[&_li>p>span:has([data-role-absent])]:hidden";
 
 /** The name an unlinked row shows, which the search matches. */
 const unlinkedName = (row: UnlinkedRow) => (row.closer ? row.name : `${ROLE_LABEL[row.role]} records`);

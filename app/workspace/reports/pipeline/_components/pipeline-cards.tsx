@@ -10,6 +10,7 @@ import type { PipelineNow } from "@/convex/reports/pipeline";
 import { pipelineNextStep } from "@/convex/reports/lib/pipelineNextStep";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { LIST_PAGE_SIZE, PageRows, ReportPager, useCursorPages, useKeptCursorList } from "../../_components/report-paging";
 import { COLUMN_HEAD, FIGURE_15, ReportCard, RowsSkeleton, StatusWord } from "../../_components/report-ui";
@@ -55,7 +56,15 @@ export function StagesCard({ data }: { data: PipelineNow | undefined }) {
       container="@container/stages"
     >
       {data === undefined ? (
-        <div role="status" aria-label="Loading stages" className="h-[92px]" />
+        <div role="status" aria-label="Loading stages" className="grid grid-cols-2 gap-px bg-border @3xl/stages:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-1.5 bg-card px-4 py-3">
+              <Skeleton className="h-3.5 w-20" />
+              <Skeleton className="h-6 w-12" />
+              <Skeleton className="h-3.5 w-40 max-w-full" />
+            </div>
+          ))}
+        </div>
       ) : (
         <dl className="grid grid-cols-2 gap-px bg-border @3xl/stages:grid-cols-4">
           {data.stages.map((stage) => {
@@ -144,16 +153,16 @@ export function OwedCard({ data, now }: { data: PipelineNow | undefined; now: nu
   );
   const paged = useCursorPages(list, { total: data?.owed.total ?? null, totalIsMinimum: data?.owed.partial ?? false });
   const { rows, firstLoad } = paged;
+  const onFirstPage = paged.pager.from <= 1;
+  // Back on the first page (by Previous, or because calls got their results
+  // and the list shrank), the list follows the clock again.
+  if (heldAt !== null && onFirstPage) setHeldAt(null);
   const pager = {
     ...paged.pager,
     next: () => {
-      if (heldAt === null) setHeldAt(now);
+      // Leaving the first page holds the cutoff, so rows don't shift under the reader.
+      if (onFirstPage && paged.pager.full) setHeldAt(now);
       paged.pager.next();
-    },
-    previous: () => {
-      // Back on the first page, the list follows the clock again.
-      if (paged.pager.from <= LIST_PAGE_SIZE + 1) setHeldAt(null);
-      paged.pager.previous();
     },
   };
   return (
@@ -165,8 +174,10 @@ export function OwedCard({ data, now }: { data: PipelineNow | undefined; now: nu
     >
       {firstLoad ? (
         <RowsSkeleton rows={LIST_PAGE_SIZE} rowHeight="h-[52px]" label="Loading calls owed a result" />
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !pager.hasNext ? (
         <SectionEmpty title="Every past call has a result." />
+      ) : rows.length === 0 ? (
+        <SectionEmpty title="No calls owing a result in the calls read so far.">Next reads further.</SectionEmpty>
       ) : (
         <>
           <div className={cn("hidden border-b px-4", OWED_COLUMNS)}>
@@ -219,7 +230,11 @@ const AGING_COLUMNS =
 /** Every open deal, oldest first, a page at a time. */
 export function AgingCard({ data, now }: { data: PipelineNow | undefined; now: number }) {
   const list = usePaginatedQuery(api.reports.pipeline.listOpenDeals, {}, { initialNumItems: 2 * LIST_PAGE_SIZE });
-  const { rows, firstLoad, pager } = useCursorPages(list, { total: data ? openDealCount(data) : null });
+  // A stage read past its cap counts "125+", so the total is a floor until every deal has loaded.
+  const { rows, firstLoad, pager } = useCursorPages(list, {
+    total: data ? openDealCount(data) : null,
+    totalIsMinimum: data?.stages.some((stage) => stage.partial) ?? false,
+  });
   return (
     <ReportCard
       title="Open deals by age"

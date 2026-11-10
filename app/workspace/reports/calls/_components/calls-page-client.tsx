@@ -260,7 +260,7 @@ export function CallsPageClient() {
         <ByDayCard {...props} />
         <ModeCard {...props} />
       </div>
-      <OwedCard {...props} now={now} />
+      <OwedCard {...props} now={now} filterKey={JSON.stringify(filters)} />
       <DefinitionsCard terms={CALLS_TERMS} />
     </div>
   );

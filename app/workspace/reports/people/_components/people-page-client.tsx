@@ -131,7 +131,7 @@ export function PeoplePageClient() {
     reloading: kept.reloading,
     search,
     onSearch: (text) => setTyped({ tab, text }),
-    resetKey: JSON.stringify([tab, currency, kept.phrase, search.trim().toLowerCase()]),
+    resetKey: JSON.stringify([tab, currency, search.trim().toLowerCase()]),
   };
 
   return (
