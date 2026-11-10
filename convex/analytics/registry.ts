@@ -39,6 +39,11 @@ export function getReportDefinition(reportId: string): AnyReportDefinition {
   return definition;
 }
 
+/** Every definition, shadow (.next) and rollback (.raw) twins included, for checks that must cover them. */
+export function listAllReportDefinitions(): readonly AnyReportDefinition[] {
+  return definitions;
+}
+
 export function listReportDefinitions(): readonly AnyReportDefinition[] {
   return definitions.filter(definition => !/\.(next|raw)$/.test(definition.id));
 }

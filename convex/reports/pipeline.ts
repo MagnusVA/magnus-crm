@@ -303,6 +303,7 @@ export async function readOwedCalls(
   };
 }
 
+const MAX_OWED_CLOSERS = 1500 / 5 / 2;
 export async function readOwedTotal(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -346,7 +347,8 @@ export async function readOwedTotal(
       .first();
     if (!next) break;
     closers.push(next.assignedCloserId);
-    if (closers.length > 300) return null;
+    // Two keys per closer at five ranges each must fit the 1500 below.
+    if (closers.length > MAX_OWED_CLOSERS) return null;
   }
   const keys = closers.flatMap((closerId) =>
     (["new", "follow_up"] as const).map(

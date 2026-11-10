@@ -108,7 +108,7 @@ The Convex CLI ignores `--prod` while `CONVEX_DEPLOY_KEY` is set, in the shell o
 | Task | Command |
 | --- | --- |
 | Compare a page's sources (read-only) | `pnpm analytics:parity <page> --tenant <tenantId> [--range last_month] [--filters '{"fieldKey":"…"}']` (Leads needs a `fieldKey`, Overview's leaderboard a `kind`). Any SKIP or missing required comparison fails as incomplete verification; use shorter ranges for capped live readers |
-| Compare candidate and active definitions (read-only) | `pnpm analytics:parity people --tenant <tenantId> --active people.closers --candidate people.closers.raw --range last_month` (use registered definition IDs). Both build sequentially in one Node action; no answers are saved |
+| Compare candidate and active definitions (read-only) | `pnpm analytics:parity people --tenant <tenantId> --active people.closers --candidate people.closers.next --range last_month` (use registered definition IDs). Both build sequentially in one Node action; no answers are saved |
 | Switch a page to ClickHouse | `npx convex run --prod analytics/switch:enable '{"tenantId":"…","page":"revenue"}'` |
 | Roll a page back | `npx convex run --prod analytics/switch:disable '{"tenantId":"…","page":"revenue"}'` |
 | Rerun the batch by hand | `npx convex run --prod analytics/run:runPostSyncBatch '{"force":true}'` |
@@ -136,7 +136,7 @@ The Reports pages (`scorecard`, `calls`, `people`, `attribution`) go live in thi
 1. The call-type backfill: preview, run, assert (above).
 2. The moved-slot re-projection: dry run, run, assert once the projections drain.
 3. A full Fivetran sync whose watermark is past both.
-4. `pnpm analytics:parity <page>` at `yesterday` and a few short custom ranges. Longer ranges SKIP, since the readers cap there.
+4. `pnpm analytics:parity <page>` at `yesterday` and a few short custom ranges. A range where the readers cap fails as incomplete verification, so choose ranges short enough for them.
 5. Open the page with `?analytics=preview` at Year to date and wait for it to finish: that runs the full production path (the Node build, the stored parts, `reports.get`). Check `analytics.node_build` in the logs for its rows, answer size and peak memory.
 6. `analytics/switch:enable` for that page; the `people` switch moves all four People reports. Do one page at a time (calls, scorecard, attribution, people), and after each check `magnus_app`'s queries and execution seconds per hour in `system.query_log` against its quota (600 queries, 900 seconds).
 

@@ -36,10 +36,22 @@ export function main(argv = process.argv.slice(2), injectedRun) {
     console.error("Usage: pnpm analytics:parity <page> [--range …] [--tz …] [--tenant …] [--filters …] [--dev]");
     return 2;
   }
+  // Flags that take a value; one given without it (or followed by another flag) is an error.
+  const VALUE_FLAGS = ["range", "tz", "tenant", "filters", "active", "candidate", "coverage", "max-queries", "max-seconds"];
+  const missing = args.flatMap((arg, index) => {
+    const name = arg.startsWith("--") ? arg.slice(2) : null;
+    if (!name || !VALUE_FLAGS.includes(name)) return [];
+    const value = args[index + 1];
+    return value === undefined || VALUE_FLAGS.some(flag => value === `--${flag}`) || value === "--dev" ? [arg] : [];
+  });
+  if (missing.length) {
+    console.error(`Missing a value for ${[...new Set(missing)].join(", ")}.`);
+    return 2;
+  }
   function option(name) {
     const values = [];
     args.forEach((arg, index) => {
-      if (arg === `--${name}` && args[index + 1]) values.push(args[index + 1]);
+      if (arg === `--${name}` && args[index + 1] !== undefined) values.push(args[index + 1]);
     });
     return values;
   }
@@ -250,11 +262,6 @@ export function main(argv = process.argv.slice(2), injectedRun) {
       }
       const all = candidateId ? result.differences : reportDifferences(reference, result.active);
       const diff = candidateId ? all : all.filter(entry => !isMaskedDifference(reference, result.active, entry.path));
-      const cap = cappedBy(result.active) || cappedBy(result.candidate);
-      if (cap) {
-        record(`SKIP: capped warehouse (${cap})`);
-        continue;
-      }
       record(diff.length ? "DIFF" : "ok");
       console.log(`${diff.length ? "DIFF" : "ok"} ${label}`);
       for (const entry of diff.slice(0, 20)) console.log(

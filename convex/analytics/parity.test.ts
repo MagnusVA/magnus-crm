@@ -136,3 +136,13 @@ it("excludes page-null .next and .raw twins from ordinary API parity, but permit
   expect((await t.query(internal.analytics.parity.plan, { ...args, reportIds: ["api.metric", "api.metric.raw"] })).map(item => item.reportId))
     .toEqual(["api.metric", "api.metric.raw"]);
 });
+
+describe("analytics:parity arguments", () => {
+  it("refuses a flag that needs a value without one", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const argv of [["people", "--max-queries"], ["people", "--candidate", "--range", "yesterday"], ["people", "--coverage"]])
+      expect(main(argv, () => { throw new Error("must not run"); })).toBe(2);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("Missing a value for"));
+    error.mockRestore();
+  });
+});
