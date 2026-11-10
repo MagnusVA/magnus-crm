@@ -1,3 +1,4 @@
+import { maskContactText } from "../../lib/respark/people";
 import { v } from "convex/values";
 import type { Doc } from "../../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../../_generated/server";
@@ -69,7 +70,10 @@ export const endShift = internalMutation({
     const me = await requireMcpUser(ctx, caller, LEAD_GEN_ROLES);
     await requireOwnLeadGenWorker(ctx, me);
     // Bind the exact input too: even a whitespace edit needs another read-back.
-    const text = { narrative: shiftText(narrative), note: shiftText(note) };
+    // The lines go to a Slack channel the whole team reads, so a phone or an
+    // email dictated into them is masked before the preview, the save and the post.
+    const masked = (value: string | undefined) => (value === undefined ? undefined : maskContactText(value, []));
+    const text = { narrative: masked(shiftText(narrative)), note: masked(shiftText(note)) };
     const now = Date.now();
     if (confirm) {
       const redeemed = await redeemConfirmation(ctx, me, TOOL, confirmToken, { narrative, note, dayKey, businessDayVersion });

@@ -427,6 +427,31 @@ describe("handles and post links in the read tools", () => {
   });
 });
 
+describe("a lead gen's own text coming back", () => {
+  it("masks a phone and an email in a flag reason and in the shift lines", async () => {
+    const f = await fixture();
+    const captured = await webCapture(f, "user_sofia", "@wrong.person");
+    const sofia = await f.agent("user_sofia");
+    const contact = "pat@example.com, +1 555 010 9999";
+
+    const flagged = JSON.stringify(
+      (await sofia("magnus_flag_capture", { submissionId: captured.submissionId, reason: `Wrong person: ${contact}` })).data,
+    );
+    const activity = JSON.stringify((await sofia("magnus_my_lead_gen_activity", { range: "today" })).data);
+    const shift = JSON.stringify(
+      (await sofia("magnus_end_lead_gen_shift", { narrative: `Call ${contact}`, note: contact, confirm: false })).data,
+    );
+    for (const result of [flagged, activity, shift]) {
+      expect(result).not.toContain("pat@example.com");
+      expect(result).not.toContain("555 010 9999");
+    }
+    expect(flagged).toContain("Wrong person");
+    // The admin still reads the reason as it was written.
+    const stored = await f.t.run((ctx) => ctx.db.query("leadGenCaptureFlags").first());
+    expect(stored?.reason).toContain("pat@example.com");
+  });
+});
+
 describe("the respark write tools", () => {
   async function withPool(people: number) {
     const f = await fixture();

@@ -1,3 +1,4 @@
+import { maskContactText } from "../lib/respark/people";
 import { paginationOptsValidator } from "convex/server";
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -46,7 +47,9 @@ export const mcpCaptureFlagValidator = v.object({
   resolvedAt: v.optional(v.string()),
 });
 export function mcpCaptureFlag(flag: CaptureFlag, timeZone: string) {
-  const reason = trimLeadGenText(flag.reason);
+  // A lead gen's own words, but they come back through an AI provider: a
+  // phone or an email typed into the reason is masked. Admins read it whole.
+  const reason = trimLeadGenText(maskContactText(flag.reason, []));
   return {
     flagId: flag.flagId,
     state: flag.state,
