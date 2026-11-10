@@ -250,20 +250,20 @@ describe("access, cursors and bounding", () => {
       { list: "log", teamMemberId: f.memberA, actorUserId: f.beto },
       { list: "member_log", memberId: f.memberA, actorUserId: f.beto },
       { list: "member_log" }, { list: "deal_credits" },
-    ] satisfies Args[]) await expect(f.t.query(run, { caller: f.caller, ...args })).rejects.toThrow("mcp.not_found");
+    ] satisfies Args[]) await expect(f.t.query(run, { caller: f.caller, ...args })).rejects.toThrow(/mcp.invalid_(filter|argument)/);
   });
   it.each(lists)("rejects a malformed cursor for %s", async list => {
     const f = await adminFixture();
-    await expect(f.t.query(run, { caller: adminCaller(f.orgId), list, cursor: "broken" })).rejects.toThrow("mcp.not_found");
+    await expect(f.t.query(run, { caller: adminCaller(f.orgId), list, cursor: "broken" })).rejects.toThrow("mcp.invalid_cursor");
   });
   it("rejects raw cursor corruption, filter changes and cross-workspace cursor reuse", async () => {
     const f = await callsFixture();
     const first = await f.t.query(run, { caller: f.caller, list: "pipeline_open_deals", limit: 1 });
     const badRaw: unknown = JSON.parse(first.cursor!);
-    await expect(f.t.query(run, { caller: f.caller, list: "pipeline_open_deals", cursor: JSON.stringify({ ...badRaw as object, position: "malformed" }) })).rejects.toThrow("mcp.not_found");
-    await expect(f.t.query(run, { caller: f.caller, list: "pipeline_owed_calls", cursor: first.cursor! })).rejects.toThrow("mcp.not_found");
+    await expect(f.t.query(run, { caller: f.caller, list: "pipeline_open_deals", cursor: JSON.stringify({ ...badRaw as object, position: "malformed" }) })).rejects.toThrow("mcp.invalid_cursor");
+    await expect(f.t.query(run, { caller: f.caller, list: "pipeline_owed_calls", cursor: first.cursor! })).rejects.toThrow("mcp.invalid_cursor");
     const other = await seedAdminTenant(f.t, { orgId: "org_other_cursor", prefix: "cursor_" });
-    await expect(f.t.query(run, { caller: adminCaller(other.orgId, "claude-ai", "cursor_user_jordan"), list: "pipeline_open_deals", cursor: first.cursor! })).rejects.toThrow("mcp.not_found");
+    await expect(f.t.query(run, { caller: adminCaller(other.orgId, "claude-ai", "cursor_user_jordan"), list: "pipeline_open_deals", cursor: first.cursor! })).rejects.toThrow("mcp.invalid_cursor");
   });
   it("bounds long multibyte names, hides contact fallbacks and keeps every source row while shortening pages", async () => {
     const f = await callsFixture();
@@ -281,5 +281,31 @@ describe("access, cursors and bounding", () => {
     expect(JSON.stringify(rows)).not.toContain("private@example.com");
     expect(JSON.stringify(rows)).not.toContain("+15555551234");
     expect(rows.every(row => row.kind === "deal" && row.leadName.by === "person" && row.closerName?.by === "person")).toBe(true);
+  });
+});
+
+
+describe("read argument errors", () => {
+  it("names the required member and rejects malformed or wrong-table IDs", async () => {
+    const f = await callsFixture();
+    await expect(f.t.query(run, { caller: f.caller, list: "member_log" })).rejects.toThrow("memberId is required");
+    for (const opportunityId of ["garbage", f.memberA]) await expect(f.t.query(run, { caller: f.caller, list: "deal_credits", opportunityId })).rejects.toThrow("mcp.invalid_argument");
+  });
+  it.each([
+    ["2026-02-30", "2026-03-01"], ["11/05/2026", "2026-11-06"],
+    ["2026-09-04", "2026-09-01"], ["2026-09-01", "2027-01-01"],
+  ])("rejects invalid custom log range %s through %s", async (startDate, endDateInclusive) => {
+    const f = await callsFixture();
+    await expect(f.t.query(run, { caller: f.caller, list: "log", range: { kind: "custom", startDate, endDateInclusive } })).rejects.toThrow("range.invalid");
+  });
+  it("labels a partially filled scan-limited log page", async () => {
+    const f = await callsFixture();
+    await f.t.run(async ctx => {
+      for (let index = 0; index < 510; index++) await ctx.db.insert("domainEvents", { tenantId: f.tenantId,
+        entityType: index === 505 ? "payment" : "meeting", entityId: f.owed, eventType: "meeting.created", occurredAt: from + index, source: "pipeline" });
+    });
+    const page = await f.t.query(run, { caller: f.caller, list: "log", range, entityType: "payment" });
+    expect(page.rows).toHaveLength(1);
+    expect(page).toMatchObject({ isPartial: true, reasons: ["scan_limit"] });
   });
 });

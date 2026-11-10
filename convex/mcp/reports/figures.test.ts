@@ -94,7 +94,7 @@ for (const split of [false, true]) describe(`page figures, ${split ? "warehouse 
     for (const report of ["scorecard", "people", "attribution"] as const) {
       await warehouse(f, { kind: "report", report, range, currency: "USD" });
       for (const id of REPORT_PANELS[report]) {
-        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report, panel: id, range, currency: "USD", limit: 25 });
+        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report, ...(id === "people.members" ? {} : { panel: id }), range, currency: "USD", limit: 25 });
         expect(result.status, JSON.stringify(result)).toBe("ready");
         const p = panel(result, id);
         if (id === "scorecard.funnel") expect(p.figures).toMatchObject({ weeks: groupByWeek(funnel.byDay).map(w => ({...w,cash:w.cash.filter(c=>c.currency==="USD")})), cohortShares: Object.fromEntries(Object.entries(funnel.cohort).map(([k,v]) => [k, funnel.cohort.entered ? v / funnel.cohort.entered : null])) });
@@ -300,4 +300,113 @@ it("keeps a term's unit and currency when its input is missing", () => {
   const rows = projectNumbers(new Map(), { metrics: ["perScheduledHour", "cash"], range, role: "setters", memberId: "m", currency: "USD" } as never);
   expect(rows.find(r => r.id === "perScheduledHour")).toMatchObject({ unit: "per_hour", nullReason: "incomplete_input" });
   expect(rows.find(r => r.id === "cash")).toMatchObject({ unit: "minor", currency: "USD", nullReason: "incomplete_input" });
+});
+
+describe("admin report regressions", () => {
+  it("refuses explicit scopes that closer grouping cannot honor", async () => {
+    const f = await fixture();
+    for (const scope of ["sold_program", "booked_program_activity"] as const) {
+      const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["dealsWon"], scope, groupBy: "closer", range }).catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toContain("first_payment_closer");
+    }
+  });
+  it("refuses members outside the requested or default setter role", async () => {
+    const f = await fixture();
+    await f.t.run(ctx => ctx.db.patch("slackUsers", f.slackId, { teamMemberId: undefined }));
+    for (const metric of ["perScheduledHour", "bookRate"] as const) {
+      const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: [metric], memberId: f.memberId, ...(metric === "perScheduledHour" ? { role: "setters" as const } : {}), range }).catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toContain("isn't in the setter role");
+    }
+  });
+  it("refuses unavailable currencies and names the available currencies", async () => {
+    const f = await fixture();
+    for (const call of [
+      () => f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["cash"], currency: "XYZ", range }),
+      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", currency: "XYZ", range }),
+    ]) {
+      const error = await call().catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toMatch(/XYZ.*Available currencies:.*USD/);
+    }
+  });
+  it("accepts any currency for a selected panel without money inputs", async () => {
+    const f = await fixture();
+    const answer = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", panel: "follow_through", currency: "EUR", range });
+    expect(answer.status).not.toBe("unavailable");
+  });
+  it("answers malformed and wrong-table report IDs with a readable error", async () => {
+    const f = await fixture();
+    for (const call of [
+      () => f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["cash"], programId: "not-an-id", range }),
+      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "lead_gen", teamId: f.memberId, range }),
+      () => f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", closerId: f.memberId, range }),
+    ]) {
+      const error = await call().catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toContain("mcp.invalid_argument");
+    }
+  });
+  it("refuses unknown and malformed field keys with a readable report error", async () => {
+    const f = await fixture();
+    for (const fieldKey of ["unknown", "   ", "x".repeat(501)]) {
+      const error = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "scorecard", fieldKey, range }).catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toContain("report.invalid_request");
+      expect(String(error)).toContain(fieldKey === "unknown" ? "budget" : "report_fields");
+    }
+  });
+  it("counts the comparison range's own day cells before loading panels", async () => {
+    const f = await fixture();
+    const error = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["bookingsMade"], groupBy: "day", range: { kind: "preset", preset: "today" }, compareTo: { kind: "custom", startDate: "2026-11-10", endDateInclusive: "2027-01-09" } }).catch((e: unknown) => e);
+    expect(isExpectedError(error)).toBe(true);
+    expect(String(error)).toContain("60 period");
+    expect(await f.t.run(ctx => ctx.db.query("mcpReportRequests").take(1))).toHaveLength(0);
+  });
+  it("refuses an empty through-yesterday preset on its first day", async () => {
+    const f = await fixture();
+    for (const [preset, now] of [["this_week", "2026-11-09"], ["this_month", "2026-11-01"]] as const) {
+      vi.setSystemTime(Date.parse(`${now}T18:00:00Z`));
+      const error = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report: "calls", range: { kind: "preset", preset, throughYesterday: true } }).catch((e: unknown) => e);
+      expect(isExpectedError(error)).toBe(true);
+      expect(String(error)).toContain("no days before today");
+    }
+  });
+  it("plans a selected live roster or follow-through panel without unrelated warehouse panels", async () => {
+    const f = await fixture(true);
+    for (const [report, id] of [["people", "people.members"], ["scorecard", "scorecard.follow_through"]] as const) {
+      const prepared: Prepared = JSON.parse(await f.t.query(internal.mcp.reports.planning.prepare, { caller: f.caller, request: { kind: "report", report, panel: id, range } }));
+      expect([...new Set(prepared.inputs.map(input => input.id))]).toEqual([id]);
+      if (report === "people") {
+        expect(prepared.inputs.every(input => !input.job)).toBe(true);
+        const result = await f.t.action(internal.mcp.reports.tools.report, { caller: f.caller, report, panel: id, range });
+        expect(result.status).toBe("ready");
+      }
+    }
+  });
+  it("labels grouped closers with an untrusted display name", async () => {
+    const f = await fixture();
+    const result = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, metrics: ["dealsWon", "cash"], groupBy: "closer", currency: "USD", range });
+    expect(result.status).toBe("ready");
+    expect(result.rows).toEqual(expect.arrayContaining([expect.objectContaining({ group: f.closerId, label: { text: "Assigned closer", by: "closer" } })]));
+  });
+  it("names comparison-only groups separately from a row limit", async () => {
+    const f = await fixture(true);
+    const request = { kind: "numbers" as const, metrics: ["cash" as const], groupBy: "program" as const, currency: "USD", range: { kind: "custom" as const, startDate: "2026-10-01", endDateInclusive: "2026-10-02" }, compareTo: "previous_period" as const };
+    const plan = await warehouse(f, request);
+    await f.t.run(async ctx => {
+      for (const input of plan.inputs) {
+        const job = input.job!;
+        const row = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", f.tenantId).eq("key", job.key)).unique();
+        if (input.id === "scorecard.cash") await ctx.db.patch("mcpReportRequests", row!._id, { resultJson: JSON.stringify({ currencies: [{ currency: "USD", cashMinor: 100, finalMinor: 100, dealsWon: 1, byProgram: [{ programId: input.period === "current" ? "current" : "past", programName: "Program", cashMinor: 100, finalMinor: 100, dealsWon: 1, payments: 1 }], byPaymentType: [] }], isTruncated: false }) });
+      }
+    });
+    const { kind: _kind, ...args } = request;
+    const result = await f.t.action(internal.mcp.reports.tools.numbers, { caller: f.caller, ...args });
+    expect(result.status).toBe("ready");
+    expect(result.reasons).toContain("comparison_only_groups");
+    expect(result.reasons).not.toContain("row_limit");
+    expect(result.comparisonOmitted).toMatchObject({ groups: 1 });
+  });
 });

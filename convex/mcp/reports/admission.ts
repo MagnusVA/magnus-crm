@@ -7,7 +7,7 @@ import type { Doc } from "../../_generated/dataModel";
 import { analyticsPool } from "../../analytics/pool";
 import { readSyncRow } from "../../analytics/results";
 import { requireMcpAdmin, mcpCallerValidator } from "../guard";
-import { ASSISTANT_DAILY_RUN_ALLOWANCE, ASSISTANT_MINUTE_JOB_ALLOWANCE, ASSISTANT_JOB_TIMEOUT_MS, SYNC_INTERVAL_MS, failedJobRetryable, jobValidator, type ReportJob } from "./contracts";
+import { ASSISTANT_JOB_TIMEOUT_MS, SYNC_INTERVAL_MS, failedJobRetryable, jobValidator, type ReportJob } from "./contracts";
 /** Serializes admission across tenants through indexed status range reads (Convex OCC).
  * Only running rows are dispatched. Two waiting rows stay outside the shared pool.
  */
@@ -43,42 +43,19 @@ async function recoverAndDispatch(ctx: MutationCtx) {
 export const recover = internalMutation({ args: {}, returns: v.null(), handler: async (ctx) => { await recoverAndDispatch(ctx); return null; } });
 export const admit = internalMutation({
     args: { caller: mcpCallerValidator, jobs: v.array(jobValidator) },
-    returns: v.object({ status: v.union(v.literal("pending"), v.literal("unavailable")), reason: v.union(v.string(), v.null()) }),
+    returns: v.object({ status: v.literal("pending"), reason: v.null() }),
     handler: async (ctx, { caller, jobs }) => {
         const me = await requireMcpAdmin(ctx, caller, { permission: "reports:view" });
         if (jobs.length > 60)
             throw new Error("Too many report jobs.");
         await recoverAndDispatch(ctx);
         const now = Date.now();
-        const day = new Date(now).toISOString().slice(0, 10);
-        const budgetKey = `allowance:${day}`;
-        let allowance = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", me.tenantId).eq("key", budgetKey)).unique();
-        let used = allowance?.runCount ?? 0;
-        const minuteStartedAt = allowance?.minuteStartedAt !== undefined && now - allowance.minuteStartedAt < 60000 ? allowance.minuteStartedAt : now;
-        let minuteCount = minuteStartedAt === allowance?.minuteStartedAt ? allowance.minuteCount ?? 0 : 0;
         let waiting = (await ctx.db.query("mcpReportRequests").withIndex("by_status_and_createdAt", q => q.eq("status", "waiting")).take(3)).length;
         let running = (await ctx.db.query("mcpReportRequests").withIndex("by_status_and_createdAt", q => q.eq("status", "running")).take(2)).length;
-        const activeKeys = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_expiresAt", q => q.eq("tenantId", me.tenantId).gt("expiresAt", now)).take(32);
-        let keyCount = activeKeys.filter(r => r.kind !== "allowance").length;
-        let reason: string | null = null;
         for (const job of jobs) {
             const existing = await ctx.db.query("mcpReportRequests").withIndex("by_tenantId_and_key", q => q.eq("tenantId", me.tenantId).eq("key", job.key)).unique();
             if (existing && existing.expiresAt > now && !failedJobRetryable(existing, now))
                 continue;
-            // A failed job retried on its own unexpired key isn't a new key.
-            const retry = existing !== null && existing.expiresAt > now;
-            if (used >= ASSISTANT_DAILY_RUN_ALLOWANCE) {
-                reason = "assistant_daily_allowance_spent";
-                break;
-            }
-            if (minuteCount >= ASSISTANT_MINUTE_JOB_ALLOWANCE) {
-                reason = "assistant_minute_allowance_spent";
-                break;
-            }
-            if (!retry && keyCount >= 30) {
-                reason = "assistant_key_limit";
-                break;
-            }
             if (running + waiting >= 3)
                 break;
             const fields = { tenantId: me.tenantId, userId: me.userId, key: job.key, report: job.report, paramsJson: JSON.stringify(job), status: "waiting" as const, createdAt: now, expiresAt: now + SYNC_INTERVAL_MS, kind: "job" as const };
@@ -86,10 +63,6 @@ export const admit = internalMutation({
                 await ctx.db.patch("mcpReportRequests", existing._id, { ...fields, resultJson: undefined, error: undefined, finishedAt: undefined, executingAt: undefined, runToken: undefined, workId: undefined });
             else
                 await ctx.db.insert("mcpReportRequests", fields);
-            used++;
-            minuteCount++;
-            if (!retry)
-                keyCount++;
             waiting++;
             if (!running) {
                 await recoverAndDispatch(ctx);
@@ -97,15 +70,7 @@ export const admit = internalMutation({
                 waiting--;
             }
         }
-        if (used !== (allowance?.runCount ?? 0)) {
-            if (!allowance) {
-                const id = await ctx.db.insert("mcpReportRequests", { tenantId: me.tenantId, userId: me.userId, key: budgetKey, report: "allowance", kind: "allowance", paramsJson: "{}", status: "ready", createdAt: now, expiresAt: Date.parse(`${day}T00:00:00Z`) + 2 * 86400000, runCount: used, minuteStartedAt, minuteCount });
-                allowance = await ctx.db.get("mcpReportRequests", id);
-            }
-            else
-                await ctx.db.patch("mcpReportRequests", allowance._id, { runCount: used, minuteStartedAt, minuteCount });
-        }
-        return { status: reason ? "unavailable" as const : "pending" as const, reason };
+        return { status: "pending" as const, reason: null };
     },
 });
 export const begin = internalMutation({

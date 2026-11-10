@@ -112,10 +112,12 @@ export const ageValidator = v.object({
   seconds: v.number(),
   since: v.string(),
 });
-export function partialReason(isPartial: boolean) {
-  return isPartial
-    ? "The bounded live read has more rows or reached its byte budget. Continue with the cursor when available."
-    : null;
+/** Only a result that returns a cursor tells the agent to continue with it. */
+export function partialReason(isPartial: boolean, hasCursor = false) {
+  if (!isPartial) return null;
+  return hasCursor
+    ? "The bounded live read has more rows or reached its byte budget. Continue with the cursor."
+    : "The bounded live read has more rows or reached its byte budget. Narrow the request or open Magnus for the rest.";
 }
 
 /**

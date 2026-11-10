@@ -1,3 +1,4 @@
+import { ReportRequestError } from "../../assistantReportPlan";
 import type { CallsSummary } from "../../../convex/reports/calls";
 import type { AnswersOutput, CashOutput, FollowThroughOutput, FunnelOutput, OriginsOutput } from "../../../convex/reports/scorecard";
 import type { PeopleClosers } from "../../../convex/reports/people";
@@ -17,9 +18,13 @@ export function roleReports(answers: PageAnswers): Partial<RoleReports> {
   return { closers: answer(answers, "people.closers"), setters: answer(answers, "people.setters"), dmClosers: answer(answers, "people.dm_closers"), leadGen: answer(answers, "people.lead_gen") };
 }
 export function pageCurrency(answers: PageAnswers, page: string, requested?: string): string {
-  if (page === "people") return pickCurrency(rosterCurrencies(roleReports(answers)), requested?.toUpperCase() ?? null);
   const weights = page === "attribution" ? attributionCurrencyWeights(answer(answers, "attribution.lanes")) : scorecardCurrencyWeights(answer(answers, "scorecard.cash"), answer(answers, "scorecard.funnel"), answer(answers, "scorecard.origins"));
-  return shownCurrency(requested?.toUpperCase() ?? null, weights.map(w => w.currency), pickMainCurrency(weights));
+  const currencies = page === "people" ? rosterCurrencies(roleReports(answers)) : weights.map(w => w.currency);
+  // Only an answer that carries money can say a currency is missing; a
+  // selected panel without money inputs has none to check against.
+  if (requested !== undefined && currencies.length && ["people", "scorecard", "attribution"].includes(page) && !currencies.includes(requested.toUpperCase())) throw new ReportRequestError(`Unknown currency ${requested}. Available currencies: ${currencies.join(", ")}.`);
+  if (page === "people") return pickCurrency(currencies, requested?.toUpperCase() ?? null);
+  return shownCurrency(requested?.toUpperCase() ?? null, currencies, pickMainCurrency(weights));
 }
 
 /** A full, merged page answer in; page figures and ordering out. Never bound here. */

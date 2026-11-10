@@ -352,10 +352,13 @@ describe("admin lead gen read tools over MCP", () => {
           .reduce((sum, row) => sum + row.scheduledHours, 0),
       );
       expect(roster.resparkRules).toEqual(rules.settings);
-      const teams = await call<Roster>("magnus_lead_gen_roster", {
-        includeInactive,
-        cursor: roster.cursor,
-      });
+      // Small team lists come on the first page.
+      const teams = roster.cursor
+        ? await call<Roster>("magnus_lead_gen_roster", {
+            includeInactive,
+            cursor: roster.cursor,
+          })
+        : roster;
       expect(teams.cursor).toBeNull();
       expect(
         teams.teams.map((row) => ({

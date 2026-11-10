@@ -132,6 +132,7 @@ export const listResparkPerformance = query({
     startDayKey: v.string(),
     endDayKey: v.string(),
     source: v.optional(leadGenSourceValidator),
+    teamId: v.optional(v.id("attributionTeams")),
   },
   returns: v.object({
     rows: v.array(
@@ -152,94 +153,123 @@ export const listResparkPerformance = query({
   }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:view-all"]]);
-    await assertLeadGenBusinessDayReady(ctx, tenantId);
-    if (args.startDayKey > args.endDayKey)
-      throw new Error("Start date must be on or before end date");
-    const setting = await getTenantBusinessDay(ctx, tenantId);
-    const startAt = businessDateToUtcStart(args.startDayKey, setting);
-    const endAt = businessDateToUtcStart(
-      addBusinessDays(args.endDayKey, 1),
-      setting,
-    );
-    const workers = await loadResparkWorkers(ctx, tenantId);
-    const dailyQuery = args.source
-      ? ctx.db
-          .query("leadGenDailyStats")
-          .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .eq("source", args.source!)
-              .gte("dayKey", args.startDayKey)
-              .lte("dayKey", args.endDayKey),
-          )
-      : ctx.db
-          .query("leadGenDailyStats")
-          .withIndex("by_tenantId_and_dayKey", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .gte("dayKey", args.startDayKey)
-              .lte("dayKey", args.endDayKey),
-          );
-    const daily = await readLiveQueryRows(dailyQuery, DAILY_STATS_READ_LIMIT);
-    const rawByWorker = new Map<Id<"leadGenWorkers">, number>();
-    for (const row of daily.rows) {
-      rawByWorker.set(
-        row.workerId,
-        (rawByWorker.get(row.workerId) ?? 0) + row.submissions,
-      );
-    }
-    const counts = await countWorkerResparkResults(
-      ctx,
-      tenantId,
-      workers.rows.map((worker) => worker._id),
-      startAt,
-      endAt,
-    );
-    // Like the conversion table, expose a partial count when this read is capped.
-    // The indexed credit read and deal joins each have a live byte budget.
-    const creditState = createLiveReadState();
-    const credits = await readLiveQueryRows(
-      ctx.db
-        .query("dealAttributions")
-        .withIndex("by_tenantId_and_source_kind_and_attributedAt", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("source.kind", "respark")
-            .gte("attributedAt", startAt)
-            .lt("attributedAt", endAt),
-        ),
-      RESPARK_CREDIT_READ_LIMIT,
-      creditState,
-    );
-    const dealState = createLiveReadState();
-    const deals = await readLiveDocuments(
-      [...new Set(credits.rows.map((row) => row.opportunityId))],
-      (id) => ctx.db.get("opportunities", id),
-      dealState,
-    );
-    const bookedIds = new Set(
-      deals.rows
-        .filter(
-          (deal) =>
-            deal.tenantId === tenantId && deal.firstBookedAt !== undefined,
-        )
-        .map((deal) => deal._id),
-    );
-    const bookedByWorker = new Map<Id<"leadGenWorkers">, number>();
-    for (const credit of credits.rows) {
-      if (
-        credit.source.kind !== "respark" ||
-        !bookedIds.has(credit.opportunityId)
-      )
-        continue;
-      const id = credit.source.workerId;
-      bookedByWorker.set(id, (bookedByWorker.get(id) ?? 0) + 1);
-    }
-    return await buildResparkPerformance(ctx, workers, {
-      rawByWorker: daily.capped ? null : rawByWorker,
-      counts,
-      bookedByWorker,
-      bookedCapped: creditState.capped || dealState.capped,
-    });
+    return readResparkPerformance(ctx, tenantId, args);
   },
 });
+
+/** Shared read core; callers authorize the tenant before entering. */
+export async function readResparkPerformance(ctx: QueryCtx, tenantId: Id<"tenants">, args: { startDayKey: string; endDayKey: string; source?: Doc<"leadGenDailyStats">["source"]; teamId?: Id<"attributionTeams"> }) {
+  await assertLeadGenBusinessDayReady(ctx, tenantId);
+  if (args.startDayKey > args.endDayKey)
+    throw new Error("Start date must be on or before end date");
+  const setting = await getTenantBusinessDay(ctx, tenantId);
+  const startAt = businessDateToUtcStart(args.startDayKey, setting);
+  const endAt = businessDateToUtcStart(
+    addBusinessDays(args.endDayKey, 1),
+    setting,
+  );
+  let workers = await loadResparkWorkers(ctx, tenantId);
+  const dailyQuery = args.teamId
+    ? ctx.db.query("leadGenDailyStats").withIndex("by_tenantId_and_teamId_and_dayKey", q => q.eq("tenantId", tenantId).eq("teamId", args.teamId).gte("dayKey", args.startDayKey).lte("dayKey", args.endDayKey))
+    : args.source
+    ? ctx.db
+        .query("leadGenDailyStats")
+        .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("source", args.source!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        )
+    : ctx.db
+        .query("leadGenDailyStats")
+        .withIndex("by_tenantId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        );
+  const daily = await readLiveQueryRows(dailyQuery, DAILY_STATS_READ_LIMIT);
+  const rawByWorker = new Map<Id<"leadGenWorkers">, number>();
+  for (const row of daily.rows) {
+    if (args.source && row.source !== args.source) continue;
+    rawByWorker.set(
+      row.workerId,
+      (rawByWorker.get(row.workerId) ?? 0) + row.submissions,
+    );
+  }
+  let counts = args.teamId ? new Map<Id<"leadGenWorkers">, { resparks: number; notAFit: number }>() : await countWorkerResparkResults(
+    ctx,
+    tenantId,
+    workers.rows.map((worker) => worker._id),
+    startAt,
+    endAt,
+  );
+  // Like the conversion table, expose a partial count when this read is capped.
+  // The indexed credit read and deal joins each have a live byte budget.
+  const creditState = createLiveReadState();
+  const credits = await readLiveQueryRows(
+    ctx.db
+      .query("dealAttributions")
+      .withIndex("by_tenantId_and_source_kind_and_attributedAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("source.kind", "respark")
+          .gte("attributedAt", startAt)
+          .lt("attributedAt", endAt),
+      ),
+    RESPARK_CREDIT_READ_LIMIT,
+    creditState,
+  );
+  const dealState = createLiveReadState();
+  const deals = await readLiveDocuments(
+    [...new Set(credits.rows.map((row) => row.opportunityId))],
+    (id) => ctx.db.get("opportunities", id),
+    dealState,
+  );
+  const bookedIds = new Set(
+    deals.rows
+      .filter(
+        (deal) =>
+          deal.tenantId === tenantId && deal.firstBookedAt !== undefined,
+      )
+      .map((deal) => deal._id),
+  );
+  let teamItems: Set<Id<"resparkBatchItems">> | undefined;
+  let teamCapped = false;
+  if (args.teamId) {
+    const state = createLiveReadState();
+    const items = await readLiveQueryRows(ctx.db.query("resparkBatchItems").withIndex("by_tenantId_and_workedAt", q => q.eq("tenantId", tenantId).gte("workedAt", startAt).lt("workedAt", endAt)), RESPARK_CREDIT_READ_LIMIT, state);
+    const batches = await readLiveDocuments([...new Set(items.rows.map(item => item.batchId))], id => ctx.db.get("resparkBatches", id), state);
+    const batchIds = new Set(batches.rows.filter(batch => batch.tenantId === tenantId && batch.teamId === args.teamId).map(batch => batch._id));
+    const selected = items.rows.filter(item => batchIds.has(item.batchId));
+    teamItems = new Set(selected.map(item => item._id));
+    counts = new Map();
+    for (const item of selected) {
+      const row = counts.get(item.workerId) ?? { resparks: 0, notAFit: 0 };
+      if (item.result === "resparked") row.resparks++;
+      if (item.result === "not_a_fit") row.notAFit++;
+      counts.set(item.workerId, row);
+    }
+    teamCapped = state.capped;
+    const workerIds = new Set([...rawByWorker.keys(), ...selected.map(item => item.workerId)]);
+    workers = { ...workers, rows: workers.rows.filter(worker => worker.teamId === args.teamId || workerIds.has(worker._id)), capped: workers.capped || teamCapped };
+  }
+  const bookedByWorker = new Map<Id<"leadGenWorkers">, number>();
+  for (const credit of credits.rows) {
+    if (
+      credit.source.kind !== "respark" ||
+      (teamItems !== undefined && !teamItems.has(credit.source.itemId)) ||
+      !bookedIds.has(credit.opportunityId)
+    )
+      continue;
+    const id = credit.source.workerId;
+    bookedByWorker.set(id, (bookedByWorker.get(id) ?? 0) + 1);
+  }
+  return await buildResparkPerformance(ctx, workers, {
+    rawByWorker: daily.capped ? null : rawByWorker,
+    counts,
+    bookedByWorker,
+    bookedCapped: creditState.capped || dealState.capped || teamCapped,
+  });
+}

@@ -49,6 +49,7 @@ export function metricPanels(metric: AssistantMetric, request: Request): string[
 export function validateNumbers(request: Request) {
   if (!request.metrics.length || request.metrics.length > ASSISTANT_METRICS.length) throw new ReportRequestError(`Choose 1 to ${ASSISTANT_METRICS.length} page terms.`);
   const role = creditRole(request.role);
+  if (request.metrics.includes("dealsWon") && request.scope && request.groupBy === "closer" && request.scope !== "first_payment_closer") throw new ReportRequestError("groupBy closer supports dealsWon only with scope first_payment_closer.");
   if (request.groupBy === "team") throw new ReportRequestError("groupBy team is not supported by these page panels. Choose closer, program, or a supported day series.");
   for (const metric of request.metrics) {
     if (["creditedCash", "shared", "attributionCoverage", "perScheduledHour"].includes(metric) && (!role || role === "everyone")) throw new ReportRequestError(`${metric} needs a role.`);
@@ -109,6 +110,7 @@ export function projectNumbers(answers: PageAnswers, request: Request, currencyA
     } else if (panel.startsWith("people.")) {
       const report = data as PeopleRoleReport;
       const r = report.rows.find(r => r.teamMemberId === request.memberId);
+      if (!r && !report.isTruncated) throw new ReportRequestError(`The member has no row in the ${report.role} role panel.`);
       put(metric, r ? rolePageFigures(report.role, r, currency)[metric as "creditedCash" | "perScheduledHour" | "bookRate"] ?? null : null, null, "total", MONEY.has(metric) ? currency : undefined);
     } else if (panel === "attribution.lanes") {
       const view = laneViews(data as AttributionLanes, currency).find(v => v.role === creditRole(request.role));

@@ -17,6 +17,8 @@ import { rejectRequest } from "../../lib/observability/errors";
 import {
   mcpCallerValidator,
   requireMcpAdmin,
+  normalizeMcpId,
+  withMcpCursorErrors,
 } from "../guard";
 import {
   leadGenRangeArgs,
@@ -29,8 +31,8 @@ import { formatLocal } from "../time";
 
 export const submissionsArgs = {
   ...leadGenRangeArgs,
-  workerId: v.optional(v.id("leadGenWorkers")),
-  teamId: v.optional(v.id("attributionTeams")),
+  workerId: v.optional(v.string()),
+  teamId: v.optional(v.string()),
   source: v.optional(leadGenSourceValidator),
   cursor: v.optional(v.string()),
 };
@@ -82,8 +84,8 @@ export const readPage = internalQuery({
     caller: mcpCallerValidator,
     startTimestamp: v.number(),
     endTimestamp: v.number(),
-    workerId: v.optional(v.id("leadGenWorkers")),
-    teamId: v.optional(v.id("attributionTeams")),
+    workerId: v.optional(v.string()),
+    teamId: v.optional(v.string()),
     source: v.optional(leadGenSourceValidator),
     cursor: v.union(v.string(), v.null()),
     numItems: v.number(),
@@ -91,9 +93,13 @@ export const readPage = internalQuery({
   returns: pageValidator,
   handler: async (
     ctx,
-    { caller, cursor, numItems, ...args },
+    { caller, cursor, numItems, ...raw },
   ): Promise<SubmissionPage> => {
     const me = await requireMcpAdmin(ctx, caller, { permission: "lead-gen:view-all" });
+    const args = { ...raw,
+      workerId: raw.workerId === undefined ? undefined : normalizeMcpId(ctx, "leadGenWorkers", raw.workerId, "workerId"),
+      teamId: raw.teamId === undefined ? undefined : normalizeMcpId(ctx, "attributionTeams", raw.teamId, "teamId"),
+    };
     // Refuse foreign filter IDs explicitly, including a filter on an empty range.
     if (args.workerId) {
       const worker = await ctx.db.get("leadGenWorkers", args.workerId);
@@ -119,12 +125,12 @@ export const readPage = internalQuery({
         "Read one or two raw rows per query.",
       );
     }
-    const page = await listRawSubmissionExportPageCore(ctx, {
+    const page = await withMcpCursorErrors("lead_gen.invalid_cursor", () => listRawSubmissionExportPageCore(ctx, {
       tenantId: me.tenantId,
       ...args,
       descending: true,
       paginationOpts: { cursor, numItems },
-    });
+    }));
     const rows: Submission[] = [];
     for (const row of page.page) {
       // A shared text budget keeps even multilingual rows inside 64 KiB per result.

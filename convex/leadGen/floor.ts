@@ -174,6 +174,15 @@ export async function readLeadGenFloor(
     if (!team || team.tenantId !== args.tenantId) flags.push("no_team");
     if (!worker.isActive && scheduledHours > 0)
       flags.push("inactive_with_schedule");
+    // An inactive specialist shows only when today has something to say:
+    // captures, resparks, or a schedule the flag above calls out.
+    if (
+      !worker.isActive &&
+      !lastCapture &&
+      scheduledHours === 0 &&
+      respark.resparks + respark.notAFit === 0
+    )
+      continue;
     const name = worker.displayName ?? worker.email;
     const teamName = team?.tenantId === args.tenantId ? team.displayName : null;
     specialists.push({
@@ -216,7 +225,7 @@ export async function readLeadGenFloor(
   return {
     dayKey,
     specialists,
-    isPartial: state.capped || specialists.some((row) => row.isPartial),
+    isPartial: !page.isDone || state.capped || specialists.some((row) => row.isPartial),
     cursor: page.isDone
       ? null
       : encodeLeadGenCursor(scope, page.continueCursor),

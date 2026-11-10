@@ -461,7 +461,7 @@ export async function readGetOverview(ctx: QueryCtx, tenantId: Id<"tenants">, ar
     return await buildLeadGenOverview(ctx, tenantId, {
         rows: dailyResult.rows,
         capped: dailyResult.capped || originsCapped,
-    });
+    }, args);
 }
 export async function readListWorkerPerformance(ctx: QueryCtx, tenantId: Id<"tenants">, args: ReaderArgs<typeof listWorkerPerformance>) {
     await assertLeadGenBusinessDayReady(ctx, tenantId);

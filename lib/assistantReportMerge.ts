@@ -33,10 +33,10 @@ export function boundMetricRows(rows: MetricRow[], limit: number, complete: bool
     const kept = new Set(groups.slice(0, limit));
     return { rows: rows.filter(r => kept.has(r.group)), omitted: { groups: Math.max(0, groups.length - limit), remainder: null, nullReason: "incomplete_input" } };
   }
-  const rankable = rows.every(r => isAdditive(r.id) && !r.label);
-  const sameCurrency = new Set(rows.map(r => r.currency ?? "")).size <= 1;
-  const scores = new Map(groups.map(group => [group, rows.find(r => r.group === group)?.value ?? 0]));
-  const ordered = rankable && sameCurrency ? [...groups].sort((a, b) => scores.get(b)! - scores.get(a)! || String(a).localeCompare(String(b))) : groups;
+  const moneyCurrencies = new Set(rows.filter(r => r.unit === "minor").map(r => r.currency));
+  const rankingMetric = rows.find(r => isAdditive(r.id) && !r.label && (r.unit !== "minor" || moneyCurrencies.size === 1))?.id;
+  const scores = new Map(groups.map(group => [group, rows.find(r => r.group === group && r.id === rankingMetric)?.value ?? 0]));
+  const ordered = rankingMetric ? [...groups].sort((a, b) => scores.get(b)! - scores.get(a)! || String(a).localeCompare(String(b))) : groups;
   const kept = new Set(ordered.slice(0, limit));
   const omittedRows = rows.filter(r => !kept.has(r.group));
   const remainder = new Map<string, MetricRow>();
@@ -45,7 +45,7 @@ export function boundMetricRows(rows: MetricRow[], limit: number, complete: bool
     const old = remainder.get(key(r));
     remainder.set(key(r), { ...r, value: isAdditive(r.id) && !row.label && r.value !== null ? (old?.value ?? 0) + r.value : null, ...(!isAdditive(r.id) || row.label ? { nullReason: "non_additive_groups" } : {}) });
   }
-  return { rows: rows.filter(r => kept.has(r.group)), omitted: { groups: Math.max(0, groups.length - limit), remainder: [...remainder.values()] } };
+  return { rows: ordered.slice(0, limit).flatMap(group => rows.filter(r => r.group === group)), omitted: { groups: Math.max(0, groups.length - limit), remainder: [...remainder.values()] } };
 }
 
 /**

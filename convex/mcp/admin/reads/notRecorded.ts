@@ -4,13 +4,19 @@ import {
   readLiveDocuments,
   readLiveQueryRows,
 } from "../../../lib/liveQueryBounds";
+import { readOwedTotal } from "../../../reports/pipeline";
 import { meetingAttendanceDisplay } from "../../../../lib/status-config";
 
-/** Index bounds exclude future starts. End-time display is shared with the web. */
+/**
+ * Scheduled meetings that started by `cutoff`. The caller freezes `cutoff`
+ * (the queue keeps it in its cursor), so every page reads the same index
+ * range: a bound recomputed from Date.now() on each call is a different query,
+ * and Convex refuses the previous page's cursor for it.
+ */
 export function scheduledCandidates(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
-  now: number,
+  cutoff: number,
   closerId?: Id<"users">,
 ) {
   return closerId
@@ -23,7 +29,7 @@ export function scheduledCandidates(
               .eq("tenantId", tenantId)
               .eq("assignedCloserId", closerId)
               .eq("status", "scheduled")
-              .lt("scheduledAt", now),
+              .lte("scheduledAt", cutoff),
         )
     : ctx.db
         .query("meetings")
@@ -31,43 +37,54 @@ export function scheduledCandidates(
           q
             .eq("tenantId", tenantId)
             .eq("status", "scheduled")
-            .lt("scheduledAt", now),
+            .lte("scheduledAt", cutoff),
         );
 }
-export async function readNotRecorded(
+
+/**
+ * The whole not-recorded backlog as of `now`: the exact count from the
+ * Pipeline report's aggregate path, or null with the bounded scan's lower
+ * bound when the aggregate can't vouch for it.
+ */
+export async function countNotRecorded(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   now: number,
-  closerId?: Id<"users">,
 ) {
-  const scan = await readLiveQueryRows(
-    scheduledCandidates(ctx, tenantId, now, closerId),
+  const scheduled = await readLiveQueryRows(
+    scheduledCandidates(ctx, tenantId, now),
     500,
   );
+  const due = scheduled.rows.filter(
+    (row) => meetingAttendanceDisplay(row, now) === "not_recorded",
+  );
+  const exact = await readOwedTotal(ctx, tenantId, now, scheduled);
   return {
-    rows: scan.rows.filter(
-      (row) => meetingAttendanceDisplay(row, now) === "not_recorded",
-    ),
-    capped: scan.capped,
+    count: exact,
+    atLeast: due.length,
+    oldest: due.length
+      ? Math.min(...due.map((r) => r.scheduledAt + r.durationMinutes * 60000))
+      : null,
   };
 }
+
 export async function pageNotRecorded(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   options: {
-    now: number;
+    cutoff: number;
     closerId?: Id<"users">;
-    cursor?: string;
+    cursor: string | null;
     limit: number;
   },
 ) {
   const page = await scheduledCandidates(
     ctx,
     tenantId,
-    options.now,
+    options.cutoff,
     options.closerId,
   ).paginate({
-    cursor: options.cursor ?? null,
+    cursor: options.cursor,
     numItems: options.limit,
     maximumRowsRead: options.limit,
     maximumBytesRead: 512 * 1024,
@@ -77,12 +94,14 @@ export async function pageNotRecorded(
     (id) => ctx.db.get("meetings", id),
   );
   return {
+    // A row can stop being due between the index page and this read: it was
+    // recorded, or it is still running at the cutoff.
     rows: scan.rows.filter(
       (row) =>
         row.tenantId === tenantId &&
-        meetingAttendanceDisplay(row, options.now) === "not_recorded",
+        meetingAttendanceDisplay(row, options.cutoff) === "not_recorded",
     ),
-    isPartial: !page.isDone || scan.capped,
-    cursor: page.isDone ? null : page.continueCursor,
+    isDone: page.isDone && !scan.capped,
+    continueCursor: page.continueCursor,
   };
 }

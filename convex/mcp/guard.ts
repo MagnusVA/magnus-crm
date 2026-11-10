@@ -274,3 +274,33 @@ export async function loadInTenant<T extends TableNames>(
   }
   return row;
 }
+
+/**
+ * Keep malformed and wrong-table IDs in the deliberate MCP error channel.
+ * convex-mcp-gateway catches dispatch failures inside its component and has
+ * no host error-mapping hook. v.id() would fail before our handler runs, so
+ * MCP read arguments use strings and normalize them here after authorization.
+ */
+export function normalizeMcpId<T extends TableNames>(
+  ctx: QueryCtx | MutationCtx,
+  table: T,
+  value: string,
+  argument: string,
+): Id<T> {
+  const id = ctx.db.normalizeId(table, value);
+  if (!id) throw rejectRequest("mcp.invalid_argument", `${argument} must be a valid ${table} ID.`);
+  return id;
+}
+
+/** Native cursor failures must not expose Convex's internal pagination payload. */
+export async function withMcpCursorErrors<T>(code: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof SyntaxError || /InvalidCursor|invalid cursor|cursor.*(?:invalid|malformed)|(?:invalid|malformed).*cursor|failed to parse.*cursor|not valid JSON/i.test(message)) {
+      throw rejectRequest(code, "That cursor is invalid. Use the cursor returned by this tool with the same filters, or start again without it.");
+    }
+    throw error;
+  }
+}

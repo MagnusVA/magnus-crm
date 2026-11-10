@@ -14,6 +14,7 @@ import {
   insertCloserPayment,
 } from "../../../../tests/closerPipelineDeskFixtures";
 import { insertBillingPaymentAggregates } from "../../../billing/aggregates";
+import { rebuildLeadCustomerSearchRow } from "../../../leadCustomers/projection";
 
 import { addBusinessDays, businessDateForInstant } from "../../../../lib/businessDay";
 
@@ -172,6 +173,7 @@ async function fixture(
       }),
       agentClient: "claude-ai",
     });
+    await rebuildLeadCustomerSearchRow(ctx, f.tenantId, deal.leadId);
     return {
       dealId,
       leadId: deal.leadId,
@@ -412,7 +414,7 @@ describe("admin read projections", () => {
         queue: "not_recorded",
         limit: 26,
       }),
-    ).rejects.toThrow(/1 to 25/);
+    ).rejects.toThrow(/1 to 10/);
   });
   it("reports missing saved reports exactly and marks agent narratives", async () => {
     const f = await fixture();
@@ -868,6 +870,7 @@ describe("read result boundaries", () => {
         email: EMAIL,
         phone: PHONE,
       });
+      await rebuildLeadCustomerSearchRow(ctx, f.tenantId, deal.leadId);
     });
     const result = await f.t.query(reads.lookup.run, {
       caller: f.caller,
@@ -894,6 +897,7 @@ describe("round 1 review fixes", () => {
         const dealId = await insertDeal(ctx, { tenantId: f.tenantId, status: "scheduled", fields: { assignedCloserId: f.closerId } });
         const deal = (await ctx.db.get("opportunities", dealId))!;
         await ctx.db.patch("leads", deal.leadId, { fullName: `Quinn ${status}`, searchText: `Quinn ${status}`, status });
+        await rebuildLeadCustomerSearchRow(ctx, f.tenantId, deal.leadId);
       }
     });
     const result = await f.t.query(reads.lookup.run, { caller: f.caller, kind: "person", query: "Quinn" });
@@ -916,7 +920,7 @@ describe("round 1 review fixes", () => {
         await insertBillingPaymentAggregates(ctx, (await ctx.db.get("paymentRecords", id))!);
       }
     });
-    const result = await f.t.query(reads.queue.run, { caller: f.caller, queue: "payments_to_review", limit: 25 });
+    const result = await f.t.query(reads.queue.run, { caller: f.caller, queue: "payments_to_review", limit: 10 });
     expect(result.items.length).toBeGreaterThan(0);
     expect(result.isPartial).toBe(true);
     expect(gatewayAnswerBytes(result)).toBeLessThanOrEqual(MAX_ASSISTANT_ANSWER_BYTES);
@@ -924,10 +928,10 @@ describe("round 1 review fixes", () => {
 });
 
 describe("queue cursors", () => {
-  it("answers a malformed failed-work cursor as not found", async () => {
+  it("answers a malformed failed-work cursor as an invalid cursor", async () => {
     const f = await fixture();
     for (const cursor of ["not json", "null", '{"source":9,"cursor":null}'])
-      await expect(f.t.query(reads.queue.run, { caller: f.caller, queue: "failed_work", cursor })).rejects.toThrow("can't find");
+      await expect(f.t.query(reads.queue.run, { caller: f.caller, queue: "failed_work", cursor })).rejects.toThrow("mcp.invalid_cursor");
   });
 });
 

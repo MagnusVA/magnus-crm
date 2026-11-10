@@ -259,7 +259,7 @@ function formatE164(stripped: string): string | undefined {
  */
 const PLATFORM_URL_PATTERNS: Record<SocialPlatformType, RegExp[]> = {
   instagram: [
-    /^(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9_.]+)\/?(?:[?#].*)?$/,
+    /^(?:https?:\/\/)?(?:(?:www|m)\.)?instagram\.com\/(?!p(?:[/?#]|$)|reel(?:[/?#]|$))([a-zA-Z0-9_.]+)(?:\/(?:reels|tagged))?\/?(?:[?#].*)?$/i,
   ],
   tiktok: [
     /^(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@?([a-zA-Z0-9_.]+)\/?(?:[?#].*)?$/,

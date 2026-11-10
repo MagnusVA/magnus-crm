@@ -303,7 +303,7 @@ export async function readOwedCalls(
   };
 }
 
-async function readOwedTotal(
+export async function readOwedTotal(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   now: number,

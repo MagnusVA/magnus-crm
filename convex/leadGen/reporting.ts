@@ -14,6 +14,7 @@ import {
   isRankableLeadGenOrigin,
   normalizeLeadGenOrigin,
 } from "./normalization";
+import { businessDatesInInclusiveRange } from "../workSchedules/rangeHours";
 import { summarizeDailyRows } from "./reportBuilders";
 import {
   DAILY_STATS_READ_LIMIT,
@@ -37,6 +38,7 @@ import { leadGenSourceValidator } from "./validators";
 import { leadGenWorkerMemberIdentity } from "../lib/memberIdentity";
 import {
   createLiveReadState,
+  readLiveDocuments,
   readLiveQueryRows,
 } from "../lib/liveQueryBounds";
 
@@ -740,6 +742,7 @@ export async function buildLeadGenOverview(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   dailyResult: { rows: LeadGenDailyStatInput[]; capped: boolean },
+  scope?: { startDayKey: string; endDayKey: string; teamId?: LeadGenTeamId; workerId?: Id<"leadGenWorkers"> },
 ) {
   const workerCount = new Set(dailyResult.rows.map((row) => row.workerId)).size;
   if (dailyResult.capped || workerCount > LIVE_WORKER_HYDRATION_LIMIT) {
@@ -748,8 +751,30 @@ export async function buildLeadGenOverview(
       capped: true,
     };
   }
-  const rows = dailyResult.rows;
+  const rows = [...dailyResult.rows];
   const scheduleReadState = createLiveReadState();
+  if (scope) {
+    const workers = scope.workerId
+      ? await readLiveDocuments([scope.workerId], id => ctx.db.get("leadGenWorkers", id), scheduleReadState)
+      : await readLiveQueryRows(
+          scope.teamId
+            ? ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_teamId", q => q.eq("tenantId", tenantId).eq("teamId", scope.teamId))
+            : ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_isActive", q => q.eq("tenantId", tenantId)),
+          LIVE_WORKER_HYDRATION_LIMIT,
+          scheduleReadState,
+        );
+    const days = businessDatesInInclusiveRange({ startBusinessDate: scope.startDayKey, endBusinessDateInclusive: scope.endDayKey });
+    const present = new Set(rows.map(row => `${row.workerId}:${row.dayKey}`));
+    // A specialist without a capture still contributes the dated schedule.
+    for (const worker of workers.rows) {
+      if (worker.tenantId !== tenantId) continue;
+      if (scope.workerId && worker._id !== scope.workerId || scope.teamId && worker.teamId !== scope.teamId) continue;
+      for (const dayKey of days) {
+        if (present.has(`${worker._id}:${dayKey}`)) continue;
+        rows.push({ workerId: worker._id, dayKey, teamId: worker.teamId, source: "instagram", submissions: 0, uniqueProspectsSubmitted: 0, duplicateProspectSubmissions: 0, scheduledHours: 0 });
+      }
+    }
+  }
   const currentScheduledHoursByWorkerDay =
     await loadScheduledHoursByWorkerDay(ctx, {
       tenantId,
@@ -791,7 +816,7 @@ export const getOverview = query({
     return await buildLeadGenOverview(ctx, tenantId, {
       rows: dailyResult.rows,
       capped: dailyResult.capped || originsCapped,
-    });
+    }, args);
   },
 });
 

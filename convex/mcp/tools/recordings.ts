@@ -15,7 +15,7 @@ import {
 } from "../../fathom/recordings";
 import { readTranscriptPage } from "../../fathom/transcript";
 import { rejectRequest } from "../../lib/observability/errors";
-import { mcpCallerValidator, requireMcpUser, requireMcpAdmin, loadInTenant } from "../guard";
+import { mcpCallerValidator, requireMcpUser, requireMcpAdmin, loadInTenant, normalizeMcpId } from "../guard";
 import { formatLocal } from "../time";
 
 /**
@@ -29,13 +29,15 @@ const TRANSCRIPT_PAGE_LINES = 100;
 export const authorizeRecording = internalQuery({
   args: {
     caller: mcpCallerValidator,
-    meetingId: v.optional(v.id("meetings")),
-    recordingId: v.optional(v.id("callRecordings")),
+    meetingId: v.optional(v.string()),
+    recordingId: v.optional(v.string()),
   },
-  returns: v.object({ recording: v.union(recordingView, v.null()), timeZone: v.string() }),
-  handler: async (ctx, { caller, meetingId, recordingId }) => {
+  returns: v.object({ recording: v.union(recordingView, v.null()), timeZone: v.string(), savedFathomLink: v.union(v.string(), v.null()) }),
+  handler: async (ctx, { caller, meetingId: rawMeetingId, recordingId: rawRecordingId }) => {
     const identity = await requireMcpUser(ctx, caller, ["closer", "tenant_master", "tenant_admin"]);
     const me = identity.role === "closer" ? identity : await requireMcpAdmin(ctx, caller);
+    const meetingId = rawMeetingId === undefined ? undefined : normalizeMcpId(ctx, "meetings", rawMeetingId, "meetingId");
+    const recordingId = rawRecordingId === undefined ? undefined : normalizeMcpId(ctx, "callRecordings", rawRecordingId, "recordingId");
     if (me.role !== "closer") {
       if (meetingId) await loadInTenant(ctx, me, "meetings", meetingId);
       if (recordingId) await loadInTenant(ctx, me, "callRecordings", recordingId);
@@ -44,7 +46,8 @@ export const authorizeRecording = internalQuery({
       throw rejectRequest("recording.target_required", "Pass a meetingId or a recordingId.");
     }
     if (meetingId) {
-      return { recording: await getRecordingForMeeting(ctx, me, meetingId), timeZone: me.timeZone };
+      const meeting = await requireRecordingMeeting(ctx, me, meetingId);
+      return { recording: await getRecordingForMeeting(ctx, me, meetingId), timeZone: me.timeZone, savedFathomLink: meeting.fathomLink ?? null };
     }
     const row = await ctx.db.get("callRecordings", recordingId!);
     if (!row || row.tenantId !== me.tenantId) {
@@ -55,25 +58,30 @@ export const authorizeRecording = internalQuery({
     else if (me.role === "closer" && row.recordedByUserId !== me.userId) {
       throw rejectRequest("recording.not_found", "That recording isn't one of yours.");
     }
-    return { recording: toRecordingView(row), timeZone: me.timeZone };
+    return { recording: toRecordingView(row), timeZone: me.timeZone, savedFathomLink: null };
   },
 });
 
 export const getRecording = internalAction({
   args: {
     caller: mcpCallerValidator,
-    meetingId: v.optional(v.id("meetings")),
-    recordingId: v.optional(v.id("callRecordings")),
+    meetingId: v.optional(v.string()),
+    recordingId: v.optional(v.string()),
     page: v.optional(v.number()),
   },
-  returns: v.object({
+  returns: v.union(v.object({
+    status: v.literal("no_matched_recording"),
+    meetingId: v.string(),
+    fathomUrl: v.string(),
+    message: v.string(),
+  }), v.object({
     recordingId: v.id("callRecordings"),
     meetingId: v.union(v.id("meetings"), v.null()),
     title: v.string(),
     recordedAt: v.string(),
     minutes: v.number(),
-    summary: v.object({ text: v.union(v.string(), v.null()), personSupplied: v.literal(true) }),
-    actionItems: v.array(v.string()),
+    summary: v.optional(v.object({ text: v.union(v.string(), v.null()), personSupplied: v.literal(true) })),
+    actionItems: v.optional(v.array(v.string())),
     transcript: v.object({
       page: v.number(),
       pageCount: v.number(),
@@ -82,11 +90,11 @@ export const getRecording = internalAction({
       deleted: v.boolean(),
     }),
     fathomUrl: v.string(),
-  }),
+  })),
   handler: async (ctx, { caller, meetingId, recordingId, page }) => {
     // Annotated: a same-file runQuery would otherwise make the generated API
     // type circular.
-    const authorized: { recording: RecordingView | null; timeZone: string } = await ctx.runQuery(
+    const authorized: { recording: RecordingView | null; timeZone: string; savedFathomLink: string | null } = await ctx.runQuery(
       internal.mcp.tools.recordings.authorizeRecording,
       {
       caller,
@@ -96,21 +104,29 @@ export const getRecording = internalAction({
     );
     const { recording, timeZone } = authorized;
     if (!recording) {
+      if (page !== undefined && (!Number.isSafeInteger(page) || page !== 1)) throw rejectRequest("fathom.invalid_page", "No matched transcript is available. Request page 1 for the saved recording link.");
+      if (authorized.savedFathomLink) return {
+        status: "no_matched_recording" as const, meetingId: meetingId!, fathomUrl: authorized.savedFathomLink,
+        message: "No matched Fathom recording is available. This is the recording link saved on the meeting; its summary and transcript are not available in Magnus.",
+      };
       throw rejectRequest(
         "recording.none",
-        "This meeting has no recording yet. Fathom's usually lands a few minutes after the call ends.",
+        "This meeting has no matched Fathom recording. Admins can check magnus_queue unmatched_recordings; closers can check magnus_today recordingsWithoutMeeting.",
       );
     }
     const pageNumber = page ?? 1;
     const transcript = await readTranscriptPage(ctx, recording.recordingId, pageNumber, TRANSCRIPT_PAGE_LINES);
+    if (pageNumber > Math.max(1, transcript.pageCount)) throw rejectRequest("fathom.invalid_page", `This transcript has ${transcript.pageCount} pages. Request page 1 for recording details or an existing transcript page.`);
     return {
       recordingId: recording.recordingId,
       meetingId: recording.meetingId ?? null,
       title: recording.title,
       recordedAt: formatLocal(recording.recordedAt, timeZone),
       minutes: Math.round(recording.minutes),
-      summary: { text: recording.summary ?? null, personSupplied: true as const },
-      actionItems: recording.actionItems.map((item) => item.description),
+      ...(pageNumber === 1 ? {
+        summary: { text: recording.summary ?? null, personSupplied: true as const },
+        actionItems: recording.actionItems.map((item) => item.description),
+      } : {}),
       transcript: {
         page: pageNumber,
         pageCount: transcript.pageCount,
