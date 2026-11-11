@@ -222,6 +222,9 @@ export const getDashboardReportSummary = query({
   handler: async (ctx, args) => {
     const job = await requireOwnedJob(ctx, args.jobId);
     if (job.definitionVersion !== REPORT_DEFINITION_VERSION) return null;
+    // A live subscription re-runs when the job expires or fails. The page
+    // reads the job's state from getReportJob, so answer "no summary".
+    if (job.purpose === "dashboard" && job.status !== "ready") return null;
     assertReadyDashboard(job);
     const summary = await ctx.db
       .query("operationsReportRows")
@@ -288,8 +291,13 @@ export const listReportArtifacts = query({
   returns: paginationResultValidator(artifactPublicValidator),
   handler: async (ctx, args) => {
     const job = await requireOwnedJob(ctx, args.jobId);
-    if (job.purpose !== "export" || job.status !== "ready") {
+    if (job.purpose !== "export") {
       throw new Error("Report artifacts are available only for a ready export.");
+    }
+    // A live subscription re-runs when the job expires or fails. An empty,
+    // finished page is a shape tabs on an older client already render.
+    if (job.status !== "ready") {
+      return { page: [], isDone: true, continueCursor: "" };
     }
     // The complete manifest is immutable until the job leaves ready status.
     const page = await ctx.db
