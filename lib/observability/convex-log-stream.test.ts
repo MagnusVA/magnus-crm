@@ -535,3 +535,72 @@ describe("buildOtlpLogsPayload", () => {
     ]);
   });
 });
+
+describe("coded production rejections", () => {
+  const calendarMessage = "No personal calendar configured. Ask your admin to assign one in Team settings.";
+
+  test.each([
+    ["leadGen/capture:submit", "mutation", "webSocket", "Enter an Instagram handle or profile URL", "lead_gen.invalid_instagram_handle"],
+    ["linkPortal/passwordActions:verifyPassword", "action", "httpApi", "Portal unavailable or password invalid.", "link_portal.auth_failed"],
+    ["linkPortal/rateLimitMutations:assertNotLocked", "mutation", "action", "Portal unavailable or password invalid.", "link_portal.auth_failed"],
+    ["closer/noShowActions:createNoShowRescheduleLink", "mutation", "webSocket", calendarMessage, "calendar.personal_not_configured"],
+    ["closer/followUpMutations:createSchedulingLinkFollowUp", "mutation", "webSocket", calendarMessage, "calendar.personal_not_configured"],
+    ["reports/scorecard:funnel", "query", "initialSubscription", "Choose a shorter range", "reports.range_too_large"],
+    ["mcp/reports/read:panel", "query", "action", "Choose a shorter range", "reports.range_too_large"],
+  ])("failures people cause land as expected once they carry a code: %s", (path, type, runReason, message, code) => {
+    const requestId = "req-coded-production";
+    const overrides = {
+      function: { type, path, request_id: requestId },
+      run_reason: runReason,
+    };
+    const plain = transformLogStreamBatch([
+      failure(requestId, `Uncaught Error: ${message}\n    at handler (../convex/x.ts:1:1)`, overrides),
+    ]);
+    expect(plain.exceptions).toHaveLength(1);
+    expect(plain.exceptions[0].properties).toMatchObject({ error_kind: "bug" });
+    expect(plain.events.filter((event) => event.event === "convex_request_rejected")).toHaveLength(0);
+
+    const coded = transformLogStreamBatch([
+      failure(requestId, `Uncaught ConvexError: ${JSON.stringify({ code, message })}\n    at handler (../convex/x.ts:1:1)`, overrides),
+    ]);
+    expect(coded.exceptions).toHaveLength(0);
+    expect(coded.events).toHaveLength(1);
+    expect(coded.events[0]).toMatchObject({
+      event: "convex_request_rejected",
+      properties: {
+        convex_function: path,
+        error_kind: "expected",
+        error_code: code,
+        error_rule: "expected.coded",
+      },
+    });
+  });
+
+  test("a coded capture rejection with its console line still emits one rejected event", () => {
+    const requestId = "req-capture-rejected";
+    const path = "leadGen/capture:submit";
+    const code = "lead_gen.invalid_instagram_handle";
+    const message = "Enter an Instagram handle or profile URL";
+    const batch = transformLogStreamBatch([
+      consoleEvent(requestId, {
+        level: "WARN",
+        message: inspectString('[obs] request.rejected {"code":"lead_gen.invalid_instagram_handle","source":"instagram"}'),
+      }, path),
+      failure(requestId, `Uncaught ConvexError: ${JSON.stringify({ code, message })}\n    at handler (../convex/x.ts:1:1)`, {
+        function: { type: "mutation", path, request_id: requestId },
+        run_reason: "webSocket",
+      }),
+    ]);
+    expect(batch.exceptions).toHaveLength(0);
+    expect(batch.events).toHaveLength(1);
+    expect(batch.events[0]).toMatchObject({
+      event: "convex_request_rejected",
+      properties: {
+        convex_function: path,
+        error_kind: "expected",
+        error_code: code,
+        error_rule: "expected.coded",
+      },
+    });
+  });
+});

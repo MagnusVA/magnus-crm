@@ -1,4 +1,5 @@
-import { rejectRequest } from "../../lib/observability/errors";
+import { isExpectedError, rejectRequest } from "../../lib/observability/errors";
+import { RANGE_TOO_LARGE_CODE } from "../../reports/lib/rangeLimit";
 import { ReportRequestError } from "../../../lib/assistantReportPlan";
 import type { PeopleClosers } from "../../reports/people";
 import type { FollowThroughOutput } from "../../reports/scorecard";
@@ -140,8 +141,10 @@ async function executeReportTool(ctx: ActionCtx, caller: McpCaller, request: Too
         try {
             data = answer ? dataByKey.get(input.job!.key) : JSON.parse(await ctx.runQuery(internal.mcp.reports.read.panel, { caller, id: input.id, filters: input.filters, range: input.window.window }));
         }
-        catch {
-            return capAnswer({ ...base, status: "unavailable", isPartial: true, reasons: ["live_reader_unavailable"] });
+        catch (error) {
+            // A range past the live read limit is the admin's to shorten; say so.
+            const tooLarge = isExpectedError(error) && error.data.code === RANGE_TOO_LARGE_CODE;
+            return capAnswer({ ...base, status: "unavailable", isPartial: true, reasons: [tooLarge ? "range_too_large" : "live_reader_unavailable"] });
         }
         const watermark = answer?.watermark ?? null;
         const source = base.sources[uniqueInputs.findIndex(i => sourceKey(i) === sourceKey(input))];

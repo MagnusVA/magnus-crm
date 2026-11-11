@@ -6,7 +6,6 @@ import { useMutation, useQuery } from "convex/react";
 import { AtSignIcon, LinkIcon } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
@@ -21,6 +20,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { CAPTURE_PANEL_ID, CaptureBand, sourceTabId, type CaptureSource } from "./capture-band";
 import { captureConfirmation, type CaptureConfirmation, type CaptureKind } from "@/lib/lead-gen/capture-confirmation";
+import { captureProspectSchema, type CaptureProspectValues } from "@/lib/lead-gen/capture-prospect-schema";
 import {
   ORIGIN_URL_INPUT_ID,
   OriginChooser,
@@ -48,12 +48,6 @@ const initialCaptureSessionState: CaptureSessionState = {
   step: "choose_origin",
   postReelDraft: "",
 };
-
-const prospectSchema = z.object({
-  rawHandleOrProfileUrl: z.string().trim().min(1, "Paste a profile URL or handle first."),
-});
-
-type ProspectValues = z.infer<typeof prospectSchema>;
 
 type LastCapture = {
   confirmation: CaptureConfirmation;
@@ -129,7 +123,7 @@ export function LeadGenCapturePageClient() {
   const [postReelInputBlurred, setPostReelInputBlurred] = useState(false);
 
   const form = useForm({
-    resolver: standardSchemaResolver(prospectSchema),
+    resolver: standardSchemaResolver(captureProspectSchema),
     defaultValues: { rawHandleOrProfileUrl: "" },
   });
 
@@ -194,7 +188,7 @@ export function LeadGenCapturePageClient() {
     window.setTimeout(() => document.getElementById(ORIGIN_URL_INPUT_ID)?.focus(), 0);
   }
 
-  const onSubmit = async (values: ProspectValues) => {
+  const onSubmit = async (values: CaptureProspectValues) => {
     if (!prospectState) {
       toast.error("Choose an origin before capturing a prospect");
       return;

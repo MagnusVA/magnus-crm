@@ -5,6 +5,7 @@ import { LIFECYCLE_STAGES, type LifecycleStage } from "../../leads/lifecycle";
 import { LIVE_QUERY_BYTE_BUDGET, createLiveReadState, readLiveDocuments, readLiveQueryRows } from "../../lib/liveQueryBounds";
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { leadStageEntries } from "../../reporting/aggregates";
+import { rangeTooLarge } from "./rangeLimit";
 import { resolveAnalyticsRange, type ResolvedAnalyticsRange } from "../../../lib/analyticsRange";
 import { validateBusinessDay } from "../../../lib/businessDay";
 
@@ -46,9 +47,9 @@ export function buildLifecycle(people: readonly Doc<"leads">[], range: ResolvedA
 }
 
 // Share a byte budget across source scans and joins, and reject partial
-// answers. `tooLarge` is what a caller whose user sees the refusal throws:
-// production hides a plain Error's message.
-export function liveReader(tooLarge: () => Error = () => new Error("Choose a shorter range"), byteBudget = LIVE_QUERY_BYTE_BUDGET) {
+// answers. `tooLarge` is what the caller throws for one: by default the
+// coded rejection whose sentence the person reads.
+export function liveReader(tooLarge: () => Error = rangeTooLarge, byteBudget = LIVE_QUERY_BYTE_BUDGET) {
   const state = createLiveReadState();
   const checked = <T>(result: { rows: T[]; capped: boolean }) => {
     if (result.capped) throw tooLarge();
@@ -115,11 +116,11 @@ export async function loadLifecycle(ctx: QueryCtx, tenantId: Id<"tenants">, rang
       lower: { key: [stage, range.fromMs], inclusive: true },
       upper: { key: [stage, range.toMs], inclusive: false },
     } });
-    if (!page.isDone || page.page.length > 2500) throw new Error("Choose a shorter range");
+    if (!page.isDone || page.page.length > 2500) throw rangeTooLarge();
     entries += page.page.length;
     for (const item of page.page) ids.add(item.id.slice(0, item.id.lastIndexOf(":")) as Id<"leads">);
   }
-  if (Math.ceil(entries / AGGREGATE_ENTRIES_PER_RANGE) + ids.size > LIFECYCLE_RANGE_BUDGET) throw new Error("Choose a shorter range");
+  if (Math.ceil(entries / AGGREGATE_ENTRIES_PER_RANGE) + ids.size > LIFECYCLE_RANGE_BUDGET) throw rangeTooLarge();
   const people = await reader.documents([...ids], id => ctx.db.get("leads", id));
   return buildLifecycle(people.filter(p => p.tenantId === tenantId), range);
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { KEPT_INSTAGRAM_PROFILE_URLS, REJECTED_INSTAGRAM_URLS } from "../../../tests/instagramHandleCases";
 import { api, internal } from "../../_generated/api";
 import { createMcpHarness, seedTenantWithLeadGen, testCaller, callTool, mcpConnect } from "../../../tests/mcpHarness";
 import { businessDateForInstant, businessDayStart, addBusinessDays } from "../../../lib/businessDay";
@@ -17,11 +18,11 @@ async function fixture() {
   return { ...h, ...seed, caller, token, sessionId, capture };
 }
 describe("lead gen read QA regressions", () => {
-  it.each(["m.instagram.com/real.handle", "HTTPS://WWW.INSTAGRAM.COM/Real.Handle", "instagram.com/real.handle/reels/", "instagram.com/real.handle/tagged/?x=1"])("normalizes profile %s for lookup and captures", value => {
+  it.each(KEPT_INSTAGRAM_PROFILE_URLS)("normalizes profile %s for lookup and captures", value => {
     expect(normalizeSocialHandle(value, "instagram")).toBe("real.handle");
     expect(normalizeLeadGenProspectInput({ source: "instagram", rawHandleOrProfileUrl: value })).toMatchObject({ normalizedHandle: "real.handle", profileUrl: "https://instagram.com/real.handle", dedupeKey: "instagram:real.handle" });
   });
-  it.each(["instagram.com/p/abc", "instagram.com/reel/abc", "m.instagram.com/p/abc", "instagram.com/invalid!/reels/", "instagram.com/g/tagged/", "instagram.com/real.handle/reels/abc"])("rejects invalid or post URL %s", value => {
+  it.each(REJECTED_INSTAGRAM_URLS)("rejects invalid or post URL %s", value => {
     expect(() => normalizeLeadGenProspectInput({ source: "instagram", rawHandleOrProfileUrl: value })).toThrow();
   });
   it("keeps every equivalent handle input and wraps native handle cursor errors", async () => {
