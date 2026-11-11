@@ -28,7 +28,9 @@ function clock(seconds: number) {
 /**
  * The recorder is the Closer. A speaker whose email is an invitee's is the
  * Prospect. Otherwise a speaker named like the recorder is the Closer, and
- * anyone else is Other.
+ * anyone else is Other. Fathom often gives the prospect no email: when no
+ * line is the Prospect by email, a speaker with no email who isn't the
+ * Closer is the Prospect, so Jev isn't told a stranger did the talking.
  */
 export function labelSpeakers(
   lines: TranscriptLine[],
@@ -46,10 +48,23 @@ export function labelSpeakers(
       return "Closer";
     return null;
   };
-  return lines.map((line) => ({
+  const roles = lines.map(roleOf);
+  const prospectByEmail = roles.includes("Prospect");
+  return lines.map((line, i) => ({
     ...line,
-    role: roleOf(line) ?? "Other",
+    role:
+      roles[i] ??
+      (!prospectByEmail && !line.speakerEmail ? "Prospect" : "Other"),
   }));
+}
+
+/** Words spoken by anyone but the Closer: too few and the call can't be judged. */
+export function prospectSideWords(lines: Array<{ role: SpeakerRole; text: string }>) {
+  return lines.reduce(
+    (sum, line) =>
+      line.role === "Closer" ? sum : sum + line.text.split(/\s+/).filter(Boolean).length,
+    0,
+  );
 }
 
 export type Evidence = {
@@ -119,7 +134,8 @@ const LAST_HOUR_SECONDS = 60 * 60;
 /**
  * The `state` Jev reads: the call's facts, Fathom's summary and action items,
  * and the labelled transcript. A call over two hours sends the summary and
- * its last hour (decision 31).
+ * its last hour (decision 31). `withSummary: false` is the second reading of
+ * a check: the transcript alone, so Fathom's summary can't decide it.
  */
 export function buildState(input: {
   callKind: "new call" | "follow-up call";
@@ -128,7 +144,9 @@ export function buildState(input: {
   summary?: string;
   actionItems?: string[];
   lines: Array<TranscriptLine & { role: SpeakerRole }>;
+  withSummary?: boolean;
 }) {
+  const withSummary = input.withSummary ?? true;
   const last = input.recordedMinutes * 60;
   const trimmed = last > TWO_HOURS_SECONDS;
   const from = trimmed ? last - LAST_HOUR_SECONDS : 0;
@@ -139,8 +157,10 @@ export function buildState(input: {
       minutes: input.recordedMinutes,
       ...(trimmed ? { transcriptCoversLastMinutes: 60 } : {}),
     },
-    ...(input.summary ? { fathomSummary: input.summary } : {}),
-    ...(input.actionItems?.length ? { actionItems: input.actionItems } : {}),
+    ...(withSummary && input.summary ? { fathomSummary: input.summary } : {}),
+    ...(withSummary && input.actionItems?.length
+      ? { actionItems: input.actionItems }
+      : {}),
     transcript: input.lines
       .filter((line) => line.atSeconds >= from)
       .map((line): LabelledLine => ({

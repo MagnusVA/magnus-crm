@@ -14,8 +14,9 @@ const answers = (over: Partial<Answers> = {}): Answers => ({
 
 describe("claimFor", () => {
   it("writes one statement per kind of record", () => {
+    // A payment logged after the call, or paid in another currency, still fits the claim.
     expect(claimFor({ kind: "payment", amountMinor: 450000, currency: "USD", paymentType: "pif" })).toBe(
-      "On this call the prospect agreed to pay $4,500 today, in full.",
+      "On this call the prospect agreed to buy and paid, gave payment details, or firmly committed to pay about $4,500 in full. The money may arrive after the call, through a payment link or a financing provider, and in another currency.",
     );
     expect(claimFor({ kind: "payment", amountMinor: 50000, currency: "USD", paymentType: "deposit" })).toContain(
       "as a deposit",
@@ -36,14 +37,35 @@ describe("computeVerdict", () => {
       computeVerdict({ kind: "no_show" }, answers({ attendance: { choice: "held", confidence: 0.96 }, claim: 0.03 })),
     ).toBe("disagrees");
   });
-  it("disagrees at the 0.8 edge and is not sure just below it", () => {
+  it("disagrees at the 0.8 edge when the claim is doubtful, and is not sure just below it", () => {
     const record = { kind: "lost" as const };
-    expect(computeVerdict(record, answers({ ending: { choice: "call_back", confidence: 0.8 }, claim: 0.6 }))).toBe(
+    expect(computeVerdict(record, answers({ ending: { choice: "call_back", confidence: 0.8 }, claim: 0.45 }))).toBe(
       "disagrees",
     );
-    expect(computeVerdict(record, answers({ ending: { choice: "call_back", confidence: 0.79 }, claim: 0.6 }))).toBe(
+    expect(computeVerdict(record, answers({ ending: { choice: "call_back", confidence: 0.79 }, claim: 0.45 }))).toBe(
       "unsure",
     );
+  });
+  it("is not sure, not disagreeing, when a confident contradiction meets a claim Jev still believes", () => {
+    // The shadow run's false alarms: a loss Jev heard as a soft call-back,
+    // while rating the closer's loss reason as true (0.96).
+    expect(
+      computeVerdict({ kind: "lost" }, answers({ ending: { choice: "call_back", confidence: 1 }, claim: 0.96 })),
+    ).toBe("unsure");
+  });
+  it("is not sure when the two readings split on a question that matters", () => {
+    expect(computeVerdict({ kind: "call_back" }, answers(), ["ending"])).toBe("unsure");
+    expect(computeVerdict({ kind: "call_back" }, answers(), ["claim"])).toBe("unsure");
+    // The objection doesn't decide a verdict.
+    expect(computeVerdict({ kind: "call_back" }, answers(), ["objection"])).toBe("agrees");
+    // A confident contradiction can't outweigh a split claim (0.1 and 0.7 average 0.4).
+    expect(
+      computeVerdict({ kind: "no_show" }, answers({ attendance: { choice: "held", confidence: 0.99 }, claim: 0.4 }), [
+        "claim",
+      ]),
+    ).toBe("unsure");
+    // A claim rated false still disagrees, split or not.
+    expect(computeVerdict({ kind: "call_back" }, answers({ claim: 0.1 }), ["ending"])).toBe("disagrees");
   });
   it("disagrees on a claim rated 0.2 or less, and is not sure under 0.5", () => {
     expect(computeVerdict({ kind: "call_back" }, answers({ claim: 0.2 }))).toBe("disagrees");
@@ -90,7 +112,7 @@ describe("Decisions request and response", () => {
       request,
     );
     expect(parsed.answers.claim).toBe(0.03);
-    expect(parsed.answers.attendance.probabilities?.held).toBe(0.96);
+    expect(parsed.answers.attendance?.probabilities?.held).toBe(0.96);
     expect(parsed.costUsd).toBe(0.0187);
   });
 

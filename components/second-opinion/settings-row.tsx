@@ -79,7 +79,7 @@ export function SecondOpinionSettingsRow({ fathomConnected }: { fathomConnected:
           {settings.mode === "shadow" ? (
             <NoteLine>
               Shadow run, day <span className="font-condensed text-[14px] tabular-nums">{settings.shadowDay}</span> of 14.
-              Only owners see results.
+              Only owners and admins see results.
             </NoteLine>
           ) : null}
           {settings.paused ? (

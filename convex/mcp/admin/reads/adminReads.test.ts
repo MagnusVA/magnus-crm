@@ -671,6 +671,31 @@ describe("queue variants and setup", () => {
       });
       return { recordingId, opinionId, missedId, reviewId, deliveryId };
     });
+    // Admins work the queue during the shadow run, as on the web.
+    const adminView = await f.t.query(reads.queue.run, {
+      caller: f.caller,
+      queue: "second_opinions",
+    });
+    expect(adminView.items).toHaveLength(1);
+    expect(
+      (
+        await f.t.query(reads.queue.run, {
+          caller: f.caller,
+          queue: "second_opinions",
+          itemId: seeded.opinionId,
+        })
+      ).items,
+    ).toHaveLength(1);
+    await f.t.run((ctx) =>
+      ctx.db.patch("tenants", f.tenantId, {
+        secondOpinion: {
+          mode: "off",
+          monthlyCapUsd: 100,
+          changedAt: f.now,
+          changedByUserId: f.ownerId,
+        },
+      }),
+    );
     const hidden = await f.t.query(reads.queue.run, {
       caller: f.caller,
       queue: "second_opinions",
@@ -683,6 +708,16 @@ describe("queue variants and setup", () => {
         itemId: seeded.opinionId,
       }),
     ).rejects.toThrow(/can't find/);
+    await f.t.run((ctx) =>
+      ctx.db.patch("tenants", f.tenantId, {
+        secondOpinion: {
+          mode: "shadow",
+          monthlyCapUsd: 100,
+          changedAt: f.now,
+          changedByUserId: f.ownerId,
+        },
+      }),
+    );
     const owner = adminCaller(f.orgId, "claude-ai", "user_owner");
     const shown = await f.t.query(reads.queue.run, {
       caller: owner,

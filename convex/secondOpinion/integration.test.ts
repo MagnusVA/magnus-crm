@@ -216,27 +216,45 @@ describe("Decisions run", () => {
       verdict: "disagrees",
       reviewState: "open",
       attempts: 1,
-      costUsd: 0.0187,
+      // Three question groups, each read with and without Fathom's summary.
+      calls: 6,
+      split: [],
+      costUsd: expect.closeTo(0.0187 * 6, 10),
       gatewayRequestId: "gateway-test",
-      inputTokens: 8210,
+      inputTokens: 8210 * 6,
       evidence: {
         recordedMinutes: 34,
         prospectFirstAt: Date.now() - 2 * 3600_000 + 11 * 60_000,
       },
     });
-    const request = JSON.parse(String(fetchStub.mock.calls[0][1]?.body));
+    const requests = fetchStub.mock.calls.map((call) =>
+      JSON.parse(String(call[1]?.body)),
+    );
+    const request = requests[0];
     expect(request.provider).toEqual({ zdr: true, data_collection: "deny" });
     expect(
       request.state.transcript.map((line: { speaker: string }) => line.speaker),
     ).toEqual(["Closer", "Prospect", "Closer", "Other"]);
     expect(request.state.fathomSummary).toBe("Grace asked to talk again.");
     expect(request.state.actionItems).toEqual(["Call tomorrow"]);
-    expect(getServiceToken).toHaveBeenCalledExactlyOnceWith("ai-gateway");
+    // Each call asks one group of questions; the second reading has no summary.
+    expect(requests.map((r) => Object.keys(r.questions).join("+"))).toEqual([
+      "attendance",
+      "ending+objection",
+      "claim",
+      "attendance",
+      "ending+objection",
+      "claim",
+    ]);
+    expect(requests.slice(3).every((r) => r.state.fathomSummary === undefined)).toBe(true);
+    expect(requests.slice(3).every((r) => r.state.actionItems === undefined)).toBe(true);
+    expect(getServiceToken).toHaveBeenCalledTimes(6);
+    expect(vi.mocked(getServiceToken).mock.calls.every(([name]) => name === "ai-gateway")).toBe(true);
     await f.t.action(internal.secondOpinion.run.run, {
       secondOpinionId: id!,
       attempt: 0,
     });
-    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(fetchStub).toHaveBeenCalledTimes(6);
   });
   it("skips at the monthly cap without a gateway token or request", async () => {
     const f = await secondOpinionHarness();
@@ -271,9 +289,8 @@ describe("Decisions run", () => {
     const f = await secondOpinionHarness();
     const id = await f.queue();
     const fetchStub = vi
-      .fn()
-      .mockResolvedValueOnce(response(503))
-      .mockResolvedValueOnce(response());
+      .fn(async () => response())
+      .mockResolvedValueOnce(response(503));
     vi.stubGlobal("fetch", fetchStub);
     await f.t.action(internal.secondOpinion.run.run, {
       secondOpinionId: id!,
@@ -287,9 +304,11 @@ describe("Decisions run", () => {
     expect(await row(f, id!)).toMatchObject({
       status: "answered",
       attempts: 2,
+      // The five calls that answered on the first attempt still count.
+      costUsd: expect.closeTo(0.0187 * 11, 10),
     });
-    expect(fetchStub).toHaveBeenCalledTimes(2);
-    expect(getServiceToken).toHaveBeenCalledTimes(2);
+    expect(fetchStub).toHaveBeenCalledTimes(12);
+    expect(getServiceToken).toHaveBeenCalledTimes(12);
   });
   it("fails after three upstream failures, with one and five minute backoffs", async () => {
     const f = await secondOpinionHarness();
@@ -315,7 +334,7 @@ describe("Decisions run", () => {
       failure: "upstream_error",
       attempts: 3,
     });
-    expect(fetchStub).toHaveBeenCalledTimes(3);
+    expect(fetchStub).toHaveBeenCalledTimes(18);
   });
   it.each([
     [400, "rejected"],
@@ -331,7 +350,7 @@ describe("Decisions run", () => {
       failure,
       attempts: 1,
     });
-    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(fetchStub).toHaveBeenCalledTimes(6);
   });
   it("rechecks consent and transcript retention before sending", async () => {
     const f = await secondOpinionHarness();
@@ -372,13 +391,14 @@ describe("visibility, notes and review", () => {
           }),
         ),
       ).toBe(mode === "on");
+      // Admins work the queue during the shadow run; closers wait for "on".
       expect(
         Boolean(
           await f.admin.query(api.secondOpinion.getForReview, {
             secondOpinionId: f.id,
           }),
         ),
-      ).toBe(mode === "on");
+      ).toBe(mode !== "off");
       expect(
         Boolean(
           await f.owner.query(api.secondOpinion.forMeeting, {
@@ -395,9 +415,9 @@ describe("visibility, notes and review", () => {
         tab: "disagrees",
         paginationOpts: { numItems: 25, cursor: null },
       });
-      expect(queue.page).toHaveLength(mode === "on" ? 1 : 0);
+      expect(queue.page).toHaveLength(mode !== "off" ? 1 : 0);
       const settings = await f.admin.query(api.secondOpinion.getSettings, {});
-      expect(settings.month.answered).toBe(mode === "on" ? 1 : 0);
+      expect(settings.month.answered).toBe(mode !== "off" ? 1 : 0);
     },
   );
   it("hides a closer's card before recording and keeps the MCP contract", async () => {
@@ -696,16 +716,27 @@ describe("settings and day-close sweep", () => {
     await f.t.mutation(internal.secondOpinion.sweep.run, {});
     expect(await scheduledRows(f)).toHaveLength(0);
   });
-  it("leaves unknown speakers Other and sends only the last hour of a long recording", () => {
+  it("treats an unnamed speaker as the prospect only when no invitee spoke, and sends only the last hour of a long recording", () => {
     const lines = labelSpeakers(
       [
-        { atSeconds: 5, speakerName: "Staff", text: "Start" },
-        { atSeconds: 7300, text: "End" },
+        { atSeconds: 5, speakerName: "Staff", speakerEmail: "staff@example.com", text: "Start" },
+        { atSeconds: 7300, speakerName: "Conor", text: "End" },
       ],
       { email: "kim@example.com" },
       [],
     );
-    expect(lines.map((line) => line.role)).toEqual(["Other", "Other"]);
+    // Fathom gave the prospect no email: the speaker without one is the Prospect.
+    expect(lines.map((line) => line.role)).toEqual(["Other", "Prospect"]);
+    expect(
+      labelSpeakers(
+        [
+          { atSeconds: 5, speakerName: "Grace", speakerEmail: "grace@example.com", text: "Hi" },
+          { atSeconds: 9, speakerName: "Someone", text: "Hello" },
+        ],
+        { email: "kim@example.com" },
+        ["grace@example.com"],
+      ).map((line) => line.role),
+    ).toEqual(["Prospect", "Other"]);
     expect(
       buildState({ callKind: "new call", recordedMinutes: 130, lines })
         .transcript,
@@ -725,7 +756,7 @@ describe("boundary cases", () => {
       failure: "rejected",
       attempts: 1,
     });
-    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(fetchStub).toHaveBeenCalledTimes(6);
   });
   it("rejects invalid reopen dates atomically", async () => {
     const f = await answered();

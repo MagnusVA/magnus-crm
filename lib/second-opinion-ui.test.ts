@@ -69,6 +69,7 @@ function detail(): OpinionDetail {
     canAddNote: false,
     canReview: false,
     canReopen: false,
+    canRerun: false,
     actionItems: [],
     timeZone: "America/Tegucigalpa",
     callbackTimeZone: "America/Tegucigalpa",
@@ -171,7 +172,7 @@ describe("second opinion UI", () => {
     const html = settingsRow();
     for (const text of [
       "Shadow run, day",
-      "Only owners see results",
+      "Only owners and admins see results",
       "$40.00",
       "monthly cap is reached",
       "Checks resume on 1 Dec",

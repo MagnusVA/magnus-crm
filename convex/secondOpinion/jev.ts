@@ -1,5 +1,5 @@
 import { buildQuestions, type DecisionQuestion } from "./questions";
-import type { Answers, ChoiceAnswer } from "./verdict";
+import type { ChoiceAnswer, PartialAnswers } from "./verdict";
 
 /**
  * The Convex AI Gateway's Decisions endpoint, read on 3 November 2026 from
@@ -17,20 +17,25 @@ export type DecisionsRequest = {
   questions: Record<string, DecisionQuestion>;
 };
 
-export function buildDecisionsRequest(state: unknown, claim: string | undefined): DecisionsRequest {
+export function buildDecisionsRequest(
+  state: unknown,
+  claim: string | undefined,
+  questions: Record<string, DecisionQuestion> = buildQuestions(claim),
+): DecisionsRequest {
   return {
     model: JEV_MODEL,
     // Zero-data-retention endpoints only: the request fails rather than
     // reach a provider that keeps or collects the transcript.
     provider: { zdr: true, data_collection: "deny" },
     state,
-    questions: buildQuestions(claim),
+    questions,
   };
 }
 
 export type ParsedDecisions = {
   id: string | undefined;
-  answers: Answers;
+  /** Only the questions the request asked. */
+  answers: PartialAnswers;
   inputTokens: number | undefined;
   outputTokens: number | undefined;
   costUsd: number | undefined;
@@ -94,15 +99,12 @@ export function parseDecisionsResponse(
   const json = body as Record<string, unknown>;
   const answers = json.answers as Record<string, unknown> | undefined;
   if (!answers || typeof answers !== "object") throw new FormatChangedError("answers is missing");
-  const keysOf = (name: string) => {
+  const parsed: PartialAnswers = {};
+  for (const name of ["attendance", "ending", "objection"] as const) {
     const question = request.questions[name];
-    return question && question.type === "choice" ? Object.keys(question.criteria) : [];
-  };
-  const parsed: Answers = {
-    attendance: parseChoice(answers.attendance, "attendance", keysOf("attendance")),
-    ending: parseChoice(answers.ending, "ending", keysOf("ending")),
-    objection: parseChoice(answers.objection, "objection", keysOf("objection")),
-  };
+    if (question?.type === "choice")
+      parsed[name] = parseChoice(answers[name], name, Object.keys(question.criteria));
+  }
   if (request.questions.claim) parsed.claim = parseNoul(answers.claim);
   const usage = (json.usage ?? {}) as Record<string, unknown>;
   const num = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined);

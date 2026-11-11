@@ -35,6 +35,8 @@ export const secondOpinionTables = {
       v.literal("result_recorded"),
       v.literal("recording_matched"),
       v.literal("day_closed"),
+      // An owner or admin ran the check again.
+      v.literal("rerun"),
     ),
     // What the closer recorded. None for day_closed.
     record: v.optional(
@@ -48,7 +50,8 @@ export const secondOpinionTables = {
     ),
     // The statement Magnus built from the record, rated by Jev.
     claim: v.optional(v.string()),
-    // meetingId and recordingId, so a check runs once per pair.
+    // meetingId and recordingId, so a check runs once per pair. A rerun adds
+    // ":rerun:<time>".
     inputKey: v.string(),
     model: v.string(),
     status: v.union(
@@ -66,6 +69,12 @@ export const secondOpinionTables = {
         v.literal("no_transcript"),
         v.literal("cap_reached"),
         v.literal("disabled"),
+        // The prospect side of the transcript is too short to judge a
+        // payment, a loss or a call-back.
+        v.literal("thin_transcript"),
+        // The recording's invitee isn't this meeting's prospect, so it is
+        // someone else's call.
+        v.literal("other_prospect"),
       ),
     ),
     answers: v.optional(
@@ -88,6 +97,17 @@ export const secondOpinionTables = {
         talkPattern: v.optional(v.string()),
       }),
     ),
+    // How many Decisions calls the check took. Each question group is asked
+    // twice, with and without Fathom's summary; unset on single-call checks.
+    calls: v.optional(v.number()),
+    // Questions whose two readings picked different answers.
+    split: v.optional(v.array(v.string())),
+    // Who asked for a rerun, and which check it replaces.
+    requestedByUserId: v.optional(v.id("users")),
+    rerunOf: v.optional(v.id("secondOpinions")),
+    // Set on a check a rerun replaced. It leaves the queue and the counts.
+    supersededById: v.optional(v.id("secondOpinions")),
+    supersededAt: v.optional(v.number()),
     gatewayRequestId: v.optional(v.string()),
     inputTokens: v.optional(v.number()),
     outputTokens: v.optional(v.number()),

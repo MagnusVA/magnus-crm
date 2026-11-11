@@ -74,8 +74,8 @@ export function claimFor(record: CallRecord | undefined): string | undefined {
   switch (record.kind) {
     case "payment":
       return record.amountMinor !== undefined && record.currency
-        ? `On this call the prospect agreed to pay ${money(record.amountMinor, record.currency)} today, ${paymentShape(record.paymentType)}.`
-        : "On this call the prospect agreed to pay today.";
+        ? `On this call the prospect agreed to buy and paid, gave payment details, or firmly committed to pay about ${money(record.amountMinor, record.currency)} ${paymentShape(record.paymentType)}. The money may arrive after the call, through a payment link or a financing provider, and in another currency.`
+        : "On this call the prospect agreed to buy and paid, gave payment details, or firmly committed to pay. The money may arrive after the call.";
     case "call_back":
       return "The prospect agreed to talk again before deciding.";
     case "lost": {
@@ -93,24 +93,56 @@ export type DecisionQuestion =
   | { type: "choice"; instructions: string; criteria: Record<string, string> }
   | { type: "noul"; instructions: string };
 
-/** The `questions` body of a Decisions request. */
+const QUESTIONS = {
+  attendance: {
+    type: "choice",
+    instructions: "Did the prospect attend this sales call?",
+    criteria: { ...ATTENDANCE_CHOICES },
+  },
+  ending: {
+    type: "choice",
+    instructions: "How did the call end for the prospect?",
+    criteria: { ...ENDING_CHOICES },
+  },
+  objection: {
+    type: "choice",
+    instructions: "What mainly kept the prospect from buying today?",
+    criteria: { ...OBJECTION_CHOICES },
+  },
+} as const satisfies Record<string, DecisionQuestion>;
+
+/** Every question in one `questions` body. */
 export function buildQuestions(claim: string | undefined): Record<string, DecisionQuestion> {
   return {
-    attendance: {
-      type: "choice",
-      instructions: "Did the prospect attend this sales call?",
-      criteria: { ...ATTENDANCE_CHOICES },
-    },
-    ending: {
-      type: "choice",
-      instructions: "How did the call end for the prospect?",
-      criteria: { ...ENDING_CHOICES },
-    },
-    objection: {
-      type: "choice",
-      instructions: "What mainly kept the prospect from buying today?",
-      criteria: { ...OBJECTION_CHOICES },
-    },
+    ...QUESTIONS,
     ...(claim ? { claim: { type: "noul" as const, instructions: claim } } : {}),
   };
+}
+
+export type QuestionGroup = "attendance" | "outcome" | "claim";
+
+/**
+ * One check asks small groups of questions in separate Decisions calls, so
+ * each call weighs one thing: whether the prospect was there, how the call
+ * ended and why, and whether the closer's record is true. The claim group
+ * exists only when something was recorded.
+ */
+export function buildQuestionGroups(
+  claim: string | undefined,
+): Array<{ group: QuestionGroup; questions: Record<string, DecisionQuestion> }> {
+  return [
+    { group: "attendance", questions: { attendance: QUESTIONS.attendance } },
+    {
+      group: "outcome",
+      questions: { ending: QUESTIONS.ending, objection: QUESTIONS.objection },
+    },
+    ...(claim
+      ? [
+          {
+            group: "claim" as const,
+            questions: { claim: { type: "noul" as const, instructions: claim } },
+          },
+        ]
+      : []),
+  ];
 }

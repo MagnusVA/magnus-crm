@@ -26,9 +26,11 @@ import {
 
 export function OpinionChip({ detail }: { detail: OpinionDetail }) {
   const status =
-    detail.opinion.reviewState === "checked"
-      ? "checked"
-      : (detail.opinion.verdict ?? "unsure");
+    detail.opinion.status !== "answered"
+      ? detail.opinion.status
+      : detail.opinion.reviewState === "checked"
+        ? "checked"
+        : (detail.opinion.verdict ?? "unsure");
   return (
     <Badge
       variant={

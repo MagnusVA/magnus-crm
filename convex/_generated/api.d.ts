@@ -40,6 +40,7 @@ import type * as analytics_definitions_people from "../analytics/definitions/peo
 import type * as analytics_definitions_peopleClosersNext from "../analytics/definitions/peopleClosersNext.js";
 import type * as analytics_definitions_peopleRoles from "../analytics/definitions/peopleRoles.js";
 import type * as analytics_definitions_peopleRolesNext from "../analytics/definitions/peopleRolesNext.js";
+import type * as analytics_definitions_peopleServing from "../analytics/definitions/peopleServing.js";
 import type * as analytics_definitions_revenue from "../analytics/definitions/revenue.js";
 import type * as analytics_definitions_scorecard from "../analytics/definitions/scorecard.js";
 import type * as analytics_keys from "../analytics/keys.js";
@@ -667,6 +668,7 @@ declare const fullApi: ApiFromModules<{
   "analytics/definitions/peopleClosersNext": typeof analytics_definitions_peopleClosersNext;
   "analytics/definitions/peopleRoles": typeof analytics_definitions_peopleRoles;
   "analytics/definitions/peopleRolesNext": typeof analytics_definitions_peopleRolesNext;
+  "analytics/definitions/peopleServing": typeof analytics_definitions_peopleServing;
   "analytics/definitions/revenue": typeof analytics_definitions_revenue;
   "analytics/definitions/scorecard": typeof analytics_definitions_scorecard;
   "analytics/keys": typeof analytics_keys;
