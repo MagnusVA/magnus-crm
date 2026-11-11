@@ -38,6 +38,18 @@ export function assertCoreRole<R extends CrmRole>(
 }
 
 /**
+ * A closer asking for a scheduling or reschedule link before an admin gave
+ * them a personal calendar. The sentence tells them what to do, so it goes
+ * out as a rejection they can read, not a bug.
+ */
+export function personalCalendarMissing() {
+  return rejectRequest(
+    "calendar.personal_not_configured",
+    "No personal calendar configured. Ask your admin to assign one in Team settings.",
+  );
+}
+
+/**
  * Fields the action's own domain event metadata gains for an agent's write
  * (§5.1). The web adds nothing, so its events stay as they were.
  */

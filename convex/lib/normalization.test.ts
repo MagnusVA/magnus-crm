@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { KEPT_INSTAGRAM_HANDLES, PLACEHOLDER_INSTAGRAM_HANDLES } from "../../tests/instagramHandleCases";
 import {
   isPlaceholderEmail,
   isPlaceholderHandle,
@@ -131,36 +132,11 @@ describe("isPlaceholderEmail", () => {
 });
 
 describe("normalizeSocialHandle", () => {
-  it.each([
-    ["@campos.coachpro", "campos.coachpro"],
-    ["https://www.instagram.com/Campos.CoachPro/", "campos.coachpro"],
-    ["jo", "jo"],
-    ["@j_9", "j_9"],
-  ])("keeps the handle %s", (raw, expected) => {
+  it.each(KEPT_INSTAGRAM_HANDLES)("keeps the handle %s", (raw, expected) => {
     expect(normalizeSocialHandle(raw, "instagram")).toBe(expected);
   });
 
-  it.each([
-    "na",
-    "NA",
-    "@na",
-    "n/a",
-    "N/A",
-    "none",
-    "None",
-    "null",
-    "nil",
-    "no",
-    "-",
-    "...",
-    ".",
-    "g",
-    "@j",
-    "_._",
-    "instagram.com/g",
-    "test",
-    "",
-  ])("rejects the placeholder handle %j", (raw) => {
+  it.each(PLACEHOLDER_INSTAGRAM_HANDLES)("rejects the placeholder handle %j", (raw) => {
     expect(normalizeSocialHandle(raw, "instagram")).toBeUndefined();
   });
 });

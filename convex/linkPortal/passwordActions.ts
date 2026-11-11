@@ -12,6 +12,7 @@ import type { Id } from "../_generated/dataModel";
 import { action, env } from "../_generated/server";
 import { log, logRequestContext } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
+import { GENERIC_PORTAL_AUTH_ERROR, portalAuthFailed } from "./authFailure";
 import { issuePortalSessionToken } from "./sessionToken";
 
 const HASH_PARAMS = {
@@ -25,7 +26,6 @@ const SCRYPT_MAXMEM_BYTES = 64 * 1024 * 1024;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 256;
 const MAX_PORTAL_SLUG_LENGTH = 128;
-const GENERIC_PORTAL_AUTH_ERROR = "Portal unavailable or password invalid.";
 const IP_HASH_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 type HashParams = typeof HASH_PARAMS;
@@ -101,7 +101,7 @@ function normalizePortalSlug(portalSlug: string) {
   const trimmed = portalSlug.trim();
   if (trimmed.length === 0 || trimmed.length > MAX_PORTAL_SLUG_LENGTH) {
     log.warn("link_portal.auth.rejected", { reason: "malformed_slug" });
-    throw new Error(GENERIC_PORTAL_AUTH_ERROR);
+    throw portalAuthFailed();
   }
   return trimmed;
 }
@@ -110,7 +110,7 @@ function normalizeIpHash(ipHash: string) {
   const trimmed = ipHash.trim();
   if (!IP_HASH_PATTERN.test(trimmed)) {
     log.warn("link_portal.auth.rejected", { reason: "malformed_ip_hash" });
-    throw new Error(GENERIC_PORTAL_AUTH_ERROR);
+    throw portalAuthFailed();
   }
   return trimmed;
 }
@@ -213,22 +213,27 @@ export const verifyPassword = action({
       internal.linkPortal.configQueries.getConfigByPublicSlug,
       { publicSlug: portalSlug },
     );
+    if (!config || !config.isEnabled) {
+      log.warn("link_portal.auth.rejected", {
+        reason: !config ? "portal_not_found" : "portal_disabled",
+        tenantId: config?.tenantId,
+      });
+      throw portalAuthFailed();
+    }
+    // An enabled portal always has a password this code can check, so either
+    // state means the data or the code is wrong: a plain Error, reported as a
+    // bug.
     if (
-      !config ||
-      !config.isEnabled ||
       !config.passwordHash ||
       !config.passwordSalt ||
       !isSupportedHashParams(config.passwordHashParams)
     ) {
       log.warn("link_portal.auth.rejected", {
-        reason: !config
-          ? "portal_not_found"
-          : !config.isEnabled
-            ? "portal_disabled"
-            : !config.passwordHash || !config.passwordSalt
-              ? "password_not_set"
-              : "unsupported_hash_params",
-        tenantId: config?.tenantId,
+        reason:
+          !config.passwordHash || !config.passwordSalt
+            ? "password_not_set"
+            : "unsupported_hash_params",
+        tenantId: config.tenantId,
       });
       throw new Error(GENERIC_PORTAL_AUTH_ERROR);
     }
@@ -253,7 +258,7 @@ export const verifyPassword = action({
           ipHash,
         },
       );
-      throw new Error(GENERIC_PORTAL_AUTH_ERROR);
+      throw portalAuthFailed();
     }
 
     const attemptedHash = await hashPortalPassword(
@@ -281,7 +286,7 @@ export const verifyPassword = action({
           ipHash,
         },
       );
-      throw new Error(GENERIC_PORTAL_AUTH_ERROR);
+      throw portalAuthFailed();
     }
 
     await ctx.runMutation(

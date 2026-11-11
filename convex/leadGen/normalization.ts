@@ -1,10 +1,15 @@
 import type { Doc } from "../_generated/dataModel";
-import { normalizeSocialHandle } from "../lib/normalization";
+import { rejectRequest } from "../lib/observability/errors";
+import {
+  INVALID_INSTAGRAM_HANDLE_MESSAGE,
+  normalizeInstagramHandle,
+} from "../../lib/lead-gen/instagram-handle";
 
 type Source = Doc<"leadGenSubmissions">["source"];
 type OriginKind = Doc<"leadGenSubmissions">["originKind"];
 
-const INSTAGRAM_HANDLE_PATTERN = /^(?=.{1,30}$)(?=.*[a-z0-9])[a-z0-9._]+$/;
+/** The code a capture is rejected with when its handle isn't an Instagram one. */
+export const INVALID_INSTAGRAM_HANDLE_CODE = "lead_gen.invalid_instagram_handle";
 const URL_PROTOCOL_PATTERN = /^[a-z][a-z\d+\-.]*:\/\//i;
 const MAX_ORIGIN_LABEL_LENGTH = 300;
 const MAX_RANKABLE_ORIGIN_URL_LENGTH = 1000;
@@ -20,27 +25,42 @@ export type NormalizedLeadGenOrigin = {
   originKey?: string;
 };
 
-export function normalizeLeadGenProspectInput(args: {
+/**
+ * The prospect a handle or profile URL names, or `undefined` when it names
+ * none. For callers that answer "not a handle" themselves, such as a lookup.
+ * The rules are the capture form's own (`normalizeInstagramHandle`).
+ */
+export function tryNormalizeLeadGenProspectInput(args: {
   source: Source;
   rawHandleOrProfileUrl: string;
-}): NormalizedLeadGenProspectInput {
-  const normalizedHandle = normalizeSocialHandle(
-    args.rawHandleOrProfileUrl,
-    "instagram",
-  );
-
-  if (
-    !normalizedHandle ||
-    !INSTAGRAM_HANDLE_PATTERN.test(normalizedHandle)
-  ) {
-    throw new Error("Enter an Instagram handle or profile URL");
-  }
+}): NormalizedLeadGenProspectInput | undefined {
+  const normalizedHandle = normalizeInstagramHandle(args.rawHandleOrProfileUrl);
+  if (!normalizedHandle) return undefined;
 
   return {
     normalizedHandle,
     profileUrl: `https://instagram.com/${normalizedHandle}`,
     dedupeKey: `instagram:${normalizedHandle}`,
   };
+}
+
+/**
+ * The prospect a capture names. A handle that isn't one is the setter's to
+ * fix, so it is rejected with a code and the sentence the form shows.
+ */
+export function normalizeLeadGenProspectInput(args: {
+  source: Source;
+  rawHandleOrProfileUrl: string;
+}): NormalizedLeadGenProspectInput {
+  const normalized = tryNormalizeLeadGenProspectInput(args);
+  if (!normalized) {
+    throw rejectRequest(
+      INVALID_INSTAGRAM_HANDLE_CODE,
+      INVALID_INSTAGRAM_HANDLE_MESSAGE,
+      { source: args.source },
+    );
+  }
+  return normalized;
 }
 
 export function normalizeLeadGenOrigin(args: {

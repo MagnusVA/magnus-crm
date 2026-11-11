@@ -10,6 +10,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   assertCoreRole,
+  personalCalendarMissing,
   provenanceMetadata,
   toCheckResult,
   WEB,
@@ -199,9 +200,7 @@ export const createNoShowRescheduleLink = mutation({
       throw new Error("User not found");
     }
     if (!user.personalEventTypeUri) {
-      throw new Error(
-        "No personal calendar configured. Ask your admin to assign one in Team settings.",
-      );
+      throw personalCalendarMissing();
     }
 
     const opportunity = await ctx.db.get("opportunities", opportunityId);

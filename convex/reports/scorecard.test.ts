@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ConvexError } from "convex/values";
 import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
+import { getErrorMessage } from "../../lib/errors";
 import { scorecardFixture, whole, history, today, identity, HOUR } from "../../tests/scorecardFixtures";
 import { buildAnswers, buildCash, buildFollowThrough, buildFunnel, buildLifecycle, buildOrigins } from "./scorecard";
 import { privateAnswer } from "./lib/scorecardFacts";
+import { RANGE_TOO_LARGE_CODE } from "./lib/rangeLimit";
 import { syncLeadStageEntries } from "../lib/leadLifecycle";
 
 afterEach(() => vi.useRealTimers());
@@ -107,7 +110,15 @@ describe("Scorecard readers", () => {
       void _id; void _creationTime;
       for (let i = 0; i < 2501; i++) await ctx.db.insert("paymentRecords", { ...fields, recordedAt: whole.fromMs + i });
     });
-    await expect(f.t.withIdentity(identity).query(api.reports.scorecard.cash, { range: whole })).rejects.toThrow("Choose a shorter range");
+    for (const ref of [api.reports.scorecard.cash, api.reports.scorecard.funnel]) {
+      let error: unknown;
+      try { await f.t.withIdentity(identity).query(ref, { range: whole }); }
+      catch (caught) { error = caught; }
+      expect(error).toBeInstanceOf(ConvexError);
+      if (!(error instanceof ConvexError)) throw new Error("Expected a coded range rejection");
+      expect(error.data).toEqual({ code: RANGE_TOO_LARGE_CODE, message: "Choose a shorter range" });
+      expect(getErrorMessage(error, "fallback")).toBe("Choose a shorter range");
+    }
   });
   it("counts a busy day's funnel: 700 people of realistic size entering it", async () => {
     // Production, Nov 9: about 650 people entered In conversation in one day,
@@ -155,7 +166,14 @@ describe("Scorecard readers", () => {
   it("refuses as a shorter range, not a Convex limit, when the stage walk would not fit", async () => {
     const f = await scorecardFixture();
     await seedSixStages(f, 1600);
-    await expect(f.t.withIdentity(identity).query(api.reports.scorecard.funnel, { range: today })).rejects.toThrow("Choose a shorter range");
+    // Each stage has fewer than 2,500 entries; six stages and 1,600 people exceed the index-range budget.
+    let error: unknown;
+    try { await f.t.withIdentity(identity).query(api.reports.scorecard.funnel, { range: today }); }
+    catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(ConvexError);
+    if (!(error instanceof ConvexError)) throw new Error("Expected a coded range rejection");
+    expect(error.data).toEqual({ code: RANGE_TOO_LARGE_CODE, message: "Choose a shorter range" });
+    expect(getErrorMessage(error, "fallback")).toBe("Choose a shorter range");
   }, 240_000);
   it("filters bookings by booking program and cash by payment program", async () => {
     const f = await scorecardFixture();

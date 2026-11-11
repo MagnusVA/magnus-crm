@@ -1,11 +1,11 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { log } from "../lib/observability/log";
+import { portalAuthFailed } from "./authFailure";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 5;
-const GENERIC_PORTAL_AUTH_ERROR = "Portal unavailable or password invalid.";
 
 export const assertNotLocked = internalMutation({
   args: {
@@ -29,7 +29,7 @@ export const assertNotLocked = internalMutation({
         failedCount: attempt.failedCount,
         lockedUntil: attempt.lockedUntil,
       });
-      throw new Error(GENERIC_PORTAL_AUTH_ERROR);
+      throw portalAuthFailed();
     }
   },
 });

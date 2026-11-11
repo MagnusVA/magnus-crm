@@ -2,7 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { followMergeChain } from "../leads/identityResolution";
 import { LIFECYCLE_STAGE_LABELS, type Disposition, type LifecycleStage } from "../leads/lifecycle";
-import { normalizeLeadGenProspectInput } from "./normalization";
+import { tryNormalizeLeadGenProspectInput } from "./normalization";
 
 /**
  * What Magnus knows about a handle, read without saving anything
@@ -76,13 +76,9 @@ export async function lookupHandle(
   tenantId: Id<"tenants">,
   input: string,
 ): Promise<HandleLookup> {
-  let normalized: ReturnType<typeof normalizeLeadGenProspectInput>;
-  try {
-    // Both sources share one handle space (`instagram:<handle>`).
-    normalized = normalizeLeadGenProspectInput({ source: "instagram", rawHandleOrProfileUrl: input });
-  } catch {
-    return { input, valid: false, reason: "Not an Instagram handle or profile URL" };
-  }
+  // Both sources share one handle space (`instagram:<handle>`).
+  const normalized = tryNormalizeLeadGenProspectInput({ source: "instagram", rawHandleOrProfileUrl: input });
+  if (!normalized) return { input, valid: false, reason: "Not an Instagram handle or profile URL" };
   const base = { input, valid: true as const, handle: normalized.normalizedHandle, dedupeKey: normalized.dedupeKey };
 
   const prospect = await ctx.db
