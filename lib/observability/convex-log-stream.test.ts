@@ -426,9 +426,20 @@ describe("transformLogStreamBatch", () => {
         `Uncaught ArgumentValidationError: Object contains extra field \`transcript\` that is not in the validator.\n\nObject: ${dump}\nValidator: v.object({...})`,
       ),
     ]);
-    const exceptions = JSON.stringify(batch.exceptions);
     expect(batch.exceptions).toHaveLength(1);
-    expect(exceptions).not.toContain("Private feedback marker");
+    expect(JSON.stringify(batch)).not.toContain("Private feedback marker");
+  });
+
+  test("an argument dump is redacted even when email redaction lengthens the text", () => {
+    // `a@b.co` becomes `<email>`, so substituting first would push the dump
+    // past the pattern's bound.
+    const emails = "a@b.co ".repeat(1_130);
+    const dump = JSON.stringify({ summary: `Private feedback marker ${emails}`, transcript: "extra" }, null, 2);
+    const batch = transformLogStreamBatch([
+      failure("req19", `Uncaught ArgumentValidationError: Object contains extra field \`transcript\`.\n\nObject: ${dump}`),
+    ]);
+    expect(batch.exceptions).toHaveLength(1);
+    expect(JSON.stringify(batch)).not.toContain("Private feedback marker");
   });
 
   test("rejection events carry the normalized message, not user input", () => {

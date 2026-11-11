@@ -27,10 +27,11 @@ export function redactPii(text: string): string {
 /**
  * Convex argument validation errors dump the offending value
  * (`Value: …` / `Object: {…}`), until the `Path:` or `Validator:` line or the
- * end. The bound matches `MAX_INPUT`, so a dump longer than any fixed window
- * (an MCP tool's long free text) is still dropped whole.
+ * end. The bound matches `MAX_INPUT`, and dumps are dropped before the PII
+ * substitutions can lengthen the text, so a long dump (an MCP tool's free
+ * text) is still dropped whole.
  */
-const VALIDATOR_DUMP = /(^|\n)(Value|Object): [\s\S]{0,8000}?(?=\n(?:Validator|Path):|$)/g;
+const VALIDATOR_DUMP = new RegExp(String.raw`(^|\n)(Value|Object): [\s\S]{0,${MAX_INPUT}}?(?=\n(?:Validator|Path):|$)`, "g");
 /** Error messages quote user input: `Lead "Jane Doe" is lost`, `Invalid link "…"`. */
 const QUOTED = /"[^"\n]{1,200}"/g;
 
@@ -39,5 +40,6 @@ const QUOTED = /"[^"\n]{1,200}"/g;
  * quoted values and validator dumps, which in error text are usually input.
  */
 export function redactErrorText(text: string): string {
-  return redactPii(text).replace(VALIDATOR_DUMP, "$1$2: <redacted>").replace(QUOTED, '"<redacted>"');
+  const withoutDumps = text.slice(0, MAX_INPUT).replace(VALIDATOR_DUMP, "$1$2: <redacted>");
+  return redactPii(withoutDumps).replace(QUOTED, '"<redacted>"');
 }

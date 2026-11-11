@@ -18,18 +18,20 @@ import { FEEDBACK_OUTCOMES } from "../schema";
 export const feedbackArgs = {
   summary: v.string(),
   outcome: v.string(),
-  worked: v.optional(v.string()),
-  failed: v.optional(v.string()),
-  couldNotDo: v.optional(v.string()),
-  toolsUsed: v.optional(v.array(v.string())),
-  toolsFailed: v.optional(v.array(v.string())),
+  // Some clients send every optional field, as null or "": both mean omitted.
+  worked: v.optional(v.union(v.string(), v.null())),
+  failed: v.optional(v.union(v.string(), v.null())),
+  couldNotDo: v.optional(v.union(v.string(), v.null())),
+  toolsUsed: v.optional(v.union(v.array(v.string()), v.null())),
+  toolsFailed: v.optional(v.union(v.array(v.string()), v.null())),
 };
 
 const SUMMARY_MAX = 2_000;
 const TEXT_MAX = 4_000;
 const TOOLS_MAX = 30;
-// Clients prefix tool names (Claude shows `mcp__<server>__magnus_today`), so
-// the Magnus name is the part after the last `__`.
+// Clients prefix tool names (`mcp__<server>__magnus_today`, `server.magnus_today`),
+// so the Magnus name is the trailing `magnus_…` after `__` or a separator.
+const TRAILING_TOOL = /(?:^|__|[^a-z0-9_])(magnus_[a-z0-9_]{1,57})$/;
 const TOOL_NAME = /^magnus_[a-z0-9]+(?:_[a-z0-9]+){0,15}$/;
 /** A repeat of the same feedback inside this window is a retry. */
 const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
@@ -55,17 +57,17 @@ function text(value: string, field: string, max: number): string {
   return trimmed;
 }
 
-function optionalText(value: string | undefined, field: string): string | undefined {
-  return value === undefined ? undefined : text(value, field, TEXT_MAX);
+function optionalText(value: string | null | undefined, field: string): string | undefined {
+  return value == null || !value.trim() ? undefined : text(value, field, TEXT_MAX);
 }
 
-function toolNames(values: string[] | undefined, field: string): string[] {
+function toolNames(values: string[] | null | undefined, field: string): string[] {
   if (!values) return [];
   if (values.length > TOOLS_MAX) {
     throw rejectRequest("feedback.too_many_tools", `${field} can list at most ${TOOLS_MAX} tools.`);
   }
-  const names = values.map((name) => name.trim().toLowerCase().split("__").pop() ?? "");
-  if (names.some((name) => name.length > 64 || !TOOL_NAME.test(name))) {
+  const names = values.map((name) => TRAILING_TOOL.exec(name.trim().toLowerCase())?.[1] ?? "");
+  if (names.some((name) => !TOOL_NAME.test(name))) {
     throw rejectRequest(
       "feedback.invalid_tool",
       `Each name in ${field} must be a Magnus tool name, such as magnus_today.`,
@@ -146,6 +148,7 @@ export const send = internalMutation({
     // IDs, codes and checked tool names only: the text stays in Convex.
     log.info("mcp.feedback.saved", {
       feedbackId,
+      role: me.role,
       outcome: content.outcome,
       agentClient: me.agentClient,
       toolsFailed: content.toolsFailed.join(","),

@@ -35,7 +35,7 @@ async function fixture() {
     const { init, sessionId } = await mcpConnect(h.t, token, client);
     const send = (args: Record<string, unknown>) => callTool(h.t, token, sessionId, TOOL, args);
     const list = async () =>
-      (((await mcpRpc(h.t, token, "tools/list", {}, sessionId)).body?.result as { tools?: Array<{ name: string; annotations?: Record<string, unknown> }> })
+      (((await mcpRpc(h.t, token, "tools/list", {}, sessionId)).body?.result as { tools?: Array<{ name: string; description?: string; annotations?: Record<string, unknown> }> })
         ?.tools ?? []);
     const instructions = (init.body?.result as { instructions?: string } | undefined)?.instructions ?? "";
     return { token, sessionId, send, list, instructions };
@@ -69,6 +69,8 @@ describe("magnus_send_feedback", () => {
       const me = await h.connect(sub, `client-${role}`);
       const tools = await me.list();
       expect(tools.filter((tool) => tool.name === TOOL)).toHaveLength(1);
+      // The schema carries no field descriptions, so the values must be in the text.
+      expect(tools.find((tool) => tool.name === TOOL)?.description).toContain("done, partly_done or not_done");
       expect(tools.find((tool) => tool.name === TOOL)?.annotations).toMatchObject({
         readOnlyHint: false,
         destructiveHint: false,
@@ -128,6 +130,30 @@ describe("magnus_send_feedback", () => {
     expect(await h.rows()).toHaveLength(1);
   });
 
+  it("treats empty optional fields as omitted and finds the Magnus name behind any client prefix", async () => {
+    const h = await fixture();
+    const alex = await h.connect("user_alex");
+    const result = saved(
+      await alex.send({
+        summary: "Looked up a deal.",
+        outcome: "done",
+        worked: "",
+        failed: null,
+        couldNotDo: "   ",
+        toolsUsed: ["Magnus.magnus_person", "magnus/magnus_search_deals", "magnus-magnus_tasks", "magnus_today"],
+        toolsFailed: null,
+      }),
+    );
+    const row = await h.t.run((ctx) => ctx.db.get("mcpFeedback", result.feedbackId));
+    expect(row).toMatchObject({
+      toolsUsed: ["magnus_person", "magnus_search_deals", "magnus_tasks", "magnus_today"],
+      toolsFailed: [],
+    });
+    expect(row?.worked).toBeUndefined();
+    expect(row?.failed).toBeUndefined();
+    expect(row?.couldNotDo).toBeUndefined();
+  });
+
   it("returns the first report for a retry within 10 minutes and saves a later repeat", async () => {
     const h = await fixture();
     const alex = await h.connect("user_alex");
@@ -170,9 +196,20 @@ describe("magnus_send_feedback", () => {
       `You've sent ${FEEDBACK_DAILY_CAP} feedback reports in the last 24 hours`,
     );
     expect(saved(await alex.send(REPORT))).toMatchObject({ feedbackId: last.feedbackId, alreadySaved: true });
+    // Reports older than 24 hours stop counting.
+    await h.t.run(async (ctx) => {
+      const old = await ctx.db
+        .query("mcpFeedback")
+        .withIndex("by_tenantId_and_userId_and_createdAt", (q) =>
+          q.eq("tenantId", h.seeded.tenantId).eq("userId", h.seeded.closerId).lt("createdAt", now - 30 * 60_000),
+        )
+        .take(1);
+      await ctx.db.patch("mcpFeedback", old[0]._id, { createdAt: now - 25 * 60 * 60_000 });
+    });
+    saved(await alex.send({ summary: "Now there's room", outcome: "done" }));
     // Another user's cap is their own.
     saved(await (await h.connect("user_sofia")).send({ summary: "Mine", outcome: "done" }));
-    expect(await h.rows()).toHaveLength(FEEDBACK_DAILY_CAP + 1);
+    expect(await h.rows()).toHaveLength(FEEDBACK_DAILY_CAP + 2);
   });
 
   it("keeps the text out of the gateway audit log, for saved, refused and malformed calls", async () => {
