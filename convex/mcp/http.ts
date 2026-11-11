@@ -11,13 +11,14 @@ import { adminTools } from "./toolsets/admin";
 import { closerTools } from "./toolsets/closer";
 import { leadGenTools } from "./toolsets/leadGen";
 import { leadGenAdminTools } from "./toolsets/leadGenAdmin";
+import { sharedTools } from "./toolsets/shared";
 
 /**
  * One registered list for every role (docs/plans/admin-assistant.md §6). The
  * gateway deletes tools missing from a list, so two lists would overwrite each
  * other; `authorize` filters this one per caller instead.
  */
-const allTools = [...closerTools, ...adminTools, ...leadGenTools, ...leadGenAdminTools];
+const allTools = [...closerTools, ...adminTools, ...leadGenTools, ...leadGenAdminTools, ...sharedTools];
 const isAdminRole = (role: string) => role === "tenant_master" || role === "tenant_admin";
 import { handleProofUpload } from "./uploads";
 

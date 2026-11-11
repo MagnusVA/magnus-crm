@@ -12,6 +12,22 @@ export const financingProviderValidator = v.union(
   v.literal("other"),
 );
 
+/** The roles that have an MCP toolset (`MCP_TOOLSET_ROLES` in guard.ts). */
+export const mcpRoleValidator = v.union(
+  v.literal("closer"),
+  v.literal("tenant_master"),
+  v.literal("tenant_admin"),
+  v.literal("lead_generator"),
+);
+
+export const FEEDBACK_OUTCOMES = ["done", "partly_done", "not_done"] as const;
+
+export const feedbackOutcomeValidator = v.union(
+  v.literal("done"),
+  v.literal("partly_done"),
+  v.literal("not_done"),
+);
+
 export const mcpTables = {
   // One structured note an agent writes on a deal after a call. Append-only:
   // nothing edits or deletes a note, and a wrong note gets a correcting one.
@@ -122,6 +138,32 @@ export const mcpTables = {
     .index("by_keepUntil_and_expiresAt", ["keepUntil", "expiresAt"])
     .index("by_tenantId_and_usedAt", ["tenantId", "usedAt"])
     .index("by_tenantId_and_kind_and_status", ["tenantId", "kind", "status"]),
+
+  // Feedback an agent sends about a conversation, so the Magnus team can see
+  // which tools worked, which failed and what users couldn't do. Append-only;
+  // the text stays here and never goes to PostHog or the gateway audit log.
+  mcpFeedback: defineTable({
+    tenantId: v.id("tenants"),
+    userId: v.id("users"),
+    // The role when the feedback was sent; a user's role can change later.
+    role: mcpRoleValidator,
+    // clientInfo.name the MCP client sent, or "unknown".
+    agentClient: v.string(),
+    summary: v.string(),
+    outcome: feedbackOutcomeValidator,
+    worked: v.optional(v.string()),
+    failed: v.optional(v.string()),
+    couldNotDo: v.optional(v.string()),
+    // magnus_* tool names, checked against a pattern, not the catalog.
+    toolsUsed: v.array(v.string()),
+    toolsFailed: v.array(v.string()),
+    // SHA-256 of the feedback's content, so a retried call returns the first row.
+    contentHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_userId_and_createdAt", ["tenantId", "userId", "createdAt"])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    .index("by_createdAt", ["createdAt"]),
 
   // The client name each MCP session started with. The gateway doesn't pass
   // clientInfo to tools, so the HTTP mount records it on initialize and

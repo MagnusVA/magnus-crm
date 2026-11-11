@@ -20,6 +20,7 @@ const LEAD_GEN_TOOLS = [
   "magnus_my_lead_gen_outcomes",
   "magnus_respark_batch",
   "magnus_respark_person",
+  "magnus_send_feedback",
   "magnus_set_contact_again",
 ];
 const ADMIN_TOOLS = [
@@ -37,6 +38,7 @@ const ADMIN_TOOLS = [
   "magnus_queue",
   "magnus_report",
   "magnus_report_list",
+  "magnus_send_feedback",
   "magnus_setup",
 ];
 const ADMIN_WRITES = [
@@ -49,7 +51,7 @@ const CLOSER_TOOLS = [
   "magnus_add_call_note", "magnus_attach_proof", "magnus_attach_recording",
   "magnus_day_summary", "magnus_end_day", "magnus_get_recording", "magnus_log_payment",
   "magnus_mark_lost", "magnus_mark_no_show", "magnus_move_callback", "magnus_person",
-  "magnus_proof_upload_url", "magnus_search_deals", "magnus_set_callback", "magnus_tasks", "magnus_today",
+  "magnus_proof_upload_url", "magnus_search_deals", "magnus_send_feedback", "magnus_set_callback", "magnus_tasks", "magnus_today",
 ];
 
 type Harness = Awaited<ReturnType<typeof createMcpHarness>>;
@@ -96,7 +98,7 @@ describe("the one catalog, by role", () => {
     // The closer's list is the closer toolset, unchanged by the new roles.
     const alex = await connectAs(h, seeded.orgId, "user_alex");
     expect(alex.names).toEqual(CLOSER_TOOLS);
-    expect(alex.names.filter((name) => [...LEAD_GEN_TOOLS, ...ADMIN_TOOLS].includes(name))).toEqual(["magnus_get_recording"]);
+    expect(alex.names.filter((name) => [...LEAD_GEN_TOOLS, ...ADMIN_TOOLS].includes(name))).toEqual(["magnus_get_recording", "magnus_send_feedback"]);
     expect(alex.instructions).toContain("Alex Rivera, a closer");
   });
 
@@ -131,7 +133,7 @@ describe("the one catalog, by role", () => {
       expect(off.instructions).not.toContain("magnus_today");
     }
     expect((await connectAs(h, seeded.orgId, "user_admin")).names).toEqual(ADMIN_TOOLS);
-    expect((await connectAs(h, seeded.orgId, "user_alex")).names).toHaveLength(16);
+    expect((await connectAs(h, seeded.orgId, "user_alex")).names).toHaveLength(17);
   });
   it("lists no tools for an admin whose reading was switched off after enabling changes", async () => {
     const h = await createMcpHarness();

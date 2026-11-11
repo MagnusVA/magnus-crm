@@ -37,6 +37,7 @@ const TENANT_INDEX_BY_TABLE = {
   users: "by_tenantId",
   // AI assistant tables (docs/plans/closer-assistant.md §8).
   callNotes: "by_tenantId_and_opportunityId_and_createdAt",
+  mcpFeedback: "by_tenantId_and_createdAt",
   paymentProofUploads: "by_tenantId_and_userId_and_status",
   endOfDayReports: "by_tenantId_and_periodEnd",
   tenantFathomConnections: "by_tenantId",
