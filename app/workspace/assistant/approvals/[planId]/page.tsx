@@ -1,4 +1,4 @@
-import { preloadQuery } from "convex/nextjs";
+import { preloadQuery } from "@/lib/convex-server-reads";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import { ContentReveal } from "@/components/page-transitions";

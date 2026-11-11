@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { fetchQuery } from "@/lib/convex-server-reads";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { PageBand } from "@/app/workspace/_components/page-band";
