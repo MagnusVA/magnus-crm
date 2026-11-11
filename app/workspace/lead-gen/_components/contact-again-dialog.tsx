@@ -14,6 +14,7 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useCurrentBusinessDate } from "@/hooks/use-current-business-date";
 import { addBusinessDays } from "@/lib/businessDay";
@@ -83,7 +84,7 @@ function DateForm({ target, saved, min, onClose }: { target: Target; saved: Cont
     <DialogFooter>
       {saved ? <Button type="button" variant="outline" onClick={() => void clear()} disabled={busy}>Clear date</Button> : null}
       <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-      <Button type="submit" disabled={busy}>{busy ? <Spinner data-icon="inline-start" /> : null}Save date</Button>
+      <Button type="submit" disabled={busy}>{busy ? <Spinner data-icon="inline-start" /> : null}<TranslatableText>Save date</TranslatableText></Button>
     </DialogFooter>
   </form>;
 }

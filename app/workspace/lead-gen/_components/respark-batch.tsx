@@ -12,6 +12,7 @@ import { DISPOSITION_LABELS, LIFECYCLE_STAGE_LABELS } from "@/convex/leads/lifec
 import { Button } from "@/components/ui/button";
 import { CopyHandleButton } from "./copy-handle-button";
 import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
 import { getErrorMessage } from "@/lib/errors";
 import {
   instagramProfileUrl,
@@ -364,7 +365,7 @@ function ResparkCard({
             onClick={() => onAct("resparked")}
           >
             {sending ? <Spinner data-icon="inline-start" /> : null}
-            Resparked
+            <TranslatableText>Resparked</TranslatableText>
           </Button>
           <Button
             variant="outline"

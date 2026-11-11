@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
 import { useCurrentBusinessDate } from "@/hooks/use-current-business-date";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { usePageTitle } from "@/hooks/use-page-title";
@@ -144,7 +145,7 @@ function GetBatchButton({ again, claiming, onGetBatch }: { again: boolean; claim
   return (
     <Button onClick={onGetBatch} disabled={claiming} className="h-[34px] rounded-[7px] px-3.5 text-[13px] font-semibold">
       {claiming ? <Spinner data-icon="inline-start" /> : null}
-      {again ? "Get another batch" : "Get my batch"}
+      <TranslatableText>{again ? "Get another batch" : "Get my batch"}</TranslatableText>
     </Button>
   );
 }
