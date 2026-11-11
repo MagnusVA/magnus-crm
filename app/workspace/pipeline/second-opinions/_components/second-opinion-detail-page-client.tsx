@@ -23,6 +23,7 @@ import {
   OpinionReviewFooter,
 } from "@/components/second-opinion/meeting-card";
 import { OpinionEvidence } from "@/components/second-opinion/evidence";
+import { RecordingSummary } from "@/components/fathom/recording-summary";
 import {
   failureLabels,
   heardLabel,
@@ -195,9 +196,7 @@ export function SecondOpinionDetailPageClient({
           {detail.summary && (
             <div>
               <h3 className="mb-1 text-sm font-medium">Summary</h3>
-              <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                {detail.summary}
-              </p>
+              <RecordingSummary markdown={detail.summary} />
             </div>
           )}
           {detail.actionItems.length > 0 && (
