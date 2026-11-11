@@ -29,9 +29,9 @@ export const feedbackArgs = {
 const SUMMARY_MAX = 2_000;
 const TEXT_MAX = 4_000;
 const TOOLS_MAX = 30;
-// Clients prefix tool names (`mcp__<server>__magnus_today`, `server.magnus_today`),
-// so the Magnus name is the trailing `magnus_…` after `__` or a separator.
-const TRAILING_TOOL = /(?:^|__|[^a-z0-9_])(magnus_[a-z0-9_]{1,57})$/;
+// Clients prefix tool names (`mcp__magnus__magnus_today`, `server.magnus_today`),
+// so the Magnus name is the last segment after `__` or another separator.
+const PREFIX_SEPARATOR = /__|[^a-z0-9_]/;
 const TOOL_NAME = /^magnus_[a-z0-9]+(?:_[a-z0-9]+){0,15}$/;
 /** A repeat of the same feedback inside this window is a retry. */
 const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
@@ -66,8 +66,16 @@ function toolNames(values: string[] | null | undefined, field: string): string[]
   if (values.length > TOOLS_MAX) {
     throw rejectRequest("feedback.too_many_tools", `${field} can list at most ${TOOLS_MAX} tools.`);
   }
-  const names = values.map((name) => TRAILING_TOOL.exec(name.trim().toLowerCase())?.[1] ?? "");
-  if (names.some((name) => !TOOL_NAME.test(name))) {
+  const names = values.map(
+    (name) =>
+      name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+$/, "") // `magnus_today()`
+        .split(PREFIX_SEPARATOR)
+        .at(-1) ?? "",
+  );
+  if (names.some((name) => name.length > 64 || !TOOL_NAME.test(name))) {
     throw rejectRequest(
       "feedback.invalid_tool",
       `Each name in ${field} must be a Magnus tool name, such as magnus_today.`,

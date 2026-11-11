@@ -87,6 +87,7 @@ describe("magnus_send_feedback", () => {
         userId: h.seeded[userKey],
         role,
         agentClient: `client-${role}`,
+        summary: `${REPORT.summary} (${role})`,
         outcome: "partly_done",
         worked: REPORT.worked,
         failed: REPORT.failed,
@@ -140,13 +141,28 @@ describe("magnus_send_feedback", () => {
         worked: "",
         failed: null,
         couldNotDo: "   ",
-        toolsUsed: ["Magnus.magnus_person", "magnus/magnus_search_deals", "magnus-magnus_tasks", "magnus_today"],
+        toolsUsed: [
+          "Magnus.magnus_person",
+          "magnus/magnus_search_deals",
+          "magnus-magnus_tasks()",
+          "magnus_today",
+          // Claude Code, with the server added as "magnus" or "magnus_crm".
+          "mcp__magnus__magnus_get_recording",
+          "mcp__magnus_crm__magnus_day_summary",
+        ],
         toolsFailed: null,
       }),
     );
     const row = await h.t.run((ctx) => ctx.db.get("mcpFeedback", result.feedbackId));
     expect(row).toMatchObject({
-      toolsUsed: ["magnus_person", "magnus_search_deals", "magnus_tasks", "magnus_today"],
+      toolsUsed: [
+        "magnus_day_summary",
+        "magnus_get_recording",
+        "magnus_person",
+        "magnus_search_deals",
+        "magnus_tasks",
+        "magnus_today",
+      ],
       toolsFailed: [],
     });
     expect(row?.worked).toBeUndefined();
