@@ -162,8 +162,7 @@ export const mcpTables = {
     createdAt: v.number(),
   })
     .index("by_tenantId_and_userId_and_createdAt", ["tenantId", "userId", "createdAt"])
-    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
-    .index("by_createdAt", ["createdAt"]),
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"]),
 
   // The client name each MCP session started with. The gateway doesn't pass
   // clientInfo to tools, so the HTTP mount records it on initialize and
