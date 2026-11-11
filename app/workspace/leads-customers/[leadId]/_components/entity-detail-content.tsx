@@ -1,4 +1,4 @@
-import { preloadQuery } from "convex/nextjs";
+import { preloadQuery } from "@/lib/convex-server-reads";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { EntityDetailPageClient } from "./entity-detail-page-client";

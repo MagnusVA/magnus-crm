@@ -46,25 +46,35 @@ export function logSlackNotifySkipped(
 /**
  * A notification that wasn't delivered. The failure is otherwise only kept in
  * a domain event or a channel error field, so it goes to Error Tracking too.
+ *
+ * `call` names the Slack method and how many times it ran, for a post that
+ * retries. The message then reads `Slack <operation> failed: …`, the shape
+ * the classifier reads as an integration failure.
  */
 export function reportSlackNotifyFailed(
   slackError: string,
   attrs: SlackNotificationAttrs,
+  call?: { operation: string; attempts: number },
 ) {
   const httpStatus = /^http_(\d{3})$/.exec(slackError)?.[1];
-  reportError(
-    "slack.notify.post_failed",
-    new Error(
-      httpStatus
-        ? `Slack notification not delivered: HTTP ${httpStatus}`
-        : `Slack notification not delivered: ${slackError}`,
-    ),
-    {
-      severity: WARNING_ERRORS.has(slackError) ? "warning" : "error",
-      integration: "slack",
-      fingerprint: `slack.notify.post_failed:${slackError}`,
-      slackError,
-      ...attrs,
-    },
-  );
+  // "request error" is what the classifier reads when there is no status.
+  const detail = httpStatus
+    ? `HTTP ${httpStatus}`
+    : slackError === "transport_error"
+      ? "request error transport_error"
+      : slackError;
+  const message = call
+    ? `Slack ${call.operation} failed: ${detail}` +
+      (call.attempts > 1 ? ` after ${call.attempts} attempts` : "")
+    : httpStatus
+      ? `Slack notification not delivered: HTTP ${httpStatus}`
+      : `Slack notification not delivered: ${slackError}`;
+  reportError("slack.notify.post_failed", new Error(message), {
+    severity: WARNING_ERRORS.has(slackError) ? "warning" : "error",
+    integration: "slack",
+    fingerprint: `slack.notify.post_failed:${slackError}`,
+    slackError,
+    ...attrs,
+    ...(call ? { attempts: call.attempts } : {}),
+  });
 }

@@ -10,6 +10,7 @@ Errors, logs, and server events all go to PostHog (US cloud). This guide covers 
 | Browser copies of Convex failures | `before_send` in `lib/observability/client-exceptions.ts` | A `convex_call_failed` event with `convex_request_id`, not an issue |
 | Next.js server errors | `onRequestError` in `instrumentation.ts` | Error Tracking, linked to the person and session through the `ph_…_posthog` cookie |
 | Handled Next.js server errors | `reportServerError` in route handlers and server actions | Error Tracking, `error_origin: next_server_handled` |
+| Rejected Next.js requests | `reportServerRejection` in route handlers | A `next_request_rejected` event (`error_kind: expected`), not an issue |
 | Convex failures | Convex webhook log stream → `app/api/observability/convex/route.ts` | Error Tracking (`bug`, `integration`, `platform`) or a `convex_request_rejected` event (`expected`) |
 | Handled backend errors | `reportError` in Convex code | Error Tracking, `convex_handled: true` |
 | Backend logs | `console.*` and `log.*` in Convex code | Logs, service `magnus-convex` |
@@ -35,12 +36,13 @@ Import from `convex/lib/observability/`:
 - `reportError(event, error, { severity, fingerprint, integration, ...attrs })` reports an error the code caught and handled. Use it where an error is swallowed, turned into a status field, or retried later, and where data is dropped on purpose. Uncaught errors are already reported, so don't catch and rethrow just to report.
 - `rejectRequest(code, message, attrs)` and `expectedError(code, message)` return a `ConvexError` for failures the caller caused (signed out, no access, invalid input). These count as rejections, not bugs, and the browser shows `error.data.message` unredacted in production. Throw a plain `Error` when the code is wrong.
 - The auth helpers call `logRequestContext`, which attributes the rest of the request's logs and failures to the user and tenant. Actions that authorize by hand, webhooks, and portal actions call it themselves once they know the caller or tenant. Anything else reports under `convex:<deployment>`.
-- When a third-party call fails, throw `<Vendor> <operation> failed: HTTP <status>`, with a short machine error code if the vendor sent one, and never the response body. The classifier reads the vendor and status from that shape.
+- When a third-party call fails, throw `<Vendor> <operation> failed: HTTP <status>`, with a short machine error code if the vendor sent one, and never the response body. The classifier reads the vendor and status from that shape. When the request got no answer, so there is no status, write `<Vendor> <operation> failed: request error <code>` (`Slack chat.postMessage failed: request error transport_error after 3 attempts`): the classifier also reads `request error` after a vendor name.
 - Give every external `fetch` a timeout with `timeoutSignal(ms)` from `convex/lib/timeoutSignal.ts`.
 
 ## Writing Next.js code
 
 - Route handlers and server actions that catch an error and redirect or return an error state call `reportServerError(error, { event, request, fingerprint, expected, integration })` from `lib/observability/report-server-error.ts`. Uncaught server errors are already reported by `onRequestError`.
+- `expected: true` on `reportServerError` only tags the exception (`error_kind: expected`, level `warning`); it still opens an issue. When the code can name a failure the caller caused from an allowlist of codes, call `reportServerRejection({ event, request, code, integration, attrs })` from `lib/observability/report-server-rejection.ts` instead. It sends a `next_request_rejected` event with `handled_event`, `error_code`, `request_host`, and the browser, OS and device families, and never the error, its message, a URL or the user agent string. `attrs` takes enums, counts and flags only. The sign-in callback uses it for an expired, replayed or incomplete callback (`lib/sign-in-failure.ts`), with `flow_age_seconds`, `pkce_cookie_count`, `has_posthog_cookie` and `host_matches_redirect_uri` to tell a stale tab, a refreshed callback, another browser and another host apart, and `oauth_error` when WorkOS sent an error back in place of a code. A callback carrying `server_error` or `temporarily_unavailable` is WorkOS failing and stays an exception.
 - Client code that catches an error outside a Convex call (an upload, a download, a file export) calls `reportClientError(error, { flow, httpStatus })` from `lib/observability/report-client-error.ts`. Both helpers skip Convex errors, which the backend reports.
 - Show users `getErrorMessage(error, fallback)` from `lib/errors.ts`: a `ConvexError`'s `error.message` is raw JSON. Branch on `getErrorCode(error)` rather than matching message text, which production redacts for plain `Error`s.
 - Sign out through `useSignOut()` (`hooks/use-sign-out.ts`), which resets PostHog so the next person on the browser isn't merged into the last.
@@ -104,7 +106,7 @@ In PostHog:
 
 1. Enable Logs and Error Tracking for the project.
 2. Add alerts for new and reopened issues, filtered to `environment` = `production` (or `prod` for Convex), sent to Slack.
-3. Add a trend alert on `convex_request_rejected` grouped by `error_rule`, for a spike that would mean a misclassified bug.
+3. Add a trend alert on `convex_request_rejected` grouped by `error_rule`, for a spike that would mean a misclassified bug. Do the same for `next_request_rejected` grouped by `error_code`.
 4. Optional: assignment rules on `integration` and `convex_function`, and suppression rules for any noise the browser filter misses. Suppression rules apply without a deploy.
 
 PostHog only runs when `NODE_ENV` is production, so `pnpm dev` sends nothing. To test the ingest locally, run `pnpm build && pnpm start`, expose it with `pnpm expose`, and point a dev deployment's log stream at the tunnel.

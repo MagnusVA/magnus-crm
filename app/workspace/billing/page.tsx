@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { fetchQuery } from "convex/nextjs";
+import { fetchQuery } from "@/lib/convex-server-reads";
 import { api } from "@/convex/_generated/api";
 import { requirePermission } from "@/lib/auth";
 import { BillingPageClient } from "./_components/billing-page-client";

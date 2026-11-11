@@ -43,7 +43,7 @@ export default async function AdminMeetingDetailPage({
 
 A `layout.tsx` can hold the gate for a whole section instead: `app/workspace/reports/layout.tsx` calls `requirePermission("reports:view")`.
 
-- Server-side Convex calls (`preloadQuery`, `fetchQuery`, `fetchMutation`) pass `{ token: session.accessToken }`.
+- Server-side Convex calls (`preloadQuery`, `fetchQuery`, `fetchMutation`) pass `{ token: session.accessToken }`. Import `preloadQuery` and `fetchQuery` from `@/lib/convex-server-reads`, not `convex/nextjs`: a read that fails because the token expired on the way to Convex redirects to the same page once, so the proxy refreshes the session, and a read that finds Convex unavailable runs once more. Writes (`fetchMutation`, `fetchAction`) come from `convex/nextjs` and are never retried.
 - Workspace routes have a `loading.tsx`. Skeletons use `components/ui/skeleton`, match the real layout's dimensions, and carry `role="status"` and an `aria-label`.
 - `SectionErrorBoundary` (`app/workspace/_components/section-error-boundary.tsx`) wraps sections that load independently.
 - The lead and customer UI lives under `/workspace/leads-customers`. The `leads`, `customers`, `opportunities`, `pipeline`, `operations`, `reports`, and `lead-gen` index pages only redirect, so build new screens on the canonical routes. Shared components still sit in `leads/_components` and `opportunities/_components`.

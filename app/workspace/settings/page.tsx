@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { preloadQuery } from "convex/nextjs";
+import { preloadQuery } from "@/lib/convex-server-reads";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import { SettingsPageClient } from "./_components/settings-page-client";

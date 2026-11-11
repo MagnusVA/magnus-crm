@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { fetchQuery } from "@/lib/convex-server-reads";
 import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { requirePermission } from "@/lib/auth";

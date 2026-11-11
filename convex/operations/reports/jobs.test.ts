@@ -482,3 +482,97 @@ it("drains multiple expiration, cleanup, and purge batches through bounded sweep
     vi.useRealTimers();
   }
 });
+
+describe("report reads after a job leaves ready", () => {
+  const identity = { subject: "user_fixture", org_id: "org_fixture" };
+
+  async function insertReadyJob(t: TestHarness, purpose: "dashboard" | "export") {
+    const fixture = await insertJobFixture(t, {
+      status: "ready",
+      phase: "ready",
+      completedAt: Date.now() - 2,
+      expiresAt: Date.now() - 1,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch("operationsReportJobs", fixture.jobId, { purpose });
+      await ctx.db.insert("operationsReportRows", {
+        tenantId: fixture.tenantId,
+        jobId: fixture.jobId,
+        rowType: "result",
+        section: "lead_gen_summary",
+        rowKey: "main",
+        payload: { submissions: 1 },
+        updatedAt: Date.now(),
+      });
+    });
+    return fixture;
+  }
+
+  it("returns no summary once a ready dashboard expires", async () => {
+    const t = createHarness();
+    const { jobId } = await insertReadyJob(t, "dashboard");
+    const authed = t.withIdentity(identity);
+    const args = { jobId };
+
+    expect(
+      await authed.query(api.operations.reports.jobs.getDashboardReportSummary, args),
+    ).toMatchObject({ jobId, payload: { submissions: 1 } });
+
+    await t.mutation(internal.operations.reports.cleanup.expireReadyJobs, {});
+
+    // The page's live subscription re-runs here. It reads the job's state
+    // from getReportJob, so this query answers "nothing to show".
+    expect(
+      await authed.query(api.operations.reports.jobs.getDashboardReportSummary, args),
+    ).toBeNull();
+    expect(
+      await authed.query(api.operations.reports.jobs.getReportJob, args),
+    ).toMatchObject({ status: "expired" });
+  });
+
+  it("returns an empty, finished page of artifacts once a ready export expires", async () => {
+    const t = createHarness();
+    const { jobId } = await insertReadyJob(t, "export");
+    const authed = t.withIdentity(identity);
+    const args = { jobId, paginationOpts: { cursor: null, numItems: 50 } };
+
+    expect(
+      await authed.query(api.operations.reports.jobs.listReportArtifacts, args),
+    ).toMatchObject({ page: [], isDone: true });
+
+    await t.mutation(internal.operations.reports.cleanup.expireReadyJobs, {});
+
+    // Tabs on the old client read `.isDone` and `.page` from this result.
+    expect(
+      await authed.query(api.operations.reports.jobs.listReportArtifacts, args),
+    ).toEqual({ page: [], isDone: true, continueCursor: "" });
+  });
+
+  it("still rejects the wrong kind of job and a ready dashboard with no summary", async () => {
+    const t = createHarness();
+    const { jobId } = await insertJobFixture(t, {
+      status: "ready",
+      phase: "ready",
+      completedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    });
+    const authed = t.withIdentity(identity);
+
+    await expect(
+      authed.query(api.operations.reports.jobs.listReportArtifacts, {
+        jobId,
+        paginationOpts: { cursor: null, numItems: 50 },
+      }),
+    ).rejects.toThrow("Report artifacts are available only for a ready export.");
+    await expect(
+      authed.query(api.operations.reports.jobs.getDashboardReportSummary, { jobId }),
+    ).rejects.toThrow("The report summary has not been published.");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch("operationsReportJobs", jobId, { purpose: "export" });
+    });
+    await expect(
+      authed.query(api.operations.reports.jobs.getDashboardReportSummary, { jobId }),
+    ).rejects.toThrow("Dashboard report is not ready.");
+  });
+});

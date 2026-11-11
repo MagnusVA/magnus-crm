@@ -7,7 +7,14 @@ import {
 	saveSession,
 } from "@workos-inc/authkit-nextjs";
 import { reportServerError } from "@/lib/observability/report-server-error";
+import { reportServerRejection } from "@/lib/observability/report-server-rejection";
 import { getPostHogClient } from "@/lib/posthog-server";
+import {
+	callbackOauthError,
+	rejectedCallbackReason,
+	signInCallbackDiagnostics,
+	signInFailurePath,
+} from "@/lib/sign-in-failure";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -167,14 +174,53 @@ function describeAuthError(error: unknown): {
 }
 
 /**
- * Callback failures the user causes (an expired or replayed link, a sign-in
- * started in another browser) rather than a WorkOS or app fault.
+ * Answers a failed callback. The callback URL can't be retried (its code and
+ * verifier cookie work once), so the person goes to a page with a "Sign in
+ * again" button. It is a button and not a redirect into a new flow, so a
+ * broken setup can't loop.
+ *
+ * A failure the person caused (`rejectedCallbackReason`) is recorded as a
+ * rejection event with what a triage needs to name the cause. Anything else
+ * is a WorkOS or app fault and stays an exception.
  */
-const EXPECTED_CALLBACK_ERRORS = new Set([
-	"missing_pkce_cookie",
-	"oauth_state_mismatch",
-	"missing_auth_params",
-]);
+async function failedCallbackResponse(
+	request: NextRequest,
+	error: unknown,
+	flow: "callback" | "invite_callback",
+): Promise<NextResponse> {
+	const { code, httpStatus } = describeAuthError(error);
+	const oauthError = callbackOauthError(request);
+	const reason = rejectedCallbackReason(code, oauthError);
+	const event = `auth.${flow}.failed`;
+
+	if (reason) {
+		await reportServerRejection({
+			event,
+			request,
+			code,
+			integration: "workos",
+			attrs: { http_status: httpStatus, ...signInCallbackDiagnostics(request) },
+		});
+	} else {
+		await reportServerError(error, {
+			event,
+			request,
+			integration: "workos",
+			fingerprint: `auth-${flow.replace("_", "-")}:${code}`,
+			error_code: code,
+			http_status: httpStatus,
+			oauth_error: oauthError,
+		});
+	}
+
+	return new NextResponse(null, {
+		status: 303,
+		headers: {
+			Location: signInFailurePath(reason ?? "failed"),
+			"Cache-Control": "no-store",
+		},
+	});
+}
 
 async function handleInvitationCallback(
 	request: NextRequest,
@@ -344,29 +390,7 @@ const standardAuthHandler = handleAuth({
 		// Next redirects thrown from `onSuccess` are control flow, not failures.
 		unstable_rethrow(error);
 
-		const { code, httpStatus } = describeAuthError(error);
-		const expected = EXPECTED_CALLBACK_ERRORS.has(code);
-		await reportServerError(error, {
-			event: "auth.callback.failed",
-			request,
-			integration: "workos",
-			expected,
-			fingerprint: `auth-callback:${code}`,
-			error_code: code,
-			http_status: httpStatus,
-		});
-
-		// Same response AuthKit returns when no `onError` is configured.
-		return NextResponse.json(
-			{
-				error: {
-					message: "Something went wrong",
-					description:
-						"Couldn't sign in. If you are not sure what happened, please contact your organization admin.",
-				},
-			},
-			{ status: 500 },
-		);
+		return failedCallbackResponse(request, error, "callback");
 	},
 });
 
@@ -382,15 +406,9 @@ export async function GET(request: NextRequest) {
 				errorCode: code,
 				httpStatus: httpStatus ?? null,
 			});
-			await reportServerError(error, {
-				event: "auth.invite_callback.failed",
-				request,
-				integration: "workos",
-				fingerprint: `auth-invite-callback:${code}`,
-				error_code: code,
-				http_status: httpStatus,
-			});
-			// Fall through to standard handler as last resort
+			// The standard handler can't finish a callback with no state, and
+			// this code is never exchanged twice.
+			return failedCallbackResponse(request, error, "invite_callback");
 		}
 	}
 

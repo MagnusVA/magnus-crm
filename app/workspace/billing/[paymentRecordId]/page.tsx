@@ -1,4 +1,4 @@
-import { fetchQuery, preloadQuery } from "convex/nextjs";
+import { fetchQuery, preloadQuery } from "@/lib/convex-server-reads";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
