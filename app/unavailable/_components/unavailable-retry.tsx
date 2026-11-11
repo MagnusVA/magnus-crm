@@ -62,9 +62,11 @@ export function UnavailableRetry() {
   return (
     <CardFooter
       aside={
-        delay === undefined
-          ? "This page has stopped trying on its own."
-          : `Trying again in ${waitWords(delay)}.`
+        attempts === null
+          ? undefined
+          : delay === undefined
+            ? "This page has stopped trying on its own."
+            : `Trying again in ${waitWords(delay)}.`
       }
     >
       <Button

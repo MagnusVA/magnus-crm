@@ -8,9 +8,10 @@
  *   Reported, tagged with the integration, and grouped by integration and
  *   HTTP status.
  * - `platform`: a Convex limit or timeout, or Convex disabling the
- *   deployment at the spending limit. Reported; the fix is usually a query
- *   or index change. Write conflicts are logged, not reported, since Convex
- *   retries them.
+ *   deployment at the spending limit. Reported. For a limit or timeout the
+ *   fix is usually a query or index change; for a disabled deployment, raise
+ *   the spending limit in the Convex dashboard. Write conflicts are logged,
+ *   not reported, since Convex retries them.
  * - `expected`: the caller caused it (signed out, no access, stale id,
  *   invalid input). Not an exception: logged as a warning and counted as a
  *   `convex_request_rejected` event, whose `error_rule` you can alert on.
