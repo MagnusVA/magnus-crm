@@ -26,9 +26,11 @@ export function redactPii(text: string): string {
 
 /**
  * Convex argument validation errors dump the offending value
- * (`Value: …` / `Object: {…}`), until the `Path:` or `Validator:` line.
+ * (`Value: …` / `Object: {…}`), until the `Path:` or `Validator:` line or the
+ * end. The bound matches `MAX_INPUT`, so a dump longer than any fixed window
+ * (an MCP tool's long free text) is still dropped whole.
  */
-const VALIDATOR_DUMP = /(^|\n)(Value|Object): [\s\S]{0,4000}?(?=\n(?:Validator|Path):|$)/g;
+const VALIDATOR_DUMP = /(^|\n)(Value|Object): [\s\S]{0,8000}?(?=\n(?:Validator|Path):|$)/g;
 /** Error messages quote user input: `Lead "Jane Doe" is lost`, `Invalid link "…"`. */
 const QUOTED = /"[^"\n]{1,200}"/g;
 

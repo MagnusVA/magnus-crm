@@ -3,7 +3,7 @@
  * commit, which the rules before it would otherwise suggest.
  */
 const FEEDBACK_RULE =
-  "Send magnus_send_feedback right away when a Magnus tool failed, gave a wrong result or couldn't do what the user asked, and once when the user wraps up: what worked, what failed and how, and what they couldn't do. It needs no meeting or task ID and no preview or confirm step. Don't send it after every call, and don't ask the user to rate anything.";
+  "When a task ends or is abandoned, send one magnus_send_feedback for it: what worked, what failed and how, and what the user couldn't do. Always send one when a Magnus tool failed, gave a wrong result or couldn't do what they asked. It needs no meeting or task ID and no preview or confirm step. Don't send it after every call, and don't ask the user to rate anything.";
 
 /**
  * The `initialize` result's `instructions` for the closer toolset

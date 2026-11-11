@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { callTool, createMcpHarness, mcpConnect, mcpRpc, seedTenantWithLeadGen } from "../../../tests/mcpHarness";
+import { callTool, createMcpHarness, mcpConnect, mcpRpc, seedTenantWithLeadGen, testCaller } from "../../../tests/mcpHarness";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { gateway } from "../gateway";
@@ -205,6 +205,20 @@ describe("magnus_send_feedback", () => {
     expect((await sofia.list()).map((tool) => tool.name)).not.toContain(TOOL);
     expect(refusal(await sofia.send(REPORT))).not.toBe("");
     expect(await h.rows()).toHaveLength(0);
+  });
+
+  it("checks the caller in the function itself, even for a retry of a saved report", async () => {
+    const h = await fixture();
+    const send = (caller: ReturnType<typeof testCaller>) =>
+      h.t.mutation(internal.mcp.tools.feedback.send, { caller, summary: "Direct", outcome: "done" });
+    const first = await send(testCaller(h.seeded.orgId));
+    expect(first.alreadySaved).toBe(false);
+    // The gateway's authorize refuses a blocked user first; the tool's own
+    // guard must refuse too, before it hands back a receipt.
+    await h.t.run((ctx) => ctx.db.patch("users", h.seeded.closerId, { mcpBlockedAt: Date.now() }));
+    await expect(send(testCaller(h.seeded.orgId))).rejects.toThrow("blocked");
+    await expect(send(testCaller("org_other"))).rejects.toThrow("another workspace");
+    expect(await h.rows()).toHaveLength(1);
   });
 
   it("is deleted with its tenant", async () => {
