@@ -518,13 +518,24 @@ The thresholds live in one constant, under decision 32.
 
 **Who sees what.**
 
-- In `shadow` mode, only owners. They see the queue and the month's counts on the Fathom card.
+- In `shadow` mode, owners and admins, who hold `second-opinion:review`. They see the queue and the month's counts on the Fathom card, so they can check Jev against the calls they know (changed on 10 November 2026; owners only before). Closers and their agents see nothing until `on`.
 - In `on` mode, the meeting page shows the card to the closer once the meeting has a result, and to admins always. The closer's agent gets `secondOpinion` on each meeting with a result in `magnus_today` and `magnus_get_recording`, as the verdict and the labels only, and a disagreement adds a gap in `magnus_day_summary`. The instructions gain a sixth rule: mention a disagreement once and never change a result because of it.
 - After the business day closes, a `hint` shows under the call in Needs outcome.
 
 **Review.** A disagreement sets `reviewState: "open"`. The closer can add one note on the web, through `secondOpinion.addCloserNote`; the agent gets no tool for it in this PR. Admins work the open rows in Pipeline → Second opinions, through `secondOpinion.listForReview`, gated on a new permission, `second-opinion:review`, held by `tenant_master` and `tenant_admin`. `secondOpinion.check({ id, outcome, reopen? })` records the review. With `reopen` on a no-show, it runs the core of `adminCreateFollowUp`, which moves the deal from lost to Follow-up through the `missed_meeting_next_step` exception. Attendance stays no-show, under decision 33.
 
 **Settings.** `secondOpinion.setMode({ mode, monthlyCapUsd })` needs `second-opinion:manage`, held by `tenant_master` only, because turning it on sends every recorded call to a model provider. Turning it on writes `shadow` with `shadowUntil` 14 days out. Shadow mode never ends by itself; after 14 days the card asks the owner to open it to closers and admins. Each change logs `second_opinion.access_changed`, as `mcpAccess.setRoles` does.
+
+**Strength (10 November 2026).** A blind review of the shadow run's first 17 checks, two graders a call, found Jev right on attendance every time and on the ending 11 times in 13, but only 1 of its 6 disagreements was a real catch. Three were false alarms: a 12-line transcript, a loss Jev heard as a soft call-back while rating the closer's reason as true, and a deposit paid in another currency. So a check now:
+
+- Asks three small groups of questions in separate Decisions calls (attendance; ending and objection; the claim), and asks each group twice: with Fathom's summary and action items, and from the transcript alone. That's 4 or 6 calls a check. The answers' probabilities are averaged, and `split` names any question the two readings answered differently.
+- Leads with the claim. Disagrees needs the claim at 0.2 or less, or a confident contradiction (0.8) while the claim is under 0.5. A contradiction of a claim Jev still believes, or a split on a question that matters, is Not sure.
+- Words a payment claim so a payment that arrives after the call, through a link or a financing provider, or in another currency, still fits it.
+- Skips (`thin_transcript`, no gateway call) a payment, loss or call-back when the non-closer side says under 100 words. A no-show and a day-close hint still run.
+- Skips (`other_prospect`) a recording whose outside invitees exclude every email this prospect has: it is another person's call, matched by time.
+- Labels a speaker with no email as the Prospect when no invitee spoke by email. Fathom often gives the prospect no email, and Jev was told a stranger did the talking.
+
+**Rerun.** `secondOpinion.rerun({ secondOpinionId })` lets an owner or admin with `second-opinion:review` run Jev again on a meeting's latest check that isn't running, against the meeting's current record and recording. The new row has `trigger: "rerun"`, `rerunOf` and `requestedByUserId`; the old one gets `supersededById` and leaves the queue and the month's verdict counts, keeping any review. Its cost still counts toward the cap. Reviewers also see checks that are running, skipped or failed, with the reason, so they can run them again.
 
 **Cost.** The cap check sums `costUsd` over the month's rows through `by_tenantId_and_createdAt`. The Fathom card shows the month's total against the cap. Convex's own AI Gateway limit stays unset, or far above every tenant's cap, because reaching it disables the whole deployment.
 

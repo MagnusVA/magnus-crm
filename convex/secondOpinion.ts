@@ -17,7 +17,7 @@ import {
   type CoreActor,
   type Provenance,
 } from "./lib/outcomeCores";
-import { businessDayClosed, hasResult } from "./secondOpinion/trigger";
+import { businessDayClosed, hasResult, queueRerun } from "./secondOpinion/trigger";
 import { monthRange, monthSummary } from "./secondOpinion/month";
 import { adminCreateFollowUpCore } from "./admin/meetingActions";
 import { parseLocalDateTime } from "./mcp/time";
@@ -54,6 +54,8 @@ const viewValidator = v.object({
   canAddNote: v.boolean(),
   canReview: v.boolean(),
   canReopen: v.boolean(),
+  // An owner or admin can run Jev again on the latest check of a meeting.
+  canRerun: v.boolean(),
   recordingUrl: v.optional(v.string()),
   summary: v.optional(v.string()),
   actionItems: v.array(v.string()),
@@ -66,10 +68,16 @@ const reviewOutcome = v.union(
 );
 const SHADOW_MS = 14 * 86400_000;
 
+/**
+ * Everyone allowed sees results once the second opinion is on. During the
+ * shadow run, owners and admins who work the review queue see them so they
+ * can tune Jev against what they know about the calls; closers don't.
+ */
 function maySee(me: CoreActor, tenant: Doc<"tenants">) {
   return (
     tenant.secondOpinion?.mode === "on" ||
-    (tenant.secondOpinion?.mode === "shadow" && me.role === "tenant_master")
+    (tenant.secondOpinion?.mode === "shadow" &&
+      hasPermission(me.role, "second-opinion:review"))
   );
 }
 async function view(
@@ -92,7 +100,14 @@ async function view(
     opinion.review ? ctx.db.get("users", opinion.review.byUserId) : null,
     ctx.db.get("users", me.userId),
   ]);
-  if (!tenant || !maySee(me, tenant) || opinion.status !== "answered")
+  // Reviewers also see a check that is running, skipped or failed, so they
+  // can see why and run it again. Closers see answers only.
+  if (
+    !tenant ||
+    !maySee(me, tenant) ||
+    (opinion.status !== "answered" &&
+      !hasPermission(me.role, "second-opinion:review"))
+  )
     return null;
   const isCloser =
     me.role === "closer" && meeting.assignedCloserId === me.userId;
@@ -124,6 +139,10 @@ async function view(
       opinion.reviewState === "open" &&
       !opinion.closerNote,
     canReview,
+    canRerun:
+      canReview &&
+      opinion.supersededById === undefined &&
+      tenant.secondOpinion?.mode !== "off",
     canReopen:
       canReview &&
       opinion.record?.kind === "no_show" &&
@@ -365,8 +384,11 @@ export const listForReview = query({
       numItems: Math.min(25, Math.max(1, args.paginationOpts.numItems)),
       maximumBytesRead: 300_000,
     });
+    // A check a rerun replaced leaves the lists; its replacement shows instead.
     const views = await Promise.all(
-      result.page.map((row) => view(ctx, me, row)),
+      result.page
+        .filter((row) => row.supersededById === undefined)
+        .map((row) => view(ctx, me, row)),
     );
     return {
       isDone: result.isDone,
@@ -533,5 +555,60 @@ export const check = mutation({
   handler: async (ctx, args) => {
     const me = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
     return await secondOpinionCheckCore(ctx, me, args, WEB);
+  },
+});
+
+/**
+ * Runs Jev again on a meeting's latest check, for an owner or admin who
+ * works the review queue: after a tuning change, or when a check was
+ * skipped or failed. The new check replaces the old one, which keeps its
+ * review but leaves the queue. It costs one more check against the cap.
+ */
+export const rerun = mutation({
+  args: { secondOpinionId: v.id("secondOpinions") },
+  returns: v.id("secondOpinions"),
+  handler: async (ctx, args) => {
+    const me = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
+    const tenant = await ctx.db.get("tenants", me.tenantId);
+    const previous = await ctx.db.get("secondOpinions", args.secondOpinionId);
+    if (
+      !hasPermission(me.role, "second-opinion:review") ||
+      !tenant ||
+      !maySee(me, tenant) ||
+      !previous ||
+      previous.tenantId !== me.tenantId
+    )
+      throw rejectRequest(
+        "second_opinion.rerun_denied",
+        "This check can't be run again.",
+      );
+    const latest = await ctx.db
+      .query("secondOpinions")
+      .withIndex("by_meetingId", (q) => q.eq("meetingId", previous.meetingId))
+      .order("desc")
+      .first();
+    if (latest?._id !== previous._id || previous.supersededById !== undefined)
+      throw rejectRequest(
+        "second_opinion.rerun_stale",
+        "A newer check of this call exists. Open that one.",
+      );
+    if (previous.status === "queued")
+      throw rejectRequest(
+        "second_opinion.rerun_running",
+        "Jev is still checking this call.",
+      );
+    const id = await queueRerun(ctx, { previous, requestedByUserId: me.userId });
+    if (!id)
+      throw rejectRequest(
+        "second_opinion.rerun_unavailable",
+        "There's nothing to check: the recording is gone, or the call has no result and its day isn't over.",
+      );
+    log.info("second_opinion.rerun", {
+      tenantId: me.tenantId,
+      actorUserId: me.userId,
+      secondOpinionId: id,
+      rerunOf: previous._id,
+    });
+    return id;
   },
 });

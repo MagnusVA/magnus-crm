@@ -104,7 +104,7 @@ Tests use `tests/mcpHarness.ts` (and `tests/mcpAdminFixtures.ts` for an owner, a
 
 ## Convex AI Gateway
 
-The second opinion calls Jev through `POST https://ai-gateway.convex.dev/alpha/decisions` from an internal action, with a fresh `getServiceToken("ai-gateway")` per request; never store or log the token. Decisions is in alpha: check every response against the expected shape (`convex/secondOpinion/jev.ts`) and fail as `format_changed` rather than use a half-read answer. Convex never retries an action, so retries are scheduled explicitly. Magnus keeps its own monthly cap per tenant from each answer's `usage.cost`; leave Convex's AI Gateway usage limit unset or far above it, because reaching that limit disables the whole deployment.
+The second opinion calls Jev through `POST https://ai-gateway.convex.dev/alpha/decisions` from an internal action, with a fresh `getServiceToken("ai-gateway")` per request; never store or log the token. Decisions is in alpha: check every response against the expected shape (`convex/secondOpinion/jev.ts`) and fail as `format_changed` rather than use a half-read answer. Convex never retries an action, so retries are scheduled explicitly. One check makes 4 or 6 Decisions calls (`convex/secondOpinion/run.ts`): small question groups, each read with and without Fathom's summary, combined in `verdict.ts`; the cost of calls that answered counts even when another call fails. Magnus keeps its own monthly cap per tenant from each answer's `usage.cost`; leave Convex's AI Gateway usage limit unset or far above it, because reaching that limit disables the whole deployment.
 
 ## Environment variables
 

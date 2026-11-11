@@ -2,6 +2,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -23,10 +24,12 @@ import {
 } from "@/components/second-opinion/meeting-card";
 import { OpinionEvidence } from "@/components/second-opinion/evidence";
 import {
-  labels,
+  failureLabels,
+  heardLabel,
   localDate,
   recordLabel,
 } from "@/components/second-opinion/presentation";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useBreadcrumbTrail } from "@/hooks/use-breadcrumbs";
 import { getErrorMessage } from "@/lib/errors";
@@ -34,6 +37,12 @@ import { SecondOpinionsSkeleton } from "./second-opinions-skeleton";
 const ReopenDialog = dynamic(
   () => import("@/components/second-opinion/reopen-dialog"),
 );
+const readingNames: Record<string, string> = {
+  attendance: "attendance",
+  ending: "how it ended",
+  objection: "the objection",
+  claim: "the closer's record",
+};
 export function SecondOpinionDetailPageClient({
   secondOpinionId,
 }: {
@@ -49,6 +58,8 @@ export function SecondOpinionDetailPageClient({
   ]);
   const detail = useQuery(api.secondOpinion.getForReview, { secondOpinionId });
   const check = useMutation(api.secondOpinion.check);
+  const rerun = useMutation(api.secondOpinion.rerun);
+  const router = useRouter();
   const [dialog, setDialog] = useState(false);
   const [busy, setBusy] = useState(false);
   if (detail === undefined) return <SecondOpinionsSkeleton />;
@@ -75,6 +86,18 @@ export function SecondOpinionDetailPageClient({
       setBusy(false);
     }
   }
+  async function runAgain() {
+    setBusy(true);
+    try {
+      const id = await rerun({ secondOpinionId });
+      router.push(`/workspace/pipeline/second-opinions/${id}`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not run Jev again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const { opinion } = detail;
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -87,8 +110,38 @@ export function SecondOpinionDetailPageClient({
             {detail.closer} · {detail.program ?? "Sales call"}
           </p>
         </div>
-        <OpinionChip detail={detail} />
+        <div className="flex items-center gap-3">
+          <OpinionChip detail={detail} />
+          {detail.canRerun && opinion.status !== "queued" && (
+            <Button variant="outline" size="sm" disabled={busy} onClick={runAgain}>
+              Run Jev again
+            </Button>
+          )}
+        </div>
       </header>
+      {opinion.supersededById && (
+        <Alert>
+          <AlertDescription>
+            A newer check replaced this one.{" "}
+            <Link
+              className="underline underline-offset-4"
+              href={`/workspace/pipeline/second-opinions/${opinion.supersededById}`}
+            >
+              Open the newer check
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+      {opinion.status !== "answered" && (
+        <Alert>
+          <AlertDescription>
+            {opinion.status === "queued"
+              ? "Jev is checking this call. This page updates when it answers."
+              : (failureLabels[opinion.failure ?? ""] ??
+                "Jev didn't answer this check.")}
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Second opinion</CardTitle>
@@ -112,13 +165,21 @@ export function SecondOpinionDetailPageClient({
             </div>
             <div className="flex flex-col gap-1">
               <h2 className="text-sm text-muted-foreground">Jev heard</h2>
-              <p className="text-lg font-semibold">
-                {labels[detail.opinion.answers!.attendance.choice]} ·{" "}
-                {labels[detail.opinion.answers!.ending.choice]}
-              </p>
+              <p className="text-lg font-semibold">{heardLabel(opinion)}</p>
             </div>
           </div>
           <OpinionAnswers detail={detail} />
+          {opinion.calls !== undefined && (
+            <p className="text-xs text-muted-foreground">
+              Jev answered {opinion.calls} times: each group of questions once
+              with Fathom&apos;s summary and once from the transcript alone.
+              {opinion.split?.length
+                ? ` The two readings differed on ${opinion.split
+                    .map((q) => readingNames[q] ?? q)
+                    .join(", ")}.`
+                : " Both readings agreed."}
+            </p>
+          )}
         </CardContent>
         <CardFooter>
           <OpinionReviewFooter detail={detail} />

@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/empty";
 import { OpinionChip } from "@/components/second-opinion/meeting-card";
 import {
-  labels,
+  heardLabel,
   localDate,
   recordLabel,
 } from "@/components/second-opinion/presentation";
@@ -78,10 +78,9 @@ export function SecondOpinionsPageClient() {
       ) : !result.visible ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>Results are not open yet.</EmptyTitle>
+            <EmptyTitle>The second opinion is off.</EmptyTitle>
             <EmptyDescription>
-              During the shadow run only owners see results. An owner can open
-              them in Settings → Integrations → Fathom after 14 days.
+              An owner can turn it on in Settings → Integrations → Fathom.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -139,10 +138,7 @@ export function SecondOpinionsPageClient() {
                     <TableCell>{recordLabel(detail.opinion.record)}</TableCell>
                     <TableCell>{detail.program ?? "—"}</TableCell>
                     <TableCell>
-                      <p>
-                        {labels[detail.opinion.answers!.attendance.choice]} ·{" "}
-                        {labels[detail.opinion.answers!.ending.choice]}
-                      </p>
+                      <p>{heardLabel(detail.opinion)}</p>
                       <OpinionChip detail={detail} />
                     </TableCell>
                     <TableCell>

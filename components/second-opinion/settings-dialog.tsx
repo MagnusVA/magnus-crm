@@ -68,8 +68,9 @@ export default function OpinionSettingsDialog({
         </DialogHeader>
         {kind === "consent" && (
           <p className="text-sm text-muted-foreground">
-            For the first 14 days only owners see results. Magnus stops calling
-            Jev once the month&apos;s cost reaches the cap.
+            For the first 14 days only owners and admins see results, so they
+            can check Jev against the calls they know. Magnus stops calling Jev
+            once the month&apos;s cost reaches the cap.
           </p>
         )}
         <form

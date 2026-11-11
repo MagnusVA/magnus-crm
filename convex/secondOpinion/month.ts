@@ -22,9 +22,11 @@ export function monthQuery(
       q.eq("tenantId", tenantId).gte("createdAt", start).lt("createdAt", end),
     );
 }
-export function summarize(rows: Doc<"secondOpinions">[]) {
+/** Spend counts every check; the verdict counts skip checks a rerun replaced. */
+export function summarize(all: Doc<"secondOpinions">[]) {
+  const rows = all.filter((row) => row.supersededById === undefined);
   return {
-    costUsd: rows.reduce((sum, row) => sum + (row.costUsd ?? 0), 0),
+    costUsd: all.reduce((sum, row) => sum + (row.costUsd ?? 0), 0),
     total: rows.length,
     agrees: rows.filter((r) => r.verdict === "agrees").length,
     hints: rows.filter((r) => r.verdict === "hint").length,

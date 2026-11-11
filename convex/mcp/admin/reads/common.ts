@@ -52,12 +52,12 @@ export async function tenantId<T extends TableNames>(
   await loadInTenant(ctx, me, table, id);
   return id;
 }
+/** The web's rule: reviewers see results in "on" and during the shadow run. */
 export function canSeeOpinions(me: Admin) {
   return (
     hasPermission(me.role, "second-opinion:review") &&
     (me.tenant.secondOpinion?.mode === "on" ||
-      (me.tenant.secondOpinion?.mode === "shadow" &&
-        me.role === "tenant_master"))
+      me.tenant.secondOpinion?.mode === "shadow")
   );
 }
 export function paymentActions(me: Admin, payment: Doc<"paymentRecords">) {
