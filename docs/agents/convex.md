@@ -100,6 +100,8 @@ Closers, owners and admins connect Claude, ChatGPT, Hermes and other MCP clients
 
 Lead generators use `convex/mcp/toolsets/leadGen.ts`, with their own role switch and instructions; the retained lead gen admin reads use `requireMcpAdmin` with `lead-gen:view-all`. Lead gen list writes rebuild their stored preview before committing in one transaction; if any line changed, nothing is saved and the token stays unused.
 
+Tools every role shares live in `convex/mcp/toolsets/shared.ts` and take their roles from `MCP_TOOLSET_ROLES`. The one shared tool so far, `magnus_send_feedback`, lets an agent report what the user tried, what worked, what failed and what no tool could do. Reports go to `mcpFeedback` (read them with `npx convex data mcpFeedback`). Their text never reaches the gateway audit log or PostHog: the `mcp.feedback.saved` log line carries only the outcome, the client and the failed tool names. It has no write family, so admins can send it while their changes are switched off.
+
 Tests use `tests/mcpHarness.ts` (and `tests/mcpAdminFixtures.ts` for an owner, an admin and a closer), which signs AuthKit-shaped tokens with a local key and calls `/mcp` through `t.fetch`.
 
 ## Convex AI Gateway

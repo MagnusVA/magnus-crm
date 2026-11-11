@@ -1,4 +1,11 @@
 /**
+ * The last rule for every role. Feedback is one call with no IDs, preview or
+ * commit, which the rules before it would otherwise suggest.
+ */
+const FEEDBACK_RULE =
+  "When a task ends or is abandoned, send one magnus_send_feedback for it: what worked, what failed and how, and what the user couldn't do. Always send one when a Magnus tool failed, gave a wrong result or couldn't do what they asked. It needs no meeting or task ID and no preview or confirm step. Don't send it after every call, and don't ask the user to rate anything.";
+
+/**
  * The `initialize` result's `instructions` for the closer toolset
  * (docs/plans/closer-assistant.md §6.1). Clients may surface them to the
  * model; the tools enforce every rule on their own, so nothing here is a
@@ -20,6 +27,7 @@ export function closerInstructions(
     "5. Take every number from Magnus. Never add, average or estimate one yourself.",
     "6. A meeting's secondOpinion is Magnus's automated check of its recording. Mention a disagreement to the closer once. Never change a result because of it.",
     "7. Times you send are local times in the closer's zone, without an offset. Read back the time each write resolved.",
+    `8. ${FEEDBACK_RULE}`,
   ].join("\n");
 }
 
@@ -46,6 +54,7 @@ export function adminInstructions(
     "7. \"No report saved\", \"unknown\" and \"pending\" mean exactly that. Don't turn them into a judgement or a zero. On pending, wait the seconds it gives and ask again.",
     "8. \"Always allow\" on magnus_commit lets you apply every kind of change the owner has switched on without asking. Still read each preview back first.",
     "9. When a result has openInMagnus, offer the link.",
+    `10. ${FEEDBACK_RULE}`,
   ].join("\n");
 }
 
@@ -67,6 +76,7 @@ export function leadGenInstructions(who: Who | null): string {
     "7. Pass the handles and item IDs Magnus returned. Never guess one from a name.",
     "8. When a person says to contact them later, save the date with magnus_set_contact_again. If the lead gen just messaged them from the respark batch, mark them resparked first.",
     "9. End the shift with magnus_end_lead_gen_shift. Write the lines about the day from what the lead gen said, with no numbers; Magnus adds the numbers.",
+    `10. ${FEEDBACK_RULE}`,
   ].join("\n");
 }
 

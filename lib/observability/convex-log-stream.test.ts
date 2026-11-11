@@ -415,6 +415,33 @@ describe("transformLogStreamBatch", () => {
     );
   });
 
+  test("an argument dump longer than 4,000 characters is still redacted", () => {
+    // An MCP tool call with an unknown key fails the validator, which dumps
+    // every argument, including long free text such as feedback.
+    const long = `Private feedback marker ${"x".repeat(3_000)}`;
+    const dump = JSON.stringify({ summary: long, failed: long, transcript: "extra" }, null, 2);
+    const batch = transformLogStreamBatch([
+      failure(
+        "req18",
+        `Uncaught ArgumentValidationError: Object contains extra field \`transcript\` that is not in the validator.\n\nObject: ${dump}\nValidator: v.object({...})`,
+      ),
+    ]);
+    expect(batch.exceptions).toHaveLength(1);
+    expect(JSON.stringify(batch)).not.toContain("Private feedback marker");
+  });
+
+  test("an argument dump is redacted even when email redaction lengthens the text", () => {
+    // `a@b.co` becomes `<email>`, so substituting first would push the dump
+    // past the pattern's bound.
+    const emails = "a@b.co ".repeat(1_130);
+    const dump = JSON.stringify({ summary: `Private feedback marker ${emails}`, transcript: "extra" }, null, 2);
+    const batch = transformLogStreamBatch([
+      failure("req19", `Uncaught ArgumentValidationError: Object contains extra field \`transcript\`.\n\nObject: ${dump}`),
+    ]);
+    expect(batch.exceptions).toHaveLength(1);
+    expect(JSON.stringify(batch)).not.toContain("Private feedback marker");
+  });
+
   test("rejection events carry the normalized message, not user input", () => {
     const batch = transformLogStreamBatch([
       failure("req17", 'Uncaught Error: Invalid Fathom link "https://fathom.video/jane"'),
