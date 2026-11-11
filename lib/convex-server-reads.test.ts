@@ -200,6 +200,27 @@ describe("workspace access", () => {
     expect(redirectedTo().searchParams.get("auth_retry")).toBe(String(NOW));
   });
 
+  it("sends the page load to /unavailable when Convex fails the access query", async () => {
+    // What a disabled production deployment answers: the message is redacted.
+    mocks.fetchQuery.mockRejectedValueOnce(new Error("[Request ID: 5f2c9a1b7d3e4f60] Server Error"));
+
+    await expect(getWorkspaceAccess()).rejects.toBeInstanceOf(RedirectSignal);
+
+    expect(mocks.redirect).toHaveBeenCalledExactlyOnceWith("/unavailable");
+    expect(mocks.fetchQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("still throws an access-query failure that Convex did not report", async () => {
+    const rejection = Object.assign(new Error("[Request ID: 5f2c9a1b7d3e4f60] Server Error"), { name: "ConvexError" });
+    const network = new TypeError("fetch failed");
+    mocks.fetchQuery.mockRejectedValueOnce(rejection).mockRejectedValueOnce(network);
+
+    await expect(getWorkspaceAccess()).rejects.toBe(rejection);
+    await expect(getWorkspaceAccess()).rejects.toBe(network);
+
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
   it("never retries the invitation claim, which writes", async () => {
     const failure = serviceUnavailable();
     mocks.fetchQuery.mockResolvedValueOnce({ tenant, user: null });

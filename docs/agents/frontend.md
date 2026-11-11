@@ -68,6 +68,7 @@ Page clients are `*-page-client.tsx`, loading states `*-skeleton.tsx`, modals `*
 - shadcn/ui uses the `radix-nova` style on the `radix-ui` package; add and change primitives with the `shadcn` skill. `cva` variants stay inside `components/ui`.
 - Keep the `app/globals.css` import order: `tailwindcss`, `tw-animate-css`, `shadcn/tailwind.css`. Merge classes with `cn()` from `lib/utils`.
 - `next-themes` defaults to light with system theme off and stores the choice under `theme-preference`.
+- Wrap a label that sits beside a conditional element (a spinner in a button), and text that changes in place, in `TranslatableText` (`components/translatable-text.tsx`). Chrome's page translation replaces bare text nodes, and React then throws `NotFoundError` when it inserts or removes a sibling. The lead gen pages do this; other pages still have bare labels.
 - Dialogs load lazily through `next/dynamic`. Reserve `ssr: false` for browser-only code such as the command palette and calendar.
 
 ## Meeting attendance

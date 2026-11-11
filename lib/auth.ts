@@ -96,6 +96,21 @@ async function claimInvitedCrmUser(session: VerifiedSession) {
 }
 
 /**
+ * Convex ran the access query and it failed. A production deployment
+ * redacts the message to `[Request ID: …] Server Error`, so a deployment
+ * that Convex disabled at the spending limit reads the same as any other
+ * failure. Either way no workspace page can render. The backend log stream
+ * reports the real error.
+ */
+function accessQueryFailed(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name !== "ConvexError" &&
+    error.message.includes("[Request ID:")
+  );
+}
+
+/**
  * Resolve the full workspace access state for the current request.
  * Returns a discriminated union describing system admin, tenant lifecycle,
  * or ready-to-use workspace access.
@@ -115,7 +130,11 @@ export const getWorkspaceAccess = cache(
       api.workspaceAccess.getCurrentWorkspaceAccess,
       {},
       { token: session.accessToken }
-    );
+    ).catch((error: unknown) => {
+      // A page that waits and retries, in place of the error screen.
+      if (accessQueryFailed(error)) redirect("/unavailable");
+      throw error;
+    });
 
     if (!tenant) {
       return { kind: "no_tenant", session };

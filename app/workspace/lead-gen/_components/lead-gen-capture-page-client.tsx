@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
 import { CARD } from "@/app/workspace/team/_components/team-ui";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
@@ -309,7 +310,7 @@ export function LeadGenCapturePageClient() {
                       className="h-11 w-full touch-manipulation px-5 text-[15px] font-semibold @md/capture:w-auto"
                     >
                       {isSubmitting ? <Spinner data-icon="inline-start" /> : null}
-                      {isSubmitting ? "Capturing…" : "Capture"}
+                      <TranslatableText>{isSubmitting ? "Capturing…" : "Capture"}</TranslatableText>
                     </Button>
                   </div>
                   {fieldState.error ? (
@@ -344,7 +345,7 @@ function LastCaptureLine({ capture, timeZone }: { capture: LastCapture; timeZone
     >
       <span className={cn(STATUS_WORD, ink)}>
         <span className="sr-only">Last capture: </span>
-        {word}
+        <TranslatableText>{word}</TranslatableText>
       </span>
       <span className="truncate text-sm font-medium" title={capture.entered} translate="no">
         {handle}
@@ -354,7 +355,7 @@ function LastCaptureLine({ capture, timeZone }: { capture: LastCapture; timeZone
       </time>
       <p className="col-span-3 text-[13px] text-muted-foreground">
         <span className="font-medium text-foreground">{capture.confirmation.title}</span>
-        {capture.confirmation.detail ? <>. {capture.confirmation.detail}</> : null}
+        {capture.confirmation.detail ? <TranslatableText>{`. ${capture.confirmation.detail}`}</TranslatableText> : null}
       </p>
     </div>
   );

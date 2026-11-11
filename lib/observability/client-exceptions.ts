@@ -16,6 +16,9 @@ import type { CaptureResult } from "posthog-js";
  *
  * Browser noise (deploy chunk skew, ResizeObserver, aborted fetches, offline
  * network errors, Next's redacted server-render errors) is dropped or grouped.
+ *
+ * A React commit that fails because a DOM node moved is kept and tagged with
+ * whether the browser had translated the page, the usual cause.
  */
 const CONVEX_ERROR = /\[CONVEX ([QMA?])\(([^)]+)\)\](?: \[Request ID: ([\w-]+)\])?/;
 
@@ -54,6 +57,22 @@ function isOffline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine === false;
 }
 
+/** React told a parent to insert before, or remove, a node it no longer holds. */
+const DOM_NODE_MOVED = /\b(insertBefore|removeChild)\b/;
+
+/**
+ * Chrome's page translation marks `<html>` and puts each translated string
+ * in a `<font style="vertical-align: inherit;">` element. See
+ * `components/translatable-text.tsx` for the fix.
+ */
+function isPageTranslated(): boolean {
+  if (typeof document === "undefined") return false;
+  return (
+    /\btranslated-(ltr|rtl)\b/.test(document.documentElement.className) ||
+    document.querySelector('font[style*="vertical-align: inherit"]') !== null
+  );
+}
+
 export function convexExceptionBeforeSend(
   event: CaptureResult | null,
 ): CaptureResult | null {
@@ -70,6 +89,12 @@ export function convexExceptionBeforeSend(
     if (isOffline()) return null;
     event.properties.$exception_fingerprint ??= "network:fetch_failed";
     event.properties.error_kind = "network";
+    return event;
+  }
+
+  if (type === "NotFoundError" && DOM_NODE_MOVED.test(value)) {
+    event.properties.error_rule = "dom_node_moved";
+    event.properties.page_translated = isPageTranslated();
     return event;
   }
 
