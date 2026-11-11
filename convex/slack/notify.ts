@@ -6,13 +6,14 @@ import {
   buildLeadGenSubmissionNotification,
   buildQualifiedLeadConfirmation,
 } from "../lib/slackBlockKit";
+import { log } from "../lib/observability/log";
 import {
   logSlackNotifyPosted,
   logSlackNotifySkipped,
   reportSlackNotifyFailed,
 } from "./notifyObservability";
 import { getValidSlackBotToken, logSlackTokenUnavailable } from "./tokens";
-import { slackApiPostJson } from "./webApi";
+import { slackApiPostJson, slackClientMessageId } from "./webApi";
 
 const CLEAR_CHANNEL_ERRORS = new Set(["channel_not_found", "is_archived"]);
 const ACTION_REQUIRED_ERRORS = new Set([
@@ -20,6 +21,21 @@ const ACTION_REQUIRED_ERRORS = new Set([
   "is_archived",
   "not_in_channel",
 ]);
+
+/** Waits before the second and third attempts at a lead gen post. */
+const LEAD_GEN_POST_RETRY_DELAYS_MS = [15_000, 60_000];
+
+/**
+ * Failures worth another attempt: the request never got an answer
+ * (`transport_error`), Slack is rate limiting, or Slack is failing.
+ */
+function isRetryableSlackError(slackErr: string) {
+  return (
+    slackErr === "transport_error" ||
+    slackErr === "ratelimited" ||
+    /^http_(429|5\d\d)$/.test(slackErr)
+  );
+}
 
 export const postConfirmation = internalAction({
   args: {
@@ -307,12 +323,27 @@ export const postExistingOpportunityBump = internalAction({
   },
 });
 
+/**
+ * Posts a lead gen submission to the tenant's lead gen channel.
+ *
+ * Convex never retries a scheduled action, so a post Slack doesn't answer
+ * schedules itself again, three attempts in all. An unanswered request may
+ * still have reached Slack, so every attempt sends the same `client_msg_id`,
+ * made from the submission id. Each attempt starts from the top: it posts
+ * nothing once the submission is voided or the channel is turned off or
+ * changed.
+ */
 export const postLeadGenSubmission = internalAction({
   args: {
     tenantId: v.id("tenants"),
     submissionId: v.id("leadGenSubmissions"),
+    // 1-based. Optional so posts scheduled before retries still validate.
+    attempt: v.optional(v.number()),
+    // The channel the first attempt posted to, on a retry.
+    channelId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const attempt = args.attempt ?? 1;
     const installation = await ctx.runQuery(
       internal.slack.installations.byTenantId,
       { tenantId: args.tenantId },
@@ -343,6 +374,11 @@ export const postLeadGenSubmission = internalAction({
       channelId,
       submissionId: args.submissionId,
     };
+    // Slack can't match a repeat in another channel to the post it repeats.
+    if (args.channelId !== undefined && args.channelId !== channelId) {
+      logSlackNotifySkipped("channel_changed", notifyAttrs);
+      return;
+    }
 
     const submission = await ctx.runQuery(
       internal.slack.notifyData.getLeadGenSubmissionForNotify,
@@ -367,25 +403,61 @@ export const postLeadGenSubmission = internalAction({
       return;
     }
 
-    const response = await slackApiPostJson<{ channel?: string; ts?: string }>(
-      "chat.postMessage",
-      token,
-      {
-        channel: channelId,
-        text: message.text,
-        blocks: message.blocks,
-        unfurl_links: false,
-        unfurl_media: false,
-      },
-    );
+    let slackErr: string;
+    let retryAfterMs = 0;
+    try {
+      const response = await slackApiPostJson<{ channel?: string; ts?: string }>(
+        "chat.postMessage",
+        token,
+        {
+          channel: channelId,
+          text: message.text,
+          blocks: message.blocks,
+          client_msg_id: await slackClientMessageId(args.submissionId),
+          unfurl_links: false,
+          unfurl_media: false,
+        },
+      );
+      if (response.ok) {
+        logSlackNotifyPosted({ ...notifyAttrs, attempt });
+        return;
+      }
+      slackErr = response.error ?? "unknown";
+      retryAfterMs = (response.retryAfterSeconds ?? 0) * 1000;
+    } catch {
+      // The request failed or timed out with no answer. Slack may or may
+      // not have the message.
+      slackErr = "transport_error";
+    }
 
-    if (response.ok) {
-      logSlackNotifyPosted(notifyAttrs);
+    const backoffMs = LEAD_GEN_POST_RETRY_DELAYS_MS[attempt - 1];
+    if (isRetryableSlackError(slackErr) && backoffMs !== undefined) {
+      // Never sooner than Slack's `Retry-After`: an attempt made during
+      // its cooldown fails too, and would use up the attempts.
+      const retryDelayMs = Math.max(backoffMs, retryAfterMs);
+      log.warn("slack.notify.retry_scheduled", {
+        ...notifyAttrs,
+        slackErr,
+        attempt,
+        retryDelayMs,
+      });
+      await ctx.scheduler.runAfter(
+        retryDelayMs,
+        internal.slack.notify.postLeadGenSubmission,
+        {
+          tenantId: args.tenantId,
+          submissionId: args.submissionId,
+          attempt: attempt + 1,
+          channelId,
+        },
+      );
       return;
     }
 
-    const slackErr = response.error ?? "unknown";
-    reportSlackNotifyFailed(slackErr, notifyAttrs);
+    reportSlackNotifyFailed(slackErr, notifyAttrs, {
+      operation: "chat.postMessage",
+      attempts: attempt,
+    });
 
     if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
       await ctx.runMutation(internal.slack.notifyData.recordLeadGenNotifyFailure, {
