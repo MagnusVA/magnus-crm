@@ -50,4 +50,5 @@ ESLint's `@convex-dev/require-access-control` rule fails any public Convex funct
 
 - `proxy.ts` is Next.js 16's replacement for middleware: it runs AuthKit, gates `/admin`, and lists unauthenticated routes in `PUBLIC_PREFIXES`. Add new public routes there.
 - The proxy's matcher skips router prefetches (the `next-router-prefetch` header) and the Convex log stream. Prefetches fetch static shells, so a page must read the session behind `connection()`, as `verifySession` does, never in its static shell.
+- A sign-in callback that fails (`app/callback/route.ts`) redirects to `/sign-in/error?reason=…`, a public page with a "Sign in again" link to `/sign-in`. The callback URL can't be retried, since its code and verifier cookie work once, and the page never redirects on its own, so a broken setup can't loop. `lib/sign-in-failure.ts` holds the reasons and decides which failures are rejections.
 - The browser's Convex token comes from `app/api/auth/token/route.ts`, not AuthKit's `useAccessToken`. Don't write a cookie from a server action on a timer: Next then clears the client's prefetch cache and re-renders the page on the server.
