@@ -7,9 +7,10 @@
  * - `integration`: a third-party API (Calendly, Slack, WorkOS) failed.
  *   Reported, tagged with the integration, and grouped by integration and
  *   HTTP status.
- * - `platform`: a Convex limit or timeout. Reported; the fix is usually a
- *   query or index change. Write conflicts are logged, not reported, since
- *   Convex retries them.
+ * - `platform`: a Convex limit or timeout, or Convex disabling the
+ *   deployment at the spending limit. Reported; the fix is usually a query
+ *   or index change. Write conflicts are logged, not reported, since Convex
+ *   retries them.
  * - `expected`: the caller caused it (signed out, no access, stale id,
  *   invalid input). Not an exception: logged as a warning and counted as a
  *   `convex_request_rejected` event, whose `error_rule` you can alert on.
@@ -58,7 +59,30 @@ export function isClientRunReason(runReason: string | undefined): boolean {
   return runReason !== undefined && CLIENT_RUN_REASONS.has(runReason);
 }
 
-const PLATFORM_RULES: Array<{ id: string; pattern: RegExp; code: string }> = [
+const PLATFORM_RULES: Array<{
+  id: string;
+  pattern: RegExp;
+  code: string;
+  /** One issue for the deployment, not one per function. */
+  wholeDeployment?: true;
+}> = [
+  // Convex disabled the deployment at the team's spending limit. Every
+  // function then fails with this message. Listed before `platform.limits`,
+  // whose pattern also matches it.
+  {
+    id: "platform.deployment_disabled",
+    pattern: /exceeded your spending limits, so your deployments have been disabled/i,
+    code: "convex.deployment_disabled",
+    wholeDeployment: true,
+  },
+  // Convex catching up after the deployment was down: it runs a cron once
+  // and reports the runs it missed. The job itself didn't fail.
+  {
+    id: "platform.cron_skipped",
+    pattern: /Skipping \d+ run\(s\) of cron job .* because multiple scheduled runs are in the past/,
+    code: "convex.cron_runs_skipped",
+    wholeDeployment: true,
+  },
   {
     id: "platform.limits",
     pattern: /Too many (reads|documents|bytes|writes|function calls|index ranges)|exceeded .*limit/i,
@@ -159,7 +183,9 @@ export function classifyFailure(input: FailureInput): ErrorClassification {
         kind: "platform",
         rule: rule.id,
         code: rule.code,
-        fingerprint: `convex:${rule.code}:${input.functionPath}`,
+        fingerprint: rule.wholeDeployment
+          ? `convex:${rule.code}`
+          : `convex:${rule.code}:${input.functionPath}`,
       };
     }
   }

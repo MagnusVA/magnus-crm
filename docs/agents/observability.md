@@ -74,7 +74,7 @@ Never log tokens, secrets, signatures, emails, names, phone numbers, message tex
 `lib/observability/error-rules.ts` decides what becomes an issue, in this order:
 
 1. A `ConvexError`, or a request that logged `request.rejected`, is `expected`.
-2. Convex limits and timeouts are `platform`.
+2. Convex limits and timeouts are `platform`, grouped by function. Two outage messages are `platform` with one issue each for the whole deployment: Convex disabling the deployment at the spending limit (`platform.deployment_disabled`), and the cron runs it skips when the deployment comes back (`platform.cron_skipped`).
 3. A message naming Calendly, Slack, or WorkOS with an HTTP status is `integration`, grouped by vendor and status.
 4. A request no client started (cron, scheduler, webhook) is a `bug`, whatever the message says.
 5. From a client call, a short allowlist of older messages is `expected`: auth failures, "Not your …", portal sessions, "<record> not found" for records a page can link to, and input validation. Messages that name an environment variable or an internal invariant stay bugs.
@@ -86,7 +86,7 @@ The route redacts emails, phone numbers, Calendly name slugs, double-quoted valu
 
 When an issue turns out to be expected, convert the throw to `rejectRequest` (preferred) or add a rule, then resolve the issue in PostHog. Because the legacy rules match on message text, alert on spikes in `convex_request_rejected` by `error_rule` and `convex_function` too: a bug hidden by a rule shows up there. Tests are in `lib/observability/convex-log-stream.test.ts`.
 
-In the browser, `before_send` drops `ConvexError`s, lost connections, deploy chunk errors, ResizeObserver noise, aborted fetches, offline network errors, and Next's redacted server-render errors, which `onRequestError` reports with the real message. Other Convex failures become `convex_call_failed` events: search by `convex_request_id` to go from the backend issue to the browser session and its replay. The SDK masks `token`, `code`, and `state` URL parameters, so invite tokens and OAuth codes never reach PostHog.
+In the browser, `before_send` drops `ConvexError`s, lost connections, deploy chunk errors, ResizeObserver noise, aborted fetches, offline network errors, and Next's redacted server-render errors, which `onRequestError` reports with the real message. Other Convex failures become `convex_call_failed` events: search by `convex_request_id` to go from the backend issue to the browser session and its replay. A `NotFoundError` from `insertBefore` or `removeChild` stays an exception and gets `error_rule: dom_node_moved` and `page_translated`, which is true when Chrome had translated the page (see `components/translatable-text.tsx`). The SDK masks `token`, `code`, and `state` URL parameters, so invite tokens and OAuth codes never reach PostHog.
 
 Useful properties for filters, assignment rules, and alerts: `error_kind`, `error_code`, `error_rule`, `integration`, `convex_function`, `convex_run_reason`, `tenant_id`, `error_origin`, `environment`.
 

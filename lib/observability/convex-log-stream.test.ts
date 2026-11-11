@@ -177,8 +177,43 @@ describe("classifyFailure", () => {
   });
 
   test("limits and timeouts are platform errors", () => {
-    expect(fromClient("Too many reads in a single function execution").kind).toBe("platform");
+    expect(fromClient("Too many reads in a single function execution")).toMatchObject({
+      kind: "platform",
+      rule: "platform.limits",
+      fingerprint: "convex:convex.limit_exceeded:closer/payments:logPayment",
+    });
     expect(fromBackground("Function execution timed out (maximum duration: 600s)").kind).toBe("platform");
+  });
+
+  test("a deployment disabled at the spending limit is one platform issue, whichever function failed", () => {
+    const disabled =
+      "You have exceeded your spending limits, so your deployments have been disabled. Please increase your spending limit on the Convex dashboard or wait until limits reset.";
+    const expected = {
+      kind: "platform",
+      rule: "platform.deployment_disabled",
+      code: "convex.deployment_disabled",
+      fingerprint: "convex:convex.deployment_disabled",
+    };
+    expect(fromClient(disabled)).toEqual(expected);
+    expect(
+      classifyFailure({ functionPath: "tenants:getCurrentTenant", errorName: "Error", errorMessage: disabled, fromClient: false }),
+    ).toEqual(expected);
+  });
+
+  test("cron runs Convex skipped after downtime are platform, not a bug in the job", () => {
+    for (const message of [
+      "Skipping 7 run(s) of cron job 'analytics-heartbeat' because multiple scheduled runs are in the past",
+      "Skipping 2 run(s) of cron job 'pipeline-stuck-events' because multiple scheduled runs are in the past",
+    ]) {
+      expect(fromBackground(message), message).toEqual({
+        kind: "platform",
+        rule: "platform.cron_skipped",
+        code: "convex.cron_runs_skipped",
+        fingerprint: "convex:convex.cron_runs_skipped",
+      });
+    }
+    // A job that throws about skipping something is still a bug.
+    expect(fromBackground("Skipping 3 leads: the batch is in the past").rule).toBe("default.background");
   });
 
   test("vendor HTTP failures are integration errors grouped by status, before expected rules", () => {
@@ -247,6 +282,27 @@ describe("transformLogStreamBatch", () => {
       "convex.function.failed closer/payments:logPayment",
     ]);
     expect(batch.logs[0].attributes?.posthogDistinctId).toBe("user_123");
+  });
+
+  test("the cron runs skipped after an outage reach PostHog as one platform exception", () => {
+    const skipped = (requestId: string, job: string, path: string, runs: number) =>
+      failure(
+        requestId,
+        `Skipping ${runs} run(s) of cron job '${job}' because multiple scheduled runs are in the past`,
+        { function: { type: "mutation", path, request_id: requestId }, run_reason: "cron" },
+      );
+    const batch = transformLogStreamBatch([
+      skipped("cron1", "analytics-heartbeat", "analytics/heartbeat:beat", 7),
+      skipped("cron2", "pipeline-stuck-events", "pipeline/mutations:reportStuckEvents", 2),
+    ]);
+
+    expect(batch.exceptions).toHaveLength(1);
+    expect(batch.exceptions[0].properties).toMatchObject({
+      error_kind: "platform",
+      error_rule: "platform.cron_skipped",
+      $exception_fingerprint: "convex:convex.cron_runs_skipped",
+      occurrences_in_batch: 2,
+    });
   });
 
   test("an expected rejection becomes an event, not an exception", () => {
@@ -526,6 +582,31 @@ describe("convexExceptionBeforeSend", () => {
     expect(
       convexExceptionBeforeSend(exception("TypeError", "Failed to fetch"))?.properties.$exception_fingerprint,
     ).toBe("network:fetch_failed");
+  });
+
+  test("tags a React commit that failed on a moved DOM node with whether the page was translated", () => {
+    const insertBefore =
+      "Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node.";
+    expect(convexExceptionBeforeSend(exception("NotFoundError", insertBefore))?.properties).toMatchObject({
+      error_rule: "dom_node_moved",
+      page_translated: false,
+    });
+
+    vi.stubGlobal("document", { documentElement: { className: "dark translated-ltr" }, querySelector: () => null });
+    expect(
+      convexExceptionBeforeSend(exception("NotFoundError", insertBefore))?.properties.page_translated,
+    ).toBe(true);
+    vi.stubGlobal("document", { documentElement: { className: "dark" }, querySelector: () => ({}) });
+    expect(
+      convexExceptionBeforeSend(
+        exception("NotFoundError", "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node."),
+      )?.properties.page_translated,
+    ).toBe(true);
+    vi.unstubAllGlobals();
+
+    expect(
+      convexExceptionBeforeSend(exception("NotFoundError", "The object can not be found here."))?.properties.error_rule,
+    ).toBeUndefined();
   });
 
   test("leaves other exceptions alone", () => {
