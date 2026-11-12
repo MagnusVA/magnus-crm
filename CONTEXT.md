@@ -13,8 +13,12 @@ An email, phone number, or social handle that a person really uses, and that dec
 _Avoid_: contact detail, key
 
 **Booking review**:
-A booking whose identifiers name more than one person, waiting for an admin to say whether they are one person. The Instagram handle decides who gets the call; when the handle names no one, the booking is held until the review is decided. A decision covers the people, not the one booking: a merge, from a review or the Leads page, closes every review it leaves with one person, and keeping people separate closes every review about the same people.
+A booking whose person an admin has to confirm: its identifiers name more than one person, or its email is new and its phone names one person who already has a different email ("Is this the same person?"). The Instagram handle decides who gets the call; when the handle names no one, the booking is held until the review is decided. A decision covers the people, not the one booking: a merge, from a review or the Leads page, closes every review whose people it makes one; an answer about an email and a person is remembered for later bookings with that email, once earlier bookings from that email have applied; keeping people separate closes every attached review about the same people, and a held booking is booked for the email's person.
 _Avoid_: duplicate, conflict
+
+**Held booking**:
+A booking the CRM received and has not applied, because an admin has to decide or fix something first. It has no meeting until it applies, and later bookings from the same email wait behind it. Not the same as a held call, which is a meeting that took place.
+_Avoid_: stuck event, blocked delivery
 
 **Lifecycle stage**:
 How far a person has ever got: Prospect, In conversation, Qualified, Booked, Showed, Customer. It moves forward on its own and only moves back when an admin moves it, with a reason.
