@@ -232,6 +232,31 @@ describe("result kinds and tiers", () => {
     },
   );
 
+  test("a result the code's checks stopped never says Jev didn't answer", () => {
+    // Jev is asked about a result only once the code's checks pass, so here
+    // its result check is absent by design while both readings came back.
+    expect(
+      deriveSuggestion(
+        args({
+          result: result("paid", {
+            codeChecksPassed: false,
+            failedChecks: ["later_amount"],
+          }),
+          reading: reading("paid", { resultCheck: undefined }),
+        }),
+      ),
+    ).toMatchObject({
+      tier: "unconfirmed",
+      notes: ["later_amount", "code_checks_failed"],
+    });
+    // With the checks passed, a missing result check is a missing answer.
+    expect(
+      deriveSuggestion(
+        args({ reading: reading("paid", { resultCheck: undefined }) }),
+      )?.notes,
+    ).toEqual(["jev_missing"]);
+  });
+
   test("a promise maps to Jev paid, while Jev promised is not a recognized ending", () => {
     expect(
       deriveSuggestion(

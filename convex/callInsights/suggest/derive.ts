@@ -154,7 +154,8 @@ export function deriveSuggestion(a: {
   if (
     endings.some((reading) => !reading || reading.confidence === undefined) ||
     attendance.some((reading) => !reading) ||
-    a.reading?.resultCheck === undefined
+    // Jev is asked about the result only once the code's checks pass.
+    (result.codeChecksPassed && a.reading?.resultCheck === undefined)
   )
     notes.push("jev_missing");
   const agrees =
@@ -164,7 +165,9 @@ export function deriveSuggestion(a: {
     ) &&
     attendance.every((reading) => reading?.choice === "held") &&
     (a.reading?.resultCheck ?? 0) >= 0.8;
-  if (!agrees && !notes.includes("jev_missing"))
+  // When the code's checks failed, they are the reason; Jev's result check
+  // was never asked, so its absence says nothing about Jev's confidence.
+  if (!agrees && result.codeChecksPassed && !notes.includes("jev_missing"))
     notes.push("jev_low_confidence");
   const tier: SuggestionTier =
     result.codeChecksPassed && agrees ? "ready" : "unconfirmed";

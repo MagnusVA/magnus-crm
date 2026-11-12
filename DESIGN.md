@@ -494,7 +494,7 @@ The system is flat. Depth comes from three tones: navy for what is moving, white
 
 ## Shapes
 
-Gently rounded, never pill-shaped except for counts and dots. Surfaces (cards, the board, strips, the outcome panel, summaries) use a 9.8px radius; buttons, inputs, choices and tab lists use 7px; small buttons 5.6px; chips 4px. Counts, shortcut pills, status dots and track nodes are fully round. Rules are 1px; the outcome panel's border is the one 2px line, in lime. A dashed 1px border means "not yet": the note that the outcome opens five minutes before the call.
+Gently rounded, never pill-shaped except for counts, dots and insight chips. Surfaces (cards, the board, strips, the outcome panel, summaries) use a 9.8px radius; buttons, inputs, choices and tab lists use 7px; small buttons 5.6px; chips 4px. Counts, shortcut pills, status dots and track nodes are fully round. Rules are 1px; the outcome panel's border is the one 2px line, in lime. A dashed 1px border means "not yet": the note that the outcome opens five minutes before the call.
 
 ## Components
 
@@ -803,6 +803,14 @@ When a month, tab, filter or search changes, the section keeps its previous data
 On Lead Gen each section keeps its own (`useKeptWhileLoading`): the band's totals, the conversion strip, Specialists, Top posts and Respark dim separately as their reports arrive, and the range phrase is kept with the data, so an empty line still names the range it was loaded for. Raw submissions pages instead of reloading.
 
 On Sales calls the band's figures and the cards below dim together, and the kept dashboard keeps its own range, so the band's range words and every empty line still name the range the numbers came from until the new ones land.
+
+### The Insight Chip, the Quote Block and the Suggestion Panel
+What a recorded call said, on the meeting page ("What they said", "Suggested from the call") and the person page ("From their calls"). Parts are in `components/call-insights/insight-parts.tsx`.
+- **Groups:** a `DetailCard` whose rows are groups (Income, Objections, Struggles, Goals), each with its 11px condensed label in a 100px column and its content beside it, ruled between groups. On a narrow card the label sits above.
+- **Insight chip:** a fully round 28px chip, 1px input rule, 13.5px medium text, naming one thing the prospect said. It is the one pill in the system, so a thing that opens words never reads as a stage chip. Its status follows in the condensed chip face: Open in lost ink, Resolved in lime ink, Not confirmed in amber ink, a goal's amount in follow-up ink. The open chip takes a navy border. One chip is open per card; on the meeting page the main objection starts open. On the person page the chips are plain tags with nothing to open.
+- **Quote block:** the open chip's words, under its row: muted fill, a 3px rule down the left, the quote in curly quotes at 14px, then what it means in 13px slate, then the time as a condensed figure and "Confirmed by Jev". The rule is lime when Jev confirmed the item, amber when it didn't, and the input rule for an item Jev hid, one an admin chose to show, or one that was never checked. This lime is a mark of confirmation, not a button.
+- **Income:** a 24px condensed figure ("~6,000", "4,000–5,000", "10,000+") with its unit and kind beside it in 13.5px, and a Quote chip.
+- **Suggestion panel:** a card with a 3px rule down the left and three looks. Confirmed: lime rule on a 7% lime tint, with the lime button that opens the outcome form filled in. Check this: amber rule on an 8% amber tint, no button. Not confirmed: a slate rule on plain card, the result worded as a possibility ("Possibly won"), the reason, and no button. Quoted lines sit in a column: the time as a condensed figure, the words, then who said it and what it shows in the 11px condensed label.
 
 ### `SectionEmpty` and `SectionError`
 Each section reports its own state in place, inside its card. **Empty:** one medium line saying what is absent ("No calls today."), with a slate hint when it helps ("Calls appear here as people book through Calendly."). **Error:** a red alert-circle icon and "Couldn't load {what}. Reload the page to try again." **Loading:** skeleton rows at the real row heights, labelled for screen readers.
