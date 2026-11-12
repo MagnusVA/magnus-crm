@@ -254,13 +254,21 @@ it("incident A variant: the reschedule blocks like its original when the current
   await h.deliver("invitee.canceled", canceled, "2026-10-12T16:27:13Z");
   await h.deliver("invitee.created", replacement, "2026-10-12T16:27:16Z");
 
-  for (const [eventType, payload] of [
-    ["invitee.created", original], ["invitee.canceled", canceled], ["invitee.created", replacement],
+  // The replacement is from the same email as the held original, so it waits
+  // behind it and is added right after it.
+  const held = await h.receipt("invitee.created", original);
+  for (const [eventType, payload, reason] of [
+    ["invitee.created", original, "host_not_linked"],
+    ["invitee.canceled", canceled, "host_not_linked"],
+    ["invitee.created", replacement, "waiting_for_earlier_booking"],
   ] as const) {
     const row = await h.receipt(eventType, payload);
-    expect(row).toMatchObject({ status: "blocked", reason: "host_not_linked" });
+    expect(row).toMatchObject({ status: "blocked", reason });
     expect(await h.t.run((ctx) => ctx.db.get("rawWebhookEvents", row.rawEventId))).toMatchObject({ processed: false });
   }
+  expect(await h.receipt("invitee.created", replacement)).toMatchObject({
+    hold: { waitingOnDeliveryId: held._id },
+  });
   expect(await h.counts()).toEqual({ meetings: 0, opportunities: 0, leads: 0 });
 });
 
@@ -388,7 +396,7 @@ it("linking an unlinked host and retrying the original settles its blocked cance
   expect(await h.receipt("invitee.canceled", canceled)).toMatchObject({ status: "applied", meetingId: created.meetingId });
   expect(await h.meetingFor(original)).toMatchObject({ status: "canceled" });
 
-  await h.retry((await h.receipt("invitee.created", replacement))._id);
+  // The replacement waited behind the original and is added with no retry.
   expect(await h.receipt("invitee.created", replacement)).toMatchObject({
     status: "applied", opportunityId: created.opportunityId,
   });

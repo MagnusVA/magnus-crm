@@ -17,6 +17,11 @@ import { retryDelivery } from "./recovery";
 
 /** Held reasons that mean "this booking names more than one person". */
 const REVIEWED_HOLD_REASONS = new Set(["identity_conflict"]);
+/**
+ * The held reason for "Is this the same person?": the booking's email is new,
+ * and its phone names one person who already has a different email.
+ */
+export const PHONE_MATCH_NEW_EMAIL = "phone_match_new_email";
 
 /** A person's kept-separate decisions read when a booking may repeat one. */
 const KEPT_SEPARATE_LIMIT = 200;
@@ -134,6 +139,44 @@ export async function settleBookingReview(
   const now = Date.now();
   let review = await reviewForDelivery(ctx, receipt._id);
 
+  // "Is this the same person?": one person, matched by phone, and a new
+  // email. Opens, or reopens after an answer whose retry held again, so a
+  // held booking never sits behind a closed review.
+  const checkConflicts =
+    outcome.status === "blocked" && outcome.reason === PHONE_MATCH_NEW_EMAIL
+      ? (outcome.identity?.conflicts ?? [])
+      : [];
+  if (new Set(checkConflicts.map((c) => c.leadId)).size === 1) {
+    const blocked = outcome as { reason: string; identity?: BlockedIdentity };
+    const stillOpen = review?.kind === "identity_check" && review.status === "open";
+    const fields = {
+      kind: "identity_check" as const,
+      status: "open" as const,
+      reason: blocked.reason,
+      leadId: undefined,
+      conflicts: checkConflicts,
+      booking: blocked.identity?.booking ?? review?.booking ?? {},
+      updatedAt: now,
+      resolution: undefined,
+      resolvedAt: undefined,
+      resolvedByUserId: undefined,
+    };
+    if (review) {
+      await ctx.db.patch("bookingReviews", review._id, {
+        ...fields,
+        alertScheduledAt: stillOpen ? review.alertScheduledAt : undefined,
+      });
+    } else {
+      await ctx.db.insert("bookingReviews", {
+        ...fields,
+        tenantId: receipt.tenantId,
+        deliveryId: receipt._id,
+        createdAt: now,
+      });
+    }
+    review = await reviewForDelivery(ctx, receipt._id);
+  }
+
   // A held review needs people to decide between: a block that names one
   // person or none (a phone that doesn't vouch for a new email) is left to
   // the recovery panel.
@@ -185,7 +228,7 @@ export async function settleBookingReview(
 
   if (
     outcome.status === "applied" &&
-    review.kind === "held" &&
+    (review.kind === "held" || review.kind === "identity_check") &&
     review.status === "open"
   ) {
     await ctx.db.patch("bookingReviews", review._id, {
@@ -223,7 +266,7 @@ export async function resolveBookingReview(
   ctx: MutationCtx,
   review: Doc<"bookingReviews">,
   userId: Id<"users">,
-  resolution: "merged" | "kept_separate",
+  resolution: "merged" | "kept_separate" | "same_person" | "different_person",
 ) {
   const now = Date.now();
   await ctx.db.patch("bookingReviews", review._id, {
@@ -266,11 +309,16 @@ export async function reviewPeople(
   return { people, complete };
 }
 
-/** Every person the review named has been merged into the same one. */
+/**
+ * Every person the review named has been merged into the same one. Never true
+ * for "Is this the same person?": it names one person from the start, and a
+ * merge doesn't answer it.
+ */
 export async function reviewIsOnePerson(
   ctx: QueryCtx,
   review: Doc<"bookingReviews">,
 ) {
+  if (review.kind === "identity_check") return false;
   const { people, complete } = await reviewPeople(ctx, review);
   return complete && people.size === 1;
 }
@@ -352,8 +400,9 @@ export const continueMergedSweep = internalMutation({
 /**
  * Closes, as kept separate, the other open reviews about exactly the people
  * an admin just called different. Only a decision about two or more people
- * who all still exist carries over. Returns how many closed on this page;
- * later pages close in the background.
+ * who all still exist carries over. A held sibling stays open: its booking is
+ * still missing, and it applies in order behind the decided one. Returns how
+ * many closed on this page; later pages close in the background.
  */
 export async function closeKeptSeparateSiblings(
   ctx: MutationCtx,
@@ -370,7 +419,7 @@ export async function closeKeptSeparateSiblings(
   const page = await openReviewsPage(ctx, decided.tenantId, cursor);
   let closed = 0;
   for (const review of page.page) {
-    if (review._id === decided._id) continue;
+    if (review._id === decided._id || review.kind !== "attached") continue;
     if ((await keyOf(review)) !== decidedKey) continue;
     await resolveBookingReview(ctx, review, userId, "kept_separate");
     closed++;

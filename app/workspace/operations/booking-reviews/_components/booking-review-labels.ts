@@ -8,6 +8,8 @@ export const RESOLUTION_LABELS = {
   merged: "Merged into one person",
   kept_separate: "Kept as different people",
   booking_applied: "Booking added after a retry",
+  same_person: "Same person",
+  different_person: "A different person",
 } as const;
 
 export const IDENTIFIER_SOURCE_LABELS: Record<string, string> = {

@@ -2,18 +2,21 @@ import { enqueueDelivery } from "./delivery";
 import { adoptRawDelivery } from "./receipts";
 import {
   blockBooking,
+  blockedHold,
   blockedIdentity,
   blockedReason,
   ignoreBooking,
   ignoredReason,
 } from "./blocked";
+import { HISTORICAL_HOLD, holdKeyFor, releaseNextHeldBooking } from "./holdOrder";
+import { scheduleHeldBookingAlert } from "./heldBookings";
 import { settleBookingReview } from "./bookingReviewRecords";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { recordBookingFact, reconcileBookingFact } from "./bookingFacts";
-import { isRecord } from "../lib/payloadExtraction";
+import { getString, isRecord } from "../lib/payloadExtraction";
 import {
   classifyBookingHost,
   UNLINKED_HOST_UNMAPPED_EVENT_TYPE,
@@ -120,6 +123,12 @@ export const processRawEvent = internalMutation({
       rawEventId,
       payload: envelope.payload,
     };
+    // A held invitee.created is keyed by its email, so later bookings from the
+    // same email wait behind it (holdOrder.ts).
+    const holdKey =
+      raw.eventType === "invitee.created"
+        ? await holdKeyFor(raw.tenantId, getString(envelope.payload, "email"))
+        : undefined;
     let reason: string | undefined;
     try {
       if (isInviteeEvent)
@@ -152,16 +161,25 @@ export const processRawEvent = internalMutation({
       if (!reason) {
         const blocked = blockedReason(error);
         if (!blocked || !receipt) throw error;
+        // A historical hold can't get worse, so later bookings from its
+        // email don't wait on it: it drops its key and releases the next one.
+        const historical = blocked === HISTORICAL_HOLD;
         await ctx.db.patch("webhookDeliveries", receipt._id, {
           status: "blocked",
           reason: blocked,
           processedAt: Date.now(),
+          hold: blockedHold(error),
+          holdKey: historical ? undefined : holdKey,
         });
+        if (historical && receipt.holdKey)
+          await releaseNextHeldBooking(ctx, receipt, receipt.holdKey);
         await settleBookingReview(ctx, receipt, {
           status: "blocked",
           reason: blocked,
           identity: blockedIdentity(error),
         });
+        // After the review is settled: a booking with a review is alerted by it.
+        await scheduleHeldBookingAlert(ctx, receipt, blocked);
         return null;
       }
     }
@@ -194,6 +212,8 @@ export const processRawEvent = internalMutation({
         status: "blocked",
         reason: "ambiguous_booking_identity",
         processedAt: Date.now(),
+        hold: undefined,
+        holdKey,
       });
       return null;
     }
@@ -245,6 +265,8 @@ export const processRawEvent = internalMutation({
         meetingId: meeting?._id,
         opportunityId: opportunity?._id,
         leadId: opportunity?.leadId,
+        hold: undefined,
+        holdKey: status === "blocked" ? holdKey : undefined,
       });
       await settleBookingReview(
         ctx,
@@ -253,6 +275,9 @@ export const processRawEvent = internalMutation({
           ? { status, reason: outcomeReason! }
           : { status },
       );
+      // The booking that held later ones from its email back is settled.
+      if (status !== "blocked" && receipt.holdKey)
+        await releaseNextHeldBooking(ctx, receipt, receipt.holdKey);
     }
     return null;
   },

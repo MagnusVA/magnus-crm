@@ -1,27 +1,57 @@
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+
 export async function buildBookingHealthIssues(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
 ) {
-  const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const events = await ctx.db
-    .query("rawWebhookEvents")
-    .withIndex("by_tenantId_and_receivedAt", (q) =>
-      q.eq("tenantId", tenantId).gte("receivedAt", since),
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  const queued = await ctx.db
+    .query("webhookDeliveries")
+    .withIndex("by_tenantId_and_status_and_queuedAt", (q) =>
+      q.eq("tenantId", tenantId)
+        .eq("status", "queued")
+        .gte("queuedAt", 0)
+        .lt("queuedAt", cutoff),
     )
-    .order("desc")
-    .take(100);
+    .take(25);
+  const legacy = await ctx.db
+    .query("webhookDeliveries")
+    .withIndex("by_tenantId_and_status_and_queuedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("status", "queued").eq("queuedAt", undefined),
+    )
+    .take(101);
+  const failed = await ctx.db
+    .query("webhookDeliveries")
+    .withIndex("by_tenantId_and_status_and_receivedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("status", "failed"),
+    )
+    .take(25);
+  const blocked = await ctx.db
+    .query("webhookDeliveries")
+    .withIndex("by_tenantId_and_status_and_receivedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("status", "blocked"),
+    )
+    .take(25);
 
-  return events
-    .filter(
-      (event) => event.eventType === "invitee.created" && !event.processed,
-    )
+  return [
+    ...failed,
+    ...queued,
+    ...legacy.filter((receipt) => receipt.receivedAt < cutoff),
+    ...blocked,
+  ]
     .slice(0, 25)
-    .map((event) => ({
-      rawEventId: event._id,
-      receivedAt: event.receivedAt,
-      calendlyEventUri: event.calendlyEventUri,
-      issue: "unprocessed_invitee_created" as const,
+    .map((receipt) => ({
+      rawEventId: receipt.rawEventId,
+      receivedAt: receipt.receivedAt,
+      calendlyEventUri: receipt.inviteeUri,
+      issue:
+        receipt.status === "blocked"
+          ? ("bookings_held" as const)
+          : receipt.status === "failed"
+            ? ("delivery_failed" as const)
+            : ("unprocessed_invitee_created" as const),
+      severity:
+        receipt.status === "blocked" ? ("warning" as const) : ("error" as const),
     }));
 }

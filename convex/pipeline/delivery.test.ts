@@ -162,7 +162,7 @@ it("does not join different emails through a placeholder phone", async () => {
   expect(new Set(result.page.map((r) => r.leadId)).size).toBe(2);
 });
 
-it("holds conflicting identifiers for review without attaching another email", async () => {
+it("holds a new email that only shares a phone for review, without attaching it", async () => {
   vi.useFakeTimers();
   const { bookingHarness, bookingPayload } =
     await import("../../tests/bookingHarness");
@@ -183,8 +183,10 @@ it("holds conflicting identifiers for review without attaching another email", a
   const result = await admin.query(api.pipeline.delivery.list, {
     paginationOpts: { cursor: null, numItems: 10 },
   });
+  // The second booking's email is new and its phone names the first person:
+  // "Is this the same person?".
   expect(result.page).toMatchObject([
-    { status: "blocked", reason: "identity_conflict" },
+    { status: "blocked", reason: "phone_match_new_email" },
     { status: "applied" },
   ]);
 });

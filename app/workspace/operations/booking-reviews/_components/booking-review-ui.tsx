@@ -9,20 +9,21 @@ export const REVIEW_WORD_CLASS = "font-condensed text-[13px] leading-none font-b
 
 /**
  * One word per review: HELD in danger ink (the call is missing from the
- * CRM), DECIDE in amber (the admin owes a decision), RESOLVED in slate.
+ * CRM, held or waiting on "Is this the same person?"), DECIDE in amber (the
+ * admin owes a decision), RESOLVED in slate.
  */
 export function ReviewStatusWord({
   kind,
   open,
   className,
 }: {
-  kind: "held" | "attached";
+  kind: "held" | "attached" | "identity_check";
   open: boolean;
   className?: string;
 }) {
   const [word, ink] = !open
     ? ["Resolved", "text-muted-foreground"]
-    : kind === "held"
+    : kind !== "attached"
       ? ["Held", "text-danger-ink"]
       : ["Decide", "text-warning-ink"];
   return <span className={cn(ink, className)}>{word}</span>;

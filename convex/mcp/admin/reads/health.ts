@@ -160,23 +160,26 @@ export async function buildHealth(ctx: QueryCtx, me: Admin, area?: Area) {
     const work = await buildWorkHealth(ctx, me.tenantId);
     if (wants("booking_deliveries")) {
       const issues = await buildBookingHealthIssues(ctx, me.tenantId);
-      const broken = work.queues.some(
-        (q) =>
-          q.kind.startsWith("webhooks:") &&
-          (q.kind.endsWith(":failed") || q.kind.endsWith(":blocked")) &&
-          q.count > 0,
+      const failed = work.queues.some(
+        (q) => q.kind === "webhooks:failed" && q.count > 0,
+      );
+      const held = work.queues.some(
+        (q) => q.kind === "webhooks:blocked" && q.count > 0,
+      );
+      const stale = issues.some(
+        (issue) => issue.severity === "error" && issue.issue !== "delivery_failed",
       );
       push(
         "booking_deliveries",
-        broken
+        failed || stale
           ? "error"
-          : issues.length ||
-              work.queues.some((q) => q.kind === "webhooks:queued" && q.count)
+          : held || work.queues.some((q) => q.kind === "webhooks:queued" && q.count)
             ? "warning"
             : "ok",
         [
-          ...(broken ? ["delivery_failed_or_blocked"] : []),
-          ...(issues.length ? ["unprocessed_bookings"] : []),
+          ...(failed ? ["delivery_failed"] : []),
+          ...(stale ? ["delivery_queued_too_long"] : []),
+          ...(held ? ["bookings_held"] : []),
         ],
         Date.now(),
         "/workspace/operations",

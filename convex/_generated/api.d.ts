@@ -474,6 +474,10 @@ import type * as pipeline_bookingReviewsCore from "../pipeline/bookingReviewsCor
 import type * as pipeline_bookingTargets from "../pipeline/bookingTargets.js";
 import type * as pipeline_delivery from "../pipeline/delivery.js";
 import type * as pipeline_dismissal from "../pipeline/dismissal.js";
+import type * as pipeline_heldBookings from "../pipeline/heldBookings.js";
+import type * as pipeline_holdNextStep from "../pipeline/holdNextStep.js";
+import type * as pipeline_holdOrder from "../pipeline/holdOrder.js";
+import type * as pipeline_identityDecisions from "../pipeline/identityDecisions.js";
 import type * as pipeline_inviteeCanceled from "../pipeline/inviteeCanceled.js";
 import type * as pipeline_inviteeCreated from "../pipeline/inviteeCreated.js";
 import type * as pipeline_inviteeNoShow from "../pipeline/inviteeNoShow.js";
@@ -563,6 +567,7 @@ import type * as slack_deepLinks from "../slack/deepLinks.js";
 import type * as slack_eodMessage from "../slack/eodMessage.js";
 import type * as slack_eodReports from "../slack/eodReports.js";
 import type * as slack_events from "../slack/events.js";
+import type * as slack_heldBookingNotify from "../slack/heldBookingNotify.js";
 import type * as slack_inboundStubs from "../slack/inboundStubs.js";
 import type * as slack_installations from "../slack/installations.js";
 import type * as slack_interactivity from "../slack/interactivity.js";
@@ -1106,6 +1111,10 @@ declare const fullApi: ApiFromModules<{
   "pipeline/bookingTargets": typeof pipeline_bookingTargets;
   "pipeline/delivery": typeof pipeline_delivery;
   "pipeline/dismissal": typeof pipeline_dismissal;
+  "pipeline/heldBookings": typeof pipeline_heldBookings;
+  "pipeline/holdNextStep": typeof pipeline_holdNextStep;
+  "pipeline/holdOrder": typeof pipeline_holdOrder;
+  "pipeline/identityDecisions": typeof pipeline_identityDecisions;
   "pipeline/inviteeCanceled": typeof pipeline_inviteeCanceled;
   "pipeline/inviteeCreated": typeof pipeline_inviteeCreated;
   "pipeline/inviteeNoShow": typeof pipeline_inviteeNoShow;
@@ -1195,6 +1204,7 @@ declare const fullApi: ApiFromModules<{
   "slack/eodMessage": typeof slack_eodMessage;
   "slack/eodReports": typeof slack_eodReports;
   "slack/events": typeof slack_events;
+  "slack/heldBookingNotify": typeof slack_heldBookingNotify;
   "slack/inboundStubs": typeof slack_inboundStubs;
   "slack/installations": typeof slack_installations;
   "slack/interactivity": typeof slack_interactivity;

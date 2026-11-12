@@ -45,7 +45,7 @@ export function BookingReviewsPageClient() {
   if (status === "LoadingFirstPage") return <BookingReviewsPageSkeleton />;
 
   const more = status === "CanLoadMore" || status === "LoadingMore";
-  const held = reviews.filter((review) => review.kind === "held").length;
+  const held = reviews.filter((review) => review.kind !== "attached").length;
   const namesCapped = reviews.some((review) => review.namesCapped);
 
   return (
