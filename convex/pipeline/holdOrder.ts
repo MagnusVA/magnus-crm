@@ -22,8 +22,11 @@ import { enqueueDelivery } from "./delivery";
  */
 
 export const WAITING_FOR_EARLIER_BOOKING = "waiting_for_earlier_booking";
-/** An earlier booking in this hold can't get any worse, so nobody waits on it. */
-const HISTORICAL_HOLD = "historical_booking_requires_review";
+/**
+ * An earlier booking in this hold can't get any worse, so nobody waits on it:
+ * the processor drops its key and releases the next booking.
+ */
+export const HISTORICAL_HOLD = "historical_booking_requires_review";
 /** Earlier keyed receipts read; past this, the booking waits (fails closed). */
 const EARLIER_LIMIT = 16;
 

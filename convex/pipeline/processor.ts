@@ -8,7 +8,7 @@ import {
   ignoreBooking,
   ignoredReason,
 } from "./blocked";
-import { holdKeyFor, releaseNextHeldBooking } from "./holdOrder";
+import { HISTORICAL_HOLD, holdKeyFor, releaseNextHeldBooking } from "./holdOrder";
 import { scheduleHeldBookingAlert } from "./heldBookings";
 import { settleBookingReview } from "./bookingReviewRecords";
 import { v } from "convex/values";
@@ -161,13 +161,18 @@ export const processRawEvent = internalMutation({
       if (!reason) {
         const blocked = blockedReason(error);
         if (!blocked || !receipt) throw error;
+        // A historical hold can't get worse, so later bookings from its
+        // email don't wait on it: it drops its key and releases the next one.
+        const historical = blocked === HISTORICAL_HOLD;
         await ctx.db.patch("webhookDeliveries", receipt._id, {
           status: "blocked",
           reason: blocked,
           processedAt: Date.now(),
           hold: blockedHold(error),
-          holdKey,
+          holdKey: historical ? undefined : holdKey,
         });
+        if (historical && receipt.holdKey)
+          await releaseNextHeldBooking(ctx, receipt, receipt.holdKey);
         await settleBookingReview(ctx, receipt, {
           status: "blocked",
           reason: blocked,
