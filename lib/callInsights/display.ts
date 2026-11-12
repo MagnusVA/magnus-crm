@@ -93,6 +93,31 @@ export function moneyPhrase(
 }
 
 /**
+ * An amount split for display as a figure: "~6,000" beside "USD a month".
+ * A single amount said on a call is approximate, a range reads "4,000–5,000"
+ * and an open one "10,000+". Null when no amount was said.
+ */
+export function moneyFigure(
+  money: MoneyFields,
+): { figure: string; unit: string | null } | null {
+  const { minMinor, maxMinor } = money;
+  if (minMinor === undefined) return null;
+  const figure =
+    maxMinor === undefined
+      ? `${formatMinorPlain(minMinor)}+`
+      : maxMinor === minMinor
+        ? `~${formatMinorPlain(minMinor)}`
+        : `${formatMinorPlain(minMinor)}–${formatMinorPlain(maxMinor)}`;
+  const unit = [
+    currencyWord(money.currency, money.currencyAssumed),
+    money.period ? PERIOD_WORDS[money.period] : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return { figure, unit: unit || null };
+}
+
+/**
  * One income row: "Business revenue · about 6,000 USD a month", with
  * "target" when it is a goal figure and "currency not stated" when no
  * currency was said.
@@ -124,6 +149,31 @@ export function resolutionWord(
   if (resolution === "unresolved") return "Open";
   if (resolution === "resolved") return "Resolved";
   return null;
+}
+
+/**
+ * What Jev's check found for an item, in words, and how sure that makes it.
+ * An item an admin chose to show after Jev hid it is the admin's call, and an
+ * item read while the check was off was never checked: neither is "confirmed".
+ */
+export function checkLine(
+  check: "confirmed" | "unsure" | "unchecked" | "restored" | "rejected",
+): {
+  text: string;
+  tone: "confirmed" | "unsure" | "plain";
+} {
+  switch (check) {
+    case "confirmed":
+      return { text: "Confirmed by Jev", tone: "confirmed" };
+    case "unsure":
+      return { text: "Not confirmed by Jev", tone: "unsure" };
+    case "restored":
+      return { text: "Hidden by Jev, shown by an admin", tone: "plain" };
+    case "unchecked":
+      return { text: "Not checked by Jev", tone: "plain" };
+    case "rejected":
+      return { text: "Hidden by Jev", tone: "plain" };
+  }
 }
 
 // ─── Not read ───────────────────────────────────────────────────────────────
@@ -226,7 +276,10 @@ export function readingWords(reading?: string): string | null {
   return words.length === 1 ? words[0] : `${words[0]} or ${words[1]}`;
 }
 
-/** "Claude heard a payment, Jev heard a call back". Null when neither is known. */
+/**
+ * "Claude heard a payment, Jev heard a call back". Null when neither is known
+ * or both heard the same thing, which is nothing a person needs to weigh.
+ */
 export function readingsLine(
   claudeReading?: string,
   jevReading?: string,
@@ -234,11 +287,20 @@ export function readingsLine(
   const claude = readingWords(claudeReading);
   const jev = readingWords(jevReading);
   if (!claude && !jev) return null;
+  if (claude === jev) return null;
   return [
     claude ? `Claude heard ${claude}` : "Claude gave no clear reading",
     jev ? `Jev heard ${jev}` : "Jev didn't answer",
   ].join(", ");
 }
+
+/** How an unconfirmed reading is worded: as a possibility, with no values. */
+const POSSIBLY: Partial<Record<SuggestionKind, string>> = {
+  paid: "Possibly won",
+  promised: "Possibly a promise to pay",
+  call_back: "Possibly a call back",
+  lost: "Possibly lost",
+};
 
 type HeadlineSuggestion = {
   kind: SuggestionKind;
@@ -262,15 +324,24 @@ export function suggestionHeadline(
   when: (at: number) => string,
 ): string {
   if (s.tier === "check") {
-    const claude = readingWords(s.claudeReading);
-    const jev = readingWords(s.jevReading);
     const readings = [
-      ...new Set([claude, jev].filter((word): word is string => !!word)),
+      ...new Set(
+        [readingWords(s.claudeReading), readingWords(s.jevReading)].filter(
+          (word): word is string => !!word,
+        ),
+      ),
     ];
-    return readings.length
-      ? `Check this · ${readings.join(" or ")}`
-      : "Check this";
+    // The panel's chip already says "Check this". When the two readings
+    // differ the heading names both; when they agree and something else
+    // raised the doubt, it reads as a possibility like any unconfirmed one.
+    if (readings.length > 1) {
+      const heard = readings.join(" or ");
+      return heard[0].toUpperCase() + heard.slice(1);
+    }
+    if (s.kind in POSSIBLY) return POSSIBLY[s.kind]!;
   }
+  // Nothing backs an unconfirmed reading enough to state it as the result.
+  if (s.tier === "unconfirmed" && s.kind in POSSIBLY) return POSSIBLY[s.kind]!;
   const amountMinor = s.amountHintMinor ?? s.values.amountMinor;
   const amount =
     amountMinor !== undefined
@@ -314,9 +385,10 @@ export function suggestionHeadline(
 
 /** Short sentences for the note codes a person can act on. Other codes aren't shown. */
 const NOTE_SENTENCES: Record<string, string> = {
-  models_disagree:
-    "Claude and Jev read the call differently. Listen before you choose.",
+  models_disagree: "Listen to the call before you choose.",
   jev_missing: "Jev didn't answer, so nothing is filled.",
+  jev_low_confidence:
+    "Jev wasn't sure the call ended this way, so nothing is filled.",
   speaker_unclear: "The recording doesn't make clear who is speaking.",
   amount_not_in_quote: "The amount isn't in the quoted lines.",
   amount_role: "The amount heard may be the full price, not this payment.",
@@ -333,10 +405,20 @@ const NOTE_SENTENCES: Record<string, string> = {
   empty_recording: "The recording has no transcript lines. Listen to it first.",
 };
 
+/** Said when the code's own checks failed and no listed reason says why. */
+const CHECKS_FAILED =
+  "The quoted lines don't back this up enough, so nothing is filled.";
+
 export function noteSentences(notes: string[]): string[] {
-  return [
-    ...new Set(notes.map((code) => NOTE_SENTENCES[code]).filter(Boolean)),
-  ];
+  const checksFailed = notes.includes("code_checks_failed");
+  const sentences = notes
+    // Jev is only asked about a result once the code's checks pass, so a
+    // failed check never means Jev didn't answer.
+    .filter((code) => !(checksFailed && code === "jev_missing"))
+    .map((code) => NOTE_SENTENCES[code])
+    .filter(Boolean);
+  if (checksFailed && sentences.length === 0) sentences.push(CHECKS_FAILED);
+  return [...new Set(sentences)];
 }
 
 const SPEAKER_LETTER = { Closer: "C", Prospect: "P", Other: "O" } as const;

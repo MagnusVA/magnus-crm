@@ -32,7 +32,7 @@ The feature is off until an owner turns it on in Pipeline → Call insights → 
 
 Category lists and their version are in `lib/callInsights/taxonomy.ts`. Changing the prompt or its schema means bumping `PROMPT_VERSION` in `validators.ts`; "Read older calls" can then re-read calls read with the old one.
 
-The UI is `components/call-insights/` (the meeting cards and the person section) and `app/workspace/pipeline/call-insights/` (the page and the grading screen).
+The UI is `components/call-insights/` (the meeting cards and the person section) and `app/workspace/pipeline/call-insights/` (the page and the grading screen). Each card is two files: one holds the query and the mutations (`what-they-said-card.tsx`, `suggestion-card.tsx`, `person-calls-section.tsx`) and one draws it from plain props (`*-view.tsx`), built from the parts in `insight-parts.tsx`. DESIGN.md describes the chip, the quote block and the suggestion panel.
 
 ## The Convex AI Gateway
 

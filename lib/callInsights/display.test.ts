@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   changedFields,
+  checkLine,
   costLabel,
   formatMinorPlain,
   goalLine,
   incomeLine,
   minorToInput,
   modelLabel,
+  moneyFigure,
   moneyPhrase,
   noteSentences,
   notReadReason,
@@ -230,7 +232,7 @@ describe("suggestion headline", () => {
         },
         when,
       ),
-    ).toBe("Check this · a payment or a call back");
+    ).toBe("A payment or a call back");
     expect(readingsLine("payment", "call_back 0.81")).toBe(
       "Claude heard a payment, Jev heard a call back",
     );
@@ -247,9 +249,7 @@ describe("suggestion headline", () => {
   it("keeps only notes a person can act on", () => {
     expect(
       noteSentences(["models_disagree", "trace_incomplete", "wait_unset"]),
-    ).toEqual([
-      "Claude and Jev read the call differently. Listen before you choose.",
-    ]);
+    ).toEqual(["Listen to the call before you choose."]);
     expect(noteSentences(["unknown_code"])).toEqual([]);
   });
 
@@ -298,5 +298,120 @@ describe("changedFields", () => {
         { noShowReason: "no_response" },
       ),
     ).toEqual([]);
+  });
+});
+
+describe("a reading to check", () => {
+  const when = () => "Thu Nov 13, 3:00 PM";
+  it("reads as a possibility when Claude and Jev heard the same thing", () => {
+    expect(
+      suggestionHeadline(
+        {
+          kind: "no_show",
+          tier: "check",
+          noShowTier: "check",
+          values: {},
+          claudeReading: "absent",
+          jevReading: "no_show 0.97 / no_show 0.94",
+        },
+        when,
+      ),
+    ).toBe("Possibly a no-show");
+    expect(
+      suggestionHeadline(
+        {
+          kind: "lost",
+          tier: "check",
+          values: {},
+          claudeReading: "lost",
+          jevReading: "lost 0.9",
+        },
+        when,
+      ),
+    ).toBe("Possibly lost");
+    expect(readingsLine("absent", "no_show 0.97")).toBeNull();
+  });
+});
+
+describe("what an unconfirmed reading says", () => {
+  const when = () => "Thu Nov 13, 3:00 PM";
+  it("words the result as a possibility and leaves the values out", () => {
+    expect(
+      suggestionHeadline(
+        {
+          kind: "paid",
+          tier: "unconfirmed",
+          values: { amountMinor: 170000, currency: "USD" },
+        },
+        when,
+      ),
+    ).toBe("Possibly won");
+    expect(
+      suggestionHeadline(
+        { kind: "call_back", tier: "unconfirmed", values: {} },
+        when,
+      ),
+    ).toBe("Possibly a call back");
+    expect(
+      suggestionHeadline(
+        { kind: "no_decision", tier: "unconfirmed", values: {} },
+        when,
+      ),
+    ).toBe("No decision on the call");
+  });
+
+  it("never blames Jev for a result the code's checks already stopped", () => {
+    expect(
+      noteSentences(["later_amount", "code_checks_failed", "jev_missing"]),
+    ).toEqual(["A different amount comes up later in the call."]);
+    expect(noteSentences(["code_checks_failed", "jev_missing"])).toEqual([
+      "The quoted lines don't back this up enough, so nothing is filled.",
+    ]);
+    expect(noteSentences(["jev_missing"])).toEqual([
+      "Jev didn't answer, so nothing is filled.",
+    ]);
+    expect(noteSentences(["jev_low_confidence"])).toEqual([
+      "Jev wasn't sure the call ended this way, so nothing is filled.",
+    ]);
+  });
+});
+
+describe("moneyFigure", () => {
+  it("splits an amount into a figure and its unit", () => {
+    expect(
+      moneyFigure({ minMinor: 600000, maxMinor: 600000, period: "month" }),
+    ).toEqual({ figure: "~6,000", unit: "a month" });
+    expect(
+      moneyFigure({
+        minMinor: 400000,
+        maxMinor: 500000,
+        currency: "USD",
+        currencyAssumed: true,
+        period: "month",
+      }),
+    ).toEqual({ figure: "4,000–5,000", unit: "USD (assumed) a month" });
+    expect(moneyFigure({ minMinor: 1000000, period: "unknown" })).toEqual({
+      figure: "10,000+",
+      unit: null,
+    });
+    expect(moneyFigure({})).toBeNull();
+  });
+});
+
+describe("checkLine", () => {
+  it("never credits Jev with an item an admin restored or one that wasn't checked", () => {
+    expect(checkLine("confirmed")).toEqual({
+      text: "Confirmed by Jev",
+      tone: "confirmed",
+    });
+    expect(checkLine("unsure").tone).toBe("unsure");
+    expect(checkLine("restored")).toEqual({
+      text: "Hidden by Jev, shown by an admin",
+      tone: "plain",
+    });
+    expect(checkLine("unchecked")).toEqual({
+      text: "Not checked by Jev",
+      tone: "plain",
+    });
   });
 });
