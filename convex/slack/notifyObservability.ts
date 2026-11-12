@@ -6,7 +6,8 @@ export type SlackNotificationKind =
   | "existing_opportunity_bump"
   | "stale_digest"
   | "lead_gen_submission"
-  | "booking_review";
+  | "booking_review"
+  | "held_booking";
 
 type SlackNotificationAttrs = {
   tenantId: Id<"tenants">;

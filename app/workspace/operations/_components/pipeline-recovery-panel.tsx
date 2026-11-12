@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   useConvex,
   useMutation,
@@ -12,8 +13,108 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatDateTime } from "@/app/workspace/closer/_components/today-time";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 type Manifest = FunctionReturnType<typeof api.pipeline.recovery.preview>;
+type HeldBooking = FunctionReturnType<typeof api.pipeline.heldBookings.list>["page"][number];
+
+const VIA_WORDS = { email: "email", phone: "phone", social_handle: "Instagram" } as const;
+
+/**
+ * One held or failed booking as a person reads it: who booked, when the call
+ * is, the closer, what matched, why it's held and the next step, and the
+ * actions that can help. The receipt ID is last, for an operator.
+ */
+function HeldBookingCard({
+  row,
+  busy,
+  onRetry,
+}: {
+  row: HeldBooking;
+  busy: boolean;
+  onRetry: (id: Id<"webhookDeliveries">) => void;
+}) {
+  const { setting } = useBusinessDay();
+  const now = useNow();
+  const past = row.startTime !== undefined && row.startTime < now;
+  const actions = new Set(row.explanation.actions);
+  return (
+    <li className="flex flex-col gap-2 py-4 text-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[15px] font-semibold">{row.inviteeName ?? "Unnamed invitee"}</p>
+        <span className={past ? "text-xs font-medium text-warning-ink" : "text-xs font-medium text-muted-foreground"}>
+          {row.startTime === undefined ? "Call time unknown" : past ? "Call already happened" : "Call upcoming"}
+          {row.canceledAt !== undefined ? " · canceled in Calendly" : ""}
+        </span>
+      </div>
+      <p className="text-muted-foreground">
+        {[
+          row.eventName,
+          row.startTime !== undefined ? formatDateTime(row.startTime, setting.timeZone) : null,
+          row.closerName ? `Closer: ${row.closerName}` : row.hostName ? `Host: ${row.hostName} (not linked to a closer)` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-md border p-2.5">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">What was typed</p>
+          <p className="break-all">{row.email ?? "No email"}</p>
+          <p>{row.phone ?? "No phone"}</p>
+        </div>
+        <div className="rounded-md border p-2.5">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Who matched</p>
+          {row.matches.length ? (
+            <ul>
+              {row.matches.map((match) => (
+                <li key={match.leadId}>
+                  <Link href={`/workspace/leads/${match.leadId}`} className="underline underline-offset-2">
+                    {match.name ?? "Unnamed person"}
+                  </Link>{" "}
+                  <span className="text-muted-foreground">by {match.via.map((via) => VIA_WORDS[via]).join(" and ")}</span>
+                </li>
+              ))}
+              {row.matchesTruncated ? <li className="text-muted-foreground">and more</li> : null}
+            </ul>
+          ) : (
+            <p className="text-muted-foreground">No one, or not recorded for this hold</p>
+          )}
+        </div>
+      </div>
+      <p>{row.explanation.cause}</p>
+      <p className="border-l-2 border-primary pl-2.5 font-medium">{row.explanation.nextStep}</p>
+      <div className="flex flex-wrap gap-2">
+        {row.reviewId && (actions.has("open_review") || row.reviewOpen) ? (
+          <Button asChild size="sm">
+            <Link href={`/workspace/operations/booking-reviews/${row.reviewId}`}>Open review</Link>
+          </Button>
+        ) : null}
+        {actions.has("link_host") ? (
+          <Button asChild size="sm" variant="outline">
+            <Link href="/workspace/team">Link host</Link>
+          </Button>
+        ) : null}
+        {actions.has("retry") || !row.explanation.actions.length || row.explanation.needsOperator ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !row.payloadAvailable}
+            onClick={() => onRetry(row.deliveryId)}
+          >
+            Retry
+          </Button>
+        ) : null}
+      </div>
+      <p className="font-mono text-xs text-muted-foreground">
+        Receipt {row.deliveryId} · {row.reason ?? "no reason"} · tried {row.generation} time{row.generation === 1 ? "" : "s"}
+        {row.waitingOnDeliveryId ? ` · waits on ${row.waitingOnDeliveryId}` : ""}
+        {row.payloadAvailable ? "" : " · original data gone"}
+      </p>
+    </li>
+  );
+}
 export function PipelineRecoveryPanel() {
   const client = useConvex();
   const retry = useMutation(api.pipeline.recovery.retry);
@@ -22,7 +123,7 @@ export function PipelineRecoveryPanel() {
   const [status, setStatus] = useState<"blocked" | "failed">("blocked");
   const [kind, setKind] = useState<"meeting" | "opportunity">("meeting");
   const deliveries = usePaginatedQuery(
-    api.pipeline.delivery.list,
+    api.pipeline.heldBookings.list,
     { status },
     { initialNumItems: 25 },
   );
@@ -71,9 +172,9 @@ export function PipelineRecoveryPanel() {
       </CardHeader>
       <CardContent className="space-y-5">
         <p className="text-sm text-muted-foreground">
-          Correct the host link or identity conflict before retrying. Retries
-          check current records and preserve payments and completed outcomes.
-          Ambiguous historical bookings remain held for review.
+          Each held booking says why the CRM is holding it and what to do
+          next. Retries check current records and preserve payments and
+          completed outcomes.
         </p>
         <ul className="text-sm">
           {health?.queues
@@ -109,29 +210,18 @@ export function PipelineRecoveryPanel() {
         </div>
         <ul className="divide-y">
           {deliveries.results.map((row) => (
-            <li
-              key={row._id}
-              className="flex items-center justify-between gap-3 py-3 text-sm"
-            >
-              <div>
-                <p>
-                  {row.eventType} · {new Date(row.occurredAt).toLocaleString()}
-                </p>
-                <p className="text-muted-foreground">
-                  {row.reason?.replaceAll("_", " ")}
-                </p>
-                <p className="font-mono text-xs">{row._id}</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => void review(row._id)}
-              >
-                Review retry
-              </Button>
-            </li>
+            <HeldBookingCard
+              key={row.deliveryId}
+              row={row}
+              busy={busy}
+              onRetry={(id) => void review(id)}
+            />
           ))}
+          {deliveries.status === "Exhausted" && deliveries.results.length === 0 ? (
+            <li className="py-3 text-sm text-muted-foreground">
+              {status === "blocked" ? "No bookings are held." : "No deliveries failed."}
+            </li>
+          ) : null}
         </ul>
         {deliveries.status === "CanLoadMore" && (
           <Button variant="outline" onClick={() => deliveries.loadMore(25)}>

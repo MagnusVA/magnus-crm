@@ -648,7 +648,7 @@ function getStringValue(
   return typeof value === "string" ? value : undefined;
 }
 
-function escapeSlackMrkdwn(value: string): string {
+export function escapeSlackMrkdwn(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

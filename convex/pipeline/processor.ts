@@ -9,6 +9,7 @@ import {
   ignoredReason,
 } from "./blocked";
 import { holdKeyFor, releaseNextHeldBooking } from "./holdOrder";
+import { scheduleHeldBookingAlert } from "./heldBookings";
 import { settleBookingReview } from "./bookingReviewRecords";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "../_generated/server";
@@ -172,6 +173,8 @@ export const processRawEvent = internalMutation({
           reason: blocked,
           identity: blockedIdentity(error),
         });
+        // After the review is settled: a booking with a review is alerted by it.
+        await scheduleHeldBookingAlert(ctx, receipt, blocked);
         return null;
       }
     }
