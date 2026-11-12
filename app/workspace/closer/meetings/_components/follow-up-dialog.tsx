@@ -1,11 +1,16 @@
 "use client";
 
+import { useRef } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { FollowUpDialogShell } from "@/app/workspace/_components/follow-up-dialog-parts";
 import posthog from "@/lib/posthog-browser";
+import {
+  useFollowUpSuggestion,
+  type DialogSuggestion,
+} from "@/components/call-insights/suggestion-context";
 
 type FollowUpDialogProps = {
   opportunityId: Id<"opportunities">;
@@ -15,6 +20,8 @@ type FollowUpDialogProps = {
   onSuccess?: () => Promise<void>;
   /** Named in the dialog so the closer knows whose deal moves. */
   leadName?: string | null;
+  /** Opened from the suggested result: starts on the reminder, filled in. */
+  suggestion?: DialogSuggestion;
 };
 
 /**
@@ -30,12 +37,18 @@ export function FollowUpDialog({
   onSuccess,
   compact,
   leadName,
+  suggestion,
 }: FollowUpDialogProps & { compact?: boolean }) {
   const createFollowUp = useMutation(api.closer.followUpMutations.createSchedulingLinkFollowUp);
   const createReminder = useMutation(api.closer.followUpMutations.createManualReminderFollowUpPublic);
 
+  const fromCall = useFollowUpSuggestion(suggestion);
+  // Whether the link just created was saved from the suggestion, for its event.
+  const linkFromCall = useRef(false);
+
   return (
     <FollowUpDialogShell
+      suggestion={fromCall.shell}
       open={open}
       onOpenChange={onOpenChange}
       triggerSize={compact ? "sm" : "lg"}
@@ -50,7 +63,13 @@ export function FollowUpDialog({
           "The deal is in Follow-up. Copy the link and send it; it waits as a task on Today until a call is booked through it.",
       }}
       createLink={async () => {
-        const result = await createFollowUp({ opportunityId, meetingId });
+        const fromSuggestion = fromCall.forLink();
+        linkFromCall.current = Boolean(fromSuggestion);
+        const result = await createFollowUp({
+          opportunityId,
+          meetingId,
+          ...(fromSuggestion ? { fromSuggestion } : {}),
+        });
         return result.schedulingLinkUrl;
       }}
       onLinkCreated={() => {
@@ -61,6 +80,7 @@ export function FollowUpDialog({
         posthog.capture("follow_up_scheduling_link_created", {
           opportunity_id: opportunityId,
           meeting_id: meetingId ?? null,
+          ...(linkFromCall.current ? { from_suggestion: true } : {}),
         });
       }}
       copyLink={async (url) => {
@@ -71,18 +91,21 @@ export function FollowUpDialog({
         });
       }}
       createReminder={async (reminder) => {
+        const fromSuggestion = fromCall.forReminder(reminder);
         await createReminder({
           opportunityId,
           meetingId,
           contactMethod: reminder.contactMethod,
           reminderScheduledAt: reminder.reminderScheduledAt,
           reminderNote: reminder.reminderNote,
+          ...(fromSuggestion ? { fromSuggestion } : {}),
         });
         await onSuccess?.();
         posthog.capture("follow_up_reminder_created", {
           opportunity_id: opportunityId,
           meeting_id: meetingId ?? null,
           contact_method: reminder.contactMethod,
+          ...(fromSuggestion ? { from_suggestion: true } : {}),
         });
         toast.success("Reminder created");
       }}

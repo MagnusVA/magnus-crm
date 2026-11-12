@@ -73,6 +73,12 @@ export const fathomTables = {
     holdUntil: v.optional(v.number()),
     processedAt: v.optional(v.number()),
     error: v.optional(v.string()),
+    // The trace a dropped internal-only recording leaves, so a no-show check
+    // can tell the closer made another recording around the meeting. No
+    // content; purged with the row after 7 days.
+    droppedRecordedByEmail: v.optional(v.string()),
+    droppedRecordingStartAt: v.optional(v.number()),
+    droppedRecordingEndAt: v.optional(v.number()),
   })
     .index("by_tenantId_and_webhookMessageId", ["tenantId", "webhookMessageId"])
     .index("by_status_and_holdUntil", ["status", "holdUntil"])

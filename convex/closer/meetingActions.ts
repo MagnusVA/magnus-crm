@@ -18,6 +18,11 @@ import {
   type Provenance,
 } from "../lib/outcomeCores";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
+import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
+import {
+  markSuggestionUsed,
+  resolveSuggestionRef,
+} from "../callInsights/suggest/state";
 
 export async function loadMeetingContext(
   ctx: MutationCtx,
@@ -58,6 +63,7 @@ export const markAsLost = mutation({
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
     reason: v.optional(v.string()),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["closer"]);
@@ -70,6 +76,7 @@ export type MeetingLossArgs = {
   /** The call whose result this is; it is recorded held. */
   meetingId?: Id<"meetings">;
   reason?: string;
+  fromSuggestion?: FromSuggestion;
 };
 
 /** Every check `markAsLost` makes, in its order, with no write. */
@@ -158,6 +165,14 @@ export async function recordMeetingLoss(
   const { opportunityId, reason } = args;
   const { userId, opportunity, meeting, now } = await checkMeetingLoss(ctx, actor, args);
 
+  const suggestion = args.fromSuggestion && meeting
+    ? await resolveSuggestionRef(ctx, {
+        tenantId: actor.tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   const normalizedReason = reason?.trim() || undefined;
   await transitionOpportunity(ctx, opportunityId, {
     to: { stage: "closed", outcome: "lost" },
@@ -180,6 +195,13 @@ export async function recordMeetingLoss(
       toMeetingStatus: "held",
       recordedAt: now,
     });
+    if (suggestion) {
+      await markSuggestionUsed(ctx, {
+        state: suggestion,
+        userId,
+        changedFields: args.fromSuggestion?.changedFields,
+      }).catch(() => undefined);
+    }
     // A recorded result plus a matched recording starts Jev's check (§6.9).
     await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
   }

@@ -4,8 +4,11 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  type MutationCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
+import { headerFor } from "../callInsights/trigger";
 import { fathomFetch, FathomRetry, rosterPage, rosterFields } from "./client";
 import { reportError, log } from "../lib/observability/log";
 import {
@@ -13,6 +16,22 @@ import {
   businessDayRange,
 } from "../../lib/businessDay";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
+
+/**
+ * Call insights keeps the prospect's words only as long as the transcript.
+ * A recording it never read has nothing to delete, so nothing is scheduled.
+ */
+async function purgeInsightsWithTranscript(ctx: MutationCtx, recordingId: Id<"callRecordings">) {
+  try {
+    if (!(await headerFor(ctx, recordingId))) return;
+    await ctx.scheduler.runAfter(0, internal.callInsights.maintenance.purgeRecording, {
+      recordingId,
+    });
+  } catch (error) {
+    // The transcript purge must finish whatever happens here.
+    reportError("call_insights.purge_hook_failed", error, { recordingId, severity: "warning" });
+  }
+}
 
 const cursor = v.union(v.string(), v.null());
 export const sweep = internalMutation({
@@ -471,6 +490,7 @@ export const purge = internalMutation({
         transcriptDeletedAt: Date.now(),
         transcriptExpiresAt: undefined,
       });
+      await purgeInsightsWithTranscript(ctx, row._id);
       transcripts++;
     }
     more ||= recordings.length === 25;
@@ -492,6 +512,7 @@ export const purge = internalMutation({
         transcriptDeletedAt: Date.now(),
         transcriptExpiresAt: undefined,
       });
+      await purgeInsightsWithTranscript(ctx, row._id);
       transcripts++;
     }
     more ||= legacy.length === 25;

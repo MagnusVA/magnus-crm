@@ -95,6 +95,7 @@ export function PaymentFormStep({
   program,
   submitDisabled,
   proofRequired = false,
+  suggested,
   children,
 }: {
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -102,10 +103,18 @@ export function PaymentFormStep({
   program: PaymentProgramRow;
   submitDisabled?: boolean;
   proofRequired?: boolean;
+  /**
+   * Opened from a suggested result: hints under the amount and the currency,
+   * and the proof row reads "Proof file (optional)".
+   */
+  suggested?: { amountHint?: ReactNode; currencyHint?: ReactNode };
   children?: ReactNode;
 }) {
   const ids = useId();
-  const { control } = useFormContext<PaymentRowFields>();
+  const {
+    control,
+    formState: { errors },
+  } = useFormContext<PaymentRowFields>();
   // The picker shows this, not the Controller's value. After Back remounts the
   // rows, react-hook-form's Controller falls back to the file it mounted with
   // once the value is cleared, so a removed file would stay on screen.
@@ -118,7 +127,20 @@ export function PaymentFormStep({
           control={control}
           name="amount"
           render={({ field, fieldState }) => (
-            <FormRow label="Amount" htmlFor={`${ids}-amount`} invalid={fieldState.invalid} error={fieldState.error}>
+            <FormRow
+              label="Amount"
+              htmlFor={`${ids}-amount`}
+              invalid={fieldState.invalid || Boolean(errors.currency)}
+              error={fieldState.error ?? errors.currency}
+              description={
+                suggested?.amountHint || suggested?.currencyHint ? (
+                  <span className="flex flex-col">
+                    {suggested.amountHint}
+                    {suggested.currencyHint}
+                  </span>
+                ) : undefined
+              }
+            >
               <div className="flex items-center gap-2">
                 <Input
                   {...field}
@@ -142,7 +164,7 @@ export function PaymentFormStep({
                         aria-label="Currency"
                         className="w-24 font-condensed text-[14px] font-semibold tracking-[0.04em]"
                       >
-                        <SelectValue />
+                        <SelectValue placeholder="Pick" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
@@ -228,12 +250,12 @@ export function PaymentFormStep({
           name="proofFile"
           render={({ field: { onChange, onBlur, name }, fieldState }) => (
             <FormRow
-              label="Proof file"
+              label={suggested ? "Proof file (optional)" : "Proof file"}
               htmlFor={`${ids}-proof`}
               invalid={fieldState.invalid}
               error={fieldState.error}
               description={
-                proofRequired
+                proofRequired || suggested
                   ? "A receipt or screenshot of the payment. PNG, JPEG, GIF or PDF, up to 10 MB."
                   : "Optional. PNG, JPEG, GIF or PDF, up to 10 MB."
               }

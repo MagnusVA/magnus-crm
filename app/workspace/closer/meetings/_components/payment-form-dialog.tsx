@@ -28,6 +28,16 @@ import {
 import type { PaymentLinkValues } from "@/lib/paymentLink";
 import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
 import { useProofRequired } from "@/hooks/use-proof-required";
+import { changedFields, formatMinorPlain, minorToInput } from "@/lib/callInsights/display";
+import { cn } from "@/lib/utils";
+import {
+  PrefillHint,
+  ReadingChangedNotice,
+  useSuggestionRef,
+  withFromCall,
+  type DialogSuggestion,
+  type SuggestionPrefill,
+} from "@/components/call-insights/suggestion-context";
 
 // ---------------------------------------------------------------------------
 // Zod Schema — single source of truth for form validation
@@ -44,7 +54,8 @@ const paymentFormSchema = z.object({
       },
       { message: "Amount must be greater than 0" },
     ),
-  currency: z.enum(CURRENCIES),
+  // Opened from a suggestion, the currency can start unselected.
+  currency: z.enum(CURRENCIES, { error: "Pick the currency" }),
   programId: z.string().min(1, "Please select a program"),
   paymentType: z.enum(PAYMENT_TYPES, {
     error: "Please select a payment type",
@@ -82,7 +93,36 @@ type PaymentFormDialogProps = {
   defaultProgramId?: Id<"tenantPrograms"> | null;
   /** Values from a payment link, filled in when the dialog opens. */
   prefill?: PaymentLinkValues;
+  /**
+   * Opened from the suggested result: its values fill the form in place of
+   * the USD and booked-program defaults, and proof is optional.
+   */
+  suggestion?: DialogSuggestion;
 };
+
+/** The form values a suggestion fills: only what it heard, never a proof file. */
+function suggestionFormValues(prefill: SuggestionPrefill, programIds: Set<string>) {
+  const { values } = prefill;
+  return {
+    amount:
+      prefill.amountPrefill && values.amountMinor !== undefined ? minorToInput(values.amountMinor) : "",
+    // Unselected when the call named no currency the form offers.
+    currency: (CURRENCIES.find((code) => code === values.currency) ?? "") as PaymentFormValues["currency"],
+    programId: values.programId && programIds.has(values.programId) ? values.programId : "",
+    paymentType: values.paymentType,
+  };
+}
+
+/** The prefilled fields by name, for `changedFields`. */
+function prefilledFields(prefill: SuggestionPrefill) {
+  const { values } = prefill;
+  return {
+    amountMinor: prefill.amountPrefill ? values.amountMinor : undefined,
+    currency: values.currency,
+    paymentType: values.paymentType,
+    programId: values.programId,
+  };
+}
 
 /**
  * Won · log payment, from the meeting page. The form (amount, currency,
@@ -101,6 +141,7 @@ export function PaymentFormDialog({
   leadName,
   defaultProgramId,
   prefill,
+  suggestion,
 }: PaymentFormDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -112,7 +153,8 @@ export function PaymentFormDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Closers must attach proof; the payment mutations refuse a payment without it.
-  const proofRequired = useProofRequired();
+  const roleNeedsProof = useProofRequired();
+  const fromCall = suggestion !== undefined;
   const [confirming, setConfirming] = useConfirmStep<PaymentFormValues>(open);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -149,11 +191,12 @@ export function PaymentFormDialog({
   };
 
   // Programs load after the form, so the booked program fills in once they do.
+  // Not from a suggestion: its program stays unselected unless the call named one.
   useEffect(() => {
-    if (!bookedProgram || form.getValues("programId") !== "") return;
+    if (fromCall || !bookedProgram || form.getValues("programId") !== "") return;
     form.setValue("programId", bookedProgram._id);
     if (bookedCurrency) form.setValue("currency", bookedCurrency);
-  }, [bookedProgram, bookedCurrency, form]);
+  }, [fromCall, bookedProgram, bookedCurrency, form]);
 
   // A payment link's values (lib/paymentLink.ts) fill the form once each time
   // it opens, after the programs load, so a link's program can be checked.
@@ -172,6 +215,36 @@ export function PaymentFormDialog({
     const program = programs.find((item) => item._id === prefill.programId);
     if (program) form.setValue("programId", program._id);
   }, [open, prefill, programs, form]);
+
+  // A suggestion's values fill the form once each time it opens from one,
+  // after the programs load, so its program can be checked.
+  const applySuggestion = (next: SuggestionPrefill) => {
+    const programIds = new Set((programs ?? []).map((program) => String(program._id)));
+    const values = suggestionFormValues(next, programIds);
+    form.setValue("amount", values.amount);
+    form.setValue("currency", values.currency);
+    form.setValue("programId", values.programId);
+    form.setValue("paymentType", values.paymentType as PaymentFormValues["paymentType"]);
+    form.clearErrors();
+  };
+  const reading = useSuggestionRef(suggestion, (next) => {
+    setConfirming(null);
+    applySuggestion(next);
+  });
+  // From a live suggestion proof is optional for everyone; the server checks
+  // the suggestion. If it ends while the form is open, the usual rule is back.
+  const proofRequired = roleNeedsProof && !reading.prefill;
+  const suggestionApplied = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      suggestionApplied.current = false;
+      return;
+    }
+    if (!suggestion || suggestionApplied.current || programs === undefined) return;
+    suggestionApplied.current = true;
+    const programIds = new Set(programs.map((program) => String(program._id)));
+    form.reset({ ...suggestionFormValues(suggestion.opened, programIds), proofFile: undefined });
+  }, [open, suggestion, programs, form]);
 
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.closer.payments.logPayment);
@@ -215,6 +288,16 @@ export function PaymentFormDialog({
         (program) => program._id === values.programId,
       );
 
+      const fromSuggestion = reading.prefill
+        ? reading.ref(
+            changedFields(prefilledFields(reading.prefill), {
+              amountMinor,
+              currency: values.currency,
+              paymentType: values.paymentType,
+              programId: values.programId,
+            }),
+          )
+        : undefined;
       await logPayment({
         opportunityId,
         meetingId,
@@ -223,6 +306,7 @@ export function PaymentFormDialog({
         programId: values.programId as Id<"tenantPrograms">,
         paymentType: values.paymentType,
         proofFileId,
+        ...(fromSuggestion ? { fromSuggestion } : {}),
       });
 
       await onSuccess?.();
@@ -235,6 +319,7 @@ export function PaymentFormDialog({
         program_name: selectedProgram?.name ?? null,
         payment_type: values.paymentType,
         has_proof_file: Boolean(proofFileId),
+        ...(fromSuggestion ? { from_suggestion: true } : {}),
       });
       toast.success("Payment logged. The deal is won.");
       setOpen(false);
@@ -261,6 +346,14 @@ export function PaymentFormDialog({
     : null;
   const amountLabel = confirming ? formatPaymentAmount(confirming.amount, confirming.currency) : "";
 
+  const readingNotice = reading.changed ? (
+    <ReadingChangedNotice
+      onUseNew={reading.applyNew}
+      onKeep={reading.keepMine}
+      disabled={isSubmitting}
+    />
+  ) : null;
+
   return (
     <Dialog
       open={open}
@@ -282,13 +375,20 @@ export function PaymentFormDialog({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
+      <DialogContent
+        className={cn(ACTION_DIALOG, fromCall && "ph-no-capture")}
+        showCloseButton={!isSubmitting}
+      >
         {confirming ? (
           <>
             <ActionDialogHeader
-              title={leadName ? `Record ${leadName}’s ${amountLabel} payment?` : `Record a ${amountLabel} payment?`}
+              title={withFromCall(
+                leadName ? `Record ${leadName}’s ${amountLabel} payment?` : `Record a ${amountLabel} payment?`,
+                fromCall,
+              )}
               description="Check the payment before you record it."
             />
+            {readingNotice}
             <PaymentConfirmStep
               amount={confirming.amount}
               currency={confirming.currency}
@@ -313,9 +413,13 @@ export function PaymentFormDialog({
         ) : (
           <>
             <ActionDialogHeader
-              title={leadName ? `Record a payment for ${leadName}` : "Record a payment"}
+              title={withFromCall(
+                leadName ? `Record a payment for ${leadName}` : "Record a payment",
+                fromCall,
+              )}
               description="Recording it closes the deal as won and marks the call held."
             />
+            {readingNotice}
             <FormProvider {...form}>
               <PaymentFormStep
                 onSubmit={form.handleSubmit((values) => {
@@ -343,6 +447,22 @@ export function PaymentFormDialog({
                 }}
                 submitDisabled={isSubmitDisabled}
                 proofRequired={proofRequired}
+                suggested={
+                  reading.prefill
+                    ? {
+                        amountHint:
+                          !reading.prefill.amountPrefill && reading.prefill.amountHintMinor !== undefined ? (
+                            <PrefillHint>
+                              Heard on the call: {formatMinorPlain(reading.prefill.amountHintMinor)}
+                            </PrefillHint>
+                          ) : null,
+                        currencyHint:
+                          reading.prefill.values.currencyAssumed && reading.prefill.values.currency === "USD" ? (
+                            <PrefillHint>USD (assumed): only &ldquo;dollars&rdquo; was said</PrefillHint>
+                          ) : null,
+                      }
+                    : undefined
+                }
               />
             </FormProvider>
           </>

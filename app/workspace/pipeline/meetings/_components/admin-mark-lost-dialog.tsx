@@ -11,6 +11,10 @@ import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { getErrorMessage } from "@/lib/errors";
 import { LostDealDialog } from "@/app/workspace/_components/outcome-dialog-parts";
+import {
+  useLostSuggestion,
+  type DialogSuggestion,
+} from "@/components/call-insights/suggestion-context";
 
 type AdminMarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
@@ -21,6 +25,8 @@ type AdminMarkLostDialogProps = {
   onOpenChange?: (open: boolean) => void;
   /** Named in the dialog so the admin knows whose deal closes. */
   leadName?: string | null;
+  /** Opened from the suggested result: the reason starts as the loss category's label. */
+  suggestion?: DialogSuggestion;
 };
 
 /**
@@ -35,6 +41,7 @@ export function AdminMarkLostDialog({
   open: controlledOpen,
   onOpenChange,
   leadName,
+  suggestion,
 }: AdminMarkLostDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -46,19 +53,24 @@ export function AdminMarkLostDialog({
   const [isLoading, setIsLoading] = useState(false);
   const markAsLost = useMutation(api.admin.meetingActions.adminMarkAsLost);
 
+  const fromCall = useLostSuggestion(suggestion);
+
   const onConfirm = async (trimmedReason: string | undefined) => {
     setIsLoading(true);
     try {
+      const fromSuggestion = fromCall.ref(trimmedReason);
       await markAsLost({
         opportunityId,
         meetingId,
         reason: trimmedReason,
+        ...(fromSuggestion ? { fromSuggestion } : {}),
       });
       await onSuccess?.();
       posthog.capture("admin_opportunity_marked_lost", {
         opportunity_id: opportunityId,
         meeting_id: meetingId ?? null,
         has_reason: Boolean(trimmedReason),
+        ...(fromSuggestion ? { from_suggestion: true } : {}),
       });
       toast.success("Deal closed as lost");
       setOpen(false);
@@ -96,6 +108,7 @@ export function AdminMarkLostDialog({
         )
       }
       onConfirm={onConfirm}
+      suggestion={fromCall.dialog}
     />
   );
 }

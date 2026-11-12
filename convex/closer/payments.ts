@@ -39,6 +39,12 @@ import {
   insertPaymentAggregate,
 } from "../reporting/writeHooks";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
+import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
+import {
+  markSuggestionUsed,
+  resolveSuggestionRef,
+  suggestionWaivesProof,
+} from "../callInsights/suggest/state";
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -59,6 +65,7 @@ export const logPayment = mutation({
     programId: v.id("tenantPrograms"),
     paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, [...MEETING_PAYMENT_ROLES]);
@@ -75,6 +82,7 @@ export type MeetingPaymentArgs = {
   programId: Id<"tenantPrograms">;
   paymentType: PaymentType;
   proofFileId?: Id<"_storage">;
+  fromSuggestion?: FromSuggestion;
 };
 
 /**
@@ -141,13 +149,26 @@ async function checkMeetingPayment(
     programId: program._id,
     paymentType,
   });
+  // Suggestion tracking must not reject an otherwise valid save.
+  const suggestion = args.fromSuggestion
+    ? await resolveSuggestionRef(ctx, {
+        tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+  // Only a closer needs proof, so only a closer's save can have it waived.
+  const proofWaived =
+    role === "closer" && !args.proofFileId && suggestionWaivesProof(suggestion);
   const proof =
-    options.proof === "skip"
+    options.proof === "skip" || proofWaived
       ? null
       : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
 
   return {
     proof,
+    suggestion,
+    proofWaived,
     userId,
     tenantId,
     role,
@@ -227,6 +248,8 @@ export async function recordMeetingPayment(
     attributedCloserId,
     origin,
     proof,
+    suggestion,
+    proofWaived,
   } = await checkMeetingPayment(ctx, actor, args);
 
   const recordedFields = await newPaymentFields(ctx, tenantId, proof, provenance);
@@ -306,6 +329,16 @@ export async function recordMeetingPayment(
     source: role === "closer" ? "closer" : "admin",
     actorUserId: userId,
   });
+
+  if (suggestion) {
+    await markSuggestionUsed(ctx, {
+      state: suggestion,
+      userId,
+      changedFields: args.fromSuggestion?.changedFields,
+      paymentId,
+      ...(proofWaived ? { proofWaived: true } : {}),
+    }).catch(() => undefined);
+  }
 
   // A recorded result plus a matched recording starts Jev's check (§6.9).
   await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });

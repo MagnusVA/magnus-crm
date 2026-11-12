@@ -18,6 +18,7 @@ import {
   LayoutGridIcon,
   LinkIcon,
   MegaphoneIcon,
+  MessageSquareTextIcon,
   MessagesSquareIcon,
   PhoneCallIcon,
   PhoneIcon,
@@ -122,6 +123,8 @@ const adminNavItems: NavItem[] = [
   operationsNavItem,
   { href: "/workspace/pipeline/second-opinions", label: "Second opinions", icon: ClipboardCheckIcon },
   leadsCustomersNavItem,
+  // Fifth on purpose: ⌘1 to ⌘4 follow this order and keep their pages.
+  { href: "/workspace/pipeline/call-insights", label: "Call insights", icon: MessageSquareTextIcon },
   teamNavItem,
   bookingNavItem,
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },

@@ -3,6 +3,8 @@
 import { Card } from "@/components/ui/card";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { SectionError } from "@/app/workspace/closer/_components/section-state";
+import { PersonCallsSection } from "@/components/call-insights/person-calls-section";
+import { useEntityDetail } from "./entity-detail-context";
 import { OpportunityDetailSheet } from "./opportunity-detail-sheet";
 import { OpportunitySheetProvider } from "./opportunity-sheet-context";
 import { PersonDealCards } from "./person-deal-cards";
@@ -31,6 +33,9 @@ export function EntityDetailFrame() {
             <Section what="the deals">
               <PersonDealCards />
             </Section>
+            <Section what="what they said on their calls">
+              <PersonCalls />
+            </Section>
             <div className="grid grid-cols-1 items-start gap-3.5 short:gap-3 @4xl:grid-cols-2">
               <Section what="the booking answers">
                 <BookingAnswersCard />
@@ -48,6 +53,12 @@ export function EntityDetailFrame() {
       <OpportunityDetailSheet />
     </OpportunitySheetProvider>
   );
+}
+
+/** "From their calls", read by the person's canonical id. */
+function PersonCalls() {
+  const { lead } = useEntityDetail();
+  return <PersonCallsSection leadId={lead._id} />;
 }
 
 /** A section that fails says so in place, and the rest of the page stays. */

@@ -25,6 +25,13 @@ import {
   SubmitError,
 } from "@/app/workspace/_components/action-dialog";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
+import {
+  ReadingChangedNotice,
+  withFromCall,
+  type FollowUpSuggestion,
+  type ReminderPrefill,
+} from "@/components/call-insights/suggestion-context";
 
 // The pieces the follow-up dialogs share: the closer's (`FollowUpDialog`) and
 // the admin's (`AdminFollowUpDialog`) run the same three steps (choose a
@@ -192,6 +199,7 @@ export function FollowUpDialogShell({
   onLinkCreated,
   copyLink,
   createReminder,
+  suggestion,
 }: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -208,15 +216,30 @@ export function FollowUpDialogShell({
   copyLink: (url: string) => Promise<void>;
   /** Runs the reminder mutation, the refresh, the event and the toast. */
   createReminder: (reminder: NewReminder) => Promise<void>;
+  /**
+   * Opened from a suggested call back (or a promise to pay): the dialog starts
+   * on the reminder, filled with the suggestion's time and contact method.
+   */
+  suggestion?: FollowUpSuggestion;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
-  const [path, setPath] = useState<FollowUpPath>("selection");
+  // Opened from a suggestion, the dialog goes straight to the reminder, also
+  // when it mounts already open.
+  const [path, setPath] = useState<FollowUpPath>(
+    suggestion !== undefined && controlledOpen ? "manual_reminder" : "selection",
+  );
   // Once a link is generated the deal has moved; the dialog only shows the
   // link to copy, with no way back to the other path.
   const [linkGenerated, setLinkGenerated] = useState(false);
   const [pending, setPending] = useState(false);
   const isControlled = controlledOpen !== undefined;
   const open = controlledOpen ?? internalOpen;
+  const fromCall = suggestion !== undefined;
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open && fromCall) setPath("manual_reminder");
+  }
 
   const setOpen = (value: boolean) => {
     if (!isControlled) setInternalOpen(value);
@@ -242,13 +265,16 @@ export function FollowUpDialogShell({
   const header =
     path === "scheduling_link" ? (
       <ActionDialogHeader
-        title={linkGenerated ? `Send ${who} this link` : `Send ${who} a scheduling link`}
+        title={withFromCall(linkGenerated ? `Send ${who} this link` : `Send ${who} a scheduling link`, fromCall)}
         description={linkGenerated ? copy.linkReady : moves}
       />
     ) : path === "manual_reminder" ? (
-      <ActionDialogHeader title={`Set a reminder to reach ${who}`} description={moves} />
+      <ActionDialogHeader title={withFromCall(`Set a reminder to reach ${who}`, fromCall)} description={moves} />
     ) : (
-      <ActionDialogHeader title={leadName ? `Schedule a follow-up with ${leadName}` : "Schedule follow-up"} description={moves} />
+      <ActionDialogHeader
+        title={withFromCall(leadName ? `Schedule a follow-up with ${leadName}` : "Schedule follow-up", fromCall)}
+        description={moves}
+      />
     );
 
   return (
@@ -261,8 +287,11 @@ export function FollowUpDialogShell({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className={ACTION_DIALOG} showCloseButton={!pending}>
+      <DialogContent className={cn(ACTION_DIALOG, fromCall && "ph-no-capture")} showCloseButton={!pending}>
         {header}
+        {suggestion?.changed && path === "manual_reminder" ? (
+          <ReadingChangedNotice onUseNew={suggestion.onUseNew} onKeep={suggestion.onKeep} disabled={pending} />
+        ) : null}
         {path === "selection" ? (
           <>
             <ul className="divide-y border-b">
@@ -290,6 +319,7 @@ export function FollowUpDialogShell({
         ) : null}
         {path === "manual_reminder" ? (
           <ReminderStep
+            prefill={suggestion?.reminder ?? null}
             createReminder={createReminder}
             onPendingChange={setPending}
             onBack={back}
@@ -438,11 +468,14 @@ const reminderSchema = z.object({
 type ReminderFormValues = z.infer<typeof reminderSchema>;
 
 function ReminderStep({
+  prefill,
   createReminder,
   onPendingChange,
   onBack,
   onDone,
 }: {
+  /** A suggested call back's time and contact method. The note always starts empty. */
+  prefill: ReminderPrefill | null;
   createReminder: (reminder: NewReminder) => Promise<void>;
   onPendingChange: (pending: boolean) => void;
   onBack: () => void;
@@ -455,13 +488,24 @@ function ReminderStep({
   const form = useForm({
     resolver: standardSchemaResolver(reminderSchema),
     defaultValues: {
-      contactMethod: "call" as const,
-      reminderDate: "",
-      reminderTime: "",
+      contactMethod: (prefill?.contactMethod ?? "call") as "call" | "text",
+      reminderDate: prefill?.date ?? "",
+      reminderTime: prefill?.time ?? "",
       note: "",
     },
   });
   const { errors } = form.formState;
+
+  // "Use the new values" hands a new prefill; the form takes it in place.
+  const appliedKey = useRef(prefill?.key ?? null);
+  useEffect(() => {
+    if (!prefill || prefill.key === appliedKey.current) return;
+    appliedKey.current = prefill.key;
+    form.setValue("contactMethod", prefill.contactMethod ?? "call");
+    form.setValue("reminderDate", prefill.date);
+    form.setValue("reminderTime", prefill.time);
+    form.clearErrors();
+  }, [prefill, form]);
 
   const onSubmit = async (values: ReminderFormValues) => {
     setIsSubmitting(true);

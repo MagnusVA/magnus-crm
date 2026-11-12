@@ -3,6 +3,7 @@
 import { type Preloaded, usePreloadedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { CallInsightsIntegrationCard } from "@/components/call-insights/integration-card";
 import { FathomIntegrationCard } from "@/components/fathom/fathom-integration-card";
 import { IntegrationCardSkeleton } from "../settings-skeleton";
 import { AiAssistantsCard } from "./ai-assistants-card";
@@ -13,8 +14,8 @@ import { SlackIntegrationCard } from "./slack-integration-card";
 
 /**
  * Calendly and Slack side by side from `@4xl` (each at its own height), then
- * Fathom and AI assistants, API keys full width under them; one column
- * narrower.
+ * Fathom and AI assistants, Call insights and API keys full width under them;
+ * one column narrower.
  */
 export function IntegrationsTab({
   preloadedSlackStatus,
@@ -50,6 +51,11 @@ export function IntegrationsTab({
       <SectionErrorBoundary sectionName="AI assistants">
         <AiAssistantsCard />
       </SectionErrorBoundary>
+      <div className="min-w-0 @4xl:col-span-2">
+        <SectionErrorBoundary sectionName="Call insights">
+          <CallInsightsIntegrationCard />
+        </SectionErrorBoundary>
+      </div>
       <div className="min-w-0 @4xl:col-span-2">
         <SectionErrorBoundary sectionName="API keys">
           <ApiKeysCard />
