@@ -14,7 +14,7 @@ import Link from "next/link";
 import { MATCH_LABELS } from "../../_components/booking-review-labels";
 import { REVIEW_WORD_CLASS, ReviewStatusWord } from "../../_components/booking-review-ui";
 import { CompareCard, dayAndClock, personName, type Person, type Review } from "./booking-review-compare";
-import { DecidePanel, ResolvedCard } from "./booking-review-decide";
+import { DecidePanel, IdentityCheckPanel, ResolvedCard } from "./booking-review-decide";
 
 // One booking review: the band says what happened in a sentence, the main
 // column compares the booking with the people it matched, and the rail
@@ -66,7 +66,9 @@ export function BookingReviewPageClient({
         title={
           review.kind === "attached"
             ? `Booking matched ${COUNT_WORDS[review.people.length] ?? review.people.length} people`
-            : "Booking held for review"
+            : review.kind === "identity_check"
+              ? "Is this the same person?"
+              : "Booking held for review"
         }
         description={subtitle.join(" · ")}
         actions={
@@ -87,7 +89,13 @@ export function BookingReviewPageClient({
           <CompareCard review={review} />
         </div>
         <aside aria-label="Decision" className="flex min-w-0 flex-col gap-3.5 @4xl:sticky @4xl:top-4">
-          {open ? <DecidePanel review={review} booked={booked} matched={matched} /> : <ResolvedCard review={review} />}
+          {!open ? (
+            <ResolvedCard review={review} />
+          ) : review.kind === "identity_check" ? (
+            <IdentityCheckPanel review={review} person={matched[0]} />
+          ) : (
+            <DecidePanel review={review} booked={booked} matched={matched} />
+          )}
         </aside>
       </div>
     </div>
@@ -118,6 +126,16 @@ function Summary({
   matched: Person[];
   open: boolean;
 }) {
+  if (review.kind === "identity_check") {
+    const person = matched[0];
+    return (
+      <>
+        Its email is new to the CRM, and its phone belongs to <Name>{person ? personName(person) : "a person on file"}</Name>
+        {person?.email ? <>, who has a different email</> : null}.
+        {open ? " The call stays out of the CRM until you say whether this is the same person." : null}
+      </>
+    );
+  }
   const onPage = new Set(review.people.map((person) => person.leadId));
   const named = matched.filter(
     (person) => !(person.status === "merged" && person.mergedIntoLeadId && onPage.has(person.mergedIntoLeadId)),

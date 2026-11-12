@@ -439,8 +439,11 @@ export function buildBookingReviewNotification(
     .map((p) => `its ${p.matchedBy.map((via) => MATCH_LABELS[via]).join(" and ")} belongs to *${escapeSlackMrkdwn(p.name ?? "an unnamed person")}*`)
     .join(", and ");
 
+  const phonePerson = escapeSlackMrkdwn(matched[0]?.name ?? "a person on file");
   const summary =
-    detail.kind === "attached" && booked
+    detail.kind === "identity_check"
+      ? `${invitee} booked ${call || "a call"}. The email is new to the CRM, and the phone belongs to *${phonePerson}*, who has a different email. The CRM is holding the call until someone says whether this is the same person.`
+      : detail.kind === "attached" && booked
       ? `${invitee} booked ${call || "a call"}. The Instagram handle ${handle ?? ""} belongs to *${escapeSlackMrkdwn(booked.name ?? "an unnamed person")}*, so the call went to them, but ${named}. Are they the same person?`
       : `${invitee} booked ${call || "a call"}. The CRM is holding it: ${named || "its details name more than one person"}. The call is not in the CRM until someone decides.`;
 
@@ -460,7 +463,12 @@ export function buildBookingReviewNotification(
       type: "header",
       text: {
         type: "plain_text",
-        text: detail.kind === "attached" ? "🔀 Booking matched two people" : "⏸️ Booking held for review",
+        text:
+          detail.kind === "attached"
+            ? "🔀 Booking matched two people"
+            : detail.kind === "identity_check"
+              ? "⏸️ Is this the same person?"
+              : "⏸️ Booking held for review",
         emoji: true,
       },
     },
@@ -515,7 +523,9 @@ export function buildBookingReviewNotification(
 
   return {
     text:
-      detail.kind === "attached"
+      detail.kind === "identity_check"
+        ? `${invitee}'s booking is held: its phone belongs to *${phonePerson}*, who has a different email. Same person? Review: ${reviewUrl}`
+        : detail.kind === "attached"
         ? `${invitee}'s booking went to ${booked?.name ?? "the Instagram handle's person"}, but ${named}. Review: ${reviewUrl}`
         : `${invitee}'s booking is held: ${named || "it names more than one person"}. Review: ${reviewUrl}`,
     blocks,
