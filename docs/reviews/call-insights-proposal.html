@@ -1,0 +1,1152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Call Insights Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single 960px reading column; mockups and diagrams break out to 1120px on wide screens. Magnus app tokens. */
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eef1f5; --fg: #141a28; --muted: #4f596b; --line: #e3e7ed;
+  --lime: #84b135; --lime-ink: #4a7212; --lime-soft: #eef5df;
+  --navy: #141a28; --navy-2: #1d2536; --navy-fg: #e6eaf1; --navy-muted: #9aa4b6;
+  --blue: #4c6fd0; --blue-ink: #2b4aa8; --blue-soft: #e8eefb;
+  --teal: #2a9d95; --teal-ink: #1d756f; --teal-soft: #e2f3f1;
+  --amber: #f5b700; --amber-ink: #7a5200; --amber-soft: #fff4cc;
+  --red: #d93a40; --red-ink: #b42328; --red-soft: #fbe7e8;
+  --grey: #8e99ac;
+  --code-bg: #eef1f5;
+  --font-sans: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-cond: "Barlow Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius: 7px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #090d14; --surface: #121826; --surface-2: #1a2131; --fg: #eef1f6; --muted: #9aa4b6; --line: #263044;
+    --lime: #9bcb47; --lime-ink: #b5dc72; --lime-soft: #1f2a12;
+    --navy: #0d121c; --navy-2: #1d2536; --navy-fg: #e6eaf1; --navy-muted: #9aa4b6;
+    --blue: #7d98e6; --blue-ink: #a9bcf2; --blue-soft: #18213a;
+    --teal: #4cc2b9; --teal-ink: #7fd8d1; --teal-soft: #102a28;
+    --amber: #f5c443; --amber-ink: #f5d27a; --amber-soft: #2b2410;
+    --red: #ef6b70; --red-ink: #f59a9e; --red-soft: #2e1416;
+    --grey: #6f7a8e; --code-bg: #1a2131; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #090d14; --surface: #121826; --surface-2: #1a2131; --fg: #eef1f6; --muted: #9aa4b6; --line: #263044;
+  --lime: #9bcb47; --lime-ink: #b5dc72; --lime-soft: #1f2a12;
+  --navy: #0d121c; --navy-2: #1d2536; --navy-fg: #e6eaf1; --navy-muted: #9aa4b6;
+  --blue: #7d98e6; --blue-ink: #a9bcf2; --blue-soft: #18213a;
+  --teal: #4cc2b9; --teal-ink: #7fd8d1; --teal-soft: #102a28;
+  --amber: #f5c443; --amber-ink: #f5d27a; --amber-soft: #2b2410;
+  --red: #ef6b70; --red-ink: #f59a9e; --red-soft: #2e1416;
+  --grey: #6f7a8e; --code-bg: #1a2131; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-sans); font-size: 16.5px; line-height: 1.6; }
+.page { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 96px; }
+.col { max-width: 960px; margin: 0 auto; }
+h1, h2, h3, h4 { font-family: var(--font-sans); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(30px, 4.4vw, 44px); font-weight: 700; letter-spacing: -0.01em; margin: 0 0 10px; }
+h2 { font-size: 27px; font-weight: 700; margin: 64px 0 14px; padding-top: 18px; border-top: 1px solid var(--line); }
+h3 { font-size: 19px; font-weight: 600; margin: 30px 0 10px; }
+h4 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; }
+p { margin: 0 0 12px; max-width: 72ch; }
+ul, ol { margin: 0 0 14px; padding-left: 22px; max-width: 76ch; }
+li { margin-bottom: 5px; }
+a { color: var(--blue-ink); }
+code { font-family: var(--font-mono); font-size: 0.84em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { font-family: var(--font-mono); font-size: 13px; line-height: 1.5; background: var(--code-bg); padding: 14px 16px; border-radius: var(--radius); overflow-x: auto; margin: 10px 0 18px; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.eyebrow { font-family: var(--font-cond); text-transform: uppercase; letter-spacing: 0.09em; font-weight: 600; font-size: 13.5px; color: var(--lime-ink); }
+.lede { font-size: 19px; color: var(--muted); max-width: 66ch; }
+.meta { font-family: var(--font-cond); font-size: 15px; color: var(--muted); letter-spacing: 0.02em; display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 14px 0 0; }
+.num { font-variant-numeric: tabular-nums; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 8px 0 18px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-cond); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; font-size: 13px; color: var(--muted); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.pill { display: inline-block; white-space: nowrap; font-family: var(--font-cond); font-weight: 600; font-size: 13px; letter-spacing: 0.03em; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--surface); }
+.pill.lime { color: var(--lime-ink); border-color: var(--lime); background: var(--lime-soft); }
+.pill.blue { color: var(--blue-ink); border-color: var(--blue); background: var(--blue-soft); }
+.pill.teal { color: var(--teal-ink); border-color: var(--teal); background: var(--teal-soft); }
+.pill.amber { color: var(--amber-ink); border-color: var(--amber); background: var(--amber-soft); }
+.pill.red { color: var(--red-ink); border-color: var(--red); background: var(--red-soft); }
+.callout { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 16px 18px; margin: 16px 0 20px; }
+.callout.lime { border-color: var(--lime); background: var(--lime-soft); }
+.callout.amber { border-color: var(--amber); background: var(--amber-soft); }
+.callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+.callout h3 { margin-top: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.grid2 > *, .grid3 > * { min-width: 0; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.tile .k { font-family: var(--font-cond); text-transform: uppercase; letter-spacing: 0.07em; font-size: 13px; color: var(--muted); font-weight: 600; }
+.tile .v { font-family: var(--font-cond); font-size: 30px; font-weight: 700; line-height: 1.1; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.tile p { font-size: 14.5px; color: var(--muted); margin: 0; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 22px 0 0; padding: 0; list-style: none; max-width: none; }
+.toc li { margin: 0; }
+.toc a { display: inline-block; font-family: var(--font-cond); font-weight: 600; font-size: 14.5px; letter-spacing: 0.02em; text-decoration: none; color: var(--fg); background: var(--surface); border: 1px solid var(--line); padding: 3px 11px; border-radius: 999px; }
+.toc a:hover, .toc a:focus-visible { border-color: var(--lime); outline: none; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.figure { margin: 18px 0 26px; }
+.figure .cap { font-size: 14px; color: var(--muted); margin-top: 8px; max-width: 80ch; }
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.diagram svg text { font-family: var(--font-sans); fill: var(--fg); }
+.diagram svg .t-muted { fill: var(--muted); }
+.diagram svg .t-cond { font-family: var(--font-cond); }
+.diagram svg .t-mono { font-family: var(--font-mono); }
+.diagram svg .b { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.diagram svg .b-lime { fill: var(--lime-soft); stroke: var(--lime); stroke-width: 1.5; }
+.diagram svg .b-blue { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.5; }
+.diagram svg .b-teal { fill: var(--teal-soft); stroke: var(--teal); stroke-width: 1.5; }
+.diagram svg .b-amber { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 1.5; }
+.diagram svg .b-red { fill: var(--red-soft); stroke: var(--red); stroke-width: 1.5; }
+.diagram svg .b-grey { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.5; }
+.diagram svg .ln { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+.diagram svg .ln-dash { stroke: var(--muted); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+.diagram svg .ln-red { stroke: var(--red); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+.diagram svg .arrowhead { fill: var(--muted); }
+.diagram svg .zone { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
+
+/* --- App mockups --- */
+.mock-label { font-family: var(--font-cond); font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; margin: 0 0 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.app { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); box-shadow: 0 1px 2px rgb(20 26 40 / 0.05), 0 10px 30px -12px rgb(20 26 40 / 0.18); }
+.app-bar { display: flex; align-items: center; gap: 12px; background: var(--navy); color: var(--navy-fg); padding: 9px 14px; font-size: 14px; }
+.app-bar .logo { font-family: var(--font-cond); font-weight: 700; letter-spacing: 0.08em; color: var(--lime); }
+.app-bar .crumb { color: var(--navy-muted); font-family: var(--font-cond); letter-spacing: 0.02em; font-size: 15px; }
+.app-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; padding: 16px; }
+@media (max-width: 860px) { .app-body { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; min-width: 0; }
+.card + .card { margin-top: 12px; }
+.card-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.card-h .title { font-weight: 600; font-size: 16px; }
+.card-h .sub { font-family: var(--font-cond); color: var(--muted); font-size: 14px; letter-spacing: 0.02em; }
+.kv { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 12px; font-size: 14.5px; }
+.kv .k { color: var(--muted); font-family: var(--font-cond); letter-spacing: 0.03em; font-size: 14px; text-transform: uppercase; }
+.stage { font-family: var(--font-cond); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--blue-ink); }
+.deal { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14.5px; flex-wrap: wrap; }
+.deal:first-of-type { border-top: 0; }
+.ins-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.ins-row:first-of-type { border-top: 0; padding-top: 2px; }
+.ins-row .k { font-family: var(--font-cond); text-transform: uppercase; letter-spacing: 0.06em; font-size: 13.5px; font-weight: 600; color: var(--muted); padding-top: 2px; }
+@media (max-width: 520px) { .ins-row { grid-template-columns: 1fr; gap: 4px; } }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); white-space: nowrap; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--grey); }
+.chip .dot.red { background: var(--red); }
+.chip .dot.lime { background: var(--lime); }
+.chip .dot.amber { background: var(--amber); }
+.chip .cnt { font-family: var(--font-cond); font-weight: 700; color: var(--muted); }
+.chip.open { border-color: var(--blue); background: var(--blue-soft); }
+.quote { margin: 8px 0 0; padding: 9px 12px; border-radius: 6px; background: var(--surface-2); font-size: 14px; }
+.quote q { font-style: italic; }
+.quote .src { display: block; margin-top: 4px; font-family: var(--font-cond); font-size: 13.5px; color: var(--muted); letter-spacing: 0.02em; }
+.quote .src a { color: var(--blue-ink); }
+.income-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 14.5px; }
+.income-line .amt { font-family: var(--font-cond); font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+.income-line .when { font-family: var(--font-cond); color: var(--muted); font-size: 14px; }
+.foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13.5px; color: var(--muted); }
+.btn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-sans); font-weight: 600; font-size: 13.5px; padding: 5px 11px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.btn.primary { background: var(--lime); border-color: var(--lime); color: #141a28; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 7px 10px; border-radius: 6px; background: var(--surface-2); margin-top: 6px; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.switch { width: 34px; height: 19px; border-radius: 999px; background: var(--lime); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; right: 2px; top: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; font-family: var(--font-cond); font-weight: 600; font-size: 14px; }
+.seg span { padding: 3px 11px; border-left: 1px solid var(--line); color: var(--muted); }
+.seg span:first-child { border-left: 0; }
+.seg span.on { background: var(--navy-2); color: var(--navy-fg); }
+.meter { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--lime); }
+
+/* --- Bars (drawn to scale: width = value / axis max) --- */
+.bars { display: grid; gap: 7px; }
+.bar-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 92px; gap: 10px; align-items: center; font-size: 14px; }
+@media (max-width: 520px) { .bar-row { grid-template-columns: 104px minmax(0, 1fr) 76px; } }
+.bar-row .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .val { text-align: right; font-family: var(--font-cond); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }
+.track { height: 16px; background: var(--surface-2); border-radius: 3px; position: relative; overflow: hidden; }
+.track > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--blue); border-radius: 3px; }
+.track > i.res { background: var(--teal); }
+.track > i.lime { background: var(--lime); }
+.axis { display: grid; grid-template-columns: 150px minmax(0, 1fr) 92px; gap: 10px; font-family: var(--font-cond); font-size: 12.5px; color: var(--muted); }
+@media (max-width: 520px) { .axis { grid-template-columns: 104px minmax(0, 1fr) 76px; } }
+.axis .ticks { display: flex; justify-content: space-between; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13.5px; color: var(--muted); margin: 6px 0 10px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.example { font-family: var(--font-cond); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber-ink); background: var(--amber-soft); border: 1px solid var(--amber); padding: 0 7px; border-radius: 4px; }
+.heat td { text-align: center; font-family: var(--font-cond); font-weight: 600; font-variant-numeric: tabular-nums; }
+.heat td:first-child { text-align: left; font-family: var(--font-sans); font-weight: 400; }
+
+/* --- Timeline --- */
+.steps { list-style: none; padding: 0; margin: 12px 0 20px; display: grid; gap: 0; max-width: none; }
+.steps li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; margin: 0; padding: 12px 0; border-top: 1px solid var(--line); }
+.steps li:first-child { border-top: 0; }
+.steps .n { font-family: var(--font-cond); font-weight: 700; font-size: 22px; color: var(--lime-ink); line-height: 1.1; }
+.steps .t { font-weight: 600; }
+.steps p { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; margin: 10px 0; }
+details > summary { cursor: pointer; font-weight: 600; }
+details[open] > summary { margin-bottom: 8px; }
+.small { font-size: 14px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .toc a, .btn { transition: border-color .15s, background-color .15s; } }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="col">
+
+<header>
+  <div class="eyebrow">Magnus CRM · Proposal · Fathom</div>
+  <h1>Call insights: what prospects say on Fathom calls</h1>
+  <p class="lede">For every Fathom recording matched to a sales call, Claude reads the full transcript and pulls out the prospect's objections, struggles, goals and stated income. Each item is checked against the transcript before it is saved. The results show on the person's profile and in a new section of Reports → Calls.</p>
+  <div class="meta"><span>11 November 2026</span><span>Status: plan for review, nothing built</span><span>Planned by a council of 3 Codex Sol and 2 Opus planners, reviewed twice</span></div>
+  <ul class="toc" aria-label="Sections">
+    <li><a href="#outcome">What you get</a></li>
+    <li><a href="#flow">Data flow</a></li>
+    <li><a href="#model">Data model</a></li>
+    <li><a href="#extraction">Extraction</a></li>
+    <li><a href="#taxonomy">Taxonomy</a></li>
+    <li><a href="#income">Income</a></li>
+    <li><a href="#ui">UI mockups</a></li>
+    <li><a href="#reporting">Reporting</a></li>
+    <li><a href="#privacy">Privacy</a></li>
+    <li><a href="#cost">Cost</a></li>
+    <li><a href="#rollout">Rollout</a></li>
+    <li><a href="#tests">Testing</a></li>
+    <li><a href="#phase2">Phase 2</a></li>
+    <li><a href="#council">Council</a></li>
+    <li><a href="#decisions">Your decisions</a></li>
+  </ul>
+</header>
+
+<section id="outcome">
+<h2>What you get</h2>
+<div class="grid2">
+  <div class="callout lime">
+    <h3>On every person's profile</h3>
+    <ul>
+      <li>The objections they raised, on which call, and whether each was resolved on that call.</li>
+      <li>Their struggles and goals, grouped into fixed categories, with the exact sentence they said.</li>
+      <li>Every income figure they stated: personal income, business revenue, profit, savings or budget, kept separate. Each has its currency, period and date, and a target is never mixed with current income.</li>
+      <li>One click from any item to the moment in the recording.</li>
+    </ul>
+  </div>
+  <div class="callout">
+    <h3>In Reports → Calls</h3>
+    <ul>
+      <li>How often each objection comes up, by closer, program and period.</li>
+      <li>How often objections are resolved on the call.</li>
+      <li>Close rate by objection, and close rate by income band, on the same first-held-call basis as the Scorecard.</li>
+      <li>The top struggles and goals over time, and how many calls were read.</li>
+    </ul>
+  </div>
+</div>
+<div class="grid3" style="margin-top:14px">
+  <div class="tile"><div class="k">Cost per call</div><div class="v num">≈ $0.06</div><p>Sonnet 5.5 on a 45-minute call. Haiku 5.5 is about $0.003 if it passes the same quality test.</p></div>
+  <div class="tile"><div class="k">Monthly cost</div><div class="v num">≈ $20</div><p>About 300 recordings a month (306 meetings had a Fathom link in October). Capped at $40 by default.</p></div>
+  <div class="tile"><div class="k">History it can read</div><div class="v num">90 days</div><p>Fathom transcripts are deleted after 90 days. The backlog starts about 4 October, so the first transcripts expire around 2 January, then about 10 a day.</p></div>
+</div>
+<p style="margin-top:16px">It uses the same Convex AI Gateway that Jev already calls, through its Anthropic Messages endpoint with zero data retention. No Anthropic key and no new vendor are needed. Jev keeps doing its job, the second opinion on what the closer recorded, and nothing about it changes.</p>
+</section>
+
+<section id="flow">
+<h2>How it works</h2>
+<p>A recording that matches a meeting already triggers the second opinion. It will also queue one extraction, with its own queue, budget and records.</p>
+<div class="figure">
+<div class="diagram" role="img" aria-label="Data flow from Fathom webhook through extraction to the person page and reports">
+<svg viewBox="0 0 1080 560" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <!-- ingest -->
+  <rect class="b-grey" x="20" y="30" width="170" height="64" rx="8"/>
+  <text x="105" y="57" text-anchor="middle" font-weight="600" font-size="15">Fathom webhook</text>
+  <text x="105" y="77" text-anchor="middle" class="t-muted" font-size="12.5">recording + transcript</text>
+  <rect class="b-grey" x="230" y="30" width="190" height="64" rx="8"/>
+  <text x="325" y="57" text-anchor="middle" font-weight="600" font-size="15">processor.commit</text>
+  <text x="325" y="77" text-anchor="middle" class="t-muted" font-size="12.5">store, match to meeting</text>
+  <rect class="b-grey" x="460" y="30" width="200" height="64" rx="8"/>
+  <text x="560" y="57" text-anchor="middle" font-weight="600" font-size="15">onRecordingMatched</text>
+  <text x="560" y="77" text-anchor="middle" class="t-muted" font-size="12.5">recordings.ts:100</text>
+  <path class="ln" d="M190 62 H226" marker-end="url(#ah)"/>
+  <path class="ln" d="M420 62 H456" marker-end="url(#ah)"/>
+  <!-- branches -->
+  <rect class="b-grey" x="720" y="22" width="330" height="40" rx="8"/>
+  <text x="885" y="47" text-anchor="middle" font-size="14">queueSecondOpinion → Jev <tspan class="t-muted">(unchanged)</tspan></text>
+  <rect class="b-lime" x="720" y="74" width="330" height="40" rx="8"/>
+  <text x="885" y="99" text-anchor="middle" font-size="14" font-weight="600">queueCallInsight <tspan font-weight="400" class="t-muted">(new · never throws)</tspan></text>
+  <path class="ln" d="M660 52 H716" marker-end="url(#ah)"/>
+  <path class="ln" d="M660 72 C690 72 690 94 716 94" marker-end="url(#ah)"/>
+  <!-- pool + run -->
+  <rect class="b-lime" x="720" y="150" width="330" height="58" rx="8"/>
+  <text x="885" y="174" text-anchor="middle" font-weight="600" font-size="15">callInsightsPool</text>
+  <text x="885" y="194" text-anchor="middle" class="t-muted" font-size="12.5">Workpool · 2 at a time · retries re-queued here</text>
+  <path class="ln" d="M885 114 V146" marker-end="url(#ah)"/>
+  <rect class="b-lime" x="470" y="150" width="210" height="58" rx="8"/>
+  <text x="575" y="174" text-anchor="middle" font-weight="600" font-size="15">begin()</text>
+  <text x="575" y="194" text-anchor="middle" class="t-muted" font-size="12.5">claim + reserve budget</text>
+  <path class="ln" d="M720 179 H684" marker-end="url(#ah)"/>
+  <rect class="b-amber" x="230" y="150" width="200" height="58" rx="8"/>
+  <text x="330" y="174" text-anchor="middle" font-weight="600" font-size="15">callInsightBudgets</text>
+  <text x="330" y="194" text-anchor="middle" class="t-muted" font-size="12.5">tenant · month · reserved/spent</text>
+  <path class="ln-dash" d="M470 179 H434" marker-end="url(#ah)"/>
+  <!-- gateway -->
+  <rect class="b-blue" x="470" y="250" width="210" height="72" rx="8"/>
+  <text x="575" y="274" text-anchor="middle" font-weight="600" font-size="15">Convex AI Gateway</text>
+  <text x="575" y="293" text-anchor="middle" class="t-mono" font-size="12">POST /v1/messages</text>
+  <text x="575" y="311" text-anchor="middle" class="t-muted" font-size="12.5">Claude Sonnet 5.5 · ZDR</text>
+  <path class="ln" d="M575 208 V246" marker-end="url(#ah)"/>
+  <rect class="b-grey" x="230" y="250" width="200" height="72" rx="8"/>
+  <text x="330" y="274" text-anchor="middle" font-weight="600" font-size="15">Transcript</text>
+  <text x="330" y="293" text-anchor="middle" class="t-muted" font-size="12.5">file storage · numbered lines</text>
+  <text x="330" y="311" text-anchor="middle" class="t-muted" font-size="12.5">C / P / O speakers</text>
+  <path class="ln" d="M430 286 H466" marker-end="url(#ah)"/>
+  <!-- validate -->
+  <rect class="b-lime" x="720" y="250" width="330" height="72" rx="8"/>
+  <text x="885" y="274" text-anchor="middle" font-weight="600" font-size="15">validate + normalize (code)</text>
+  <text x="885" y="293" text-anchor="middle" class="t-muted" font-size="12.5">schema · quote in transcript · prospect only</text>
+  <text x="885" y="311" text-anchor="middle" class="t-muted" font-size="12.5">income → minor units, bands per currency</text>
+  <path class="ln" d="M680 286 H716" marker-end="url(#ah)"/>
+  <!-- publish -->
+  <rect class="b-lime" x="720" y="360" width="330" height="58" rx="8"/>
+  <text x="885" y="384" text-anchor="middle" font-weight="600" font-size="15">publish (one mutation)</text>
+  <text x="885" y="404" text-anchor="middle" class="t-muted" font-size="12.5">generation check · replace facts · settle cost</text>
+  <path class="ln" d="M885 322 V356" marker-end="url(#ah)"/>
+  <!-- stores -->
+  <line class="zone" x1="20" y1="440" x2="1060" y2="440"/>
+  <text x="24" y="460" class="t-cond t-muted" font-size="13" letter-spacing="1.2">STORED IN CONVEX</text>
+  <rect class="b-red" x="560" y="472" width="230" height="64" rx="8"/>
+  <text x="675" y="498" text-anchor="middle" font-weight="600" font-size="15">callInsightRuns</text>
+  <text x="675" y="518" text-anchor="middle" class="t-muted" font-size="12.5">statements + quotes · never synced</text>
+  <rect class="b-teal" x="820" y="472" width="230" height="64" rx="8"/>
+  <text x="935" y="498" text-anchor="middle" font-weight="600" font-size="15">callInsightFacts</text>
+  <text x="935" y="518" text-anchor="middle" class="t-muted" font-size="12.5">categories + numbers · no text</text>
+  <path class="ln" d="M820 418 C820 450 700 446 690 468" marker-end="url(#ah)"/>
+  <path class="ln" d="M935 418 V468" marker-end="url(#ah)"/>
+  <!-- readers -->
+  <rect class="b-blue" x="20" y="472" width="230" height="64" rx="8"/>
+  <text x="135" y="498" text-anchor="middle" font-weight="600" font-size="15">Person page card</text>
+  <text x="135" y="518" text-anchor="middle" class="t-muted" font-size="12.5">derived at read time</text>
+  <rect class="b-blue" x="290" y="472" width="230" height="64" rx="8"/>
+  <text x="405" y="498" text-anchor="middle" font-weight="600" font-size="15">Reports → Calls</text>
+  <text x="405" y="518" text-anchor="middle" class="t-muted" font-size="12.5">today: Convex · history: ClickHouse</text>
+  <path class="ln-dash" d="M560 504 H254" marker-end="url(#ah)"/>
+  <path class="ln-dash" d="M820 524 C760 552 560 552 524 528" marker-end="url(#ah)"/>
+  <text x="1056" y="462" class="t-cond t-muted" font-size="12.5" text-anchor="end">FIVETRAN SYNCS ONLY THIS TABLE ↓</text>
+</svg>
+</div>
+<div class="cap">Green boxes are new, grey boxes exist today, blue boxes are where the data is read. Red marks the private table: transcript quotes and statements stay in Convex and never reach ClickHouse.</div>
+</div>
+
+<h3>One run, start to finish</h3>
+<div class="figure">
+<div class="diagram" role="img" aria-label="Run status state machine">
+<svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <rect class="b-grey" x="20" y="120" width="140" height="52" rx="26"/>
+  <text x="90" y="151" text-anchor="middle" font-weight="600" font-size="15">queued</text>
+  <rect class="b-blue" x="260" y="120" width="140" height="52" rx="26"/>
+  <text x="330" y="151" text-anchor="middle" font-weight="600" font-size="15">running</text>
+  <rect class="b-lime" x="520" y="40" width="160" height="52" rx="26"/>
+  <text x="600" y="71" text-anchor="middle" font-weight="600" font-size="15">answered</text>
+  <rect class="b-red" x="520" y="200" width="160" height="52" rx="26"/>
+  <text x="600" y="231" text-anchor="middle" font-weight="600" font-size="15">failed</text>
+  <rect class="b-grey" x="20" y="232" width="140" height="52" rx="26"/>
+  <text x="90" y="263" text-anchor="middle" font-weight="600" font-size="15">skipped</text>
+  <rect class="b-teal" x="790" y="40" width="190" height="52" rx="8"/>
+  <text x="885" y="64" text-anchor="middle" font-weight="600" font-size="14.5">published facts</text>
+  <text x="885" y="82" text-anchor="middle" class="t-muted" font-size="12">replaces the previous run's</text>
+  <path class="ln" d="M160 146 H256" marker-end="url(#ah2)"/>
+  <text x="208" y="138" text-anchor="middle" class="t-muted" font-size="12">begin()</text>
+  <path class="ln" d="M400 140 C460 120 470 70 516 66" marker-end="url(#ah2)"/>
+  <text x="462" y="86" text-anchor="middle" class="t-muted" font-size="12">valid</text>
+  <path class="ln" d="M400 152 C460 172 470 222 516 226" marker-end="url(#ah2)"/>
+  <text x="430" y="262" text-anchor="middle" class="t-muted" font-size="12">4xx · refused · bad output</text>
+  <path class="ln" d="M680 66 H786" marker-end="url(#ah2)"/>
+  <path class="ln-dash" d="M330 120 C330 40 120 40 92 116" marker-end="url(#ah2)"/>
+  <text x="210" y="40" text-anchor="middle" class="t-muted" font-size="12">429 · 502 · 503 → re-queue (1m, 5m, 30m)</text>
+  <path class="ln-dash" d="M90 172 V228" marker-end="url(#ah2)"/>
+  <text x="98" y="205" class="t-muted" font-size="12">mode off · no prospect speech · other prospect · not a sales call</text>
+  <text x="600" y="282" text-anchor="middle" class="t-muted" font-size="12">a failed rerun leaves the last published facts in place</text>
+</svg>
+</div>
+<div class="cap">A cap that is reached keeps the run queued with a later start time, so it continues next month or after the owner raises the cap. A worker that dies after claiming is picked up by a recovery sweep, and its reserved cost stays charged until it settles.</div>
+</div>
+</section>
+
+<section id="model">
+<h2>Data model</h2>
+<p>Everything is additive: new tables and one optional tenant field. Nothing on <code>leads</code> changes and nothing is copied onto the person. The person is always worked out through recording → meeting → deal → person, the same way <code>callRecordings</code> works today. That means a merge, a deal move or a reassignment needs no repair.</p>
+<div class="figure">
+<div class="diagram" role="img" aria-label="Entity relationship diagram">
+<svg viewBox="0 0 1060 430" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <!-- existing chain -->
+  <text x="20" y="24" class="t-cond t-muted" font-size="13" letter-spacing="1.2">EXISTING</text>
+  <rect class="b-grey" x="20" y="36" width="150" height="54" rx="7"/><text x="95" y="60" text-anchor="middle" font-weight="600" font-size="15">leads</text><text x="95" y="78" text-anchor="middle" class="t-muted" font-size="12">+ identityVersion</text>
+  <rect class="b-grey" x="220" y="36" width="170" height="54" rx="7"/><text x="305" y="60" text-anchor="middle" font-weight="600" font-size="15">opportunities</text><text x="305" y="78" text-anchor="middle" class="t-muted" font-size="12">deals · leadId</text>
+  <rect class="b-grey" x="440" y="36" width="150" height="54" rx="7"/><text x="515" y="60" text-anchor="middle" font-weight="600" font-size="15">meetings</text><text x="515" y="78" text-anchor="middle" class="t-muted" font-size="12">opportunityId</text>
+  <rect class="b-grey" x="640" y="36" width="180" height="54" rx="7"/><text x="730" y="60" text-anchor="middle" font-weight="600" font-size="15">callRecordings</text><text x="730" y="78" text-anchor="middle" class="t-muted" font-size="12">meetingId · transcript</text>
+  <path class="ln" d="M220 63 H174" marker-end="url(#ah3)"/>
+  <path class="ln" d="M440 63 H394" marker-end="url(#ah3)"/>
+  <path class="ln" d="M640 63 H594" marker-end="url(#ah3)"/>
+  <rect class="b-grey" x="870" y="36" width="170" height="54" rx="7"/><text x="955" y="60" text-anchor="middle" font-weight="600" font-size="15">secondOpinions</text><text x="955" y="78" text-anchor="middle" class="t-muted" font-size="12">Jev · untouched</text>
+  <path class="ln-dash" d="M870 63 H824" marker-end="url(#ah3)"/>
+  <!-- new -->
+  <text x="20" y="140" class="t-cond t-muted" font-size="13" letter-spacing="1.2">NEW</text>
+  <rect class="b-red" x="300" y="152" width="330" height="250" rx="8"/>
+  <text x="316" y="176" font-weight="700" font-size="15.5">callInsightRuns</text>
+  <text x="614" y="176" text-anchor="end" class="t-cond" font-size="12.5" fill="var(--red-ink)">PRIVATE · NOT SYNCED</text>
+  <g class="t-mono" font-size="12">
+    <text x="316" y="202">recordingId</text><text x="614" y="202" text-anchor="end" class="t-muted">→ callRecordings</text>
+    <text x="316" y="222">generation, inputKey</text><text x="614" y="222" text-anchor="end" class="t-muted">idempotency</text>
+    <text x="316" y="242">status, failure, attempt</text><text x="614" y="242" text-anchor="end" class="t-muted">lifecycle</text>
+    <text x="316" y="262">claimToken, leaseUntil</text><text x="614" y="262" text-anchor="end" class="t-muted">fencing</text>
+    <text x="316" y="282">model, promptVersion</text><text x="614" y="282" text-anchor="end" class="t-muted">versions</text>
+    <text x="316" y="302">result.objections[] …</text><text x="614" y="302" text-anchor="end" class="t-muted">statements</text>
+    <text x="316" y="322">result.*.quote</text><text x="614" y="322" text-anchor="end" class="t-muted">purged day 90</text>
+    <text x="316" y="342">speakerUncertain, dropped</text><text x="614" y="342" text-anchor="end" class="t-muted">quality</text>
+    <text x="316" y="362">usage[] (tokens, cost)</text><text x="614" y="362" text-anchor="end" class="t-muted">every attempt</text>
+    <text x="316" y="382">purpose: serve | eval</text><text x="614" y="382" text-anchor="end" class="t-muted">eval never publishes</text>
+  </g>
+  <rect class="b-teal" x="680" y="152" width="360" height="250" rx="8"/>
+  <text x="696" y="176" font-weight="700" font-size="15.5">callInsightFacts</text>
+  <text x="1024" y="176" text-anchor="end" class="t-cond" font-size="12.5" fill="var(--teal-ink)">SYNCED · NO TEXT</text>
+  <g class="t-mono" font-size="12">
+    <text x="696" y="202">recordingId, meetingId</text><text x="1024" y="202" text-anchor="end" class="t-muted">re-pointed on rematch</text>
+    <text x="696" y="222">publicationRevision</text><text x="1024" y="222" text-anchor="end" class="t-muted">bumped on every rebuild</text>
+    <text x="696" y="242">kind: call | objection | …</text><text x="1024" y="242" text-anchor="end" class="t-muted">one row per item</text>
+    <text x="696" y="262">category</text><text x="1024" y="262" text-anchor="end" class="t-muted">enum, versioned</text>
+    <text x="696" y="282">resolution, isPrimary</text><text x="1024" y="282" text-anchor="end" class="t-muted">objections</text>
+    <text x="696" y="302">incomeKind, scenario, period</text><text x="1024" y="302" text-anchor="end" class="t-muted">income</text>
+    <text x="696" y="322">currency?, min/maxMinor</text><text x="1024" y="322" text-anchor="end" class="t-muted">never assumed</text>
+    <text x="696" y="342">band</text><text x="1024" y="342" text-anchor="end" class="t-muted">per kind + currency</text>
+    <text x="696" y="362">header: active, status, reason</text><text x="1024" y="362" text-anchor="end" class="t-muted">never deleted</text>
+    <text x="696" y="382">leadId + identityVersion at check</text><text x="1024" y="382" text-anchor="end" class="t-muted">guards</text>
+  </g>
+  <rect class="b-amber" x="20" y="152" width="240" height="96" rx="8"/>
+  <text x="36" y="176" font-weight="700" font-size="15.5">callInsightBudgets</text>
+  <g class="t-mono" font-size="12"><text x="36" y="200">tenantId, monthKey</text><text x="36" y="220">reserved / spent</text><text x="36" y="240">backfill reserved / spent</text></g>
+  <rect class="b-grey" x="20" y="268" width="240" height="134" rx="8"/>
+  <text x="36" y="292" font-weight="700" font-size="15.5">tenants.callInsights</text>
+  <g class="t-mono" font-size="12"><text x="36" y="316">mode: off | shadow | on</text><text x="36" y="336">model</text><text x="36" y="356">monthlyCapUsd = 40</text><text x="36" y="376">backfillCapUsd ≈ estimate + 30%</text><text x="36" y="396" class="t-muted">optional; absent = off</text></g>
+  <path class="ln" d="M465 152 V124 H700 V94" marker-end="url(#ah3)"/>
+  <path class="ln" d="M860 152 V124 H760 V94" marker-end="url(#ah3)"/>
+</svg>
+</div>
+<div class="cap">Every matched recording has one header row in <code>callInsightFacts</code> (kind = <code>call</code>), whether or not it has been read. The header holds the call's status and reason (read, waiting, failed, skipped), the main blocker, and which run is published. ClickHouse can therefore compute coverage and failure reasons for past days without ever seeing the private runs.<br><br>Each rebuild of a call's rows bumps <code>publicationRevision</code>: a publish, a rematch, or a repair. Reports count an item only when its revision and meeting match the header's, and only when the number of items equals <code>expectedItemCount</code>. A Fivetran sync that lands halfway through a rebuild therefore shows the call as "syncing" instead of a mix of two versions.<br><br>The header is created when the call is first matched and is never deleted. "Not a sales call" only marks it inactive, so its revision counter and its link to the published run survive a later rematch. ClickHouse sees one stable row per call, not a deleted row and a new one.<br><br>The header also records which person the "is this the right prospect" check ran against, and that person's <code>identityVersion</code> at the time. <code>identityVersion</code> is a new counter on <code>leads</code> that goes up whenever the person's email or email identifiers change: a merge, an edit, a new identifier. If either value no longer matches, readers show the call as "rechecking" until the check runs again, which the same change schedules straight away. ClickHouse checks the person only, because a new column on <code>leads</code> reaches the warehouse late. The re-check finishes long before the next 6-hourly sync anyway.</div>
+</div>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Existing data</th><th>What happens to it</th></tr></thead>
+<tbody>
+<tr><td><code>leads.selfReportedIncome</code></td><td>Never written. It is a plain number from the DM portal with no currency or period. The profile shows it beside the call income, labelled "DM-reported".</td></tr>
+<tr><td><code>callNotes</code> (closer's agent notes)</td><td>Untouched. They are the closer's own words with an author. The profile links to them.</td></tr>
+<tr><td><code>secondOpinions</code> / Jev budget</td><td>Untouched. Call insights have their own cap and budget rows. Jev's objection answer is only compared with ours, as a quality monitor.</td></tr>
+<tr><td>Meeting moved to another deal, people merged, or an email edited</td><td>The mutation that moves the meeting re-runs the "is this the right prospect" check and rebuilds the call's rows in the same transaction. An email change or merge bumps <code>leads.identityVersion</code> and re-checks that person's calls. Until then, Convex readers ignore any row whose stamped person or version no longer matches, and ClickHouse ignores any row whose person no longer matches. A nightly check only repairs anything missed.</td></tr>
+<tr><td><code>leads</code></td><td>One new optional counter, <code>identityVersion</code>. It is not a copy of any person field. A repo test fails if any code writes a person's email without bumping it.</td></tr>
+<tr><td>Person timeline</td><td>No new event. The existing "recording matched" entry links to the insights. An extraction is not something that happened to the person, and an event per run would make the activity counts jump during the backfill.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="extraction">
+<h2>Extraction</h2>
+<div class="grid2">
+<div>
+<h3>The request</h3>
+<pre><code>POST https://ai-gateway.convex.dev/v1/messages
+Authorization: Bearer &lt;getServiceToken("ai-gateway")&gt;
+
+{
+  "model": "anthropic/claude-sonnet-5.5",
+  "max_tokens": 8000,
+  "system": "&lt;fixed, versioned rules + taxonomy&gt;",
+  "messages": [{ "role": "user", "content":
+    "#1 [00:00] C: Hey Marcus, can you hear me?\n
+     #2 [00:04] P: Yeah, all good…\n …" }],
+  "output_config": {
+    "format": { "type": "json_schema", "schema": … },
+    "effort": "low"
+  },
+  "provider": { "zdr": true,
+    "data_collection": "deny",
+    "require_parameters": true }
+}</code></pre>
+<p class="small">No <code>temperature</code> (Claude 5.5 models reject it) and no forced tool choice (Sonnet 5.5 rejects it with a 400). The JSON schema sent to the model has its length and count limits removed, because structured output doesn't accept them. Code enforces those limits after the response.</p>
+</div>
+<div>
+<h3>What goes in, what doesn't</h3>
+<ul>
+  <li><strong>In:</strong> the full transcript as numbered lines, with each speaker labelled Closer, Prospect or Other by the existing <code>labelSpeakers</code>.</li>
+  <li><strong>Out:</strong> Fathom's summary (another model's reading, which can't be checked line by line), the deal stage, the outcome and the closer's record. None of these should colour what the prospect is heard saying.</li>
+  <li><strong>Long calls:</strong> the whole transcript is always sent. A 3-hour call is about 36k tokens. Above 150k tokens the run fails visibly as "too long" instead of quietly cutting the middle. The inventory step measures real lengths first.</li>
+  <li><strong>Short calls:</strong> no 100-word minimum. One sentence can hold an income figure. The only skip is a call where the prospect never speaks.</li>
+  <li><strong>Injection:</strong> the system prompt treats the transcript as data. The output can only be categories and short strings, and every item has to quote a real line.</li>
+</ul>
+</div>
+</div>
+
+<h3>What comes back</h3>
+<pre><code>{
+  "isSalesCall": true,
+  "objections": [
+    { "category": "partner", "statement": "Needs to talk to his wife before committing",
+      "quote": "I'd have to run it by my wife first", "lineIndex": 212,
+      "resolution": "unresolved" },
+    { "category": "price", "statement": "The deposit felt high until the monthly plan came up",
+      "quote": "four grand up front is a lot", "lineIndex": 188,
+      "resolution": "resolved", "resolutionQuote": "okay, monthly I can do", "resolutionLineIndex": 197 }
+  ],
+  "struggles": [{ "category": "lead_generation", "statement": "Relies on gym-floor referrals only",
+                  "quote": "it's all just people at the gym", "lineIndex": 41 }],
+  "goals": [{ "category": "career_transition", "statement": "Leave the gym and train clients online full time",
+              "quote": "I want out of the gym by summer", "lineIndex": 63, "deadline": "summer" }],
+  "income": [
+    { "kind": "business_revenue", "scenario": "current", "amountMin": "6000", "amountMax": "6000",
+      "qualifier": "approximate", "currency": "USD", "period": "month",
+      "quote": "I'm doing about six K a month in sessions", "lineIndex": 57 },
+    { "kind": "personal_income", "scenario": "target", "amountMin": "15000", "amountMax": "15000",
+      "qualifier": "exact", "currency": null, "period": "month",
+      "quote": "I want to be taking home fifteen a month", "lineIndex": 66 }
+  ],
+  "primaryBlocker": "partner"
+}</code></pre>
+
+<h3>What code checks before anything is saved</h3>
+<div class="figure">
+<div class="diagram" role="img" aria-label="Validation pipeline">
+<svg viewBox="0 0 1060 170" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <g font-size="13.5">
+  <rect class="b-blue" x="10" y="20" width="150" height="70" rx="8"/><text x="85" y="49" text-anchor="middle" font-weight="600">Response</text><text x="85" y="69" text-anchor="middle" class="t-muted" font-size="12">stop_reason check</text>
+  <rect class="b-lime" x="190" y="20" width="150" height="70" rx="8"/><text x="265" y="49" text-anchor="middle" font-weight="600">Zod, strict</text><text x="265" y="69" text-anchor="middle" class="t-muted" font-size="12">enums · bounds</text>
+  <rect class="b-lime" x="370" y="20" width="150" height="70" rx="8"/><text x="445" y="49" text-anchor="middle" font-weight="600">Quote is real</text><text x="445" y="69" text-anchor="middle" class="t-muted" font-size="12">in cited line ±1</text>
+  <rect class="b-lime" x="550" y="20" width="150" height="70" rx="8"/><text x="625" y="49" text-anchor="middle" font-weight="600">Prospect said it</text><text x="625" y="69" text-anchor="middle" class="t-muted" font-size="12">speaker from the line</text>
+  <rect class="b-lime" x="730" y="20" width="150" height="70" rx="8"/><text x="805" y="49" text-anchor="middle" font-weight="600">Resolution</text><text x="805" y="69" text-anchor="middle" class="t-muted" font-size="12">needs prospect's yes</text>
+  <rect class="b-teal" x="910" y="20" width="140" height="70" rx="8"/><text x="980" y="49" text-anchor="middle" font-weight="600">Normalize</text><text x="980" y="69" text-anchor="middle" class="t-muted" font-size="12">money · bands</text>
+  <path class="ln" d="M160 55 H186" marker-end="url(#ah4)"/><path class="ln" d="M340 55 H366" marker-end="url(#ah4)"/><path class="ln" d="M520 55 H546" marker-end="url(#ah4)"/><path class="ln" d="M700 55 H726" marker-end="url(#ah4)"/><path class="ln" d="M880 55 H906" marker-end="url(#ah4)"/>
+  <text x="85" y="122" text-anchor="middle" class="t-muted" font-size="12">refusal / cut off → fail</text>
+  <text x="265" y="122" text-anchor="middle" class="t-muted" font-size="12">bad shape → whole run fails</text>
+  <text x="445" y="122" text-anchor="middle" class="t-muted" font-size="12">not found → item dropped</text>
+  <text x="625" y="122" text-anchor="middle" class="t-muted" font-size="12">closer / other → dropped</text>
+  <text x="805" y="122" text-anchor="middle" class="t-muted" font-size="12">no evidence → "unknown"</text>
+  <text x="980" y="122" text-anchor="middle" class="t-muted" font-size="12">no currency guessing</text>
+  <text x="530" y="156" text-anchor="middle" class="t-muted" font-size="12">Code, not the model, sets each item's timestamp and speaker from the line where the quote was found.</text>
+  </g>
+</svg>
+</div>
+<div class="cap">Speaker labels can be wrong. Fathom often has no email for the prospect, so <code>labelSpeakers</code> usually works by elimination: whoever isn't the closer is the prospect. That is fine when only one other person is on the call. When two or more people other than the closer end up labelled Prospect, such as a partner who joined, or when no one is labelled Closer at all, the run is marked <em>speaker uncertain</em>. Its items are kept with a warning, but its income figures stay out of the income bands. The call is not thrown away: calls where a partner joins are exactly the ones a partner-objection report needs. Income is also dropped unless the amount appears in the verified quote ("six K", "6,000"). That rule is the code-level guard against invented income. The check understands Spanish too ("cinco mil", "lucas").</div>
+</div>
+
+<h3>Model choice</h3>
+<div class="scroll">
+<table>
+<thead><tr><th></th><th>Claude Sonnet 5.5</th><th>Claude Haiku 5.5</th></tr></thead>
+<tbody>
+<tr><td>Gateway ID</td><td><code>anthropic/claude-sonnet-5.5</code> (ZDR listed)</td><td><code>anthropic/claude-haiku-5.5</code> (ZDR listed)</td></tr>
+<tr><td>Price per M tokens</td><td class="num">$2 in / $10 out</td><td class="num">$0.10 in / $0.50 out (prompts ≤100k)</td></tr>
+<tr><td>45-minute call</td><td class="num">≈ $0.056</td><td class="num">≈ $0.003</td></tr>
+<tr><td>Role</td><td>Used for the evaluation and the shadow period</td><td>The production default <em>if</em> it passes the same quality bar</td></tr>
+</tbody>
+</table>
+</div>
+<p>The hard judgements are current income versus target, revenue versus take-home, and an objection the closer answered versus one the prospect actually let go. At about 300 calls a month, Sonnet costs about $20 more than Haiku. One wrong income band in a report costs more than that, so the evaluation decides on evidence, not on price.</p>
+</section>
+
+<section id="taxonomy">
+<h2>Taxonomy (version 1)</h2>
+<p>Categories are fixed so reports stay stable. Each item also keeps a short statement in plain English and the prospect's own words, so the detail isn't lost. The objection list includes all five of Jev's objection categories (Jev's sixth answer, "none", means no objection), so the two can be compared, and adds the ones high-ticket coaching calls actually produce. These need your sign-off before the build.</p>
+<div class="grid3">
+<div class="card">
+<div class="card-h"><span class="title">Objections</span><span class="sub">12 · multiple per call</span></div>
+<div class="scroll"><table style="margin:0">
+<tbody>
+<tr><td><code>partner</code></td><td>Spouse or business partner must agree</td></tr>
+<tr><td><code>price</code></td><td>Can't afford the amount or the deposit</td></tr>
+<tr><td><code>financing</code></td><td>Needs a payment plan or approval</td></tr>
+<tr><td><code>value</code></td><td>Affordable, but not worth it to them</td></tr>
+<tr><td><code>timing</code></td><td>Not now: season, cash flow, a date</td></tr>
+<tr><td><code>capacity</code></td><td>No time or energy to do the work</td></tr>
+<tr><td><code>fit</code></td><td>Program doesn't match their stage</td></tr>
+<tr><td><code>trust</code></td><td>Doubts results, program or closer</td></tr>
+<tr><td><code>self_efficacy</code></td><td>Doubts they can follow through</td></tr>
+<tr><td><code>alternatives</code></td><td>Another coach, or doing it alone</td></tr>
+<tr><td><code>deliberation</code></td><td>"Need to think about it", no reason</td></tr>
+<tr><td><code>other</code></td><td>Stated, but outside these</td></tr>
+</tbody></table></div>
+</div>
+<div class="card">
+<div class="card-h"><span class="title">Struggles</span><span class="sub">11</span></div>
+<div class="scroll"><table style="margin:0">
+<tbody>
+<tr><td><code>lead_generation</code></td><td>Too few good prospects</td></tr>
+<tr><td><code>sales_conversion</code></td><td>Consults don't turn into clients</td></tr>
+<tr><td><code>offer_positioning_pricing</code></td><td>Unclear offer or underpriced</td></tr>
+<tr><td><code>delivery_retention</code></td><td>Clients don't stay or get results</td></tr>
+<tr><td><code>cashflow_profitability</code></td><td>Busy but little left over</td></tr>
+<tr><td><code>time_workload</code></td><td>Too many hours on the floor</td></tr>
+<tr><td><code>systems_team</code></td><td>Everything depends on them</td></tr>
+<tr><td><code>knowledge_direction</code></td><td>Doesn't know what to do next</td></tr>
+<tr><td><code>execution_confidence</code></td><td>Knows what to do, doesn't do it</td></tr>
+<tr><td><code>personal_wellbeing</code></td><td>Health, energy, stress</td></tr>
+<tr><td><code>other</code></td><td></td></tr>
+</tbody></table></div>
+</div>
+<div class="card">
+<div class="card-h"><span class="title">Goals</span><span class="sub">11 · with target and deadline</span></div>
+<div class="scroll"><table style="margin:0">
+<tbody>
+<tr><td><code>revenue_growth</code></td><td>Grow gross sales to a number</td></tr>
+<tr><td><code>profit_personal_income</code></td><td>Take home more</td></tr>
+<tr><td><code>predictable_clients</code></td><td>Steady flow of clients</td></tr>
+<tr><td><code>sales_capability</code></td><td>Close consults with confidence</td></tr>
+<tr><td><code>launch_offer</code></td><td>Start online or a new offer</td></tr>
+<tr><td><code>scale_systems_team</code></td><td>Hire, delegate, systemize</td></tr>
+<tr><td><code>time_lifestyle_freedom</code></td><td>Fewer hours, more family time</td></tr>
+<tr><td><code>career_transition</code></td><td>Leave the gym or a job</td></tr>
+<tr><td><code>personal_wellbeing</code></td><td>Health, energy</td></tr>
+<tr><td><code>mastery_confidence</code></td><td>Feel like a real business owner</td></tr>
+<tr><td><code>other</code></td><td></td></tr>
+</tbody></table></div>
+</div>
+</div>
+<p class="small" style="margin-top:12px">Each run also names one <code>primaryBlocker</code>, the main reason they didn't buy today. That is compared with Jev's single objection answer on the same call, to catch quality drift.</p>
+</section>
+
+<section id="income">
+<h2>Income</h2>
+<p>Income is a list of statements, not one number. In the same call a prospect can give their salary, what their business bills, what they take home and what they could put in. Treating any of these as "income" would make the band report wrong.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>They say</th><th>Stored as</th><th>Band</th></tr></thead>
+<tbody>
+<tr><td>"About six K a month in sessions"</td><td>business_revenue · current · ≈ 6,000 USD* · month</td><td>Revenue 5–10k</td></tr>
+<tr><td>"I take home maybe three, three and a half"</td><td>personal_income · current · 3,000–3,500 · month · <em>currency not stated</em></td><td>Currency not stated</td></tr>
+<tr><td>"Between 4 and 12 a month depending"</td><td>personal_income · current · 4,000–12,000 USD · month</td><td>Spans bands</td></tr>
+<tr><td>"Sixty grand a year at the gym"</td><td>personal_income · current · 60,000 USD · year → 5,000 / month (derived)</td><td>Personal 5–10k</td></tr>
+<tr><td>"I want to be taking home fifteen a month"</td><td>personal_income · <strong>target</strong> · 15,000 · month</td><td>Not in current-income bands</td></tr>
+<tr><td>"I've got ten grand saved"</td><td>savings · current · 10,000 · point in time</td><td>Savings 10–25k</td></tr>
+<tr><td>"Right now I'm making nothing, just started"</td><td>personal_income · current · 0 · month</td><td>Zero</td></tr>
+</tbody>
+</table>
+</div>
+<p class="small">* Only when they named the currency or it is clear from the call. A "$" sign or the program's currency is never enough. Unknown stays unknown and gets its own row in reports.</p>
+<div class="grid2">
+<div class="callout">
+<h3>Rules</h3>
+<ul>
+<li>The model returns the numbers as text. Code converts them to minor units using a table of how many decimals each currency has. Zero is allowed.</li>
+<li>Ranges stay ranges. A range that crosses a band boundary goes in a "spans bands" row instead of being split at its midpoint.</li>
+<li>Monthly figures are worked out only for week, month and year amounts, and are labelled as worked out.</li>
+<li>Currencies are never added together or converted. Bands are per income type and per currency.</li>
+<li>Income from closer lines, hypothetical examples and uncertain speakers is never counted.</li>
+</ul>
+</div>
+<div class="callout">
+<h3>Bands (USD a month, starting point)</h3>
+<p><strong>Personal income</strong>: 0 · &lt;1k · 1–3k · 3–5k · 5–10k · 10–20k · 20k+</p>
+<p><strong>Business revenue</strong>: 0 · &lt;5k · 5–10k · 10–25k · 25–50k · 50–100k · 100k+</p>
+<p><strong>Savings / budget</strong>: &lt;1k · 1–3k · 3–5k · 5–10k · 10–25k · 25k+</p>
+<p class="small">Plus rows for <em>spans bands</em>, <em>currency not stated</em> and <em>not stated</em>. Other currencies get their own bands once they appear: payments today are 309 USD, 14 CAD, 1 GBP, 1 EUR.</p>
+</div>
+</div>
+</section>
+
+<section id="ui">
+<h2>UI mockups</h2>
+<p>All names, figures and quotes in the mockups are made up to show the layout.</p>
+
+<h3>Person profile: new "From their calls" card</h3>
+<p>It sits after the deal cards, with its own loading and error boundary, so a slow or failed insight read never holds up the rest of the page.</p>
+<div class="figure">
+<div class="mock-label"><span class="example">Example data</span> app/workspace/leads-customers/[leadId]</div>
+<div class="app">
+  <div class="app-bar"><span class="logo">MAGNUS</span><span class="crumb">Leads &amp; customers / Marcus Bell</span></div>
+  <div class="app-body">
+    <div>
+      <div class="card">
+        <div class="card-h"><span class="title">Marcus Bell</span><span class="stage">Follow up</span></div>
+        <div class="kv">
+          <span class="k">Email</span><span>marcus.b@example.com</span>
+          <span class="k">Phone</span><span>+1 555 0142</span>
+          <span class="k">Instagram</span><span>@marcusbtrains</span>
+          <span class="k">DM income</span><span>3,500 <span class="small">(no period)</span></span>
+          <span class="k">First touch</span><span>Lead gen capture · 12 Oct</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><span class="title">Timeline</span></div>
+        <div class="small" style="display:grid;gap:8px">
+          <div><strong style="color:var(--fg)">Recording matched</strong> · 4 Nov · <a href="#ui">View call insights</a></div>
+          <div><strong style="color:var(--fg)">Follow-up scheduled</strong> · 4 Nov</div>
+          <div><strong style="color:var(--fg)">Meeting held</strong> · 4 Nov · Ana R.</div>
+          <div><strong style="color:var(--fg)">Recording matched</strong> · 28 Oct</div>
+        </div>
+      </div>
+    </div>
+    <div style="min-width:0">
+      <div class="card">
+        <div class="card-h"><span class="title">Deals</span></div>
+        <div class="deal"><span><strong>5K Accelerator</strong> · Ana R.</span><span class="pill teal">Follow up</span></div>
+      </div>
+      <div class="card" style="border-color:var(--lime)">
+        <div class="card-h">
+          <span class="title">From their calls</span>
+          <span class="sub">2 of 2 recorded calls read · latest 4 Nov · machine-read</span>
+        </div>
+        <div class="ins-row">
+          <div class="k">Income</div>
+          <div>
+            <div class="income-line"><span class="amt">≈ $6,000 / mo</span><span>business revenue</span><span class="when">said 4 Nov ▸</span></div>
+            <div class="income-line"><span class="amt">3,000–3,500 / mo</span><span>take-home · currency not stated</span><span class="when">said 28 Oct ▸</span></div>
+            <div class="income-line"><span class="amt" style="color:var(--muted)">Target 15,000 / mo</span><span>take-home</span><span class="when">said 4 Nov ▸</span></div>
+            <div class="small" style="margin-top:4px">DM-reported: 3,500 (no period or currency)</div>
+          </div>
+        </div>
+        <div class="ins-row">
+          <div class="k">Objections</div>
+          <div>
+            <div class="chips">
+              <span class="chip open"><span class="dot red"></span>Partner <span class="cnt">×2</span> unresolved</span>
+              <span class="chip"><span class="dot lime"></span>Price <span class="cnt">×1</span> resolved</span>
+              <span class="chip"><span class="dot amber"></span>Self-efficacy <span class="cnt">×1</span> unknown</span>
+            </div>
+            <div class="quote"><q>I'd have to run it by my wife first, she handles the money side.</q><span class="src">4 Nov · 38:12 · Ana R. · <a href="#ui">Open recording</a></span></div>
+            <div class="quote"><q>Honestly my wife would kill me if I spent that without asking.</q><span class="src">28 Oct · 22:40 · Ana R. · <a href="#ui">Open recording</a></span></div>
+          </div>
+        </div>
+        <div class="ins-row">
+          <div class="k">Struggles</div>
+          <div class="chips"><span class="chip">Lead generation <span class="cnt">×2</span></span><span class="chip">Time / workload <span class="cnt">×2</span></span><span class="chip">Offer &amp; pricing <span class="cnt">×1</span></span></div>
+        </div>
+        <div class="ins-row">
+          <div class="k">Goals</div>
+          <div class="chips"><span class="chip">Career transition · by summer</span><span class="chip">Take home $15k / mo</span><span class="chip">Predictable clients</span></div>
+        </div>
+        <div class="foot"><span>Read by Claude from the call. Check against the recording before acting on it.</span><span><a href="#ui">All calls and evidence</a></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="cap">The open chip expands in place to show the prospect's own words with the call, timestamp and closer. "×2" counts calls, not mentions. An objection's state is the one from the latest call that raised it. During the shadow period the card carries a "Preview" badge.</div>
+</div>
+
+<h3>Meeting detail: "Call insights" for one call</h3>
+<div class="grid2">
+<div class="figure" style="margin:0">
+<div class="mock-label"><span class="example">Example data</span> Meeting · 4 Nov · 5K Accelerator</div>
+<div class="card">
+  <div class="card-h"><span class="title">Call insights</span><span class="sub">Sonnet 5.5 · prompt v1 · read 4 Nov 15:12</span></div>
+  <div class="ins-row"><div class="k">Objections</div><div>
+    <div class="chips"><span class="chip"><span class="dot red"></span>Partner · unresolved · 38:12</span><span class="chip"><span class="dot lime"></span>Price · resolved · 31:40</span></div>
+    <div class="small" style="margin-top:6px">Main blocker: <strong style="color:var(--fg)">Partner</strong> · Jev: partner <span class="pill lime">agrees</span></div>
+  </div></div>
+  <div class="ins-row"><div class="k">Income</div><div class="small" style="color:var(--fg)">≈ $6,000 / mo revenue · target 15,000 / mo take-home</div></div>
+  <div class="ins-row"><div class="k">Struggles</div><div class="chips"><span class="chip">Lead generation</span><span class="chip">Time / workload</span></div></div>
+  <div class="ins-row"><div class="k">Goals</div><div class="chips"><span class="chip">Career transition</span><span class="chip">Take home $15k / mo</span></div></div>
+  <div class="foot"><span>2 items dropped: quote not found</span><button class="btn" type="button">Read again</button></div>
+</div>
+</div>
+<div class="figure" style="margin:0">
+<div class="mock-label">States the card can show</div>
+<div class="card">
+  <div class="status"><span class="dot" style="background:var(--blue)"></span>Reading the call…</div>
+  <div class="status"><span class="dot" style="background:var(--amber)"></span>Waiting: this month's limit is reached. Continues on 1 Dec or when the limit is raised.</div>
+  <div class="status"><span class="dot" style="background:var(--grey)"></span>Not read: the invitee isn't this meeting's prospect.</div>
+  <div class="status"><span class="dot" style="background:var(--grey)"></span>Not read: the prospect never spoke.</div>
+  <div class="status"><span class="dot" style="background:var(--amber)"></span>Speakers unclear: income not used in reports.</div>
+  <div class="status"><span class="dot" style="background:var(--red)"></span>Couldn't read the call. Retried 4 times. <a href="#ui">Read again</a></div>
+  <div class="status"><span class="dot" style="background:var(--grey)"></span>Quotes removed with the transcript on 2 Feb. Categories and income kept.</div>
+</div>
+</div>
+</div>
+
+<h3>Settings → Integrations → Fathom: "Call insights"</h3>
+<div class="figure">
+<div class="mock-label"><span class="example">Example data</span> Owner only</div>
+<div class="card" style="max-width:760px">
+  <div class="card-h"><span class="title">Call insights</span><span class="seg"><span>Off</span><span class="on">Shadow</span><span>On</span></span></div>
+  <p class="small" style="margin:0 0 12px">Sends every matched recording's transcript to Claude through the Convex AI Gateway with zero data retention. Results are visible to owners and admins only.</p>
+  <div class="kv" style="grid-template-columns:150px minmax(0,1fr)">
+    <span class="k">Model</span><span>Claude Sonnet 5.5 <span class="small">· switch to Haiku 5.5 after the eval</span></span>
+    <span class="k">This month</span><span><div class="meter" style="max-width:320px"><span style="width:31%"></span></div><span class="small num">$12.40 spent · $0.30 reserved · $40 limit</span></span>
+    <span class="k">Coverage</span><span class="num">214 of 228 matched recordings read · 9 waiting · 3 failed · 2 not sales calls</span>
+    <span class="k">Backfill</span><span>284 recordings with a transcript · ≈ $18 · first expires 2 Jan <button class="btn primary" type="button" style="margin-left:6px">Start backfill</button></span>
+    <span class="k">Agrees with Jev</span><span class="num">81% on the main objection (comparable calls: 176)</span>
+  </div>
+</div>
+</div>
+
+<h3>Admin run list</h3>
+<div class="figure">
+<div class="mock-label"><span class="example">Example data</span> /workspace/pipeline/call-insights · owners and admins</div>
+<div class="card scroll">
+<table style="margin:0">
+<thead><tr><th>Call</th><th>Closer</th><th>Status</th><th>Reason</th><th class="n">Cost</th><th></th></tr></thead>
+<tbody>
+<tr><td>Jordan P. · 9 Nov</td><td>Ana R.</td><td><span class="pill red">Failed</span></td><td>Output didn't match the schema twice</td><td class="n">$0.11</td><td><button class="btn" type="button">Read again</button></td></tr>
+<tr><td>Kelsey M. · 9 Nov</td><td>Leo T.</td><td><span class="pill amber">Waiting</span></td><td>Monthly limit reached</td><td class="n">$0.00</td><td></td></tr>
+<tr><td>Team sync · 8 Nov</td><td>Leo T.</td><td><span class="pill">Skipped</span></td><td>Not a sales call</td><td class="n">$0.04</td><td></td></tr>
+<tr><td>Dev R. · 7 Nov</td><td>Ana R.</td><td><span class="pill">Skipped</span></td><td>Invitee isn't this prospect</td><td class="n">$0.00</td><td></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<section id="reporting">
+<h2>Reporting</h2>
+<p>A new section on <strong>Reports → Calls</strong>, "What prospects said", for admins only. It uses the page's existing filters: date range, program, closer at the time of the call, and call type. The counts follow the definitions already in <code>lib/reporting/definitions.ts</code>.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Panel</th><th>Definition</th><th>Days split?</th></tr></thead>
+<tbody>
+<tr><td>Coverage</td><td>Held meetings in range, each in exactly one row: read · not read, by reason · waiting · syncing · rechecking · no matched recording. Recordings matched to meetings that weren't held are shown as a separate count outside the percentages. It comes from the status header on every matched call, so it works for past days too.</td><td>Yes, counts add</td></tr>
+<tr><td>Objection frequency</td><td>Calls where the category came up ÷ calls read. A call counts once per category, and calls with no objection are in the denominator.</td><td>Yes</td></tr>
+<tr><td>Resolved on the call</td><td>Call × category pairs resolved ÷ pairs whose resolution is known. If one call raises the same category twice, "unresolved" wins, then "unknown". Unknown is shown.</td><td>Yes</td></tr>
+<tr><td>Main blocker</td><td>Calls read that weren't won, by <code>primaryBlocker</code></td><td>Yes</td></tr>
+<tr><td>Struggles and goals</td><td>Calls read per category, weekly trend</td><td>Yes</td></tr>
+<tr><td>By closer</td><td>Objection mix per closer at the time of the call (<code>closerAtTheTime</code>)</td><td>Yes</td></tr>
+<tr><td>Close rate by objection</td><td>Deals whose first held call is in range and was read. Of those that raised the objection <em>on that first call</em>, the share won now. This is the same basis as the Scorecard's close rate.</td><td>No: whole range</td></tr>
+<tr><td>Close rate by income band</td><td>The same group of deals, using current income the prospect stated on the first call, split by income type and currency. Several figures of the same type are combined into one range: if the range fits one band it goes there, otherwise it goes in "spans bands". Rows for spans bands, currency not stated, not stated and first call not read. Figures are combined only as monthly amounts, so "5k a month, 60k a year" lands in 5–10k. Figures with no monthly equivalent (per session, one-off, unknown period) go in a "no monthly equivalent" row.</td><td>No: whole range</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>What the section looks like</h3>
+<div class="figure">
+<div class="mock-label"><span class="example">Example data</span> Reports → Calls · October · all programs</div>
+<div class="app">
+<div class="app-bar"><span class="logo">MAGNUS</span><span class="crumb">Reports / Calls / What prospects said</span></div>
+<div style="padding:16px;display:grid;gap:14px">
+  <div class="card">
+    <div class="card-h"><span class="title">Coverage</span><span class="sub num">172 of 186 held calls read · 92%</span></div>
+    <div class="meter"><span style="width:92%"></span></div>
+    <div class="small" style="margin-top:6px">Not read: 6 no matched recording · 4 invitee mismatch · 3 waiting · 1 failed. Also 9 recordings matched to meetings not marked held (not in the %).</div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h"><span class="title">Objection frequency</span><span class="sub">share of 172 calls read</span></div>
+      <div class="legend"><span><i style="background:var(--blue)"></i>Raised</span><span><i style="background:var(--teal)"></i>Resolved on the call</span></div>
+      <div class="bars">
+        <div class="bar-row"><span class="lab">Price</span><span class="track"><i style="width:76%"></i><i class="res" style="width:28%"></i></span><span class="val num">38% · 64</span></div>
+        <div class="bar-row"><span class="lab">Partner</span><span class="track"><i style="width:62%"></i><i class="res" style="width:12%"></i></span><span class="val num">31% · 53</span></div>
+        <div class="bar-row"><span class="lab">Deliberation</span><span class="track"><i style="width:44%"></i><i class="res" style="width:8%"></i></span><span class="val num">22% · 38</span></div>
+        <div class="bar-row"><span class="lab">Timing</span><span class="track"><i style="width:36%"></i><i class="res" style="width:10%"></i></span><span class="val num">18% · 31</span></div>
+        <div class="bar-row"><span class="lab">Self-efficacy</span><span class="track"><i style="width:28%"></i><i class="res" style="width:14%"></i></span><span class="val num">14% · 24</span></div>
+        <div class="bar-row"><span class="lab">Financing</span><span class="track"><i style="width:22%"></i><i class="res" style="width:12%"></i></span><span class="val num">11% · 19</span></div>
+        <div class="bar-row"><span class="lab">Trust</span><span class="track"><i style="width:16%"></i><i class="res" style="width:6%"></i></span><span class="val num">8% · 14</span></div>
+        <div class="bar-row"><span class="lab">Fit</span><span class="track"><i style="width:12%"></i><i class="res" style="width:2%"></i></span><span class="val num">6% · 10</span></div>
+      </div>
+      <div class="axis" style="margin-top:4px"><span></span><span class="ticks"><span>0%</span><span>25%</span><span>50%</span></span><span></span></div>
+      <div class="small" style="margin-top:8px">A call can raise several objections, so the shares add up to more than 100%. 41 calls (24%) raised none.</div>
+    </div>
+    <div class="card">
+      <div class="card-h"><span class="title">Close rate by objection on the first call</span><span class="sub">97 deals, first held call in October</span></div>
+      <div class="bars">
+        <div class="bar-row"><span class="lab">No objection</span><span class="track"><i class="lime" style="width:82%"></i></span><span class="val num">41% · 9/22</span></div>
+        <div class="bar-row"><span class="lab">Price, resolved</span><span class="track"><i class="lime" style="width:68%"></i></span><span class="val num">34% · 6/18</span></div>
+        <div class="bar-row"><span class="lab">Financing</span><span class="track"><i class="lime" style="width:54%"></i></span><span class="val num">27% · 3/11</span></div>
+        <div class="bar-row"><span class="lab">Timing</span><span class="track"><i class="lime" style="width:36%"></i></span><span class="val num">18% · 3/17</span></div>
+        <div class="bar-row"><span class="lab">Price, unresolved</span><span class="track"><i class="lime" style="width:30%"></i></span><span class="val num">15% · 3/20</span></div>
+        <div class="bar-row"><span class="lab">Partner</span><span class="track"><i class="lime" style="width:24%"></i></span><span class="val num">12% · 4/33</span></div>
+        <div class="bar-row"><span class="lab">Deliberation</span><span class="track"><i class="lime" style="width:16%"></i></span><span class="val num">8% · 2/25</span></div>
+      </div>
+      <div class="axis" style="margin-top:4px"><span></span><span class="ticks"><span>0%</span><span>25%</span><span>50%</span></span><span></span></div>
+      <div class="small" style="margin-top:8px">Counts each deal once, at its first held call, and reads whether it is won now. This shows correlation, not cause.</div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h"><span class="title">Close rate by stated income</span><span class="sub">personal income · USD / month · first call</span></div>
+      <div class="scroll"><table class="heat" style="margin:0">
+        <thead><tr><th>Band</th><th class="n">Deals</th><th class="n">Won</th><th class="n">Close rate</th></tr></thead>
+        <tbody>
+          <tr><td>&lt; 1k</td><td class="n">6</td><td class="n">0</td><td class="n">0%</td></tr>
+          <tr><td>1–3k</td><td class="n">14</td><td class="n">2</td><td class="n">14%</td></tr>
+          <tr><td>3–5k</td><td class="n">19</td><td class="n">5</td><td class="n">26%</td></tr>
+          <tr><td>5–10k</td><td class="n">16</td><td class="n">6</td><td class="n" style="color:var(--lime-ink)">38%</td></tr>
+          <tr><td>10k+</td><td class="n">5</td><td class="n">2</td><td class="n">40%</td></tr>
+          <tr><td>Spans bands</td><td class="n">4</td><td class="n">1</td><td class="n">25%</td></tr>
+          <tr><td>Currency not stated</td><td class="n">11</td><td class="n">3</td><td class="n">27%</td></tr>
+          <tr><td>Not stated</td><td class="n">22</td><td class="n">4</td><td class="n">18%</td></tr>
+        </tbody>
+      </table></div>
+      <div class="small" style="margin-top:6px">Business revenue, savings and other currencies have their own tables. They are never added together.</div>
+    </div>
+    <div class="card">
+      <div class="card-h"><span class="title">Top struggles and goals</span><span class="sub">calls read · October</span></div>
+      <h4 style="margin-top:0">Struggles</h4>
+      <div class="bars">
+        <div class="bar-row"><span class="lab">Lead generation</span><span class="track"><i style="width:58%;background:var(--grey)"></i></span><span class="val num">58%</span></div>
+        <div class="bar-row"><span class="lab">Time / workload</span><span class="track"><i style="width:41%;background:var(--grey)"></i></span><span class="val num">41%</span></div>
+        <div class="bar-row"><span class="lab">Offer &amp; pricing</span><span class="track"><i style="width:33%;background:var(--grey)"></i></span><span class="val num">33%</span></div>
+        <div class="bar-row"><span class="lab">Sales conversion</span><span class="track"><i style="width:24%;background:var(--grey)"></i></span><span class="val num">24%</span></div>
+      </div>
+      <h4>Goals</h4>
+      <div class="bars">
+        <div class="bar-row"><span class="lab">Career transition</span><span class="track"><i style="width:47%;background:var(--grey)"></i></span><span class="val num">47%</span></div>
+        <div class="bar-row"><span class="lab">Revenue growth</span><span class="track"><i style="width:44%;background:var(--grey)"></i></span><span class="val num">44%</span></div>
+        <div class="bar-row"><span class="lab">Time freedom</span><span class="track"><i style="width:29%;background:var(--grey)"></i></span><span class="val num">29%</span></div>
+        <div class="bar-row"><span class="lab">Launch offer</span><span class="track"><i style="width:21%;background:var(--grey)"></i></span><span class="val num">21%</span></div>
+      </div>
+      <div class="axis" style="margin-top:4px"><span></span><span class="ticks"><span>0%</span><span>50%</span><span>100%</span></span><span></span></div>
+    </div>
+  </div>
+  <div class="card scroll">
+    <div class="card-h"><span class="title">Objection mix by closer</span><span class="sub">share of each closer's calls read</span></div>
+    <table class="heat" style="margin:0">
+      <thead><tr><th>Closer</th><th class="n">Calls</th><th class="n">Price</th><th class="n">Partner</th><th class="n">Deliberation</th><th class="n">Timing</th><th class="n">Resolved</th></tr></thead>
+      <tbody>
+        <tr><td>Ana R.</td><td class="n">64</td><td class="n">34%</td><td class="n">36%</td><td class="n">16%</td><td class="n">20%</td><td class="n" style="color:var(--lime-ink)">41%</td></tr>
+        <tr><td>Leo T.</td><td class="n">58</td><td class="n">43%</td><td class="n">29%</td><td class="n" style="color:var(--red-ink)">31%</td><td class="n">14%</td><td class="n">24%</td></tr>
+        <tr><td>Sam K.</td><td class="n">50</td><td class="n">36%</td><td class="n">28%</td><td class="n">18%</td><td class="n">20%</td><td class="n">33%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+</div>
+
+<h3>Where the numbers come from</h3>
+<div class="figure">
+<div class="diagram" role="img" aria-label="Reporting data path">
+<svg viewBox="0 0 1060 250" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <rect class="b-teal" x="20" y="90" width="190" height="64" rx="8"/><text x="115" y="117" text-anchor="middle" font-weight="600" font-size="15">callInsightFacts</text><text x="115" y="137" text-anchor="middle" class="t-muted" font-size="12.5">Convex</text>
+  <rect class="b-grey" x="290" y="20" width="230" height="64" rx="8"/><text x="405" y="47" text-anchor="middle" font-weight="600" font-size="15">Convex reader</text><text x="405" y="67" text-anchor="middle" class="t-muted" font-size="12.5">today · readRangeMeetings → facts</text>
+  <rect class="b-grey" x="290" y="160" width="230" height="64" rx="8"/><text x="405" y="187" text-anchor="middle" font-weight="600" font-size="15">Fivetran (every 6 h)</text><text x="405" y="207" text-anchor="middle" class="t-muted" font-size="12.5">facts table only</text>
+  <rect class="b-blue" x="580" y="160" width="230" height="64" rx="8"/><text x="695" y="182" text-anchor="middle" font-weight="600" font-size="15">ClickHouse</text><text x="695" y="200" text-anchor="middle" class="t-mono" font-size="11.5">analytics.call_insight_facts</text><text x="695" y="216" text-anchor="middle" class="t-muted" font-size="12">complete published runs only</text>
+  <rect class="b-lime" x="860" y="90" width="180" height="64" rx="8"/><text x="950" y="117" text-anchor="middle" font-weight="600" font-size="15">Calls page</text><text x="950" y="137" text-anchor="middle" class="t-muted" font-size="12.5">merge or whole range</text>
+  <path class="ln" d="M210 112 C250 112 250 52 286 52" marker-end="url(#ah5)"/>
+  <path class="ln" d="M210 132 C250 132 250 192 286 192" marker-end="url(#ah5)"/>
+  <path class="ln" d="M520 192 H576" marker-end="url(#ah5)"/>
+  <path class="ln" d="M520 52 C700 52 820 80 856 112" marker-end="url(#ah5)"/>
+  <path class="ln" d="M810 192 C840 192 840 140 856 132" marker-end="url(#ah5)"/>
+  <text x="690" y="44" class="t-muted" font-size="12.5">today, live</text>
+  <text x="850" y="214" class="t-muted" font-size="12.5">days before today</text>
+</svg>
+</div>
+<div class="cap">Frequency panels add the live part (today) to the warehouse part (earlier days). Close-rate panels read the whole range from ClickHouse with <code>merge: null</code>, as Team's outcome mix does, because a deal won today changes an earlier cohort. The new view is applied only after the first sync that includes the table, and the panels ship only after that.</div>
+</div>
+</section>
+
+<section id="privacy">
+<h2>Privacy and access</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>Who</th><th>Profile card</th><th>Meeting card</th><th>Income</th><th>Reports</th><th>Settings</th></tr></thead>
+<tbody>
+<tr><td>Owner</td><td>Yes</td><td>Yes + read again</td><td>Yes</td><td>Yes</td><td>Turn on/off, model, limits</td></tr>
+<tr><td>Admin</td><td>Yes</td><td>Yes + read again</td><td>Yes</td><td>Yes</td><td>View</td></tr>
+<tr><td>Closer</td><td>No in v1 <span class="small">(phase 2: own meetings)</span></td><td>No in v1</td><td>No</td><td>No</td><td>No</td></tr>
+<tr><td>Lead gen, DM portal, MCP agents</td><td>No</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li>Every rule is enforced in Convex queries, not only by hiding UI. New permissions: <code>call-insights:manage</code> (owner) and <code>call-insights:view</code> (owner, admin).</li>
+<li>Prospect quotes are deleted when Fathom's transcript is (day 90), on every run, including the older purge path. A run that finishes after that date can't bring a quote back. Short English statements, categories and income stay, just as Fathom's summary does today.</li>
+<li>Only the text-free facts table is ever enabled in Fivetran. Runs, budgets and eval cases stay in Convex. Before deploy, check that the connector is still on "Allow columns" so new tables arrive blocked.</li>
+<li>The eval stores no copies of model output. Its runs are marked <code>purpose: eval</code>: they never publish, never take a live run number, and lose their quotes on the same day as live runs. Labels are item verdicts and line numbers, with no text.</li>
+<li>When the switch is off, the report panels return nothing, cached answers included, so a rollback really hides them.</li>
+<li>Logs and PostHog get IDs, statuses, counts, tokens and cost. They never get quotes, statements or income figures.</li>
+<li>The model is reached only through ZDR endpoints. If a request can't be routed to one, it fails rather than falling back to another provider.</li>
+</ul>
+</section>
+
+<section id="cost">
+<h2>Cost</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>Call length</th><th class="n">Input tokens</th><th class="n">Output tokens</th><th class="n">Sonnet 5.5</th><th class="n">Haiku 5.5</th></tr></thead>
+<tbody>
+<tr><td>45 min</td><td class="n">≈ 11.5k</td><td class="n">≈ 3.3k</td><td class="n">$0.056</td><td class="n">$0.003</td></tr>
+<tr><td>90 min</td><td class="n">≈ 20k</td><td class="n">≈ 4k</td><td class="n">$0.080</td><td class="n">$0.004</td></tr>
+<tr><td>3 h</td><td class="n">≈ 38k</td><td class="n">≈ 4.5k</td><td class="n">$0.121</td><td class="n">$0.006</td></tr>
+<tr><td><strong>~300 calls / month</strong></td><td></td><td></td><td class="n"><strong>$17–25</strong></td><td class="n"><strong>≈ $1</strong></td></tr>
+<tr><td><strong>Backfill (since about 4 October, roughly 250–330 calls)</strong></td><td></td><td></td><td class="n"><strong>≈ $15–20</strong></td><td class="n"><strong>≈ $1</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>Output tokens include Claude's thinking at low effort. The gateway's Messages endpoint doesn't document a dollar figure in its response, so cost is worked out from token counts and a pinned price table, and replaced by the gateway's own figure when one is returned. Each attempt reserves its maximum possible cost before it calls the model, against both the monthly limit and the backfill limit, so two runs at once can't both slip past either one. The Convex deployment-wide AI spend limit is left alone, because reaching it disables the whole deployment.</p>
+</section>
+
+<section id="rollout">
+<h2>Rollout on the live tenant</h2>
+<ol class="steps">
+<li><span class="n">0</span><div><div class="t">Pre-deploy checks</div><p>The Fivetran connector is on "Allow columns", so new tables arrive blocked. The deployment's AI Gateway spend limit has room above Jev's limit plus both call-insight limits, because reaching it disables the whole deployment.</p></div></li>
+<li><span class="n">1</span><div><div class="t">Deploy with the switch off</div><p>New tables and an optional tenant field only. No data migration. Existing behaviour is unchanged, and the Jev and Fathom test suites must pass as they are.</p></div></li>
+<li><span class="n">2</span><div><div class="t">Smoke test on dev</div><p>A made-up transcript through the gateway on both models confirms that structured output passes through with ZDR, and shows the usage fields and latency.</p></div></li>
+<li><span class="n">3</span><div><div class="t">Inventory, with no model calls</div><p>Matched recordings, transcript lengths, languages, expiry dates, estimated cost, and how often the speaker labels are guessed, show two prospects or show no closer. This decides whether long-call splitting is needed at all. A one-off migration also creates the status header for every recording already matched, including expired ones, before Fivetran sees the table.</p></div></li>
+<li><span class="n">4</span><div><div class="t">Evaluation on about 40 real calls</div><p>The calls are chosen to cover long calls, several income figures, no income, a partner present, and any Spanish calls. Admins accept or reject each extracted item next to its transcript line, in a small review panel in the recording dialog. That takes minutes per call. One admin reads about 20 calls in full to check what was missed and the income figures, and a second settles only the disagreements. The eval runs inside production and stores only verdicts.</p></div></li>
+<li><span class="n">5</span><div><div class="t">Shadow</div><p>The eval picks the model first, so the backlog is read once with the model that will stay. Each transcript can only be read before it expires. The owner then switches to shadow. New calls are read as they arrive, and the backfill runs soonest-to-expire first under its own limit (the estimate plus 30%). The backfill preview suggests that month's overall limit (live calls, plus backfill, plus eval), which may be above the $40 default. The backfill must finish before the first transcripts expire around 2 January. Admins see the cards with a "Preview" badge.</p></div></li>
+<li><span class="n">6</span><div><div class="t">Review</div><p>Go through the failures, coverage and agreement with Jev. Rerun anything that needs it.</p></div></li>
+<li><span class="n">7</span><div><div class="t">Warehouse</div><p>Enable the facts table in Fivetran, wait for the first sync, apply the <code>0004</code> view, deploy the report definitions, and run the parity check.</p></div></li>
+<li><span class="n">8</span><div><div class="t">On</div><p>The owner switches it on: reports appear and the Preview badge goes. To roll back, switch it off. That stops new runs and hides the readers, and the data is kept.</p></div></li>
+</ol>
+
+<h3>Build order</h3>
+<div class="scroll">
+<table>
+<thead><tr><th>#</th><th>Work</th><th>Files</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Contract and pure logic</td><td><code>convex/callInsights/{taxonomy,contract,providerSchema,validate,income,pricing,prompt}.ts</code>, <code>lib/callInsights/rollup.ts</code></td></tr>
+<tr><td>2</td><td>Schema, permissions, pool</td><td><code>convex/callInsights/schema.ts</code>, <code>convex/schema.ts</code>, <code>convex/lib/permissions.ts</code>, <code>convex/convex.config.ts</code>, tenant deletion and test reset</td></tr>
+<tr><td>3</td><td>Gateway client</td><td><code>convex/callInsights/gateway.ts</code> (typed results, like <code>secondOpinion/jev.ts</code>)</td></tr>
+<tr><td>4</td><td>Run lifecycle and hooks</td><td><code>convex/callInsights/{trigger,run,publish,budget,maintenance}.ts</code>, <code>convex/fathom/recordings.ts</code> (match, ignore, rematch), <code>convex/crons.ts</code></td></tr>
+<tr><td>5</td><td>Readers and admin API</td><td><code>convex/callInsights.ts</code></td></tr>
+<tr><td>6</td><td>UI</td><td>Person card, meeting card, Fathom settings card, <code>app/workspace/pipeline/call-insights</code></td></tr>
+<tr><td>7</td><td>Reports</td><td><code>convex/reports/callInsights.ts</code>, <code>convex/analytics/definitions/callInsights.ts</code> + merge, <code>lib/reporting/definitions.ts</code>, <code>clickhouse/migrations/0004_call_insights.sql</code></td></tr>
+<tr><td>8</td><td>Eval harness</td><td><code>convex/callInsights/eval.ts</code></td></tr>
+<tr><td>9</td><td>Docs</td><td><code>docs/plans/call-insights.md</code>, agent guides, <code>CONTEXT.md</code> ("Call insight")</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="tests">
+<h2>Testing</h2>
+<div class="grid2">
+<div>
+<h3>Automated</h3>
+<ul>
+<li><strong>Contract:</strong> real quotes, paraphrases, wrong lines and injected quotes; closer lines dropped; resolution downgraded without prospect evidence.</li>
+<li><strong>Income:</strong> every period, ranges, zero, unknown currency, spans bands, several statements in one call.</li>
+<li><strong>Gateway:</strong> 200, refusal, cut off, 400, 429 with Retry-After, 502/503 and malformed responses, all mocked.</li>
+<li><strong>Lifecycle (convex-test):</strong> a duplicate webhook gives one run; a throwing hook doesn't undo Fathom ingest; two runs racing at the limit are both checked against reservations; month boundary; a stale worker can't publish; a failed rerun keeps the old facts; ten failed reruns still show the last good one.</li>
+<li><strong>Moves:</strong> "not a sales call" removes the facts; a rematch moves them without a model call and with a new revision; a merge or deal move is correct in the person page and in reports right away, before any nightly job; partial syncs after a rerun, a rematch from A to B, back from B to A, and an ignore all show as "syncing".</li>
+<li><strong>Budget:</strong> backfill runs racing at both limits; a duplicate settlement counts once; a recovered attempt keeps its origin.</li>
+<li><strong>Eval isolation:</strong> an eval that finishes after the live run, followed by a rematch, still publishes the live run; an eval started during a live run doesn't block it; a backfill of an eval call still queues one live run.</li>
+<li><strong>Identity:</strong> right after a merge that adds an email, or an email edit, the call shows "rechecking" or the re-checked result, before any cron.</li>
+<li><strong>Lost hook:</strong> if the queueing step rolls back completely, the 15-minute sweep over matched recordings finds the call, creates its header and queues it, and does so only once even when it races the normal trigger. The sweep only queues calls matched after the feature was turned on: switching on with 50 older calls queues none of them, and the capped backfill picks them up.</li>
+<li><strong>Retention:</strong> both purge paths, and a run that finishes after expiry.</li>
+<li><strong>Access:</strong> owner and admin can read; closer, lead gen and other tenants are refused.</li>
+<li><strong>Reports:</strong> distinct-call counting, zero-objection calls in the denominator, first-call basis, per-currency bands, partial-sync guard, parity and merge tests.</li>
+</ul>
+</div>
+<div>
+<h3>Quality bar before "on"</h3>
+<div class="callout lime">
+<ul>
+<li><strong>No invented income.</strong> Zero tolerance.</li>
+<li>Income fields (type, current or target, amount, period, currency) ≥ 90% correct, on at least 30 income statements.</li>
+<li>Objection precision ≥ 90%, recall ≥ 80%.</li>
+<li>Resolved or unresolved ≥ 85% correct.</li>
+</ul>
+<p class="small">Measured on about 40 labelled calls for both models. The cheapest model that passes becomes the default. You can change these thresholds.</p>
+</div>
+<h3>After launch</h3>
+<ul>
+<li>Agreement with Jev on the main objection, as a drift signal, not ground truth.</li>
+<li>Dropped-item rate and failure reasons per prompt version.</li>
+<li>A small random monthly audit, so checks don't only look at flagged calls.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section id="phase2">
+<h2>Phase 2: where this can go</h2>
+<p>Not in the first release. All of it builds on the same runs and facts.</p>
+<div class="grid3">
+<div class="tile"><div class="k">Qualification</div><p style="color:var(--fg)">Who decides (alone, with a partner, approver on the call), how soon they need to decide, and whether a next step was agreed and then kept.</p></div>
+<div class="tile"><div class="k">Closers</div><p style="color:var(--fg)">Closers see insights on their own meetings, plus a pre-call brief built from earlier calls: "last time: partner objection, wants out of the gym by summer".</p></div>
+<div class="tile"><div class="k">Assistant</div><p style="color:var(--fg)">The MCP <code>magnus_get_recording</code> returns insights, marked as said by the prospect so the assistant treats them as data.</p></div>
+<div class="tile"><div class="k">Segments</div><p style="color:var(--fg)">Filter people by objection or income band on the People report, and build respark lists from them.</p></div>
+<div class="tile"><div class="k">Coaching</div><p style="color:var(--fg)">For each closer: objections left unresolved, how they were handled, and which ones carry over to the next call.</p></div>
+<div class="tile"><div class="k">More sources</div><p style="color:var(--fg)">Any transcript in storage (Zoom, phone) feeds the same contract. Plus human corrections and a taxonomy each tenant can edit.</p></div>
+<div class="tile"><div class="k">Reports</div><p style="color:var(--fg)">A labelled toggle that treats "currency not stated" as USD when reading, and bands for other currencies as they appear.</p></div>
+<div class="tile"><div class="k">Older calls</div><p style="color:var(--fg)">Read calls older than 90 days by fetching their transcripts from Fathom again, held in memory only, if you allow it.</p></div>
+<div class="tile"><div class="k">Follow-up calls</div><p style="color:var(--fg)">"Deals won after any call with this objection", alongside the first-call close rate.</p></div>
+</div>
+</section>
+
+<section id="council">
+<h2>How this plan was made</h2>
+<p>Five planners drafted on their own, each from a different angle: smallest change, correctness, verification, data and performance, and a different architecture. Two researchers checked the gateway and the sales-call taxonomy. Five new reviewers scored the drafts and raised blocking objections. The merged plan then went through three rounds of voting by five more reviewers, three Codex Sol and two Opus, with the plan fixed after each round.</p>
+<h3>Draft scores from the critique round</h3>
+<div class="scroll"><table>
+<thead><tr><th>Critic</th><th class="n">A · smallest change</th><th class="n">B · correctness</th><th class="n">C · verification</th><th class="n">D · data &amp; performance</th><th class="n">E · other architecture</th></tr></thead>
+<tbody>
+<tr><td>Sol · correctness</td><td class="n">7</td><td class="n">4</td><td class="n">8</td><td class="n">4</td><td class="n">8</td></tr>
+<tr><td>Sol · reporting &amp; provider</td><td class="n">7.5</td><td class="n">5.5</td><td class="n">8.5</td><td class="n">4.5</td><td class="n">8</td></tr>
+<tr><td>Sol · scope &amp; privacy</td><td class="n">8</td><td class="n">5</td><td class="n">7</td><td class="n">4</td><td class="n">7</td></tr>
+<tr><td>Opus · architecture</td><td class="n">6</td><td class="n">7</td><td class="n">6</td><td class="n">7</td><td class="n">6.5</td></tr>
+<tr><td>Opus · product</td><td class="n">8</td><td class="n">7</td><td class="n">6</td><td class="n">6.5</td><td class="n">6</td></tr>
+<tr><td><strong>Average</strong></td><td class="n"><strong>7.3</strong></td><td class="n">5.7</td><td class="n">7.1</td><td class="n">5.2</td><td class="n">7.1</td></tr>
+</tbody></table></div>
+<p class="small">Draft A was the base. B contributed the rematch handling, C the rollout and quality gates, D the text-free facts table, and E the quote checking and single retry owner.</p>
+<h3>Votes on the merged plan</h3>
+<div class="scroll"><table>
+<thead><tr><th>Voter</th><th class="n">Vote 1</th><th class="n">Vote 2</th><th class="n">Vote 3</th></tr></thead>
+<tbody>
+<tr><td>Sol · correctness</td><td class="n">block · 7</td><td class="n">block · 8</td><td class="n">block · 8.5</td></tr>
+<tr><td>Sol · reporting</td><td class="n">block · 7</td><td class="n">8.5</td><td class="n">block · 8.5</td></tr>
+<tr><td>Sol · scope</td><td class="n">block · 8</td><td class="n">8.5</td><td class="n">block · 8.5</td></tr>
+<tr><td>Opus · architecture</td><td class="n">block · 8</td><td class="n">block · 8.5</td><td class="n">block · 8.5</td></tr>
+<tr><td>Opus · product</td><td class="n">block · 7.5</td><td class="n">8.5</td><td class="n">block · 8.5</td></tr>
+</tbody></table></div>
+<div class="callout amber"><p><strong>No consensus after three votes, so I decided.</strong> Every block was concrete, and each round's blocks were cleared in the next. Vote 3 cleared all of round 2's blocks and raised three new, small ones, with the fix written into each. I adopted all three as written, without a fourth vote:</p>
+<ul>
+<li>The recovery sweep only queues calls matched after the feature was turned on. Older calls go through the capped backfill.</li>
+<li>ClickHouse checks a call's person by ID only. The identity-version check stays in Convex, because the new column reaches the warehouse late.</li>
+<li>Coverage splits held meetings only. "Matched, not held" is a separate count outside the percentages.</li>
+</ul></div>
+<h3>Disagreements and how they were settled</h3>
+<div class="scroll">
+<table>
+<thead><tr><th>Question</th><th>Decision</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Table shape</td><td>Private runs, a text-free facts table and a budget row</td><td>A single table would copy quotes into ClickHouse. A ledger of items with their text would depend on Fivetran column blocking that hasn't been tested.</td></tr>
+<tr><td>Sonnet or Haiku</td><td>Sonnet for the eval and shadow, then the cheapest model that passes</td><td>The Opus reviewers wanted Sonnet; the Sol reviewers wanted the cheapest that passes. Both are satisfied.</td></tr>
+<tr><td>Forced tool call</td><td>Structured output, no temperature</td><td>Forced tool choice and temperature both return a 400 on Sonnet 5.5.</td></tr>
+<tr><td>Keep quotes past 90 days</td><td>No, they are deleted with the transcript</td><td>That matches the existing 90-day transcript rule.</td></tr>
+<tr><td>Timeline event per run</td><td>No</td><td>The activity counts would jump during the backfill, and nothing happened to the person.</td></tr>
+<tr><td>Closers see income</td><td>Not in v1</td><td>Unreviewed income is the costliest error to show. It can be extended after the eval.</td></tr>
+<tr><td>Unknown currency</td><td>Stays unknown, with its own report row</td><td>"$" doesn't mean USD, and some prospects are Canadian.</td></tr>
+<tr><td>Long calls</td><td>Full transcript; fail visibly above 150k tokens; split long calls only if the inventory finds any</td><td>The Sol reviewers wanted splitting now and the Opus reviewers wanted none. A 3-hour call is about 36k tokens.</td></tr>
+<tr><td>Budget</td><td>Reserve per attempt in a monthly budget row</td><td>Summing past spend, by paging or with an aggregate, still lets two runs pass the check at the same time.</td></tr>
+<tr><td>Fathom summary in the prompt</td><td>No</td><td>It can't be checked against a line, and it biased Jev's readings.</td></tr>
+<tr><td>Retries</td><td>One owner: the action re-queues through the pool</td><td>That keeps the 2-at-a-time limit and honours Retry-After.</td></tr>
+<tr><td>Shadow mode</td><td>Kept, visible to admins with a Preview badge</td><td>The admin asked for this, so hiding it from them gains nothing. Reports wait for "on".</td></tr>
+<tr><td>Unclear speakers</td><td>Flag the items and keep their income out of the bands</td><td>Setting the whole call aside would lose the calls a partner joins.</td></tr>
+<tr><td>Evidence</td><td>The model quotes and code checks the quote</td><td>Models are unreliable at returning character positions.</td></tr>
+<tr><td>Eval runs</td><td>Kept apart from live runs: own key, no live run number, never published</td><td>Otherwise an eval run on a model that failed the bar could end up on profiles.</td></tr>
+<tr><td>A person's email changes</td><td>A counter on <code>leads</code> that goes up on every email change; checked in Convex. ClickHouse checks the person ID only</td><td>A merge can turn a call into "someone else's" without the meeting moving. The warehouse gets new columns late.</td></tr>
+<tr><td>"Assume USD" toggle</td><td>Phase 2</td><td>One Opus reviewer wanted it in v1; one Sol reviewer wanted simpler first reports. Unknown currency has its own row meanwhile.</td></tr>
+<tr><td>Objection list</td><td>Superset of Jev's five categories, plus financing, value and others</td><td>With Jev's list only, "other" would be the biggest bucket.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="decisions">
+<h2>Decisions for you</h2>
+<ol>
+<li><strong>Taxonomy.</strong> Confirm or edit the objection, struggle and goal lists above for your programs.</li>
+<li><strong>Who sees income.</strong> Owners and admins only in v1 (recommended), or closers for their own calls as well?</li>
+<li><strong>Quotes after 90 days.</strong> Delete them with the transcript (recommended), or keep short quotes?</li>
+<li><strong>Monthly limit.</strong> $40 a month, plus a one-off backfill limit of about $25 (the estimate plus 30%), or other amounts?</li>
+<li><strong>Quality bar.</strong> Accept the thresholds above, and name the two admins who will review the eval calls (about 40 quick checks and 20 full reads).</li>
+<li><strong>Older calls.</strong> Fathom's API can return transcripts older than 90 days. Should the backfill fetch them in memory only, or stick to the 90-day rule?</li>
+</ol>
+<p class="small" style="margin-top:28px">Sources: <code>convex/secondOpinion/*</code>, <code>convex/fathom/*</code>, <code>docs/plans/closer-assistant.md</code> §2.9 and §6.9, <code>docs/agents/reporting.md</code>, <code>CONTEXT.md</code>, ADR 0001. Convex AI Gateway API and model catalog, and Anthropic pricing and structured-output docs, read 10 November 2026. Production volumes are October 2026 counts of meetings with a Fathom link and of payments by currency.</p>
+</section>
+
+</div>
+</div>
+</body>
+</html>
