@@ -11,7 +11,8 @@ import {
 import { getValidSlackBotToken, logSlackTokenUnavailable } from "./tokens";
 import { slackApiPostJson } from "./webApi";
 
-const RECOVERY_PATH = "/workspace/operations/booked-calls/attribution";
+// The panel lives on the attribution page's diagnostics section; without it the page redirects.
+const RECOVERY_PATH = "/workspace/operations/booked-calls/attribution?section=diagnostics";
 
 /**
  * Posts a held booking that has no booking review to the booking review
