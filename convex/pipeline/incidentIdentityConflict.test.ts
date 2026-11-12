@@ -345,7 +345,7 @@ it("a handle match with a new email that books after a canceled opportunity make
   );
 });
 
-it("a phone-only match with a new email stays blocked until an admin changes the canonical email", async () => {
+it("a phone-only match with a new email is held for review, and applies once an admin changes the canonical email", async () => {
   // Shared and fake phones once merged dozens of people into one lead, so a
   // phone match alone never vouches for a new email.
   const harness = await setup();
@@ -371,7 +371,7 @@ it("a phone-only match with a new email stays blocked until an admin changes the
   );
 
   const [blocked] = await receipts(harness);
-  expect(blocked).toMatchObject({ status: "blocked", reason: "identity_conflict" });
+  expect(blocked).toMatchObject({ status: "blocked", reason: "phone_match_new_email" });
   const identifiers = await harness.t.run((ctx) => ctx.db.query("leadIdentifiers").take(20));
   expect(identifiers.map((i) => i.value)).not.toContain("someone.else@hotmail.example");
 

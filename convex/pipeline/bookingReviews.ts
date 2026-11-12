@@ -29,6 +29,11 @@ import {
   reviewPeople,
 } from "./bookingReviewRecords";
 import { retryDelivery } from "./recovery";
+import {
+  bookHeldForEmailOwner,
+  emailOwnerOfHeldReview,
+  readHeldBookingState,
+} from "./identityDecisions";
 
 const ADMIN_ROLES = ["tenant_master", "tenant_admin"] as const;
 const LIST_PAGE_LIMIT = 50;
@@ -72,6 +77,16 @@ export type BookingReviewDetail = {
   createdAt: number;
   deliveryId: Id<"webhookDeliveries">;
   deliveryStatus?: Doc<"webhookDeliveries">["status"];
+  /** Why the booking is held now, which can differ from `reason` after a retry. */
+  deliveryReason?: string;
+  /** The earlier booking from the same email this one waits behind. */
+  waitingOnDeliveryId?: Id<"webhookDeliveries">;
+  /** Made through a CRM booking link, which already names a deal and its person. */
+  linkBooking: boolean;
+  /** For "Is this the same person?": whether "Same person" can apply here. */
+  linkAllowsSamePerson: boolean;
+  /** On a held review: the person "Different people" books the call for. */
+  separateBooksForLeadId?: Id<"leads">;
   booking: {
     inviteeName?: string;
     email?: string;
@@ -269,6 +284,11 @@ export async function loadBookingReviewDetail(
   const resolvedBy = review.resolvedByUserId
     ? await ctx.db.get("users", review.resolvedByUserId)
     : null;
+  const held = await readHeldBookingState(ctx, review);
+  const separate = await emailOwnerOfHeldReview(ctx, review);
+  const checkedPerson = review.kind === "identity_check" ? review.conflicts[0]?.leadId : undefined;
+  const checkedNow = checkedPerson ? await ctx.db.get("leads", checkedPerson) : null;
+  const checkedCurrent = checkedNow ? await followMergeChain(ctx, checkedNow) : undefined;
   return {
     reviewId: review._id,
     kind: review.kind,
@@ -280,6 +300,13 @@ export async function loadBookingReviewDetail(
     createdAt: review.createdAt,
     deliveryId: review.deliveryId,
     deliveryStatus: delivery?.status,
+    deliveryReason: delivery?.reason,
+    waitingOnDeliveryId: held.waitingOn,
+    linkBooking: held.linkDealLeadId !== undefined,
+    linkAllowsSamePerson:
+      held.linkDealLeadId === undefined ||
+      (checkedCurrent !== undefined && held.linkDealLeadId === checkedCurrent._id),
+    separateBooksForLeadId: separate?.emailOwner,
     booking: bookingDetail,
     people: people.flatMap((person) =>
       person ? [{ ...person, checks: compareBookingWithPerson(bookingDetail, person) }] : [],
@@ -391,6 +418,12 @@ function requireOpen(review: Doc<"bookingReviews">) {
   if (review.status !== "open") throw new Error("This booking review is already resolved");
 }
 
+/** "Is this the same person?" names one person: a merge doesn't answer it. */
+function requireTwoPersonReview(review: Doc<"bookingReviews">) {
+  if (review.kind === "identity_check")
+    throw new Error("Answer this review with Same person or Different person");
+}
+
 const decisionResult = v.object({ alsoClosed: v.number() });
 
 /**
@@ -405,6 +438,7 @@ export const mergePeople = mutation({
     const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const review = await requireReview(ctx, tenantId, reviewId);
     requireOpen(review);
+    requireTwoPersonReview(review);
     const named = [review.leadId, ...review.conflicts.map((c) => c.leadId)].filter(
       (id): id is Id<"leads"> => id !== undefined,
     );
@@ -436,6 +470,7 @@ export const closeAsMerged = mutation({
     const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const review = await requireReview(ctx, tenantId, reviewId);
     requireOpen(review);
+    requireTwoPersonReview(review);
     if (!(await reviewIsOnePerson(ctx, review)))
       throw new Error("These people aren't one person yet. Merge them first.");
     await resolveBookingReview(ctx, review, userId, "merged");
@@ -445,17 +480,25 @@ export const closeAsMerged = mutation({
 });
 
 /**
- * The people are different people. They stay as they are; a held booking
- * stays held, for the recovery panel. Other open reviews about the same
- * people close with it.
+ * The people are different people. They stay as they are, and other open
+ * reviews about the same people close with it. On a held review the call is
+ * booked for the person who owns the booking's email, and the phone's person
+ * keeps the phone; `bookForEmailOwner` is sent only by a page that says so,
+ * so a page loaded before this behavior refuses instead.
  */
 export const keepSeparate = mutation({
-  args: { reviewId: v.id("bookingReviews") },
+  args: { reviewId: v.id("bookingReviews"), bookForEmailOwner: v.optional(v.boolean()) },
   returns: decisionResult,
-  handler: async (ctx, { reviewId }) => {
+  handler: async (ctx, { reviewId, bookForEmailOwner }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const review = await requireReview(ctx, tenantId, reviewId);
     requireOpen(review);
+    requireTwoPersonReview(review);
+    if (review.kind === "held") {
+      if (!bookForEmailOwner)
+        throw new Error("This page is out of date. Refresh it and try again.");
+      return await bookHeldForEmailOwner(ctx, review, userId);
+    }
     await resolveBookingReview(ctx, review, userId, "kept_separate");
     return { alsoClosed: await closeKeptSeparateSiblings(ctx, review, userId) };
   },
@@ -469,7 +512,7 @@ export const retryBooking = mutation({
     const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const review = await requireReview(ctx, tenantId, reviewId);
     requireOpen(review);
-    if (review.kind !== "held") throw new Error("Only a held booking can be retried");
+    if (review.kind === "attached") throw new Error("Only a held booking can be retried");
     await retryDelivery(ctx, tenantId, userId, review.deliveryId);
     return null;
   },

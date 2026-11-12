@@ -23,13 +23,33 @@ export const bookingReviewKind = v.union(
   v.literal("attached"),
   // The booking is blocked until an admin decides who it belongs to.
   v.literal("held"),
+  // The booking is blocked until an admin says whether its new email belongs
+  // to the one person its phone names: "Is this the same person?".
+  v.literal("identity_check"),
 );
 
 export const bookingReviewResolution = v.union(
   v.literal("merged"),
   v.literal("kept_separate"),
   v.literal("booking_applied"),
+  // An identity_check review's answers.
+  v.literal("same_person"),
+  v.literal("different_person"),
 );
+
+/**
+ * Why a booking is held, in IDs only: the rule that held it and the people it
+ * matched on which detail. The panel explains a hold from it without rerunning
+ * the match. Never names, emails or phones.
+ */
+export const bookingHold = v.object({
+  cause: v.string(),
+  matches: v.array(v.object({ leadId: v.id("leads"), via: identityMatchVia })),
+  // More people matched than were kept.
+  truncated: v.boolean(),
+  // The earlier booking from the same email this one waits behind.
+  waitingOnDeliveryId: v.optional(v.id("webhookDeliveries")),
+});
 
 export const pipelineTables = {
   // One per delivery whose identifiers named more than one person: the review
@@ -78,6 +98,24 @@ export const pipelineTables = {
       "status",
       "createdAt",
     ]),
+  // An admin's answer to "Is this the same person?": whether a booking email
+  // belongs to a person matched only by phone. The resolver reads it for later
+  // bookings with that email. A booking whose email is a placeholder gets an
+  // answer for that one delivery. Exactly one of `email` and `deliveryId` is
+  // set, and there is one answer per email and person.
+  bookingIdentityDecisions: defineTable({
+    tenantId: v.id("tenants"),
+    // The booking's normalized, non-placeholder email: the evidence decided on.
+    email: v.optional(v.string()),
+    deliveryId: v.optional(v.id("webhookDeliveries")),
+    leadId: v.id("leads"),
+    decision: v.union(v.literal("same_person"), v.literal("different_person")),
+    reviewId: v.id("bookingReviews"),
+    decidedByUserId: v.id("users"),
+    decidedAt: v.number(),
+  })
+    .index("by_tenantId_and_email_and_leadId", ["tenantId", "email", "leadId"])
+    .index("by_deliveryId", ["deliveryId"]),
   webhookRecoveryAttempts: defineTable({
     tenantId: v.id("tenants"),
     deliveryId: v.id("webhookDeliveries"),
@@ -131,6 +169,14 @@ export const pipelineTables = {
     meetingId: v.optional(v.id("meetings")),
     opportunityId: v.optional(v.id("opportunities")),
     leadId: v.optional(v.id("leads")),
+    // Set while a booking is held: why, in IDs only.
+    hold: v.optional(bookingHold),
+    // A held invitee.created's SHA-256 of tenant and booking email, kept while
+    // it is retried and cleared once it applies or is ignored. Held bookings
+    // from one email apply oldest first by it. Never a readable email.
+    holdKey: v.optional(v.string()),
+    // When Slack was told about a held booking that has no review.
+    heldAlertedAt: v.optional(v.number()),
   })
     .index("by_tenantId_and_key", ["tenantId", "key"])
     .index("by_rawEventId", ["rawEventId"])
@@ -145,5 +191,10 @@ export const pipelineTables = {
       "status",
       "receivedAt",
     ])
-    .index("by_status_and_receivedAt", ["status", "receivedAt"]),
+    .index("by_status_and_receivedAt", ["status", "receivedAt"])
+    .index("by_tenantId_and_holdKey_and_occurredAt", [
+      "tenantId",
+      "holdKey",
+      "occurredAt",
+    ]),
 };

@@ -474,6 +474,9 @@ import type * as pipeline_bookingReviewsCore from "../pipeline/bookingReviewsCor
 import type * as pipeline_bookingTargets from "../pipeline/bookingTargets.js";
 import type * as pipeline_delivery from "../pipeline/delivery.js";
 import type * as pipeline_dismissal from "../pipeline/dismissal.js";
+import type * as pipeline_holdNextStep from "../pipeline/holdNextStep.js";
+import type * as pipeline_holdOrder from "../pipeline/holdOrder.js";
+import type * as pipeline_identityDecisions from "../pipeline/identityDecisions.js";
 import type * as pipeline_inviteeCanceled from "../pipeline/inviteeCanceled.js";
 import type * as pipeline_inviteeCreated from "../pipeline/inviteeCreated.js";
 import type * as pipeline_inviteeNoShow from "../pipeline/inviteeNoShow.js";
@@ -1106,6 +1109,9 @@ declare const fullApi: ApiFromModules<{
   "pipeline/bookingTargets": typeof pipeline_bookingTargets;
   "pipeline/delivery": typeof pipeline_delivery;
   "pipeline/dismissal": typeof pipeline_dismissal;
+  "pipeline/holdNextStep": typeof pipeline_holdNextStep;
+  "pipeline/holdOrder": typeof pipeline_holdOrder;
+  "pipeline/identityDecisions": typeof pipeline_identityDecisions;
   "pipeline/inviteeCanceled": typeof pipeline_inviteeCanceled;
   "pipeline/inviteeCreated": typeof pipeline_inviteeCreated;
   "pipeline/inviteeNoShow": typeof pipeline_inviteeNoShow;

@@ -2,7 +2,8 @@ import { recordMeeting } from "../lib/leadLifecycle";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { callTypeForBooking } from "../lib/dealCallTypes";
 import { requestMeetingProjection } from "../operations/meetingStats";
-import { blockBooking, ignoreBooking } from "./blocked";
+import { blockBooking, holdEvidence, ignoreBooking } from "./blocked";
+import { holdIfEarlierBookingWaiting, holdKeyFor } from "./holdOrder";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
@@ -92,10 +93,12 @@ function ownIdentifiers(
 ) {
 	const contested = new Set(resolution?.conflicts?.map((c) => c.via));
 	const emailContested = contested.has("email");
+	// A phone an admin said belongs to someone else stays with them.
+	const phoneWithheld = resolution?.withheld?.includes("phone") ?? false;
 	return {
 		email: emailContested ? undefined : booking.email,
 		rawEmail: emailContested ? undefined : booking.rawEmail,
-		phone: contested.has("phone") ? undefined : booking.phone,
+		phone: contested.has("phone") || phoneWithheld ? undefined : booking.phone,
 	};
 }
 
@@ -825,6 +828,18 @@ export const process = internalMutation({
 			return;
 		}
 
+		// Held bookings from one email apply oldest first: this one waits while
+		// an earlier one from its email is still held (holdOrder.ts).
+		const ownDelivery = await ctx.db
+			.query("webhookDeliveries")
+			.withIndex("by_rawEventId", (q) => q.eq("rawEventId", rawEventId))
+			.unique();
+		await holdIfEarlierBookingWaiting(
+			ctx,
+			ownDelivery,
+			await holdKeyFor(tenantId, inviteeEmail),
+		);
+
 		const now = rawEvent.occurredAt ?? rawEvent.receivedAt;
 		const durationMinutes = Math.max(
 			1,
@@ -942,12 +957,16 @@ export const process = internalMutation({
 				);
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
         const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
-          socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
-        if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId) blockBooking("identity_conflict");
+          socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now,
+          deliveryId: ownDelivery?._id });
+        if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId)
+          blockBooking("identity_conflict", undefined, holdEvidence("link_person_mismatch",
+            resolvedTarget.resolvedVia === "new" ? [] : [{ leadId: resolvedTarget.leadId, via: resolvedTarget.resolvedVia }]));
         // A different email is accepted only when the identity lookup tied it
         // to the target lead (a known email, or a handle vouching for a new one),
         // the same rule a booking without a link gets.
-        if (!resolvedTarget && targetLead?.email && normalizeEmail(targetLead.email) !== inviteeEmail) blockBooking("identity_conflict");
+        if (!resolvedTarget && targetLead?.email && normalizeEmail(targetLead.email) !== inviteeEmail)
+          blockBooking("identity_conflict", undefined, holdEvidence("link_person_mismatch"));
         const targetIdentifiers = ownIdentifiers(resolvedTarget, { email: inviteeEmail, rawEmail: rawInviteeEmail, phone: effectivePhone });
         await recordConflictReview(ctx, { tenantId, rawEventId, resolution: resolvedTarget, now });
 				if (!targetLead || targetLead.tenantId !== tenantId) {
@@ -1268,6 +1287,7 @@ export const process = internalMutation({
 			createdAt: now,
 			createIdentifiers: false,
 			initialLifecycle: { stage: "booked", at: now },
+			deliveryId: ownDelivery?._id,
 		});
 
 		let lead = resolution.lead;
@@ -1342,7 +1362,11 @@ export const process = internalMutation({
       const previousDeal = candidates.find(o => o._id === previousMeeting.opportunityId);
       // Calendly says the old booking was this person's, the identifiers say
       // it was another's: held whether or not the booking joins that deal.
-      if (!previousDeal) blockBooking("identity_conflict");
+      // A person created by this booking rolls back with it, so only an
+      // existing one is named.
+      if (!previousDeal)
+        blockBooking("identity_conflict", undefined, holdEvidence("reschedule_person_mismatch",
+          resolution.resolvedVia === "new" ? [] : [{ leadId: lead._id, via: resolution.resolvedVia }]));
       const target = calendlyRescheduleTarget(previousDeal);
       if (target === "move") reschedule = { target: previousDeal, from: previousMeeting };
       else if (target === "review") blockBooking("booking_target_requires_review");

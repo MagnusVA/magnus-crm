@@ -1,5 +1,6 @@
 import {
   blockBooking,
+  holdEvidence,
   type BookingIdentifiers,
   type IdentityConflict,
 } from "../pipeline/blocked";
@@ -53,6 +54,8 @@ export type ResolveLeadIdentityArgs = {
   createIdentifiers?: boolean;
   /** The stage a new person starts at, from the record that created them. */
   initialLifecycle?: LifecycleEvidence;
+  /** The booking's delivery, for an answer an admin gave about that one booking. */
+  deliveryId?: Id<"webhookDeliveries">;
 };
 
 export type ResolveLeadIdentityResult = {
@@ -70,6 +73,11 @@ export type ResolveLeadIdentityResult = {
   conflicts?: IdentityConflict[];
   /** The booking's identifiers, normalized, when `conflicts` is set. */
   booking?: BookingIdentifiers;
+  /**
+   * Identifiers the booking may not give its person: an admin answered that
+   * the person the phone names is someone else, and that person keeps it.
+   */
+  withheld?: "phone"[];
 };
 
 function distinctConflicts(
@@ -147,6 +155,10 @@ export async function followMergeChain(
   return current;
 }
 
+function viaOf(type: IdentifierType): IdentityConflict["via"] {
+  return type === "email" || type === "phone" ? type : "social_handle";
+}
+
 async function findLeadByIdentifier(
   ctx: MutationCtx,
   args: {
@@ -157,7 +169,8 @@ async function findLeadByIdentifier(
 ): Promise<Doc<"leads"> | null> {
   const identifiers = await ctx.db.query("leadIdentifiers")
     .withIndex("by_tenantId_and_type_and_value", q => q.eq("tenantId", args.tenantId).eq("type", args.type).eq("value", args.value)).take(17);
-  if (identifiers.length > 16) blockBooking("identity_conflict");
+  if (identifiers.length > 16)
+    blockBooking("identity_conflict", undefined, holdEvidence("identifier_overflow", [], { truncated: true }));
   const matches = new Map<string, Doc<"leads">>();
   for (const identifier of identifiers) {
     const lead = await ctx.db.get("leads", identifier.leadId);
@@ -166,7 +179,15 @@ async function findLeadByIdentifier(
     if (!resolved) blockBooking("invalid_identity_relationship");
     matches.set(resolved._id, resolved);
   }
-  if (matches.size > 1) blockBooking("identity_conflict");
+  if (matches.size > 1)
+    blockBooking(
+      "identity_conflict",
+      undefined,
+      holdEvidence(
+        "shared_identifier",
+        [...matches.keys()].map((leadId) => ({ leadId: leadId as Id<"leads">, via: viaOf(args.type) })),
+      ),
+    );
   return matches.values().next().value ?? null;
 }
 
@@ -182,7 +203,7 @@ const POLLUTION_SCAN_LIMIT = 50;
  * more identifiers than we scan fails closed for the same reason.
  * TODO: drop once the split migration in docs/plans/polluted-lead-split.md ships.
  */
-async function isPlaceholderPollutedLead(
+export async function isPlaceholderPollutedLead(
   ctx: MutationCtx,
   leadId: Id<"leads">,
 ): Promise<boolean> {
@@ -196,6 +217,49 @@ async function isPlaceholderPollutedLead(
       (identifier.type === "phone" && normalizePhone(identifier.value) === undefined) ||
       (identifier.type === "email" && isPlaceholderEmail(identifier.value)),
   );
+}
+
+/** Answers read for one booking email; past this, none is trusted. */
+const IDENTITY_ANSWER_LIMIT = 16;
+
+/**
+ * Admins' answers to "Is this the same person?" for a booking, by the person
+ * each answer is about as they are now (following merges). Keyed by the
+ * booking's email, or by its delivery when the email is a placeholder. More
+ * answers than the limit, or a person whose merge chain is broken, are
+ * ignored, which leaves the booking to today's rules: it holds.
+ */
+async function readIdentityAnswers(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    identityEmail: string | undefined;
+    deliveryId: Id<"webhookDeliveries"> | undefined;
+  },
+): Promise<Map<Id<"leads">, Doc<"bookingIdentityDecisions">["decision"]>> {
+  const rows = args.identityEmail
+    ? await ctx.db
+        .query("bookingIdentityDecisions")
+        .withIndex("by_tenantId_and_email_and_leadId", (q) =>
+          q.eq("tenantId", args.tenantId).eq("email", args.identityEmail),
+        )
+        .take(IDENTITY_ANSWER_LIMIT + 1)
+    : args.deliveryId
+      ? await ctx.db
+          .query("bookingIdentityDecisions")
+          .withIndex("by_deliveryId", (q) => q.eq("deliveryId", args.deliveryId))
+          .take(IDENTITY_ANSWER_LIMIT + 1)
+      : [];
+  const answers = new Map<Id<"leads">, Doc<"bookingIdentityDecisions">["decision"]>();
+  if (rows.length > IDENTITY_ANSWER_LIMIT) return answers;
+  for (const row of rows) {
+    if (row.tenantId !== args.tenantId) continue;
+    const lead = await ctx.db.get("leads", row.leadId);
+    if (!lead || lead.tenantId !== args.tenantId) continue;
+    const current = await followMergeChain(ctx, lead);
+    if (current) answers.set(current._id, row.decision);
+  }
+  return answers;
 }
 
 async function detectPotentialDuplicate(
@@ -445,7 +509,8 @@ export async function resolveLeadIdentity(
   const matches: { lead: Doc<"leads">; via: "email" | "social_handle" | "phone" }[] = [];
   if (identityEmail) {
     const legacy = await ctx.db.query("leads").withIndex("by_tenantId_and_email", q => q.eq("tenantId", args.tenantId).eq("email", identityEmail)).take(17);
-    if (legacy.length > 16) blockBooking("identity_conflict");
+    if (legacy.length > 16)
+      blockBooking("identity_conflict", undefined, holdEvidence("identifier_overflow", [], { truncated: true }));
     for (const lead of legacy) {
       const resolved = await followMergeChain(ctx, lead);
       if (!resolved) blockBooking("invalid_identity_relationship");
@@ -471,6 +536,35 @@ export async function resolveLeadIdentity(
       socialHandle: { platform: args.socialHandle.platform, handle: normalizedSocialHandle },
     }),
   };
+  // An admin may already have answered whether a person the phone alone
+  // names is the one with this email ("Is this the same person?"). Bookings
+  // only, and only when no handle matched anyone: a handle decides as it
+  // always has. "Different person" drops that phone match and the person
+  // keeps the phone; "Same person" lets the booking past the phone-only
+  // check below. A booking with no phone-only match reads nothing.
+  let withholdPhone = false;
+  let samePersonAnswered = false;
+  if (isBooking && !matches.some(m => m.via === "social_handle")) {
+    const phoneOnly = [...new Set(matches.filter(m => m.via === "phone").map(m => m.lead._id))]
+      .filter(leadId => !matches.some(m => m.lead._id === leadId && m.via !== "phone"));
+    if (phoneOnly.length) {
+      const answers = await readIdentityAnswers(ctx, {
+        tenantId: args.tenantId,
+        identityEmail,
+        deliveryId: args.deliveryId,
+      });
+      for (const leadId of phoneOnly) {
+        const answer = answers.get(leadId);
+        if (answer === "different_person") {
+          for (let i = matches.length - 1; i >= 0; i--)
+            if (matches[i].lead._id === leadId) matches.splice(i, 1);
+          withholdPhone = true;
+        } else if (answer === "same_person" && new Set(matches.map(m => m.lead._id)).size === 1) {
+          samePersonAnswered = true;
+        }
+      }
+    }
+  }
   let conflicts: IdentityConflict[] | undefined;
   if (isBooking && new Set(matches.map(m => m.lead._id)).size > 1) {
     // The social handle (the Instagram username on the Calendly form) decides.
@@ -479,7 +573,12 @@ export async function resolveLeadIdentity(
     // was qualified under. The other people keep their identifiers, and the
     // booking opens a review (docs/adr/0001-lead-lifecycle-model.md).
     const handleMatch = matches.find(m => m.via === "social_handle");
-    if (!handleMatch) blockBooking("identity_conflict", { conflicts: distinctConflicts(matches), booking });
+    if (!handleMatch)
+      blockBooking(
+        "identity_conflict",
+        { conflicts: distinctConflicts(matches), booking },
+        holdEvidence("several_people", distinctConflicts(matches)),
+      );
     conflicts = distinctConflicts(matches.filter(m => m.lead._id !== handleMatch.lead._id));
     matches.splice(0, matches.length, handleMatch);
   }
@@ -493,18 +592,33 @@ export async function resolveLeadIdentity(
       // extra email identifier), but a phone alone does not, because shared
       // and fake phones once merged dozens of people into one lead. A
       // placeholder email counts as a different email here, so a phone alone
-      // can't attach it to a lead that has a real one either.
+      // can't attach it to a lead that has a real one either. The booking is
+      // held for "Is this the same person?", and an admin's "same person"
+      // answer lets it through.
       const emailIsKnown = matches.some(m => m.via === "email");
       const handleMatched = matches.some(m => m.via === "social_handle");
-      if (!emailIsKnown && !handleMatched) blockBooking("identity_conflict");
+      if (!emailIsKnown && !handleMatched && !samePersonAnswered)
+        blockBooking(
+          "phone_match_new_email",
+          { conflicts: [{ leadId: match.lead._id, via: "phone" }], booking },
+          holdEvidence("phone_only_new_email", [{ leadId: match.lead._id, via: "phone" }]),
+        );
       if (await isPlaceholderPollutedLead(ctx, match.lead._id))
-        blockBooking("identity_conflict", conflicts && {
-          conflicts: [{ leadId: match.lead._id, via: match.via }, ...conflicts],
-          booking,
-        });
+        blockBooking(
+          "identity_conflict",
+          conflicts && {
+            conflicts: [{ leadId: match.lead._id, via: match.via }, ...conflicts],
+            booking,
+          },
+          holdEvidence("polluted_person", [
+            { leadId: match.lead._id, via: match.via },
+            ...(conflicts ?? []),
+          ]),
+        );
     }
     // An identifier another person holds is theirs, not this booking's.
     const contested = new Set(conflicts?.map(c => c.via));
+    if (withholdPhone) contested.add("phone");
     const lead = await syncSubmittedIdentifiersForExistingLead(
       ctx,
       match.lead,
@@ -522,6 +636,7 @@ export async function resolveLeadIdentity(
       isNewLead: false,
       resolvedVia: match.via,
       ...(conflicts && { conflicts, booking }),
+      ...(withholdPhone && { withheld: ["phone" as const] }),
     };
   }
 
@@ -540,7 +655,9 @@ export async function resolveLeadIdentity(
     throw new Error("Creating a lead needs its initial lifecycle stage.");
   }
   const fullName = args.fullName?.trim() || undefined;
-  const phone = args.phone?.trim() || undefined;
+  // A phone an admin said belongs to someone else stays theirs.
+  const phone = withholdPhone ? undefined : args.phone?.trim() || undefined;
+  const keptPhone = withholdPhone ? undefined : normalizedPhone;
   const leadId = await ctx.db.insert("leads", {
     ...initialLifecycleFields(args.initialLifecycle),
     tenantId: args.tenantId,
@@ -577,12 +694,9 @@ export async function resolveLeadIdentity(
 
     const identifierValues = [
       identityEmail,
-      normalizedPhone,
+      keptPhone,
       normalizedSocialHandle,
     ].filter((value): value is string => Boolean(value));
-    if (phone && normalizedPhone && !identifierValues.includes(normalizedPhone)) {
-      identifierValues.push(normalizedPhone);
-    }
     if (socialHandles?.[0]) {
       identifierValues.push(socialHandles[0].handle);
     }
@@ -626,6 +740,7 @@ export async function resolveLeadIdentity(
     isNewLead: true,
     resolvedVia: "new",
     potentialDuplicateLeadId,
+    ...(withholdPhone && { withheld: ["phone" as const] }),
   };
 }
 

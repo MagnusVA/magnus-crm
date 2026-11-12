@@ -491,11 +491,11 @@ it("a held booking retried without a fix stays held under the same review and al
   expect(await alertJobs(harness)).toHaveLength(1);
 });
 
-it("a hold that names one person, not two, opens no review", async () => {
+it("a hold that names one person by phone opens one \"Is this the same person?\" review", async () => {
   // A phone match alone never vouches for a new email: the booking is held,
-  // but only one person is involved, so there is nothing to merge.
+  // and an admin answers whether the email is the phone's person's.
   const harness = await setup();
-  await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com", phone: "+1 416-555-0142" }, [
+  const person = await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com", phone: "+1 416-555-0142" }, [
     ["email", "lead.a@example.com"],
     ["phone", "+14165550142"],
   ]);
@@ -503,9 +503,24 @@ it("a hold that names one person, not two, opens no review", async () => {
     harness,
     booking("one-person-hold", { email: "someone.else@example.com", name: "Someone Else", phone: "+1 416-555-0142" }),
   );
-  expect(await receipt(harness)).toMatchObject({ status: "blocked", reason: "identity_conflict" });
-  expect(await reviews(harness)).toEqual([]);
-  expect(await alertJobs(harness)).toEqual([]);
+  const held = await receipt(harness);
+  expect(held).toMatchObject({
+    status: "blocked",
+    reason: "phone_match_new_email",
+    hold: { cause: "phone_only_new_email", matches: [{ leadId: person.leadId, via: "phone" }], truncated: false },
+  });
+  const stored = await harness.t.run((ctx) => ctx.db.get("webhookDeliveries", held._id));
+  expect(stored?.holdKey).toMatch(/^[0-9a-f]{64}$/);
+  const [review] = await reviews(harness);
+  expect(review).toMatchObject({
+    kind: "identity_check",
+    status: "open",
+    reason: "phone_match_new_email",
+    conflicts: [{ leadId: person.leadId, via: "phone" }],
+    booking: { email: "someone.else@example.com", phone: "+14165550142" },
+  });
+  expect(review.leadId).toBeUndefined();
+  expect(await alertJobs(harness)).toEqual([{ reviewId: review._id }]);
 });
 
 it("a malformed review link reads as not found", async () => {
@@ -513,12 +528,12 @@ it("a malformed review link reads as not found", async () => {
   expect(await harness.admin.query(api.pipeline.bookingReviews.get, { reviewId: "not-an-id" })).toBeNull();
 });
 
-it("retrying a held booking an admin kept separate leaves the decision and alerts no one", async () => {
+it("\"Different people\" on a held review books the call for the email's person, and the phone stays put", async () => {
   const harness = await setup();
-  await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
+  const emailPerson = await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
     ["email", "lead.a@example.com"],
   ]);
-  await seedPerson(harness, { fullName: "Lead B", phone: "+1 416-555-0142" }, [
+  const phonePerson = await seedPerson(harness, { fullName: "Lead B", phone: "+1 416-555-0142" }, [
     ["phone", "+14165550142"],
   ]);
   await deliver(
@@ -526,19 +541,45 @@ it("retrying a held booking an admin kept separate leaves the decision and alert
     booking("kept-held", { email: "lead.a@example.com", name: "Lead A", phone: "+1 416-555-0142" }),
   );
   const [review] = await reviews(harness);
-  await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: review._id });
+  const detail = await harness.admin.query(api.pipeline.bookingReviews.get, { reviewId: review._id });
+  expect(detail?.separateBooksForLeadId).toBe(emailPerson.leadId);
 
-  const manifest = await harness.admin.query(api.pipeline.recovery.preview, {
-    deliveryIds: [review.deliveryId],
+  // A page loaded before this behavior sends no flag and is told to refresh.
+  await expect(
+    harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: review._id }),
+  ).rejects.toThrow("Refresh");
+  await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, {
+    reviewId: review._id,
+    bookForEmailOwner: true,
   });
-  await harness.admin.mutation(api.pipeline.recovery.retry, { manifest });
   await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
 
-  expect(await receipt(harness)).toMatchObject({ status: "blocked", reason: "identity_conflict" });
+  expect(await receipt(harness)).toMatchObject({ status: "applied", leadId: emailPerson.leadId });
   expect(await reviews(harness)).toMatchObject([
     { _id: review._id, status: "resolved", resolution: "kept_separate" },
   ]);
+  const state = await harness.t.run(async (ctx) => ({
+    emailPerson: await ctx.db.get("leads", emailPerson.leadId),
+    phoneOwners: (await ctx.db.query("leadIdentifiers").take(20))
+      .filter((i) => i.value === "+14165550142")
+      .map((i) => i.leadId),
+    decisions: await ctx.db.query("bookingIdentityDecisions").take(5),
+  }));
+  expect(state.emailPerson?.phone).toBeUndefined();
+  expect(state.phoneOwners).toEqual([phonePerson.leadId]);
+  expect(state.decisions).toMatchObject([
+    { email: "lead.a@example.com", leadId: phonePerson.leadId, decision: "different_person" },
+  ]);
   expect(await alertJobs(harness)).toHaveLength(1);
+
+  // The same email and phone book again: it applies to the email's person
+  // with no review.
+  await deliver(
+    harness,
+    booking("kept-held-again", { email: "lead.a@example.com", name: "Lead A", phone: "+1 416-555-0142" }),
+  );
+  expect(await receipt(harness)).toMatchObject({ status: "applied", leadId: emailPerson.leadId });
+  expect(await reviews(harness)).toHaveLength(1);
 });
 
 async function seedInstallation(harness: Harness, bookingReviewChannelId?: string) {
@@ -602,7 +643,10 @@ it("with no booking review channel, alerts go nowhere, and the open ones post on
   // Not the notify channel, nor anywhere else.
   expect(channels).toEqual([]);
   const [open, decided] = await reviews(harness);
-  await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: decided._id });
+  await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, {
+    reviewId: decided._id,
+    bookForEmailOwner: true,
+  });
 
   await saveChannels(harness, { channelId: "C_REVIEWS", channelName: "reviews" });
   await harness.t.finishAllScheduledFunctions(vi.runAllTimers);

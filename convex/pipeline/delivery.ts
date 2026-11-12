@@ -9,7 +9,7 @@ import {
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireTenantUser } from "../requireTenantUser";
-import { deliveryStatus } from "./schema";
+import { bookingHold, deliveryStatus } from "./schema";
 import { webhookPool } from "./workpools";
 
 export async function enqueueDelivery(
@@ -78,6 +78,7 @@ const summary = v.object({
   meetingId: v.optional(v.id("meetings")),
   opportunityId: v.optional(v.id("opportunities")),
   leadId: v.optional(v.id("leads")),
+  hold: v.optional(bookingHold),
 });
 export const list = query({
   args: {
@@ -127,6 +128,7 @@ export const list = query({
         meetingId: r.meetingId,
         opportunityId: r.opportunityId,
         leadId: r.leadId,
+        hold: r.hold,
       })),
     };
   },

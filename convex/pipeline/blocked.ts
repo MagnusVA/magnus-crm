@@ -17,14 +17,57 @@ export type BlockedIdentity = {
   booking: BookingIdentifiers;
 };
 
+/** Why a booking is held, in IDs only, as the receipt stores it. */
+export type BookingHold = {
+  cause: string;
+  matches: IdentityConflict[];
+  truncated: boolean;
+  waitingOnDeliveryId?: Id<"webhookDeliveries">;
+};
+
+/** The most people a hold records. */
+const HOLD_MATCH_LIMIT = 16;
+
+/** A hold naming the rule that fired and the people it matched. */
+export function holdEvidence(
+  cause: string,
+  matches: IdentityConflict[] = [],
+  extra: Partial<Pick<BookingHold, "truncated" | "waitingOnDeliveryId">> = {},
+): BookingHold {
+  const seen = new Set<string>();
+  const distinct = matches.filter((m) => {
+    const key = `${m.leadId}:${m.via}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return {
+    cause,
+    matches: distinct.slice(0, HOLD_MATCH_LIMIT),
+    truncated: (extra.truncated ?? false) || distinct.length > HOLD_MATCH_LIMIT,
+    ...(extra.waitingOnDeliveryId && { waitingOnDeliveryId: extra.waitingOnDeliveryId }),
+  };
+}
+
 /**
  * Booking outcomes thrown out of booking processing and caught by
  * `processRawEvent`, which records them on the delivery. invitee.created runs
  * as a sub-transaction, so its writes roll back when it throws one: a blocked
  * or ignored booking leaves no lead, identifier, or event type config behind.
+ * `identity` names the people a booking review decides between; `hold` is the
+ * IDs-only evidence the recovery panel explains the hold with.
  */
-export function blockBooking(reason: string, identity?: BlockedIdentity): never {
-  throw new ConvexError({ kind: "booking_blocked", reason, ...(identity && { identity }) });
+export function blockBooking(
+  reason: string,
+  identity?: BlockedIdentity,
+  hold?: BookingHold,
+): never {
+  throw new ConvexError({
+    kind: "booking_blocked",
+    reason,
+    ...(identity && { identity }),
+    ...(hold && { hold }),
+  });
 }
 export function blockedReason(error: unknown): string | undefined {
   return outcomeReason(error, "booking_blocked");
@@ -34,6 +77,13 @@ export function blockedIdentity(error: unknown): BlockedIdentity | undefined {
   if (!blockedReason(error)) return;
   const data = (error as ConvexError<{ identity?: BlockedIdentity }>).data;
   return data.identity;
+}
+
+/** The IDs-only evidence a blocked booking's hold carries, when it says. */
+export function blockedHold(error: unknown): BookingHold | undefined {
+  if (!blockedReason(error)) return;
+  const data = (error as ConvexError<{ hold?: BookingHold }>).data;
+  return data.hold;
 }
 
 /** A delivery the pipeline does not track (not a closer's sales call). It is
