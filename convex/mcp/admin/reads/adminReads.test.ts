@@ -778,7 +778,7 @@ describe("queue variants and setup", () => {
     expect(JSON.stringify(h)).not.toContain("raw-error");
     expect(h.rows.find((r) => r.area === "fathom")?.status).toBe("warning");
     expect(h.rows.find((r) => r.area === "booking_deliveries")?.status).toBe(
-      "error",
+      "warning",
     );
   });
   it("keeps payment risk flags and refuses foreign payment IDs", async () => {

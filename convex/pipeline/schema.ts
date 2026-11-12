@@ -161,6 +161,9 @@ export const pipelineTables = {
     rawEventId: v.id("rawWebhookEvents"),
     occurredAt: v.number(),
     receivedAt: v.number(),
+    // Optional for receipts queued before this field was introduced. No backfill:
+    // readers use receivedAt until the next enqueue stamps the current attempt.
+    queuedAt: v.optional(v.number()),
     status: deliveryStatus,
     reason: v.optional(v.string()),
     processedAt: v.optional(v.number()),
@@ -196,5 +199,11 @@ export const pipelineTables = {
       "tenantId",
       "holdKey",
       "occurredAt",
+    ])
+    .index("by_status_and_queuedAt", ["status", "queuedAt"])
+    .index("by_tenantId_and_status_and_queuedAt", [
+      "tenantId",
+      "status",
+      "queuedAt",
     ]),
 };

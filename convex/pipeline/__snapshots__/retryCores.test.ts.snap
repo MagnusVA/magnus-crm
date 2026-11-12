@@ -13,6 +13,7 @@ exports[`web paths write what they wrote before the split > recovery.retry 1`] =
         ],
         "set": {
           "generation": 2,
+          "queuedAt": 1792573200000,
           "status": "queued",
           "workId": "<work>",
         },
@@ -23,7 +24,7 @@ exports[`web paths write what they wrote before the split > recovery.retry 1`] =
   "webhookRecoveryAttempts": {
     "added": [
       {
-        "_id": "000010011webhookRecoveryAttempts",
+        "_id": "000010012webhookRecoveryAttempts",
         "actorUserId": "000000000000000000000010001users",
         "deliveryId": "000000000010006webhookDeliveries",
         "previousGeneration": 1,

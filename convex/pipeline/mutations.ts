@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { reportError } from "../lib/observability/log";
 
 /**
@@ -15,57 +15,70 @@ export const markProcessed = internalMutation({
   },
 });
 
-/** How long an event may sit unprocessed before it counts as stuck. */
+/** How long a receipt may wait for its current queue attempt. */
 const STUCK_AFTER_MS = 15 * 60 * 1000;
-/** Report at most this many rows; one more is read to detect overflow. */
 const MAX_REPORTED = 100;
 const MAX_TENANT_IDS = 10;
 
-/**
- * Reports raw Calendly webhook events that are still unprocessed 15 minutes
- * after they arrived. The processor runs within seconds of ingestion, and
- * nothing retries a failed run, so a stuck event means a booking, cancel, or
- * no-show that never reached the CRM.
- *
- * Runs from the `pipeline-stuck-events` cron. Read-only: it never marks or
- * replays events. A mutation rather than a query only because crons can't
- * schedule queries.
- */
+/** Read-only watchdog. Deliberately held bookings are not processing failures. */
 export const reportStuckEvents = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     const now = Date.now();
-    const stuck = await ctx.db
-      .query("rawWebhookEvents")
-      .withIndex("by_processed_and_receivedAt", (q) =>
-        q.eq("processed", false).lt("receivedAt", now - STUCK_AFTER_MS),
+    const cutoff = now - STUCK_AFTER_MS;
+    const queued = await ctx.db
+      .query("webhookDeliveries")
+      .withIndex("by_status_and_queuedAt", (q) =>
+        q.eq("status", "queued").gte("queuedAt", 0).lt("queuedAt", cutoff),
       )
       .take(MAX_REPORTED + 1);
+    // Missing optional values sort before numbers. Keep legacy receipts in a
+    // separate bounded range so they cannot crowd out current queue attempts.
+    const legacy = await ctx.db
+      .query("webhookDeliveries")
+      .withIndex("by_status_and_queuedAt", (q) =>
+        q.eq("status", "queued").eq("queuedAt", undefined),
+      )
+      .take(MAX_REPORTED + 1);
+    const failed = await ctx.db
+      .query("webhookDeliveries")
+      .withIndex("by_status_and_receivedAt", (q) => q.eq("status", "failed"))
+      .take(MAX_REPORTED + 1);
 
-    if (stuck.length === 0) {
-      return null;
-    }
-
-    const tenantIds: Array<Id<"tenants">> = [];
-    for (const event of stuck) {
-      if (tenantIds.length >= MAX_TENANT_IDS) break;
-      if (!tenantIds.includes(event.tenantId)) tenantIds.push(event.tenantId);
-    }
-
-    reportError(
-      "pipeline.events_stuck_unprocessed",
-      new Error("Calendly webhook events unprocessed for over 15 minutes"),
-      {
+    const report = (
+      fingerprint: string,
+      message: string,
+      receipts: Doc<"webhookDeliveries">[],
+      ageFrom: (receipt: Doc<"webhookDeliveries">) => number,
+    ) => {
+      if (!receipts.length) return;
+      const tenantIds: Array<Id<"tenants">> = [];
+      for (const receipt of receipts) {
+        if (tenantIds.length >= MAX_TENANT_IDS) break;
+        if (!tenantIds.includes(receipt.tenantId)) tenantIds.push(receipt.tenantId);
+      }
+      reportError(fingerprint, new Error(message), {
         severity: "error",
         integration: "calendly",
-        fingerprint: "pipeline.events_stuck_unprocessed",
-        staleCount: Math.min(stuck.length, MAX_REPORTED),
-        staleCountCapped: stuck.length > MAX_REPORTED,
-        // The index orders by receivedAt, so the first row is the oldest.
-        oldestAgeMs: now - stuck[0].receivedAt,
+        fingerprint,
+        staleCount: Math.min(receipts.length, MAX_REPORTED),
+        staleCountCapped: receipts.length > MAX_REPORTED,
+        oldestAgeMs: now - Math.min(...receipts.map(ageFrom)),
         tenantIds,
-      },
+      });
+    };
+    report(
+      "pipeline.events_stuck_unprocessed",
+      "Calendly webhook receipts queued for over 15 minutes",
+      [...queued, ...legacy.filter((receipt) => receipt.receivedAt < cutoff)],
+      (receipt) => receipt.queuedAt ?? receipt.receivedAt,
+    );
+    report(
+      "pipeline.deliveries_failed",
+      "Calendly webhook receipts failed and require retry",
+      failed,
+      (receipt) => receipt.receivedAt,
     );
     return null;
   },

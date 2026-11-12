@@ -23,7 +23,7 @@ export const persistRawEvent = internalMutation({
     const rawEventId = await ctx.db.insert("rawWebhookEvents", { ...args, processed: false, occurredAt, receivedAt });
     const deliveryId = await ctx.db.insert("webhookDeliveries", {
       tenantId: args.tenantId, key, inviteeUri: args.calendlyEventUri, eventUri,
-      eventType: args.eventType, rawEventId, occurredAt, receivedAt, status: "queued", generation: 0,
+      eventType: args.eventType, rawEventId, occurredAt, receivedAt, status: "queued", queuedAt: Date.now(), generation: 0,
     });
     await recordBookingFact(ctx, { tenantId: args.tenantId, eventType: args.eventType, eventUri, inviteeUri: args.calendlyEventUri, occurredAt, payload });
     await enqueueDelivery(ctx, deliveryId);

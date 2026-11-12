@@ -40,6 +40,13 @@ crons.interval(
 );
 
 crons.interval(
+  "report-unresolved-webhook-events",
+  { hours: 24 },
+  internal.webhooks.cleanup.reportUnresolvedEvents,
+  {},
+);
+
+crons.interval(
   "cleanup-expired-invites",
   { hours: 24 },
   internal.admin.inviteCleanup.cleanupExpiredInvites,

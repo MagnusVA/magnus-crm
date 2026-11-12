@@ -35,6 +35,7 @@ export async function enqueueDelivery(
     generation,
     workId,
     status: "queued",
+    queuedAt: Date.now(),
     reason: undefined,
     processedAt: undefined,
   });
