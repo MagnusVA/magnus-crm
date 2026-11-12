@@ -26,6 +26,11 @@ import {
   type Provenance,
 } from "../lib/outcomeCores";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
+import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
+import {
+  markSuggestionUsed,
+  resolveSuggestionRef,
+} from "../callInsights/suggest/state";
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -146,8 +151,9 @@ export const createSchedulingLinkFollowUp = mutation({
   args: {
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
-  handler: async (ctx, { opportunityId, meetingId }) => {
+  handler: async (ctx, { opportunityId, meetingId, fromSuggestion }) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
     const now = Date.now();
@@ -188,6 +194,14 @@ export const createSchedulingLinkFollowUp = mutation({
         now,
       });
     }
+
+    const suggestion = fromSuggestion && meeting
+      ? await resolveSuggestionRef(ctx, {
+          tenantId,
+          meetingId: meeting._id,
+          ref: fromSuggestion,
+        }).catch(() => null)
+      : null;
 
     const followUpId = await ctx.db.insert("followUps", {
       tenantId,
@@ -251,6 +265,14 @@ export const createSchedulingLinkFollowUp = mutation({
       });
     }
 
+    if (suggestion) {
+      await markSuggestionUsed(ctx, {
+        state: suggestion,
+        userId,
+        changedFields: fromSuggestion?.changedFields,
+      }).catch(() => undefined);
+    }
+
     return { schedulingLinkUrl, followUpId };
   },
 });
@@ -299,6 +321,7 @@ export const createManualReminderFollowUpPublic = mutation({
     contactMethod: v.union(v.literal("call"), v.literal("text")),
     reminderScheduledAt: v.number(),
     reminderNote: v.optional(v.string()),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["closer"]);
@@ -313,6 +336,7 @@ export type CallbackTaskArgs = {
   contactMethod: "call" | "text";
   reminderScheduledAt: number;
   reminderNote?: string;
+  fromSuggestion?: FromSuggestion;
 };
 
 /**
@@ -405,6 +429,14 @@ export async function createCallbackTask(
   const { userId, tenantId, opportunity, meeting, start, now } =
     await checkCallbackTask(ctx, actor, args);
 
+  const suggestion = args.fromSuggestion && meeting
+    ? await resolveSuggestionRef(ctx, {
+        tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   const followUpId = await ctx.db.insert("followUps", {
     tenantId,
     opportunityId: args.opportunityId,
@@ -450,6 +482,13 @@ export async function createCallbackTask(
       toMeetingStatus: "held",
       recordedAt: now,
     });
+    if (suggestion) {
+      await markSuggestionUsed(ctx, {
+        state: suggestion,
+        userId,
+        changedFields: args.fromSuggestion?.changedFields,
+      }).catch(() => undefined);
+    }
     // A recorded result plus a matched recording starts Jev's check (§6.9).
     await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
   }

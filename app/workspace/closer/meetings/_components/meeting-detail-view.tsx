@@ -1,6 +1,7 @@
 "use client";
 
 import { SecondOpinionCard } from "@/components/second-opinion/meeting-card";
+import { WhatTheySaidCard } from "@/components/call-insights/what-they-said-card";
 import { CallNotesCard } from "./call-notes-card";
 
 import { useState } from "react";
@@ -175,6 +176,7 @@ export function MeetingDetailView({
           {paymentLinks && paymentLinks.length > 0 ? (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
           ) : null}
+          <WhatTheySaidCard meetingId={meeting._id} />
           <SecondOpinionCard meetingId={meeting._id} />
           <CallNotesCard opportunityId={opportunity._id} />
           <MeetingComments meetingId={meeting._id} />

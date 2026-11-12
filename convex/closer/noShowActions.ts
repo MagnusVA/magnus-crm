@@ -19,6 +19,11 @@ import {
   type Provenance,
 } from "../lib/outcomeCores";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
+import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
+import {
+  markSuggestionUsed,
+  resolveSuggestionRef,
+} from "../callInsights/suggest/state";
 
 export const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -44,6 +49,7 @@ export const markNoShow = mutation({
     meetingId: v.id("meetings"),
     reason: noShowReasonValidator,
     note: v.optional(v.string()),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["closer"]);
@@ -57,6 +63,7 @@ export type NoShowArgs = {
   meetingId: Id<"meetings">;
   reason: NoShowReason;
   note?: string;
+  fromSuggestion?: FromSuggestion;
 };
 
 /** Every check `markNoShow` makes, in its order, with no write. */
@@ -135,6 +142,14 @@ export async function recordNoShow(
     args,
   );
 
+  const suggestion = args.fromSuggestion
+    ? await resolveSuggestionRef(ctx, {
+        tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   const normalizedNote = normalizeOptionalString(note);
 
   // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
@@ -176,6 +191,13 @@ export async function recordNoShow(
     },
     occurredAt: now,
   });
+  if (suggestion) {
+    await markSuggestionUsed(ctx, {
+      state: suggestion,
+      userId,
+      changedFields: args.fromSuggestion?.changedFields,
+    }).catch(() => undefined);
+  }
   // A recorded result plus a matched recording starts Jev's check (§6.9).
   await queueSecondOpinion(ctx, { meetingId: meetingId, trigger: "result_recorded" });
 }

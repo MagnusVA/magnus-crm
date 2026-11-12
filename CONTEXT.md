@@ -112,6 +112,9 @@ A Fathom recording of a call, matched to its meeting by the recorder and the sch
 **Second opinion**:
 Jev's check of a recorded call against the result its closer recorded: Agrees, Not sure or Disagrees. It never changes a record. A person acts on a disagreement through the paths that already exist.
 
+**Call insights**:
+What Claude reads from a recorded call: the prospect's objections, struggles, goals and income, how the call ended and whether the prospect attended, each backed by a quote. It shows as "What they said" on the meeting and as a suggested result. A suggestion never records anything: a person saves the result.
+
 **Program**:
 A coaching program a tenant sells. Each deal is for one program.
 

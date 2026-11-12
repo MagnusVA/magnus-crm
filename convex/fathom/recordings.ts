@@ -15,6 +15,10 @@ import { provenanceMetadata, WEB, type Provenance } from "../lib/outcomeCores";
 import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { actionItem } from "./validators";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
+import {
+  onRecordingMatchedForInsights,
+  onRecordingUnmatchedForInsights,
+} from "../callInsights/trigger";
 
 export type RecordingActor = {
   tenantId: Id<"tenants">;
@@ -102,6 +106,9 @@ export async function onRecordingMatched(
   args: { meetingId: Id<"meetings">; recordingId: Id<"callRecordings"> },
 ): Promise<void> {
   await queueSecondOpinion(ctx, { meetingId: args.meetingId, trigger: "recording_matched" });
+  // Call insights reads the call too. Gated and non-throwing: with the
+  // feature off this is two reads and nothing else.
+  await onRecordingMatchedForInsights(ctx, { recordingId: args.recordingId });
 }
 export async function recordMatch(
   ctx: MutationCtx,
@@ -176,6 +183,9 @@ export async function attachRecordingCore(
       matchedByUserId: actor.userId,
       matchedAt: Date.now(),
     });
+    // Call insights stops counting the call. Non-throwing: for a recording
+    // Call insights never read this is one indexed read and nothing else.
+    await onRecordingUnmatchedForInsights(ctx, { recordingId: row._id });
     return null;
   }
   const meetingId = args.meetingId!;

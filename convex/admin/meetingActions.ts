@@ -26,6 +26,11 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
 import { landFollowUp, resolveFollowUpStart } from "../lib/followUpStart";
 import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
+import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
+import {
+  markSuggestionUsed,
+  resolveSuggestionRef,
+} from "../callInsights/suggest/state";
 
 const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -74,6 +79,7 @@ export type AdminMarkLostArgs = {
   opportunityId: Id<"opportunities">;
   meetingId?: Id<"meetings">;
   reason?: string;
+  fromSuggestion?: FromSuggestion;
 };
 
 /** Every check `adminMarkAsLost` makes, in its order, with no write. */
@@ -143,6 +149,14 @@ export async function adminMarkLostCore(
   const { opportunity, meeting, now } = await checkAdminMarkLost(ctx, actor, args);
   const reason = args.reason?.trim() || undefined;
 
+  const suggestion = args.fromSuggestion && meeting
+    ? await resolveSuggestionRef(ctx, {
+        tenantId: actor.tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   // Qualified, Booked, Call held or Follow-up -> Closed lost, by a person.
   await transitionOpportunity(ctx, args.opportunityId, {
     to: { stage: "closed", outcome: "lost" },
@@ -165,6 +179,13 @@ export async function adminMarkLostCore(
       recordedAt: now,
     });
   }
+  if (suggestion) {
+    await markSuggestionUsed(ctx, {
+      state: suggestion,
+      userId,
+      changedFields: args.fromSuggestion?.changedFields,
+    }).catch(() => undefined);
+  }
 }
 
 export const adminMarkAsLost = mutation({
@@ -172,6 +193,7 @@ export const adminMarkAsLost = mutation({
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
     reason: v.optional(v.string()),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
@@ -192,6 +214,7 @@ export const adminCreateFollowUp = mutation({
   args: {
     opportunityId: v.id("opportunities"),
     meetingId: v.optional(v.id("meetings")),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   returns: v.object({ schedulingLinkUrl: v.string(), followUpId: v.id("followUps") }),
   handler: async (ctx, args) => {
@@ -215,6 +238,7 @@ export async function adminCreateFollowUpCore(
   args: {
     opportunityId: Id<"opportunities">;
     meetingId?: Id<"meetings">;
+    fromSuggestion?: FromSuggestion;
     callBack?: { scheduledAt: number };
   },
   provenance: Provenance = WEB,
@@ -328,6 +352,14 @@ export async function adminCreateFollowUpCore(
     });
   }
 
+  const suggestion = args.fromSuggestion && meeting
+    ? await resolveSuggestionRef(ctx, {
+        tenantId: actor.tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   const followUpId = await ctx.db.insert("followUps", {
     tenantId,
     opportunityId: args.opportunityId,
@@ -381,6 +413,14 @@ export async function adminCreateFollowUpCore(
       toMeetingStatus: "held",
       recordedAt: now,
     });
+  }
+
+  if (suggestion) {
+    await markSuggestionUsed(ctx, {
+      state: suggestion,
+      userId,
+      changedFields: args.fromSuggestion?.changedFields,
+    }).catch(() => undefined);
   }
 
   return { schedulingLinkUrl, followUpId };
@@ -493,6 +533,7 @@ export type AdminManualReminderArgs = {
   contactMethod: "call" | "text";
   reminderScheduledAt: number;
   reminderNote?: string;
+  fromSuggestion?: FromSuggestion;
 };
 
 /** Every check `adminCreateManualReminder` makes, in its order, with no write. */
@@ -571,6 +612,14 @@ export async function adminCreateManualReminderCore(
     args,
   );
 
+  const suggestion = args.fromSuggestion && meeting
+    ? await resolveSuggestionRef(ctx, {
+        tenantId: actor.tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   const followUpId = await ctx.db.insert("followUps", {
     tenantId,
     opportunityId: args.opportunityId,
@@ -617,6 +666,14 @@ export async function adminCreateManualReminderCore(
     },
   });
 
+  if (suggestion) {
+    await markSuggestionUsed(ctx, {
+      state: suggestion,
+      userId,
+      changedFields: args.fromSuggestion?.changedFields,
+    }).catch(() => undefined);
+  }
+
   return { followUpId };
 }
 
@@ -627,6 +684,7 @@ export const adminCreateManualReminder = mutation({
     contactMethod: v.union(v.literal("call"), v.literal("text")),
     reminderScheduledAt: v.number(),
     reminderNote: v.optional(v.string()),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
@@ -642,6 +700,7 @@ export type AdminMarkNoShowArgs = {
   meetingId: Id<"meetings">;
   reason: Infer<typeof noShowReasonValidator>;
   note?: string;
+  fromSuggestion?: FromSuggestion;
 };
 
 /** Every check `adminMarkNoShow` makes, in its order, with no write. */
@@ -712,6 +771,14 @@ export async function adminMarkNoShowCore(
   const { tenantId, userId } = actor;
   const { meeting, opportunity, now } = await checkAdminMarkNoShow(ctx, actor, args);
 
+  const suggestion = args.fromSuggestion && meeting
+    ? await resolveSuggestionRef(ctx, {
+        tenantId: actor.tenantId,
+        meetingId: meeting._id,
+        ref: args.fromSuggestion,
+      }).catch(() => null)
+    : null;
+
   const normalizedNote = normalizeOptionalString(args.note);
 
   // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
@@ -753,6 +820,13 @@ export async function adminMarkNoShowCore(
     },
     occurredAt: now,
   });
+  if (suggestion) {
+    await markSuggestionUsed(ctx, {
+      state: suggestion,
+      userId,
+      changedFields: args.fromSuggestion?.changedFields,
+    }).catch(() => undefined);
+  }
 }
 
 export const adminMarkNoShow = mutation({
@@ -760,6 +834,7 @@ export const adminMarkNoShow = mutation({
     meetingId: v.id("meetings"),
     reason: noShowReasonValidator,
     note: v.optional(v.string()),
+    fromSuggestion: v.optional(fromSuggestionValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);

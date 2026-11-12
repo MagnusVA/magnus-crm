@@ -3,6 +3,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { useIdle } from "@/hooks/use-idle";
 import {
   BanknoteIcon,
@@ -24,6 +26,13 @@ import {
   missedMeetingOf,
 } from "@/lib/deal-controls";
 import { cn } from "@/lib/utils";
+import { SuggestionCard } from "@/components/call-insights/suggestion-card";
+import {
+  prefillFor,
+  type DialogSuggestion,
+  type SuggestionDialog,
+  type SuggestionPrefill,
+} from "@/components/call-insights/suggestion-context";
 import { StageChip } from "./stage-tone";
 import { NoShowActionBar } from "./no-show-action-bar";
 import { RescheduleLinkDisplay } from "./reschedule-link-display";
@@ -126,9 +135,35 @@ export function OutcomeSection({
   const defaultProgramId =
     meeting.bookingProgramId ?? opportunity.firstBookingProgramId ?? null;
 
-  const openDialog = (next: OutcomeDialog) => {
+  // The suggested result, while the outcome can be recorded. The dialogs
+  // opened from it read it again to notice a new reading or its end.
+  const suggestion = useQuery(
+    api.callInsights.queries.suggestionForMeeting,
+    canRecord ? { meetingId: meeting._id } : "skip",
+  );
+  // The prefill the open dialog came with, when it opened from the suggestion.
+  const [fromCall, setFromCall] = useState<SuggestionPrefill | null>(null);
+
+  const showDialog = (next: OutcomeDialog) => {
     setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
     setDialog(next);
+  };
+  const openDialog = (next: OutcomeDialog) => {
+    setFromCall(null);
+    showDialog(next);
+  };
+  const openFromSuggestion = (prefill: SuggestionPrefill) => {
+    setFromCall(prefill);
+    showDialog(prefill.dialog);
+  };
+  /** What a dialog gets when it opened from the suggestion; undefined otherwise. */
+  const suggestionFor = (key: SuggestionDialog): DialogSuggestion | undefined => {
+    if (!fromCall || fromCall.dialog !== key) return undefined;
+    let latest: SuggestionPrefill | null | undefined;
+    if (suggestion === undefined) latest = canRecord ? undefined : null;
+    else if (suggestion === null || suggestion.stateId !== fromCall.from.stateId) latest = null;
+    else latest = prefillFor(suggestion, key, { compact: fromCall.compact });
+    return { opened: fromCall, latest };
   };
   const dialogState = (key: OutcomeDialog) => ({
     open: dialog === key,
@@ -189,11 +224,20 @@ export function OutcomeSection({
     );
   } else if (canRecord) {
     body = (
-      <OutcomeQuestion
-        firstName={firstName}
-        mode={mode}
-        onPick={openDialog}
-      />
+      <>
+        {suggestion ? (
+          <SuggestionCard
+            suggestion={suggestion}
+            onUse={openFromSuggestion}
+            onOpenEmpty={openDialog}
+          />
+        ) : null}
+        <OutcomeQuestion
+          firstName={firstName}
+          mode={mode}
+          onPick={openDialog}
+        />
+      </>
     );
   } else if (meeting.status === "scheduled" && awaiting && !hasActiveFollowUp) {
     body = <OutcomeOpensNote scheduledAt={meeting.scheduledAt} />;
@@ -235,6 +279,7 @@ export function OutcomeSection({
             onSuccess={onStatusChanged}
             leadName={leadName}
             defaultProgramId={defaultProgramId}
+            suggestion={suggestionFor("payment")}
             {...dialogState("payment")}
           />
         ) : null}
@@ -245,6 +290,7 @@ export function OutcomeSection({
               meetingId={meeting._id}
               onSuccess={onStatusChanged}
               leadName={leadName}
+              suggestion={suggestionFor("follow_up")}
               {...dialogState("follow_up")}
             />
           ) : (
@@ -253,6 +299,7 @@ export function OutcomeSection({
               meetingId={meeting._id}
               onSuccess={onStatusChanged}
               leadName={leadName}
+              suggestion={suggestionFor("follow_up")}
               {...dialogState("follow_up")}
             />
           )
@@ -284,6 +331,7 @@ export function OutcomeSection({
               meetingId={meeting._id}
               onSuccess={onStatusChanged}
               leadName={leadName}
+              suggestion={suggestionFor("lost")}
               {...dialogState("lost")}
             />
           ) : (
@@ -292,6 +340,7 @@ export function OutcomeSection({
               meetingId={meeting._id}
               onSuccess={onStatusChanged}
               leadName={leadName}
+              suggestion={suggestionFor("lost")}
               {...dialogState("lost")}
             />
           )
@@ -302,6 +351,7 @@ export function OutcomeSection({
             mode={mode}
             onSuccess={onStatusChanged}
             leadName={leadName}
+            suggestion={suggestionFor("no_show")}
             {...dialogState("no_show")}
           />
         ) : null}

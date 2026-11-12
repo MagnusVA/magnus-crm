@@ -45,6 +45,17 @@ const TENANT_INDEX_BY_TABLE = {
   fathomWebhookEvents: "by_tenantId_and_webhookMessageId",
   callRecordings: "by_tenantId_and_fathomRecordingId",
   secondOpinions: "by_tenantId_and_createdAt",
+  callInsightRuns: "by_tenantId_and_createdAt",
+  callInsightFacts: "by_tenantId_and_kind_and_scheduledAt",
+  callInsightBudgets: "by_tenantId_and_monthKey",
+  callInsightJobs: "by_tenantId_and_createdAt",
+  callInsightJobItems: "by_tenantId_and_jobId",
+  callInsightItemReviews: "by_tenantId_and_state_and_createdAt",
+  resultSuggestionStates: "by_tenantId_and_kind_and_createdAt",
+  callInsightEvalCases: "by_tenantId_and_campaign_and_split",
+  callInsightEvalLabels: "by_tenantId_and_caseId",
+  callInsightEvalReports: "by_tenantId_and_kind_and_createdAt",
+
 } as const satisfies {
   [T in keyof DataModel]?: keyof DataModel[T]["indexes"];
 };

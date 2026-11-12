@@ -53,6 +53,8 @@ import { mcpReportTables } from "./mcp/reportSchema";
 import { writeFamilyValidator } from "./mcp/families";
 import { fathomTables } from "./fathom/schema";
 import { secondOpinionTables } from "./secondOpinion/schema";
+import { callInsightTables } from "./callInsights/schema";
+import { callInsightsSettingsValidator } from "./callInsights/validators";
 import { endOfDayTables } from "./closer/endOfDaySchema";
 import { leadGenShiftTables } from "./leadGen/endOfShiftSchema";
 import { contactAgainValidator } from "./lib/contactAgain";
@@ -67,6 +69,7 @@ export default defineSchema({
   ...mcpReportTables,
   ...fathomTables,
   ...secondOpinionTables,
+  ...callInsightTables,
   ...endOfDayTables,
   ...leadGenShiftTables,
   tenants: defineTable({
@@ -166,6 +169,9 @@ export default defineSchema({
         changedByUserId: v.id("users"),
       }),
     ),
+    // Call insights: Claude's reading of recorded calls. Unset means off.
+    // Its own key, so Second opinion's settings dialog never overwrites it.
+    callInsights: v.optional(callInsightsSettingsValidator),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])

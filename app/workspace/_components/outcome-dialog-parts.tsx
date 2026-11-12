@@ -1,11 +1,17 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import {
+  ReadingChangedNotice,
+  withFromCall,
+  type LostSuggestion,
+} from "@/components/call-insights/suggestion-context";
 import {
   ACTION_DIALOG,
   ACTION_FORM,
@@ -41,6 +47,7 @@ export function LostDealDialog({
   placeholder,
   trigger,
   onConfirm,
+  suggestion,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,7 +61,10 @@ export function LostDealDialog({
   /** A button that opens the dialog, for the dialogs that render their own. */
   trigger?: ReactNode;
   onConfirm: (reason: string | undefined) => Promise<void>;
+  /** Opened from a suggested loss: the reason starts as the category's fixed label. */
+  suggestion?: LostSuggestion;
 }) {
+  const fromCall = suggestion !== undefined;
   return (
     <Dialog
       open={open}
@@ -64,21 +74,26 @@ export function LostDealDialog({
       }}
     >
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className={ACTION_DIALOG} showCloseButton={!pending}>
+      <DialogContent className={cn(ACTION_DIALOG, fromCall && "ph-no-capture")} showCloseButton={!pending}>
         <ActionDialogHeader
-          title={
+          title={withFromCall(
             leadName ? (
               <>
                 Close <span translate="no">{leadName}</span>&rsquo;s deal as lost?
               </>
             ) : (
               "Close the deal as lost?"
-            )
-          }
+            ),
+            fromCall,
+          )}
           description={consequence}
           tone="danger"
         />
+        {suggestion?.changed ? (
+          <ReadingChangedNotice onUseNew={suggestion.onUseNew} onKeep={suggestion.onKeep} disabled={pending} />
+        ) : null}
         <LostReasonForm
+          prefill={suggestion?.reason ?? null}
           steps={steps}
           placeholder={placeholder}
           pending={pending}
@@ -91,12 +106,15 @@ export function LostDealDialog({
 }
 
 function LostReasonForm({
+  prefill,
   steps,
   placeholder,
   pending,
   onCancel,
   onConfirm,
 }: {
+  /** A suggested loss category's label, taken again when its key changes. */
+  prefill: { key: string; text: string } | null;
   steps?: ReactNode[];
   placeholder: string;
   pending: boolean;
@@ -106,8 +124,14 @@ function LostReasonForm({
   const reasonId = useId();
   const form = useForm({
     resolver: standardSchemaResolver(lostReasonSchema),
-    defaultValues: { reason: "" },
+    defaultValues: { reason: prefill?.text ?? "" },
   });
+  const appliedKey = useRef(prefill?.key ?? null);
+  useEffect(() => {
+    if (!prefill || prefill.key === appliedKey.current) return;
+    appliedKey.current = prefill.key;
+    form.setValue("reason", prefill.text);
+  }, [prefill, form]);
 
   return (
     <form
@@ -125,7 +149,11 @@ function LostReasonForm({
               htmlFor={reasonId}
               invalid={fieldState.invalid}
               error={fieldState.error}
-              description="Optional. It shows on the deal."
+              description={
+                prefill
+                  ? "Only the label is filled. The prospect's words are never saved as the reason."
+                  : "Optional. It shows on the deal."
+              }
             >
               <Textarea
                 {...field}

@@ -1,4 +1,4 @@
-import { cronJobs } from "convex/server";
+import { cronJobs, makeFunctionReference } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
@@ -120,5 +120,11 @@ crons.interval("fathom-reconcile-and-health", { minutes: 30 }, internal.fathom.m
 crons.cron("fathom-retention", "41 7 * * *", internal.fathom.maintenance.purge, {});
 
 crons.interval("second-opinion-day-close", { hours: 1 }, internal.secondOpinion.sweep.run, {});
+
+// Call insights: runs whose worker died get a new one, and runs waiting for
+// room under the monthly limit are tried again. A no-op while nothing waits.
+crons.interval("call-insights-sweep", { minutes: 15 }, internal.callInsights.maintenance.sweep, {});
+
+crons.cron("call-insights-drift", "17 8 * * 1", makeFunctionReference<"mutation">("callInsights/eval/drift:weekly"), {});
 
 export default crons;

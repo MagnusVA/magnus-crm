@@ -71,6 +71,8 @@ export const classify = internalMutation({
     eventId: v.id("fathomWebhookEvents"),
     email: v.string(),
     hasExternalInvitee: v.boolean(),
+    recordingStartAt: v.optional(v.number()),
+    recordingEndAt: v.optional(v.number()),
   },
   returns: v.union(v.null(), v.id("users")),
   handler: async (ctx, a) => {
@@ -93,6 +95,13 @@ export const classify = internalMutation({
         payload: "",
         payloadStorageId: undefined,
         processedAt: Date.now(),
+        ...(!member?.ignored
+          ? {
+              droppedRecordedByEmail: a.email,
+              droppedRecordingStartAt: a.recordingStartAt,
+              droppedRecordingEndAt: a.recordingEndAt,
+            }
+          : {}),
       });
       const c = await ctx.db.get("tenantFathomConnections", e.connectionId);
       if (c)
@@ -260,6 +269,8 @@ export const process = internalAction({
         eventId: e._id,
         email: fields.recordedByEmail,
         hasExternalInvitee: fields.hasExternalInvitee,
+        recordingStartAt: fields.recordingStartAt,
+        recordingEndAt: fields.recordingEndAt,
       });
       if (!userId) return null;
       const c = await ctx.runQuery(internal.fathom.state.connection, {
