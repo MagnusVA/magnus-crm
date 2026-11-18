@@ -9,6 +9,9 @@ import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActi
 import { canSendRescheduleLink, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
+import { rejectRequest } from "../lib/observability/errors";
+import { validateMeetingTransition } from "../lib/statusTransitions";
 import {
   assertCoreRole,
   personalCalendarMissing,
@@ -203,6 +206,133 @@ export async function recordNoShow(
   await queueSecondOpinion(ctx, { meetingId: meetingId, trigger: "result_recorded" });
   await noteHumanResult(ctx, opportunity._id, actor);
 }
+
+const UNDO_ROLES = ["closer", "tenant_master", "tenant_admin"] as const;
+
+/** Every check `undoNoShow` makes, in its order, with no write. */
+async function checkUndoNoShow(
+  ctx: QueryCtx | MutationCtx,
+  actor: CoreActor,
+  args: { meetingId: Id<"meetings"> },
+) {
+  assertCoreRole(actor, UNDO_ROLES);
+  const { userId, tenantId, role } = actor;
+
+  const meeting = await ctx.db.get("meetings", args.meetingId);
+  if (!meeting || meeting.tenantId !== tenantId) {
+    throw new Error("Meeting not found");
+  }
+  const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
+  if (!opportunity || opportunity.tenantId !== tenantId) {
+    throw new Error("Opportunity not found");
+  }
+  if (role === "closer" && opportunity.assignedCloserId !== userId) {
+    throw rejectRequest("no_show.undo_not_yours", "Not your meeting.", {
+      meetingId: meeting._id,
+    });
+  }
+  if (meeting.status !== "no_show") {
+    throw rejectRequest(
+      "no_show.undo_not_no_show",
+      `This call isn't marked no-show (current: ${meeting.status}).`,
+      { meetingId: meeting._id },
+    );
+  }
+  // Calendly reverses its own no-shows when the host removes them there.
+  // Older Calendly no-shows carry no source, so only Magnus's own marks pass.
+  if (meeting.noShowSource !== "closer" && meeting.noShowSource !== "admin_manual") {
+    throw rejectRequest(
+      "no_show.undo_calendly",
+      "Calendly marked this no-show. Remove the no-show in Calendly to undo it.",
+      { meetingId: meeting._id },
+    );
+  }
+  // Only while this call's no-show still closes the deal: a reschedule link,
+  // a follow-up or a newer booking has moved the deal on. Marking a no-show
+  // writes the deal's `lostAt` and the meeting's `noShowMarkedAt` at once.
+  if (
+    !canSendRescheduleLink(opportunity) ||
+    meeting.noShowMarkedAt === undefined ||
+    opportunity.lostAt !== meeting.noShowMarkedAt
+  ) {
+    throw rejectRequest(
+      "no_show.undo_deal_moved",
+      `The deal has moved on since the no-show (current: ${describeDealState(opportunity)}), so it can't be undone.`,
+      { meetingId: meeting._id, opportunityId: opportunity._id },
+    );
+  }
+  return { userId, tenantId, role, meeting, opportunity };
+}
+
+/**
+ * Undoes a no-show marked in Magnus: the meeting goes back to scheduled and
+ * the deal reopens at Booked, so the call's real result can be recorded with
+ * the usual outcome actions. The original `meeting.no_show` stays in the log,
+ * followed by `meeting.no_show_reverted`.
+ */
+export async function undoNoShowCore(
+  ctx: MutationCtx,
+  actor: CoreActor,
+  args: { meetingId: Id<"meetings"> },
+  provenance: Provenance,
+): Promise<void> {
+  const { userId, tenantId, role, meeting, opportunity } = await checkUndoNoShow(
+    ctx,
+    actor,
+    args,
+  );
+  if (!validateMeetingTransition(meeting.status, "scheduled")) {
+    throw new Error(`Cannot transition meeting from "${meeting.status}" to "scheduled"`);
+  }
+  const source = role === "closer" ? "closer" : "admin";
+  const now = Date.now();
+
+  await patchMeetingLifecycle(ctx, meeting._id, {
+    status: "scheduled",
+    noShowMarkedAt: undefined,
+    noShowReason: undefined,
+    noShowNote: undefined,
+    noShowMarkedByUserId: undefined,
+    noShowSource: undefined,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "meeting",
+    entityId: meeting._id,
+    eventType: "meeting.no_show_reverted",
+    source,
+    actorUserId: userId,
+    fromStatus: "no_show",
+    toStatus: "scheduled",
+    metadata: provenanceMetadata(provenance),
+    occurredAt: now,
+  });
+  // Closed lost (no-show) -> Booked: the call's result is owed again.
+  await transitionOpportunity(ctx, opportunity._id, {
+    to: { stage: "booked" },
+    fields: { updatedAt: now },
+    exception: "no_show_undone",
+    source,
+    actorUserId: userId,
+    occurredAt: now,
+  });
+  // A person changed the call's result: pending proposals for the deal stand down.
+  await noteHumanResult(ctx, opportunity._id, actor);
+}
+
+/**
+ * The lead showed up after all: undo a no-show the closer or an admin marked,
+ * then record the call's result as usual. Closers undo only their own deals.
+ */
+export const undoNoShow = mutation({
+  args: { meetingId: v.id("meetings") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const actor = await requireTenantUser(ctx, [...UNDO_ROLES]);
+    await undoNoShowCore(ctx, actor, args, WEB);
+    return null;
+  },
+});
 
 /**
  * Generate a reschedule link for a no-show opportunity.

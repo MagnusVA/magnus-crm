@@ -211,13 +211,21 @@ describe("the named exceptions", () => {
         {},
       ],
     },
+    {
+      exception: "no_show_undone",
+      from: "lost",
+      to: "booked",
+      allows: [SYSTEM("no_show")],
+      refuses: [SYSTEM("canceled"), BY_PERSON("no_show"), SYSTEM("stale"), BY_PERSON("budget"), {}],
+    },
   ];
 
-  it("has exactly the eleven named exceptions, and no Calendly flip", () => {
+  it("has exactly the twelve named exceptions, and no Calendly flip", () => {
     expect(EXCEPTIONS.sort()).toEqual(
       [
         "call_refusal_reopened",
         "missed_meeting_next_step",
+        "no_show_undone",
         "no_show_withdrawn",
         "payment_exclusion_restored",
         "payment_voided",

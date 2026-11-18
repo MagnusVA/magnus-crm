@@ -281,6 +281,10 @@ export const STAGE_TRANSITION_EXCEPTIONS = {
   },
   // Calendly withdraws the no-show it reported.
   no_show_withdrawn: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.no_show] },
+  // The closer or an admin undoes a no-show marked in Magnus: the lead joined
+  // late and the call happened, so its result is still owed
+  // (docs/plans/closer-assistant.md, decision 33).
+  no_show_undone: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.no_show] },
   // Undo of a Whop win confirmed in Billing returns the deal to where the
   // win found it. Cores refuse side deals, which are never Booked.
   provider_win_undone_to_booked: { from: "won", to: "booked", loss: null },

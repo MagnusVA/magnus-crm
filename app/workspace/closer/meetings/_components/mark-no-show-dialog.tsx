@@ -41,6 +41,12 @@ import {
   WhatHappens,
 } from "@/app/workspace/_components/action-dialog";
 
+/**
+ * How long the saved toast offers Undo. After that, "Lead showed up after
+ * all" on the no-show card does the same.
+ */
+const UNDO_TOAST_MS = 60_000;
+
 const NO_SHOW_REASONS = [
   { value: "no_response", label: "Lead didn't show up (no communication)" },
   { value: "late_cancel", label: "Lead messaged — can't make it" },
@@ -194,6 +200,7 @@ function NoShowForm({
   const [noteOpen, setNoteOpen] = useState(false);
   const closerMarkNoShow = useMutation(api.closer.noShowActions.markNoShow);
   const adminMarkNoShow = useMutation(api.admin.meetingActions.adminMarkNoShow);
+  const undoNoShow = useMutation(api.closer.noShowActions.undoNoShow);
 
   // Do NOT pass an explicit generic to useForm — let the resolver infer types
   const form = useForm({
@@ -231,7 +238,23 @@ function NoShowForm({
         ...(fromSuggestion ? { from_suggestion: true } : {}),
       });
 
-      toast.success("No-show recorded. The deal is closed as lost.");
+      toast.success("No-show recorded. The deal is closed as lost.", {
+        // A lead who joins a few minutes late: take it back in one click.
+        duration: UNDO_TOAST_MS,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void undoNoShow({ meetingId })
+              .then(() => {
+                posthog.capture("meeting_no_show_undone", { meeting_id: meetingId, via: "toast" });
+                toast.success("No-show undone. Record what happened on the call.");
+              })
+              .catch((error: unknown) =>
+                toast.error(getErrorMessage(error, "Failed to undo the no-show")),
+              );
+          },
+        },
+      });
       await onSuccess?.();
       onOpenChange(false);
     } catch (error) {

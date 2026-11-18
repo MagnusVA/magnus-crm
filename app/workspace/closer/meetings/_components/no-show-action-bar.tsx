@@ -1,16 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { CalendarPlusIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
+import {
+  CalendarPlusIcon,
+  RefreshCwIcon,
+  Undo2Icon,
+  UserXIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { getErrorMessage } from "@/lib/errors";
 import { LocalTime } from "./local-time";
+
+const UndoNoShowDialog = dynamic(() =>
+  import("./undo-no-show-dialog").then((m) => ({ default: m.UndoNoShowDialog })),
+);
 
 type NoShowActionBarProps = {
   meeting: Doc<"meetings">;
@@ -47,6 +57,15 @@ export function NoShowActionBar({
     api.closer.noShowActions.createNoShowRescheduleLink,
   );
   const [isCreating, setIsCreating] = useState(false);
+  const [undoOpen, setUndoOpen] = useState(false);
+  const undoButtonRef = useRef<HTMLButtonElement>(null);
+  // A no-show marked in Magnus that still closes the deal (the mark writes
+  // both times at once) can be undone; Calendly's are removed in Calendly.
+  const canUndo =
+    meeting.status === "no_show" &&
+    (meeting.noShowSource === "closer" || meeting.noShowSource === "admin_manual") &&
+    meeting.noShowMarkedAt !== undefined &&
+    opportunity.lostAt === meeting.noShowMarkedAt;
 
   const reasonLabel = meeting.noShowReason
     ? REASON_LABELS[meeting.noShowReason] ?? meeting.noShowReason
@@ -89,6 +108,7 @@ export function NoShowActionBar({
   };
 
   const name = lead.fullName ?? lead.email ?? "The lead";
+  const firstName = lead.fullName?.trim().split(/\s+/)[0] ?? "the lead";
 
   return (
     // A no-show is closed, not owed: a neutral ruled card, red only on the
@@ -154,7 +174,27 @@ export function NoShowActionBar({
             ) : null}
           </>
         )}
+        {canUndo ? (
+          <Button
+            ref={undoButtonRef}
+            variant="ghost"
+            size="sm"
+            onClick={() => setUndoOpen(true)}
+          >
+            <Undo2Icon data-icon="inline-start" />
+            Lead showed up after all
+          </Button>
+        ) : null}
       </div>
+      {undoOpen ? (
+        <UndoNoShowDialog
+          meetingId={meeting._id}
+          firstName={firstName}
+          open={undoOpen}
+          onOpenChange={setUndoOpen}
+          returnFocusRef={undoButtonRef}
+        />
+      ) : null}
     </section>
   );
 }
