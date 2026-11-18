@@ -1,6 +1,7 @@
 "use client";
 
-import { format } from "date-fns";
+import type { FunctionArgs } from "convex/server";
+import type { api } from "@/convex/_generated/api";
 import type { EvidenceLabelValues } from "@/convex/callInsights/validators";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,6 +29,7 @@ type ProspectStance = EvidenceLabelValues["prospectStance"];
 type CloserStance = EvidenceLabelValues["closerStance"];
 type NextStep = EvidenceLabelValues["nextStep"];
 type NextStepMethod = NonNullable<EvidenceLabelValues["nextStepMethod"]>;
+type EvidenceInput = FunctionArgs<typeof api.callInsights.eval.labels.setAdminEvidence>["evidence"];
 
 const SCOPE_WORDS: Record<RecordingScope, string> = {
   whole: "One whole call",
@@ -93,7 +95,7 @@ function stepHasTime(step: NextStep | "") {
 }
 
 /** Starts from evidence a person already saved (a commit that failed after it), or empty. */
-export function initialEvidence(items: readonly AdminLabel[]): EvidenceDraft {
+export function initialEvidence(items: readonly AdminLabel[], timeZone: string): EvidenceDraft {
   const saved = items.find((item) => item.itemClass === "evidence");
   return {
     recordingScope: saved?.recordingScope ?? "",
@@ -102,7 +104,7 @@ export function initialEvidence(items: readonly AdminLabel[]): EvidenceDraft {
     nextStep: saved?.nextStep ?? "",
     nextStepAt:
       saved?.nextStepAt !== undefined
-        ? format(saved.nextStepAt, "yyyy-MM-dd'T'HH:mm")
+        ? localDateTime(saved.nextStepAt, timeZone)
         : "",
     nextStepMethod: saved?.nextStepMethod ?? "",
     amount:
@@ -111,6 +113,22 @@ export function initialEvidence(items: readonly AdminLabel[]): EvidenceDraft {
         : "",
     currency: saved?.quotedCurrency ?? "",
   };
+}
+
+function localDateTime(at: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const { year, month, day, hour, minute } = Object.fromEntries(
+    parts.map(({ type, value }) => [type, value]),
+  );
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 export function evidenceReady(draft: EvidenceDraft) {
@@ -125,7 +143,7 @@ export function evidenceReady(draft: EvidenceDraft) {
 /** The draft as `setAdminEvidence` values, or the first thing a person must fix. */
 export function evidenceToValues(
   draft: EvidenceDraft,
-): { evidence: EvidenceLabelValues } | { error: string } {
+): { evidence: EvidenceInput } | { error: string } {
   if (
     !draft.recordingScope ||
     !draft.prospectStance ||
@@ -133,19 +151,14 @@ export function evidenceToValues(
     !draft.nextStep
   )
     return { error: "Answer every evidence question, or choose Can't tell." };
-  const evidence: EvidenceLabelValues = {
+  const evidence: EvidenceInput = {
     recordingScope: draft.recordingScope,
     prospectStance: draft.prospectStance,
     closerStance: draft.closerStance,
     nextStep: draft.nextStep,
   };
   if (stepHasTime(draft.nextStep)) {
-    if (draft.nextStepAt) {
-      const at = new Date(draft.nextStepAt).getTime();
-      if (!Number.isFinite(at))
-        return { error: "Enter a valid next-step time." };
-      evidence.nextStepAt = at;
-    }
+    if (draft.nextStepAt) evidence.nextStepDateTimeLocal = draft.nextStepAt;
     if (draft.nextStepMethod) evidence.nextStepMethod = draft.nextStepMethod;
   }
   if (draft.nextStep === "payment_owed") {
@@ -165,9 +178,11 @@ const SELECT = "w-full @lg:max-w-72";
 /** The blind evidence questions, as rows of the "How did the call end?" card. */
 export function EvidenceFields({
   draft,
+  timeZone,
   onChange,
 }: {
   draft: EvidenceDraft;
+  timeZone: string;
   onChange: (patch: Partial<EvidenceDraft>) => void;
 }) {
   return (
@@ -212,7 +227,7 @@ export function EvidenceFields({
             <FormRow
               label="Next step at"
               htmlFor="evidence-at"
-              description="Only when both the day and the time were agreed."
+              description={`Use ${timeZone} time. Enter it only if both the day and time were agreed.`}
             >
               <Input
                 id="evidence-at"

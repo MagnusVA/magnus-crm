@@ -412,10 +412,11 @@ export const automationTables = {
     answer: v.optional(gradeAnswerValidator),
     revealedToUserIds: v.optional(v.array(v.id("users"))), // At most 10.
     grade: v.optional(gradeValidator),
+    // Notice acknowledgment or the closer's paid-on-call handoff to Billing.
+    acknowledgedAt: v.optional(v.number()),
     // Notice (refusal_loss in state "notice").
     noticeRound: v.optional(v.number()), // A closer change or a late wake-up starts a new round.
     noticeHours: v.optional(v.number()), // Captured at acknowledgment.
-    acknowledgedAt: v.optional(v.number()),
     acknowledgedByUserId: v.optional(v.id("users")),
     acknowledgedAs: v.optional(v.union(v.literal("closer"), v.literal("admin"))),
     stopNextStep: v.optional(v.object({
@@ -451,7 +452,10 @@ export const automationTables = {
     .index("by_tenantId_and_opportunityId_and_state", ["tenantId", "opportunityId", "state"])
     .index("by_tenantId_and_leadId_and_state", ["tenantId", "leadId", "state"])
     .index("by_tenantId_and_noticeUserId_and_state", ["tenantId", "noticeUserId", "state"])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
     .index("by_tenantId_and_state_and_createdAt", ["tenantId", "state", "createdAt"])
+    .index("by_tenantId_and_kind_and_createdAt", ["tenantId", "kind", "createdAt"])
+    .index("by_tenantId_and_kind_and_state_and_createdAt", ["tenantId", "kind", "state", "createdAt"])
     .index("by_tenantId_and_kind_and_ruleVersion_and_createdAt", ["tenantId", "kind", "ruleVersion", "createdAt"])
     .index("by_tenantId_and_meetingId", ["tenantId", "meetingId"])
     .index("by_tenantId_and_state_and_dueAt", ["tenantId", "state", "dueAt"])

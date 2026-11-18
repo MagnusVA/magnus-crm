@@ -234,13 +234,15 @@ describe("closer alerts", () => {
 describe("Billing handoffs", () => {
   it.each(["payment_found", "no_payment_found"] as const)("hands over the deal and resolves it as %s", async (resolution) => {
     const f = await setupAlert();
+    const handedOffAt = NOW + 60_000;
+    vi.setSystemTime(handedOffAt);
     expect(await answer(f, "paid_in_whop_by_someone_else")).toEqual({ ok: true, alreadyApplied: false, next: null });
-    expect(await row(f)).toMatchObject({ state: "needs_person", alertAnswer: "paid_by_someone_else" });
+    expect(await row(f)).toMatchObject({ state: "needs_person", alertAnswer: "paid_by_someone_else", acknowledgedAt: handedOffAt });
     expect(await row(f)).not.toHaveProperty("noticeUserId");
     expect(await answer(f, "not_paid_yet")).toEqual({ ok: true, alreadyApplied: true, next: null });
     expect(await list(f)).toEqual([]);
     vi.setSystemTime(NOW + HOUR);
-    expect(await handoffs(f)).toEqual([{ ...expectedRow(f), ageMs: HOUR }]);
+    expect(await handoffs(f)).toEqual([{ ...expectedRow(f), ageMs: HOUR, handedOffAt }]);
     await expect(f.closer.query(alerts.listAlertHandoffs, {})).rejects.toThrow("Insufficient permissions");
     await expect(f.closer.mutation(alerts.resolveAlertHandoff, { decisionId: f.decisionId, resolution }))
       .rejects.toThrow("Insufficient permissions");
@@ -250,7 +252,10 @@ describe("Billing handoffs", () => {
     // A re-read can replace the outstanding decision, but the handoff still belongs to Billing.
     await publish(f, 2);
     expect(await list(f)).toEqual([]);
-    expect(await handoffs(f)).toEqual([{ ...expectedRow(f), ageMs: HOUR }]);
+    expect(await row(f)).toMatchObject({ state: "superseded", resolvedAt: NOW + HOUR });
+    expect(await handoffs(f)).toEqual([{ ...expectedRow(f), ageMs: HOUR, handedOffAt }]);
+    await f.t.run((ctx) => ctx.db.patch("resultAutomationDecisions", f.decisionId, { acknowledgedAt: undefined }));
+    expect(await handoffs(f)).toEqual([{ ...expectedRow(f), ageMs: HOUR, handedOffAt }]);
     await assertInvariants(f);
 
     if (resolution === "payment_found") {

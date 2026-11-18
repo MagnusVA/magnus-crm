@@ -8,8 +8,9 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
 import { expectedError } from "../lib/observability/errors";
 import { hasPermission, PERMISSIONS } from "../lib/permissions";
+import { findConnection } from "../payments/connection";
 import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
-import { breakerCauseOpen, promotedCertificate, whopIsLagging } from "./breaker";
+import { breakerCauseOpen, promotedCertificate, whopIsFresh } from "./breaker";
 import { CASE_MAX_AGE_MS, closeCollectingSample, priorSampleForKind, latestSample } from "./certificates";
 import { callRuleVersion } from "./callRule";
 import { stopDecision } from "./decisions";
@@ -91,6 +92,8 @@ export const getSettings = query({
     automatic: kindStatuses,
     paused: v.boolean(),
     whopLagging: v.boolean(),
+    whopLastReadAt: v.union(v.number(), v.null()),
+    whopConnected: v.boolean(),
     breakers: v.array(breakerEntry),
     canRaise: v.boolean(),
     canLower: v.boolean(),
@@ -102,7 +105,12 @@ export const getSettings = query({
     const now = Date.now();
     const canRaise = hasPermission(role, "result-automation:raise");
     const paused = tenant.status !== "active" || Boolean(tenant.resultAutomation && !tenant.resultAutomation.enabled);
-    const whopLagging = await whopIsLagging(ctx, tenantId, now);
+    const connections = await Promise.all([
+      findConnection(ctx, tenantId, "live"), findConnection(ctx, tenantId, "sandbox"),
+    ]);
+    const active = connections.filter((connection) => connection && connection.status !== "disconnected");
+    const whopLagging = active.length === 0 || active.some((connection) => !whopIsFresh(connection, now));
+    const connected = connections.find((connection) => connection?.status === "connected");
     const readKind = async (kind: Kind): Promise<typeof automaticStatus.type> => {
       const policy = tenant.resultAutomation?.kinds[kind];
       const [latest, promoted] = await Promise.all([
@@ -130,7 +138,10 @@ export const getSettings = query({
     );
     const automatic = { payment_win, additional_payment, call_back, payment_owed, refusal_loss };
     return {
-      automatic, paused, whopLagging, breakers: Object.values(automatic).flatMap(({ breaker }) => breaker ? [breaker] : []),
+      automatic, paused, whopLagging,
+      whopLastReadAt: connected?.lastSuccessfulSweepAt ?? null,
+      whopConnected: connected !== undefined,
+      breakers: Object.values(automatic).flatMap(({ breaker }) => breaker ? [breaker] : []),
       configured: tenant.resultAutomation ?? null,
       effective: {
         payment_win: effectiveKindMode(tenant, "payment_win"),

@@ -46,11 +46,12 @@ export const PROPOSAL_STATE_TONE: Record<ProposalState, StatusTone> = {
   corrected: "done",
 };
 
-/** The states the filter offers. Shadow rows never reach this list, so it isn't one. */
+/** The states the filter offers. */
 export const PROPOSAL_STATE_FILTERS: ReadonlyArray<ProposalState> = [
   "needs_person",
   "ready",
   "notice",
+  "shadow",
   "applied",
   "stopped",
   "superseded",

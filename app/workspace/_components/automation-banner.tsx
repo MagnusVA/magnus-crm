@@ -8,7 +8,7 @@ import { PauseCircleIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useRole } from "@/components/auth/role-context";
 import { Button } from "@/components/ui/button";
-import { dayTimeFormat, useWhopConnection } from "@/components/whop/whop-settings-parts";
+import { dayTimeFormat } from "@/components/whop/whop-settings-parts";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { cn } from "@/lib/utils";
 
@@ -95,6 +95,8 @@ function BannerLines({ view, onPanel }: { view: Settings; onPanel: boolean }) {
         ))}
         {lagging ? (
           <WhopLagLine
+            connected={view.whopConnected}
+            lastRead={view.whopLastReadAt}
             onDismiss={() => {
               saveDismissed();
               setLagDismissed(true);
@@ -133,15 +135,18 @@ function PanelLink({ onPanel }: { onPanel: boolean }) {
   );
 }
 
-/** Reads the connection only while Whop is lagging, for the time of the last read. */
-function WhopLagLine({ onDismiss }: { onDismiss: () => void }) {
-  const connection = useWhopConnection();
-  if (connection === undefined) return null;
-  const connected = connection !== null && connection.status !== "disconnected";
-  const lastRead = connection?.lastSuccessfulSweepAt;
+function WhopLagLine({
+  connected,
+  lastRead,
+  onDismiss,
+}: {
+  connected: boolean;
+  lastRead: number | null;
+  onDismiss: () => void;
+}) {
   const words = !connected
     ? "Whop is not connected. Automatic payments are waiting."
-    : lastRead !== undefined
+    : lastRead !== null
       ? `Whop has not been read since ${dayTimeFormat.format(lastRead)}. Automatic payments are waiting.`
       : "Whop has not been read yet. Automatic payments are waiting.";
 

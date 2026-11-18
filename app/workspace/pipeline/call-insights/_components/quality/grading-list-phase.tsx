@@ -258,7 +258,7 @@ export function GradingListPhase({
     initialResult(view.adminItems),
   );
   const [evidence, setEvidenceDraft] = useState<EvidenceDraft>(() =>
-    initialEvidence(view.adminItems),
+    initialEvidence(view.adminItems, view.evidenceTimeZone),
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [committing, setCommitting] = useState<"done" | "skip" | null>(null);
@@ -271,8 +271,9 @@ export function GradingListPhase({
     ? categories[draft.category]?.definition
     : undefined;
   const resultFields = new Set(resultValueFields(result.kind || undefined));
+  const evidenceComplete = !view.evidenceExpected || evidenceReady(evidence);
   const resultReady = Boolean(
-    result.kind && result.attended && evidenceReady(evidence),
+    result.kind && result.attended && evidenceComplete,
   );
   const transcriptGone = lineCount === 0;
 
@@ -323,8 +324,8 @@ export function GradingListPhase({
       setSubmitError(parsed.error);
       return;
     }
-    const truth = evidenceToValues(evidence);
-    if ("error" in truth) {
+    const truth = view.evidenceExpected ? evidenceToValues(evidence) : null;
+    if (truth && "error" in truth) {
       setSubmitError(truth.error);
       return;
     }
@@ -332,7 +333,7 @@ export function GradingListPhase({
     setSubmitError(null);
     try {
       // The evidence is saved first: the commit freezes it as blind truth.
-      await setEvidence({ caseId, evidence: truth.evidence });
+      if (truth) await setEvidence({ caseId, evidence: truth.evidence });
       await setResult({
         caseId,
         resultKind: result.kind as SuggestionKind,
@@ -348,7 +349,7 @@ export function GradingListPhase({
   };
 
   const skip = async () => {
-    const truth = evidenceReady(evidence) ? evidenceToValues(evidence) : null;
+    const truth = view.evidenceExpected && evidenceReady(evidence) ? evidenceToValues(evidence) : null;
     if (truth && "error" in truth) {
       setSubmitError(truth.error);
       return;
@@ -824,7 +825,9 @@ export function GradingListPhase({
             </RadioGroup>
           </FormRow>
         </div>
-        <EvidenceFields draft={evidence} onChange={updateEvidence} />
+        {view.evidenceExpected ? (
+          <EvidenceFields draft={evidence} timeZone={view.evidenceTimeZone} onChange={updateEvidence} />
+        ) : null}
         {submitError ? (
           <p
             role="alert"
@@ -835,7 +838,7 @@ export function GradingListPhase({
         ) : null}
         <DetailCardFooter className="bg-background">
           <span className="text-[13px] font-normal">
-            {evidenceReady(evidence)
+            {evidenceComplete
               ? "Once the reading shows, your list can't change."
               : "Answer the evidence questions to continue."}
           </span>

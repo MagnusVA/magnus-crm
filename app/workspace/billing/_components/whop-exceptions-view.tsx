@@ -292,11 +292,7 @@ function AdverseRowItem({ row }: { row: AdverseRow }) {
  */
 function AlertHandoffs({ now, onPickPayment }: { now: number; onPickPayment: () => void }) {
   const rows = useQuery(api.automation.alert.listAlertHandoffs, {});
-  // The server's age is as of its read; keep the clock moving from there.
-  const [readAt, setReadAt] = useState<{ rows: HandoffRow[]; at: number } | null>(null);
-  if (rows && readAt?.rows !== rows) setReadAt({ rows, at: now });
   if (!rows || rows.length === 0) return null;
-  const elapsed = Math.max(0, now - (readAt?.at ?? now));
 
   return (
     <section aria-labelledby="whop-handoffs-heading" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
@@ -310,7 +306,7 @@ function AlertHandoffs({ now, onPickPayment }: { now: number; onPickPayment: () 
       </div>
       <ul aria-label="Calls a closer says were paid in Whop by someone else">
         {rows.map((row) => (
-          <HandoffRowItem key={row.decisionId} row={row} now={now} ageMs={row.ageMs + elapsed} onPickPayment={onPickPayment} />
+          <HandoffRowItem key={row.decisionId} row={row} now={now} onPickPayment={onPickPayment} />
         ))}
       </ul>
     </section>
@@ -320,12 +316,10 @@ function AlertHandoffs({ now, onPickPayment }: { now: number; onPickPayment: () 
 function HandoffRowItem({
   row,
   now,
-  ageMs,
   onPickPayment,
 }: {
   row: HandoffRow;
   now: number;
-  ageMs: number;
   onPickPayment: () => void;
 }) {
   const { hasPermission } = useRole();
@@ -366,8 +360,13 @@ function HandoffRowItem({
           </Link>
         </p>
         <p className="text-[13px] text-muted-foreground">
-          Call {formatPaidAt(row.callAt, now)} · the closer was asked{" "}
-          <span className="font-condensed text-[14px] font-semibold tabular-nums">{formatWaitAge(now - ageMs, now)}</span> ago
+          <TranslatableText>{`Call ${formatPaidAt(row.callAt, now)}`}</TranslatableText>
+          {row.handedOffAt !== null ? (
+            <span>
+              {" · Handed to Billing "}
+              <span className="font-condensed text-[14px] font-semibold tabular-nums">{formatSince(row.handedOffAt, now)}</span>
+            </span>
+          ) : null}
         </p>
         {confirming ? (
           <p className="mt-1 text-[13px] font-medium">Close this with no Whop payment linked? The deal stays as it is.</p>

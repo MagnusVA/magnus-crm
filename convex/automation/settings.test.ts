@@ -17,6 +17,31 @@ afterEach(() => {
 });
 
 describe("automatic results settings", () => {
+  it("returns Whop's last read from the connected environment", async () => {
+    const f = await automationPaymentFixture();
+    const settingsView = () => f.admin.query(settings.getSettings, {});
+    expect(await settingsView()).toMatchObject({
+      whopConnected: true, whopLastReadAt: FIXTURE_NOW - 1000, whopLagging: false,
+    });
+    const liveId = await f.t.run(async (ctx) => {
+      const { _id, _creationTime, ...sandbox } = (await ctx.db.get("tenantPaymentConnections", f.connectionId))!;
+      return await ctx.db.insert("tenantPaymentConnections", {
+        ...sandbox, environment: "live", lastSuccessfulSweepAt: undefined,
+      });
+    });
+    expect(await settingsView()).toMatchObject({
+      whopConnected: true, whopLastReadAt: null, whopLagging: true,
+    });
+    await f.t.run((ctx) => ctx.db.patch("tenantPaymentConnections", liveId, { status: "invalid_key" }));
+    expect(await settingsView()).toMatchObject({
+      whopConnected: true, whopLastReadAt: FIXTURE_NOW - 1000, whopLagging: true,
+    });
+    await f.t.run((ctx) => ctx.db.patch("tenantPaymentConnections", f.connectionId, { status: "disconnected" }));
+    expect(await settingsView()).toMatchObject({
+      whopConnected: false, whopLastReadAt: null, whopLagging: true,
+    });
+  });
+
   it("defaults off, authorizes owner raises, and leaves manual-write inputs unchanged", async () => {
     const f = await automationPaymentFixture();
     // An admin can lower and cannot raise; nothing is configured, every kind

@@ -251,6 +251,7 @@ export const answerAlert = mutation({
     const code = handoff ? "paid_by_someone_else" : "not_paid_yet";
     await ctx.db.patch("resultAutomationDecisions", decisionId, {
       state: handoff ? "needs_person" : "applied", alertAnswer: code,
+      ...(handoff ? { acknowledgedAt: now } : {}),
       noticeUserId: undefined, stopCode: undefined, resolvedAt: now, resolvedByUserId: userId,
     });
     await emitDomainEvent(ctx, {
@@ -268,9 +269,30 @@ export const answerAlert = mutation({
   },
 });
 
+async function handoffTime(ctx: QueryCtx, decision: Decision, meetingId: Id<"meetings">) {
+  if (decision.acknowledgedAt !== undefined) return decision.acknowledgedAt;
+  if (decision.state === "needs_person" && decision.resolvedAt !== undefined) return decision.resolvedAt;
+  // Older decisions only stored resolvedAt, which can be replaced when a reading changes.
+  const events = await ctx.db.query("domainEvents")
+    .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+      q.eq("tenantId", decision.tenantId).eq("entityType", "meeting").eq("entityId", meetingId)
+        .gte("occurredAt", decision.createdAt))
+    .take(HISTORY_LIMIT);
+  const event = events.find((row) => {
+    if (row.eventType !== "automation.alert_answered" || !row.metadata) return false;
+    try {
+      const metadata = JSON.parse(row.metadata);
+      return metadata?.decisionId === decision._id && metadata.answer === "paid_by_someone_else";
+    } catch {
+      return false;
+    }
+  });
+  return event?.occurredAt ?? null;
+}
+
 export const listAlertHandoffs = query({
   args: {},
-  returns: v.array(v.object({ ...alertRowValidator.fields, ageMs: v.number() })),
+  returns: v.array(v.object({ ...alertRowValidator.fields, ageMs: v.number(), handedOffAt: v.union(v.number(), v.null()) })),
   handler: async (ctx) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
@@ -290,7 +312,11 @@ export const listAlertHandoffs = query({
       if (!await hasReadBudget(ctx)) break;
       const subject = await loadSubject(ctx, decision);
       if (subject && await paymentBlocksAlert(ctx, subject, now) === false) {
-        rows.push({ ...alertRow(decision, subject), ageMs: Math.max(0, now - decision.createdAt) });
+        rows.push({
+          ...alertRow(decision, subject),
+          ageMs: Math.max(0, now - decision.createdAt),
+          handedOffAt: await handoffTime(ctx, decision, subject.meeting._id),
+        });
       }
       if (rows.length === LIST_LIMIT) break;
     }

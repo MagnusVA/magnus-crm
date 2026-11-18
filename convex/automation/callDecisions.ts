@@ -8,10 +8,12 @@ import { slotEndAt } from "../callInsights/suggest/state";
 import { headerFor } from "../callInsights/trigger";
 import { DEFAULT_BUSINESS_DAY } from "../../lib/businessDay";
 import { paymentCounts } from "../lib/enrollments";
+import { leadDisplayFromShape } from "../lib/leadDisplay";
 import { log } from "../lib/observability/log";
 import { PERMISSIONS } from "../lib/permissions";
 import { isSideDeal } from "../lib/sideDeals";
 import { sha256Hex, stableJson } from "../lib/stableHash";
+import { userTeamMemberName } from "../lib/teamMembers";
 import { dealPosition } from "../opportunities/stages";
 import { requireTenantUser } from "../requireTenantUser";
 import { isOtherProspectsCall } from "../secondOpinion/trigger";
@@ -465,23 +467,49 @@ const rowValidator = v.object({
   ...automationTables.resultAutomationDecisions.validator.fields,
   _id: v.id("resultAutomationDecisions"),
   _creationTime: v.number(),
+  personName: v.string(),
+  closerName: v.union(v.string(), v.null()),
 });
+
+function nameOnly(value: string | undefined) {
+  const name = value?.trim();
+  return name && !name.includes("@") && !/^[+\d\s().-]+$/.test(name) ? name : undefined;
+}
 
 export const listCallProposals = query({
   args: { kind: v.optional(proposalKindValidator), state: v.optional(decisionStateValidator), paginationOpts: paginationOptsValidator },
-  returns: paginationResultValidator(rowValidator),
+  returns: v.object({ ...paginationResultValidator(rowValidator).fields, postFiltered: v.boolean() }),
   handler: async (ctx, { kind, state, paginationOpts }) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:view"]]);
     const rows = ctx.db.query("resultAutomationDecisions");
-    const range = state
-      ? rows.withIndex("by_tenantId_and_state_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("state", state))
-      : kind
-        ? rows.withIndex("by_tenantId_and_kind_and_ruleVersion_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("kind", kind))
-        : rows.withIndex("by_tenantId_and_state_and_createdAt", (q) => q.eq("tenantId", tenantId));
+    const range = kind
+      ? state
+        ? rows.withIndex("by_tenantId_and_kind_and_state_and_createdAt", (q) =>
+          q.eq("tenantId", tenantId).eq("kind", kind).eq("state", state))
+        : rows.withIndex("by_tenantId_and_kind_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("kind", kind))
+      : state
+        ? rows.withIndex("by_tenantId_and_state_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("state", state))
+        : rows.withIndex("by_tenantId_and_createdAt", (q) => q.eq("tenantId", tenantId));
     const page = await range.order("desc").paginate({
       ...paginationOpts, numItems: Math.min(paginationOpts.numItems, BATCH), maximumBytesRead: 256 * 1024,
     });
-    return { ...page, page: page.page.filter((row) =>
-      row.mode !== "shadow" && isCallDecision(row.kind) && (kind === undefined || row.kind === kind)) };
+    // With every kind selected, skip Whop decisions while keeping creation order across call kinds.
+    const proposals = page.page.filter((row) => isCallDecision(row.kind));
+    const named = await Promise.all(proposals.map(async (row) => {
+      const [person, closer] = await Promise.all([
+        row.leadId && ctx.db.get("leads", row.leadId),
+        row.assignedCloserId && ctx.db.get("users", row.assignedCloserId),
+      ]);
+      return {
+        ...row,
+        personName: leadDisplayFromShape(person?.tenantId === tenantId
+          ? { fullName: nameOnly(person.fullName), leadId: person._id }
+          : {}),
+        closerName: closer?.tenantId === tenantId && closer.fullName?.trim()
+          ? nameOnly(userTeamMemberName(closer)) ?? null
+          : null,
+      };
+    }));
+    return { ...page, page: named, postFiltered: proposals.length < page.page.length };
   },
 });

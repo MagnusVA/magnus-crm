@@ -82,6 +82,7 @@ export function ProposalsTab() {
     `${kind}:${state}:${cursor ?? ""}`,
   );
   const filtered = kind !== "all" || state !== "all";
+  const hasPagination = data !== undefined && (cursors.length > 1 || !data.isDone);
 
   return (
     <DetailCard
@@ -192,31 +193,35 @@ export function ProposalsTab() {
           </div>
         )}
       </div>
-      {data !== undefined && (cursors.length > 1 || !data.isDone) ? (
+      {data !== undefined && (hasPagination || data.postFiltered) ? (
         <DetailCardFooter>
           <span className="text-[13px] font-normal">
-            Up to {PAGE_SIZE} a page
+            {data.postFiltered
+              ? "This page excludes Whop payment proposals."
+              : `Up to ${PAGE_SIZE} a page`}
           </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={cursors.length === 1 || reloading}
-              onClick={() => setCursors((previous) => previous.slice(0, -1))}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={data.isDone || reloading}
-              onClick={() =>
-                setCursors((previous) => [...previous, data.continueCursor])
-              }
-            >
-              Next
-            </Button>
-          </div>
+          {hasPagination ? (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={cursors.length === 1 || reloading}
+                onClick={() => setCursors((previous) => previous.slice(0, -1))}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={data.isDone || reloading}
+                onClick={() =>
+                  setCursors((previous) => [...previous, data.continueCursor])
+                }
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
         </DetailCardFooter>
       ) : null}
     </DetailCard>
@@ -242,6 +247,10 @@ function ProposalRowItem({ row }: { row: ProposalRow }) {
       <div className="min-w-0">
         <p className="font-medium">
           {PROPOSAL_KIND_WORDS[kind] ?? "Proposal"}
+        </p>
+        <p className="text-[13px]">
+          <span translate="no">{row.personName}</span> ·{" "}
+          {row.closerName ? <span translate="no">{row.closerName}</span> : "No closer"}
         </p>
         <p className="text-[13px] text-muted-foreground">
           <span className="font-condensed text-sm font-semibold tabular-nums">

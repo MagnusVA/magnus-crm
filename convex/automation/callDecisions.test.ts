@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assertAutomationInvariants } from "../../tests/automationInvariants";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
 import { callInsightsHarness, seedCallDecisionReading } from "../../tests/callInsightsHarness";
+import { seedReadyDecision } from "../../tests/providerPaymentFixtures";
 import { api, internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import { onRecordingUnmatchedForInsights } from "../callInsights/trigger";
 import { evaluateCallSubject, rederiveCall, schedulePublishedCallEvaluation, type CallEvaluateCause } from "./callDecisions";
 import { stopDecision } from "./decisions";
@@ -17,15 +18,12 @@ const HOUR = 3_600_000;
 const kinds = ["call_back", "payment_owed", "refusal_loss"] as const;
 type Fixture = Awaited<ReturnType<typeof callInsightsHarness>>;
 type Mode = "off" | "shadow" | "ask";
-type Decision = Doc<"resultAutomationDecisions">;
 
 const evaluateCallMeeting = makeFunctionReference<"mutation", { meetingId: Id<"meetings">; cause: CallEvaluateCause }>(
   "automation/callDecisions:evaluateCallMeeting",
 );
 
-const listCallProposals = makeFunctionReference<"query", {
-  kind?: CallKind; paginationOpts: { cursor: string | null; numItems: number };
-}, { page: Decision[] }>("automation/callDecisions:listCallProposals");
+const { listCallProposals } = api.automation.callDecisions;
 
 const callRepair = makeFunctionReference<"mutation", {
   tenantId: Id<"tenants">; state: "ready"; cursor: null; through: number;
@@ -286,6 +284,62 @@ describe("published call decisions", () => {
   });
 });
 
+describe("call proposals list", () => {
+  it("pages newest first across states and rule versions, using each selected filter before paging", async () => {
+    const f = await fixture("call_back", "shadow");
+    await publish(f);
+    await evaluate(f);
+    const [{ _id: oldest, _creationTime, ...source }] = await decisions(f);
+    const { shadow, ready, other } = await f.t.run(async (ctx) => {
+      const ready = await ctx.db.insert("resultAutomationDecisions", {
+        ...source, state: "ready", mode: "ask", inputKey: "call-ready", createdAt: NOW + 10, ruleVersion: "z",
+      });
+      const shadow = await ctx.db.insert("resultAutomationDecisions", {
+        ...source, inputKey: "call-shadow", createdAt: NOW + 20, ruleVersion: "a",
+      });
+      await seedReadyDecision(ctx, { tenantId: f.tenantId, createdAt: NOW + 30 });
+      const other = await ctx.db.insert("resultAutomationDecisions", {
+        ...source, kind: "payment_owed", inputKey: "other-kind", createdAt: NOW + 40,
+      });
+      return { shadow, ready, other };
+    });
+    const paginationOpts = { cursor: null, numItems: 2 };
+    const first = await f.admin.query(listCallProposals, { paginationOpts });
+    expect(first.page.map((row) => row._id)).toEqual([other]);
+    expect(first.postFiltered).toBe(true);
+    const second = await f.admin.query(listCallProposals, {
+      paginationOpts: { ...paginationOpts, cursor: first.continueCursor },
+    });
+    expect(second.page.map((row) => row._id)).toEqual([shadow, ready]);
+    expect(second.postFiltered).toBe(false);
+    const kindOnly = await f.admin.query(listCallProposals, { kind: "call_back", paginationOpts });
+    expect(kindOnly.page.map((row) => row._id)).toEqual([shadow, ready]);
+    const stateOnly = await f.admin.query(listCallProposals, { state: "shadow", paginationOpts });
+    expect(stateOnly.page.map((row) => row._id)).toEqual([other, shadow]);
+    const both = await f.admin.query(listCallProposals, { kind: "call_back", state: "shadow", paginationOpts });
+    expect(both.page.map((row) => row._id)).toEqual([shadow, oldest]);
+    expect(both.postFiltered).toBe(false);
+  });
+
+  it("shows display names and never falls back to an email or phone", async () => {
+    const f = await fixture();
+    await publish(f);
+    await evaluate(f);
+    const [{ leadId }] = await decisions(f);
+    const list = () => f.admin.query(listCallProposals, { paginationOpts: { cursor: null, numItems: 2 } });
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("leads", leadId!, { fullName: "  Alex Chen " });
+      await ctx.db.patch("users", f.closerId, { fullName: "  Jamie Smith " });
+    });
+    expect((await list()).page).toMatchObject([{ personName: "Alex Chen", closerName: "Jamie Smith" }]);
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("leads", leadId!, { fullName: "+1 (415) 555-0130", email: "lead@example.com" });
+      await ctx.db.patch("users", f.closerId, { fullName: undefined, email: "closer@example.com" });
+    });
+    expect((await list()).page).toMatchObject([{ personName: `Lead ${leadId!.slice(-6)}`, closerName: null }]);
+  });
+});
+
 describe("call automation controls", () => {
   it.each(kinds)("lets only owners raise %s and stops it when Call insights is off", async (kind) => {
     const f = await fixture(kind, "off");
@@ -294,7 +348,8 @@ describe("call automation controls", () => {
     await publish(f, { kind });
     await evaluate(f);
     expect((await decisions(f))[0]).toMatchObject({ state: "shadow", mode: "shadow" });
-    expect((await f.admin.query(listCallProposals, { kind, paginationOpts: { cursor: null, numItems: 10 } })).page).toEqual([]);
+    expect((await f.admin.query(listCallProposals, { kind, paginationOpts: { cursor: null, numItems: 10 } })).page)
+      .toMatchObject([{ kind, state: "shadow" }]);
     await expect(f.closer.query(listCallProposals, { kind, paginationOpts: { cursor: null, numItems: 10 } })).rejects.toThrow("Insufficient permissions");
     await verifyInvariants(f);
 

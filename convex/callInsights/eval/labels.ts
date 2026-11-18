@@ -2,9 +2,13 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { mutation, type MutationCtx } from "../../_generated/server";
 import { rejectRequest } from "../../lib/observability/errors";
+import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
+import type { PreparedTranscript } from "../transcriptPrep";
+import { validateEvidence } from "../validate";
 import {
   evidenceLabelFields,
   evidenceLabelValues,
+  type EvidenceLabelValues,
   itemKindValidator,
   suggestionKindValidator,
   suggestionValuesValidator,
@@ -231,8 +235,36 @@ export const setAdminResult = mutation({
   },
 });
 
+const emptyTranscript: PreparedTranscript = {
+  lines: [],
+  prospectWords: 0,
+  closerOnly: false,
+  speakerUncertain: false,
+  estimatedTokens: 0,
+};
+
+function resolveEvidenceTime(evidence: EvidenceLabelValues, local: string, timeZone: string) {
+  // Only resolve the typed wall time. The grader provides truth without transcript citations.
+  return validateEvidence({
+    ...evidence,
+    nextStepDateTimeLocal: local,
+    scopeLines: [],
+    statements: [],
+    nextStepMethod: evidence.nextStepMethod,
+    quotedAmount: undefined,
+    quotedCurrencyAsSaid: undefined,
+  }, emptyTranscript, { timeZone, callDateIso: "", callEndedAt: -Infinity }).nextStepAt;
+}
+
+function startOfMinute(at: number | undefined) {
+  return at === undefined ? undefined : Math.floor(at / 60_000) * 60_000;
+}
+
 export const setAdminEvidence = mutation({
-  args: { ...caseArg, evidence: v.object(evidenceLabelFields) },
+  args: {
+    ...caseArg,
+    evidence: v.object({ ...evidenceLabelFields, nextStepDateTimeLocal: v.optional(v.string()) }),
+  },
   returns: v.id("callInsightEvalLabels"),
   handler: async (ctx, { caseId, evidence }) => {
     const me = await requireAdminContext(ctx);
@@ -242,11 +274,14 @@ export const setAdminEvidence = mutation({
       currency: evidence.quotedCurrency,
       minMinor: evidence.quotedAmountMinor,
     });
-    if (
-      evidence.nextStepAt !== undefined &&
-      (!Number.isSafeInteger(evidence.nextStepAt) ||
-        !Number.isFinite(new Date(evidence.nextStepAt).getTime()))
-    )
+    const local = evidence.nextStepDateTimeLocal;
+    const nextStepAt = local === undefined ? evidence.nextStepAt : resolveEvidenceTime(
+      evidence, local, (await getTenantBusinessDay(ctx, me.tenantId)).timeZone,
+    );
+    if ((local !== undefined && nextStepAt === undefined) || (
+      nextStepAt !== undefined &&
+      (!Number.isSafeInteger(nextStepAt) || !Number.isFinite(new Date(nextStepAt).getTime()))
+    ))
       throw rejectRequest(
         "call_insights.eval_date",
         "Enter a valid next-step time.",
@@ -255,7 +290,7 @@ export const setAdminEvidence = mutation({
     const existing = labels.find(
       (l) => l.source === "admin" && l.itemClass === "evidence",
     );
-    const values = evidenceLabelValues(evidence);
+    const values = evidenceLabelValues({ ...evidence, nextStepAt });
     if (existing) {
       await ctx.db.patch("callInsightEvalLabels", existing._id, values);
       return existing._id;
@@ -319,12 +354,14 @@ export const commitList = mutation({
     );
     if (truth) {
       // The grader freezes truth in this transaction before the view reveals the reading.
+      const nextStepAt = startOfMinute(truth.nextStepAt);
       await ctx.db.patch("callInsightEvalLabels", truth._id, {
         evidenceBlind: !row.exposedBeforeResult && !row.judgeExposed,
+        nextStepAt,
       });
       if (run.evidence) {
-        const values = evidenceLabelValues(run.evidence);
-        const wrongFields = evidenceDifferences(values, truth);
+        const values = { ...evidenceLabelValues(run.evidence), nextStepAt: startOfMinute(run.evidence.nextStepAt) };
+        const wrongFields = evidenceDifferences(values, { ...truth, nextStepAt });
         await ctx.db.insert("callInsightEvalLabels", {
           ...common,
           ...values,

@@ -7,6 +7,7 @@ import {
   committedCase,
   foreignAdmin,
 } from "../../../tests/callInsights/synthetic/evalHarness";
+import { EVIDENCE_PROMPT_VERSION } from "../validators";
 
 describe("quality campaign selection", () => {
   it("selects newest recordings, fills splits in order, and keeps one person in one split", async () => {
@@ -50,6 +51,7 @@ describe("quality campaign selection", () => {
     });
     expect(row).toMatchObject({
       phase: "list",
+      evidenceExpected: false,
       case: { exposedBeforeResult: true },
       transcript: { lineCount: 6 },
     });
@@ -58,6 +60,26 @@ describe("quality campaign selection", () => {
     expect(await f.admin.query(api.cases.campaigns, {})).toMatchObject({
       campaigns: [{ counts: { dev: 1 }, statuses: { to_read: 1 } }],
     });
+  });
+  it("expects evidence only for a full reading made with the evidence prompt", async () => {
+    const f = await evalHarness();
+    await f.t.run(async (ctx) => {
+      const run = (await ctx.db.get("callInsightRuns", f.runId))!;
+      await ctx.db.patch("callInsightRuns", f.runId, {
+        config: { ...run.config, promptVersion: EVIDENCE_PROMPT_VERSION },
+      });
+      await ctx.db.patch("tenants", f.tenantId, {
+        businessDay: { timeZone: "America/New_York", dayStartHour: 3 },
+      });
+    });
+    const { caseId } = await createCase(f);
+    const read = () => f.owner.query(api.cases.caseForGrading, { caseId });
+    const view = await read();
+    expect(view).toMatchObject({ phase: "list", evidenceExpected: true, evidenceTimeZone: "America/New_York" });
+    expect(view.candidates).toBeUndefined();
+
+    await f.t.run((ctx) => ctx.db.patch("callInsightRuns", f.runId, { kind: "attendance_only" }));
+    expect((await read()).evidenceExpected).toBe(false);
   });
   it("rejects missing auth, closers, other tenants and expired cases", async () => {
     const f = await evalHarness();

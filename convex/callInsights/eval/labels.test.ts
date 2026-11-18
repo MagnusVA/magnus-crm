@@ -9,6 +9,50 @@ import {
 import { autoMatch } from "./labels";
 
 describe("two-phase grading", () => {
+  it.each([
+    ["2026-10-04T02:45", "2026-10-03T15:45:00Z", []],
+    ["2026-10-04T02:46", "2026-10-03T15:46:00Z", ["nextStepAt"]],
+  ] as const)("grades %s in the tenant's time zone to the minute", async (localTime, utcTime, wrongFields) => {
+    const f = await evalHarness();
+    const { caseId } = await createCase(f);
+    const truth = {
+      recordingScope: "whole",
+      prospectStance: "undecided",
+      closerStance: "continues",
+      nextStep: "call_back",
+    } as const;
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", f.tenantId, {
+        businessDay: { timeZone: "Australia/Lord_Howe", dayStartHour: 4 },
+      });
+      await ctx.db.patch("callInsightRuns", f.runId, {
+        evidence: {
+          ...truth,
+          nextStepAt: Date.parse("2026-10-03T15:45:52Z"),
+          scopeLines: [1],
+          statements: [],
+          dropped: { quoteNotFound: 0, amountNotInQuote: 0, cardNumber: 0, overLimit: 0 },
+        },
+      });
+    });
+    const save = (nextStepDateTimeLocal: string) => f.owner.mutation(api.labels.setAdminEvidence, {
+      caseId, evidence: { ...truth, nextStepDateTimeLocal },
+    });
+    // On Lord Howe the clock moves from 2:00 to 2:30 that morning.
+    await expect(save("2026-10-04T02:15")).rejects.toThrow("Enter a valid next-step time.");
+    await save(localTime);
+    await f.owner.mutation(api.labels.commitList, { caseId, skipped: true });
+    const view = await f.owner.query(api.cases.caseForGrading, { caseId });
+    expect(view.adminItems[0]).toMatchObject({
+      nextStepAt: Date.parse(utcTime),
+    });
+    expect(view.candidates?.find((label) => label.itemClass === "evidence")).toMatchObject({
+      nextStepAt: Date.parse("2026-10-03T15:45:00Z"),
+      adminVerdict: wrongFields.length ? "wrong" : "right",
+      wrongFields,
+    });
+  });
+
   it.each([false, true])(
     "freezes evidence truth before revealing the model and records exposure=%s",
     async (exposed) => {
