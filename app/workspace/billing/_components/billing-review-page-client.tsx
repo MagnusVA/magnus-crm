@@ -25,6 +25,7 @@ import { BillingReviewActions } from "./billing-review-actions";
 import { CopyBillingPayloadButton } from "./copy-billing-payload-button";
 import { ReusedProofCard } from "./payment-provenance-markers";
 import { SlackContributorTimeline } from "./slack-contributor-timeline";
+import { WhopEvidenceCard } from "./whop-evidence-card";
 
 const CorrectionDialog = dynamic(() =>
   import("./correction-dialog").then((m) => ({ default: m.CorrectionDialog })),
@@ -168,6 +169,12 @@ export function BillingReviewPageClient({
               <>
                 <BillingProofPreview proof={detail.proof} owed={needsReview} />
                 <ReusedProofCard detail={detail} now={now} />
+                <WhopEvidenceCard
+                  paymentRecordId={payment.id}
+                  amountMinor={payment.amountMinor}
+                  currency={payment.currency}
+                  now={now}
+                />
               </>
             }
           />

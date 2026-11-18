@@ -1,10 +1,11 @@
 "use client";
 
-import { type Preloaded, usePreloadedQuery } from "convex/react";
+import { type Preloaded, usePreloadedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { CallInsightsIntegrationCard } from "@/components/call-insights/integration-card";
 import { FathomIntegrationCard } from "@/components/fathom/fathom-integration-card";
+import { WhopIntegrationCard } from "@/components/whop/whop-integration-card";
 import { IntegrationCardSkeleton } from "../settings-skeleton";
 import { AiAssistantsCard } from "./ai-assistants-card";
 import { ApiKeysCard } from "./api-keys-card";
@@ -14,8 +15,8 @@ import { SlackIntegrationCard } from "./slack-integration-card";
 
 /**
  * Calendly and Slack side by side from `@4xl` (each at its own height), then
- * Fathom and AI assistants, Call insights and API keys full width under them;
- * one column narrower.
+ * Fathom and AI assistants, Whop, Call insights and API keys full width under
+ * them; one column narrower.
  */
 export function IntegrationsTab({
   preloadedSlackStatus,
@@ -26,6 +27,8 @@ export function IntegrationsTab({
   calendlyStatus: CalendlyStatus | null | undefined;
 }) {
   const slackStatus = usePreloadedQuery(preloadedSlackStatus);
+  // The Fathom card reads the same subscription; here it only decides whose Connect is lime.
+  const fathomSettings = useQuery(api.fathom.connection.settings, {});
   const calendlyFirst =
     calendlyStatus === null || (calendlyStatus !== undefined && !calendlyConnected(calendlyStatus));
   return (
@@ -51,6 +54,18 @@ export function IntegrationsTab({
       <SectionErrorBoundary sectionName="AI assistants">
         <AiAssistantsCard />
       </SectionErrorBoundary>
+      <div className="min-w-0 @4xl:col-span-2">
+        <SectionErrorBoundary sectionName="Whop">
+          {/* Whop's Connect is lime only once Calendly, Slack and Fathom are connected. */}
+          <WhopIntegrationCard
+            quiet={
+              calendlyFirst ||
+              !slackState(slackStatus).connected ||
+              fathomSettings?.connection?.status !== "connected"
+            }
+          />
+        </SectionErrorBoundary>
+      </div>
       <div className="min-w-0 @4xl:col-span-2">
         <SectionErrorBoundary sectionName="Call insights">
           <CallInsightsIntegrationCard />

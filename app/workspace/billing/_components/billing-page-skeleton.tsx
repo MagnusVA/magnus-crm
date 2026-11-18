@@ -42,6 +42,7 @@ function QueueSkeleton() {
           <Skeleton className={`h-3 w-28 ${BONE}`} />
           <Skeleton className={`h-3 w-20 ${BONE}`} />
           <Skeleton className={`h-3 w-20 ${BONE}`} />
+          <Skeleton className={`h-3 w-24 ${BONE}`} />
         </div>
       </div>
       <div className={`@container/payments ${CARD}`}>
