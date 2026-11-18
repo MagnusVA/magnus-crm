@@ -45,6 +45,11 @@ const WRONG_FIELD_LABELS: Record<WrongField, string> = {
   credit: "Credit",
   should_abstain: "Should have left it",
   should_write: "Should have written",
+  time: "Time",
+  method: "Call or text",
+  purpose: "Kind of task",
+  attendance: "Attendance",
+  false_loss: "Not a refusal",
 };
 
 const WRONG_FIELDS: Record<GradeSample, readonly WrongField[]> = {

@@ -7,28 +7,16 @@ import { requireTenantUser } from "../requireTenantUser";
 import { expectedError } from "../lib/observability/errors";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { providerEnvironmentValidator } from "../payments/schema";
-import { PAYMENT_RULE_VERSION } from "./derive";
-import { paymentProposalOf } from "./proposals";
-import { automationGateValidator } from "./schema";
-import { paymentDecisionKindValidator } from "./settings";
+import { CASE_MAX_AGE_MS, latestSample, noteSampleGrade, readSampleMembers } from "./certificates";
+import { callEvidenceOf, isPaymentKind, paymentProposalOf, refusalProposalOf, taskProposalOf, type AutomationKind } from "./proposals";
+import { automationGateValidator, automationKindValidator, refusalProposalValidator, taskProposalValidator, wrongFieldValidator } from "./schema";
+import { currentRuleVersion } from "./settings";
 
 type Decision = Doc<"resultAutomationDecisions">;
 const decisionArgs = { decisionId: v.id("resultAutomationDecisions") };
 const sampleValidator = v.union(v.literal("writes"), v.literal("abstentions"));
 const settledVerdict = v.union(v.literal("correct"), v.literal("wrong"));
 const verdictValidator = v.union(v.literal("correct"), v.literal("wrong"), v.literal("unsure"));
-const wrongFieldValidator = v.union(
-  v.literal("person"), v.literal("deal"), v.literal("amount"), v.literal("currency"), v.literal("type"),
-  v.literal("program"), v.literal("credit"), v.literal("should_abstain"), v.literal("should_write"),
-);
-type PaymentWrongField = Infer<typeof wrongFieldValidator>;
-const paymentWrongFields = new Set<string>(wrongFieldValidator.members.map((member) => member.value));
-
-/** A payment decision's grade holds payment fields only; the stored union also has call fields. */
-function paymentWrongFieldsOf(fields: NonNullable<Decision["grade"]>["wrongFields"]): PaymentWrongField[] {
-  return fields.filter((field): field is PaymentWrongField => paymentWrongFields.has(field));
-}
-
 const answerValidator = v.object({
   abstain: v.boolean(),
   leadId: v.optional(v.id("leads")),
@@ -38,6 +26,13 @@ const answerValidator = v.object({
   paymentType: v.optional(paymentTypeValidator),
   programId: v.optional(v.id("tenantPrograms")),
   attributedCloserId: v.optional(v.id("users")),
+  taskPurpose: v.optional(v.union(v.literal("call_back"), v.literal("payment_owed"))),
+  reminderAt: v.optional(v.number()),
+  contactMethod: v.optional(v.union(v.literal("call"), v.literal("text"))),
+  expectedAmountMinor: v.optional(v.number()),
+  expectedCurrency: v.optional(v.string()),
+  refusal: v.optional(v.boolean()),
+  attendanceHeld: v.optional(v.boolean()),
 });
 type GradeAnswer = Infer<typeof answerValidator>;
 
@@ -61,26 +56,41 @@ const proposalValidator = v.object({
 
 const revealedDecisionValidator = v.object({
   proposal: v.optional(proposalValidator),
+  callProposal: v.optional(v.union(taskProposalValidator, refusalProposalValidator)),
   leadId: v.optional(v.id("leads")),
   opportunityId: v.optional(v.id("opportunities")),
   wouldWrite: v.boolean(),
   gates: v.array(automationGateValidator),
-  kind: paymentDecisionKindValidator,
+  kind: automationKindValidator,
 });
 
 const gradingScanLimit = 500;
-const maxCaseAgeMs = 365 * 86_400_000;
+const callReferenceValidator = v.object({
+  meetingId: v.optional(v.id("meetings")), recordingId: v.id("callRecordings"), runId: v.id("callInsightRuns"),
+});
+function callReference(row: Decision) {
+  const evidence = callEvidenceOf(row);
+  return evidence ? { meetingId: row.meetingId, recordingId: evidence.recordingId, runId: evidence.runId } : undefined;
+}
 const pageSize = 50;
 
-async function scopedDecisions(ctx: QueryCtx, tenantId: Id<"tenants">, kind: Infer<typeof paymentDecisionKindValidator>) {
+async function scopedDecisions(ctx: QueryCtx, tenantId: Id<"tenants">, kind: AutomationKind, includeSample = false) {
   const tenant = await ctx.db.get("tenants", tenantId);
-  const version = tenant?.resultAutomation?.kinds[kind].policyVersion ?? 0;
+  if (!tenant) return { rows: [], capped: false };
+  const version = tenant.resultAutomation?.kinds[kind]?.policyVersion ?? 0;
+  const cutoff = Date.now() - CASE_MAX_AGE_MS;
+  const sample = includeSample ? await latestSample(ctx, tenant, kind) : null;
+  const members = sample && (sample.status === "collecting" || sample.status === "full") &&
+    (sample.firstCaseAt === undefined || sample.firstCaseAt >= cutoff) ? await readSampleMembers(ctx, sample) : [];
+  const memberIds = new Set(members.map((row) => row._id));
   const rows = await ctx.db.query("resultAutomationDecisions")
     .withIndex("by_tenantId_and_kind_and_ruleVersion_and_createdAt", (q) =>
-      q.eq("tenantId", tenantId).eq("kind", kind).eq("ruleVersion", PAYMENT_RULE_VERSION)
-        .gte("createdAt", Date.now() - maxCaseAgeMs)).take(gradingScanLimit + 1);
+      q.eq("tenantId", tenantId).eq("kind", kind).eq("ruleVersion", currentRuleVersion(tenant, kind))
+        .gte("createdAt", cutoff)).take(gradingScanLimit + 1);
   return {
-    rows: rows.slice(0, gradingScanLimit).flatMap((row) => row.policyVersion === version ? [row] : []),
+    rows: [...members, ...rows.filter((row) =>
+      !memberIds.has(row._id) && row.policyVersion === version && row.mode !== "automatic")
+      .slice(0, gradingScanLimit - members.length)],
     capped: rows.length > gradingScanLimit,
   };
 }
@@ -116,25 +126,26 @@ async function getEvidence(ctx: QueryCtx, row: Decision) {
 }
 
 export const listToGrade = query({
-  args: { kind: paymentDecisionKindValidator, sample: sampleValidator },
+  args: { kind: automationKindValidator, sample: sampleValidator },
   returns: v.object({
     cases: v.array(v.object({
       decisionId: v.id("resultAutomationDecisions"),
       createdAt: v.number(),
       answerCommitted: v.boolean(),
       evidence: evidenceValidator,
+      call: v.optional(callReferenceValidator),
     })),
     capped: v.boolean(),
   }),
   handler: async (ctx, { kind, sample }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
-    const { rows, capped } = await scopedDecisions(ctx, tenantId, kind);
+    const { rows, capped } = await scopedDecisions(ctx, tenantId, kind, sample === "writes");
     const people = await personIds(ctx, tenantId, rows);
     const seen = new Set<Id<"leads">>();
     const cases = [];
     for (const row of rows) {
       const person = row.leadId && people.get(row.leadId);
-      if (!person || !row.providerPaymentId || row.wouldWrite !== (sample === "writes") || seen.has(person)) continue;
+      if (!person || (isPaymentKind(kind) ? !row.providerPaymentId : !callReference(row)) || row.wouldWrite !== (sample === "writes") || seen.has(person)) continue;
       seen.add(person);
       if (row.grade || (row.answer && row.answer.committedByUserId !== userId)) continue;
       cases.push(row);
@@ -146,28 +157,31 @@ export const listToGrade = query({
         createdAt: row.createdAt,
         answerCommitted: row.answer?.committedByUserId === userId,
         evidence: await getEvidence(ctx, row),
+        call: callReference(row),
       }))),
       capped: capped || cases.length > pageSize,
     };
   },
 });
 
-type PaymentDecision = Decision & { kind: Infer<typeof paymentDecisionKindValidator> };
+type GradeDecision = Decision & { kind: AutomationKind };
 
 async function gradeCase(
   ctx: QueryCtx, tenantId: Id<"tenants">, decisionId: Id<"resultAutomationDecisions">,
-): Promise<PaymentDecision> {
-  const row = await ctx.db.get("resultAutomationDecisions", decisionId);
-  if (row?.tenantId !== tenantId || row.ruleVersion !== PAYMENT_RULE_VERSION ||
-      (row.kind !== "payment_win" && row.kind !== "additional_payment")) {
+): Promise<GradeDecision> {
+  const [row, tenant] = await Promise.all([ctx.db.get("resultAutomationDecisions", decisionId), ctx.db.get("tenants", tenantId)]);
+  if (row?.tenantId !== tenantId || !tenant || row.kind === "paid_on_call_alert" || row.mode === "automatic" ||
+      row.ruleVersion !== currentRuleVersion(tenant, row.kind)) {
     throw expectedError("automation.decision_not_found", "Decision not found.");
   }
   return { ...row, kind: row.kind };
 }
 
 function submittedAnswer(answer: NonNullable<Decision["answer"]>): GradeAnswer {
-  const { abstain, leadId, opportunityId, amountMinor, currency, paymentType, programId, attributedCloserId } = answer;
-  return { abstain, leadId, opportunityId, amountMinor, currency, paymentType, programId, attributedCloserId };
+  const { committedByUserId, committedAt, ...fields } = answer;
+  void committedByUserId;
+  void committedAt;
+  return fields;
 }
 
 function canGradeBlind(row: Decision, userId: Id<"users">) {
@@ -188,9 +202,12 @@ export const getMyAnswer = query({
   },
 });
 
-function revealedDecision(row: Decision, kind: Infer<typeof paymentDecisionKindValidator>) {
+function revealedDecision(row: Decision, kind: AutomationKind) {
   const { leadId, opportunityId, wouldWrite, gates } = row;
-  return { proposal: paymentProposalOf(row), leadId, opportunityId, wouldWrite, gates, kind };
+  return {
+    proposal: paymentProposalOf(row), callProposal: taskProposalOf(row) ?? refusalProposalOf(row),
+    leadId, opportunityId, wouldWrite, gates, kind,
+  };
 }
 
 async function verifyAnswer(ctx: MutationCtx, tenantId: Id<"tenants">, answer: GradeAnswer) {
@@ -203,7 +220,9 @@ async function verifyAnswer(ctx: MutationCtx, tenantId: Id<"tenants">, answer: G
   const ids = [answer.leadId, answer.opportunityId, answer.programId, answer.attributedCloserId];
   if (rows.some((row, i) => ids[i] !== undefined && row?.tenantId !== tenantId) ||
       (answer.amountMinor !== undefined && (!Number.isSafeInteger(answer.amountMinor) || answer.amountMinor < 0)) ||
-      (answer.currency !== undefined && !/^[A-Z]{3}$/.test(answer.currency))) {
+      (answer.expectedAmountMinor !== undefined && (!Number.isSafeInteger(answer.expectedAmountMinor) || answer.expectedAmountMinor <= 0)) ||
+      (answer.reminderAt !== undefined && !Number.isFinite(answer.reminderAt)) ||
+      [answer.currency, answer.expectedCurrency].some((currency) => currency !== undefined && !/^[A-Z]{3}$/.test(currency))) {
     throw expectedError("automation.invalid_answer", "Enter a valid answer using records from this organization.");
   }
 }
@@ -254,18 +273,18 @@ export const recordGrade = mutation({
     if (wrongFields.length > wrongFieldValidator.members.length || (verdict === "correct" && wrongFields.length > 0)) {
       throw expectedError("automation.invalid_grade", "Check the verdict and the fields marked wrong.");
     }
-    await ctx.db.patch("resultAutomationDecisions", decisionId, {
-      grade: {
-        verdict, wrongFields: [...new Set(wrongFields)], gradedByUserId: userId, gradedAt: Date.now(),
-        gradedBeforeSeeing: canGradeBlind(row, userId),
-      },
-    });
+    const grade = {
+      verdict, wrongFields: [...new Set(wrongFields)], gradedByUserId: userId, gradedAt: Date.now(),
+      gradedBeforeSeeing: canGradeBlind(row, userId),
+    };
+    await ctx.db.patch("resultAutomationDecisions", decisionId, { grade });
+    await noteSampleGrade(ctx, { ...row, grade });
     return null;
   },
 });
 
 export const listUnsure = query({
-  args: { kind: paymentDecisionKindValidator },
+  args: { kind: automationKindValidator },
   returns: v.array(v.object({
     decisionId: v.id("resultAutomationDecisions"),
     createdAt: v.number(),
@@ -273,12 +292,13 @@ export const listUnsure = query({
     gradedByName: v.union(v.string(), v.null()),
     wrongFields: v.array(wrongFieldValidator),
     evidence: evidenceValidator,
+    call: v.optional(callReferenceValidator),
     proposal: revealedDecisionValidator,
     answer: v.union(answerValidator, v.null()),
   })),
   handler: async (ctx, { kind }) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:resolve-unsure"]]);
-    const { rows } = await scopedDecisions(ctx, tenantId, kind);
+    const { rows } = await scopedDecisions(ctx, tenantId, kind, true);
     const unsure = rows.flatMap((row) =>
       row.grade?.verdict === "unsure" && !row.grade.secondLook ? [{ row, grade: row.grade }] : [],
     );
@@ -292,8 +312,9 @@ export const listUnsure = query({
         createdAt: row.createdAt,
         gradedAt: grade.gradedAt,
         gradedByName: grader?.tenantId === tenantId ? grader.fullName?.trim() || grader.email : null,
-        wrongFields: paymentWrongFieldsOf(grade.wrongFields),
+        wrongFields: grade.wrongFields,
         evidence,
+        call: callReference(row),
         proposal: revealedDecision(row, kind),
         answer: row.answer ? submittedAnswer(row.answer) : null,
       };
@@ -312,9 +333,9 @@ export const resolveUnsure = mutation({
       if (row.grade.secondLook.verdict === verdict) return null;
       throw expectedError("automation.grade_resolved", "This grade is already resolved.");
     }
-    await ctx.db.patch("resultAutomationDecisions", decisionId, {
-      grade: { ...row.grade, secondLook: { verdict, byUserId: userId, at: Date.now() } },
-    });
+    const grade = { ...row.grade, secondLook: { verdict, byUserId: userId, at: Date.now() } };
+    await ctx.db.patch("resultAutomationDecisions", decisionId, { grade });
+    await noteSampleGrade(ctx, { ...row, grade });
     return null;
   },
 });
@@ -337,7 +358,7 @@ function tally(people: Map<Id<"leads">, PersonGrade>) {
 }
 
 export const getGradeTally = query({
-  args: { kind: paymentDecisionKindValidator },
+  args: { kind: automationKindValidator },
   returns: v.object({ writes: tallyValidator, abstentions: tallyValidator, capped: v.boolean() }),
   handler: async (ctx, { kind }) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);

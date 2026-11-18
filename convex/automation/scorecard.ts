@@ -4,6 +4,8 @@ import { query, type QueryCtx } from "../_generated/server";
 import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { expectedError } from "../lib/observability/errors";
+import { readOpenAudits } from "./audit";
+import { automationKindValidator, breakerReasonValidator } from "./schema";
 import { PAYMENT_RULE_VERSION } from "./derive";
 import { automationKindOf, modeAtLeastAsk } from "./proposals";
 import { effectiveKindMode } from "./settings";
@@ -22,6 +24,10 @@ const kindStats = v.object({
   corrected: countValidator,
 });
 
+const automaticCounts = v.object({
+  payment_win: countValidator, additional_payment: countValidator, call_back: countValidator,
+  payment_owed: countValidator, refusal_loss: countValidator,
+});
 const kinds = ["payment_win", "additional_payment"] as const;
 const limit = 500;
 type Payment = Doc<"providerPayments">;
@@ -163,6 +169,12 @@ export const getAutomationScorecard = query({
     winsAwaitingAttendance: queueValidator,
     paymentsWaiting: v.object({ ...queueValidator.fields, billing: queueValidator, closer: queueValidator }),
     unansweredNotMySale: countValidator,
+    auditQueue: queueValidator,
+    automaticWrites: automaticCounts,
+    breakers: v.array(v.object({
+      kind: automationKindValidator, reason: breakerReasonValidator, trippedAt: v.number(),
+      decisionId: v.optional(v.id("resultAutomationDecisions")),
+    })),
     freshness: v.object({ lastWebhookAt: nullableNumber, lastSuccessfulSweepAt: nullableNumber }),
   }),
   handler: async (ctx, { windowDays }) => {
@@ -181,17 +193,40 @@ export const getAutomationScorecard = query({
       if (row) connections.push(row);
     }
     const active = connections.flatMap((row) => row.status === "disconnected" ? [] : [row]);
-    const [paid, paymentsWaiting, winsAwaitingAttendance, flags] = await Promise.all([
+    const [paid, paymentsWaiting, winsAwaitingAttendance, flags, audits, automaticRows] = await Promise.all([
       paidWindow(ctx, tenantId, connections, since),
       waitingPayments(ctx, tenant, active),
       attendanceOwed(ctx, tenantId),
       ctx.db.query("providerPayments").withIndex("by_tenantId_and_notMySaleAt", (q) =>
         q.eq("tenantId", tenantId).gt("notMySaleAt", undefined)).take(limit + 1),
+      readOpenAudits(ctx, tenantId),
+      Promise.all((["applied", "corrected", "undone"] as const).map((state) => ctx.db.query("resultAutomationDecisions")
+        .withIndex("by_tenantId_and_mode_and_state_and_resolvedAt", (q) => q.eq("tenantId", tenantId)
+          .eq("mode", "automatic").eq("state", state).gte("resolvedAt", since))
+        .take(limit + 1))),
     ]);
     const [payment_win, additional_payment] = await Promise.all(kinds.map((kind) =>
       readKind(ctx, tenantId, kind, since, paid.ids, paid.capped)));
+    const capped = automaticRows.some((rows) => rows.length > limit);
+    const automaticWrites = {
+      payment_win: count(0, capped), additional_payment: count(0, capped), call_back: count(0, capped),
+      payment_owed: count(0, capped), refusal_loss: count(0, capped),
+    };
+    for (const rows of automaticRows) {
+      for (const row of rows.slice(0, limit)) {
+        const kind = automationKindOf(row.kind);
+        if (kind && row.certificateSampleId) automaticWrites[kind].count++;
+      }
+    }
+    const breakers = automationKindValidator.members.flatMap(({ value: kind }) => {
+      const breaker = tenant.resultAutomation?.kinds[kind]?.breaker;
+      return breaker ? [{ kind, ...breaker }] : [];
+    });
+    const oldestAudit = audits.rows.reduce<number | null>((current, row) =>
+      oldest(current, row.resolvedAt ?? row.createdAt), null);
     return {
       kinds: { payment_win, additional_payment },
+      automaticWrites, breakers, auditQueue: { ...count(audits.rows.length, audits.capped), oldestAt: oldestAudit },
       paidWhopPayments: count(paid.ids.size, paid.capped),
       winsAwaitingAttendance,
       paymentsWaiting,

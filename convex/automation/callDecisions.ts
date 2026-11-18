@@ -15,6 +15,7 @@ import { sha256Hex, stableJson } from "../lib/stableHash";
 import { dealPosition } from "../opportunities/stages";
 import { requireTenantUser } from "../requireTenantUser";
 import { isOtherProspectsCall } from "../secondOpinion/trigger";
+import { enrollInSample } from "./certificates";
 import { callRuleVersion, deriveCallDecisions, type CallDecisionInput, type DerivedCallDecision } from "./callRule";
 import { isCallKind, type DecisionKind } from "./proposals";
 import { automationTables, decisionStateValidator } from "./schema";
@@ -346,6 +347,8 @@ async function evaluateLoaded(ctx: MutationCtx, tenant: Tenant, meeting: Meeting
       },
       createdAt: args.now,
     });
+    const inserted = await ctx.db.get("resultAutomationDecisions", id);
+    if (inserted) await enrollInSample(ctx, inserted);
     replacements.set(kind, id);
   }
   await supersede(ctx, args, input, replacements);

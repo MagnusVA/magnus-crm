@@ -19,10 +19,18 @@ afterEach(() => {
 describe("automatic results settings", () => {
   it("defaults off, authorizes owner raises, and leaves manual-write inputs unchanged", async () => {
     const f = await automationPaymentFixture();
-    expect(await f.admin.query(settings.getSettings, {})).toEqual({
+    // An admin can lower and cannot raise; nothing is configured, every kind
+    // reads off, and no kind has a certificate or can be promoted.
+    const initial = await f.admin.query(settings.getSettings, {});
+    expect(initial).toMatchObject({
       configured: null, effective: { payment_win: "off", additional_payment: "off" },
       canRaise: false, canLower: true,
     });
+    for (const state of Object.values(initial.automatic)) {
+      expect(state).toEqual({
+        automaticBlockedReason: null, breaker: null, canPromote: false, certificateState: "none", sampleId: null,
+      });
+    }
     await expect(f.closer.query(settings.getSettings, {})).rejects.toThrow("Insufficient permissions");
     await expect(f.admin.mutation(settings.setEnabled, { enabled: true })).rejects.toThrow("Insufficient permissions");
     await expect(f.admin.mutation(settings.setKindMode, { kind: "payment_win", mode: "shadow" })).rejects.toThrow("Insufficient permissions");

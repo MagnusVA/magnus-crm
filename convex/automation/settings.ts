@@ -9,12 +9,14 @@ import { log } from "../lib/observability/log";
 import { expectedError } from "../lib/observability/errors";
 import { hasPermission, PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
+import { breakerCauseOpen, promotedCertificate, whopIsLagging } from "./breaker";
+import { CASE_MAX_AGE_MS, closeCollectingSample, priorSampleForKind, latestSample } from "./certificates";
 import { callRuleVersion } from "./callRule";
 import { stopDecision } from "./decisions";
 import { PAYMENT_RULE_VERSION } from "./derive";
 import { isCallKind, isPaymentKind } from "./proposals";
 import {
-  automationKindValidator, automationModeValidator, decisionKindValidator, resultAutomationSettingsValidator,
+  automationKindValidator, automationModeValidator, breakerReasonValidator, decisionKindValidator, resultAutomationSettingsValidator,
   settableAlertModeValidator, settableModeValidator,
 } from "./schema";
 
@@ -38,8 +40,8 @@ export function currentRuleVersion(tenant: Doc<"tenants">, kind: Kind): string {
 
 export function effectiveKindMode(tenant: Doc<"tenants">, kind: Kind): Mode {
   // pausedAt records the last pause, including after an owner resumes.
-  if (!tenant.resultAutomation?.enabled) return "off";
-  if (isCallKind(kind) && (tenant.status !== "active" || !effectiveCallInsights(tenant))) return "off";
+  if (tenant.status !== "active" || !tenant.resultAutomation?.enabled) return "off";
+  if (isCallKind(kind) && !effectiveCallInsights(tenant)) return "off";
   const policy = tenant.resultAutomation.kinds[kind];
   if (!policy) return "off";
   if (policy.mode !== "automatic") return policy.mode;
@@ -59,6 +61,24 @@ function initialSettings(userId: Id<"users">, now: number): Settings {
   return { ...stamp, enabled: false, activationVersion: 0, kinds: { payment_win: off, additional_payment: off } };
 }
 
+const breakerEntry = v.object({
+  kind: automationKindValidator, trippedAt: v.number(), reason: breakerReasonValidator,
+  decisionId: v.optional(v.id("resultAutomationDecisions")),
+});
+const automaticStatus = v.object({
+  certificateState: v.union(v.literal("none"), v.literal("sampling"), v.literal("certified"), v.literal("lapsed")),
+  sampleId: v.union(v.id("automationSamples"), v.null()),
+  breaker: v.union(breakerEntry, v.null()),
+  canPromote: v.boolean(),
+  automaticBlockedReason: v.union(
+    v.literal("certificate_required"), v.literal("whop_stale"), v.literal("paused"), ...breakerReasonValidator.members, v.null(),
+  ),
+});
+const kindStatuses = v.object({
+  payment_win: automaticStatus, additional_payment: automaticStatus, call_back: automaticStatus,
+  payment_owed: automaticStatus, refusal_loss: automaticStatus,
+});
+
 export const getSettings = query({
   args: {},
   returns: v.object({
@@ -68,6 +88,10 @@ export const getSettings = query({
       call_back: automationModeValidator, payment_owed: automationModeValidator,
       refusal_loss: automationModeValidator, paid_on_call_alert: settableAlertModeValidator,
     })),
+    automatic: kindStatuses,
+    paused: v.boolean(),
+    whopLagging: v.boolean(),
+    breakers: v.array(breakerEntry),
     canRaise: v.boolean(),
     canLower: v.boolean(),
   }),
@@ -75,7 +99,38 @@ export const getSettings = query({
     const { tenantId, role } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:view"]]);
     const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) throw expectedError("auth.organization_mismatch", "Organization mismatch");
+    const now = Date.now();
+    const canRaise = hasPermission(role, "result-automation:raise");
+    const paused = tenant.status !== "active" || Boolean(tenant.resultAutomation && !tenant.resultAutomation.enabled);
+    const whopLagging = await whopIsLagging(ctx, tenantId, now);
+    const readKind = async (kind: Kind): Promise<typeof automaticStatus.type> => {
+      const policy = tenant.resultAutomation?.kinds[kind];
+      const [latest, promoted] = await Promise.all([
+        latestSample(ctx, tenant, kind), promotedCertificate(ctx, tenant, kind),
+      ]);
+      const previous = latest || policy?.automatic ? null : await priorSampleForKind(ctx, tenantId, kind);
+      const ageOk = latest?.firstCaseAt === undefined || latest.firstCaseAt >= now - CASE_MAX_AGE_MS;
+      const candidate = latest?.status === "certified" && ageOk ? latest : null;
+      const certificateState = promoted || candidate ? "certified" :
+        latest?.status === "lapsed" || !ageOk || policy?.automatic || previous ? "lapsed" : latest ? "sampling" : "none";
+      const breaker = policy?.breaker ? { kind, ...policy.breaker } : null;
+      const automaticBlockedReason = breaker?.reason ?? (policy?.mode !== "automatic" ? null : paused ? "paused" :
+        !policy.automatic ? "certificate_required" : !promoted ? "certificate_lapsed" :
+        isPaymentKind(kind) && whopLagging ? "whop_stale" : null);
+      return {
+        certificateState, sampleId: candidate?._id ?? promoted?._id ?? latest?._id ?? policy?.automatic?.sampleId ?? previous?._id ?? null,
+        breaker, automaticBlockedReason,
+        canPromote: canRaise && Boolean(candidate) &&
+          !(policy?.mode === "automatic" && candidate?._id === policy.automatic?.sampleId) &&
+          !await breakerCauseOpen(ctx, tenant, kind, now),
+      };
+    };
+    const [payment_win, additional_payment, call_back, payment_owed, refusal_loss] = await Promise.all(
+      automationKindValidator.members.map(({ value }) => readKind(value)),
+    );
+    const automatic = { payment_win, additional_payment, call_back, payment_owed, refusal_loss };
     return {
+      automatic, paused, whopLagging, breakers: Object.values(automatic).flatMap(({ breaker }) => breaker ? [breaker] : []),
       configured: tenant.resultAutomation ?? null,
       effective: {
         payment_win: effectiveKindMode(tenant, "payment_win"),
@@ -88,7 +143,7 @@ export const getSettings = query({
         refusal_loss: effectiveKindMode(tenant, "refusal_loss"),
         paid_on_call_alert: effectiveAlertMode(tenant),
       } : undefined,
-      canRaise: hasPermission(role, "result-automation:raise"),
+      canRaise,
       canLower: hasPermission(role, "result-automation:lower"),
     };
   },
@@ -97,7 +152,7 @@ export const getSettings = query({
 const states = ["shadow", "ready", "needs_person", "blocked", "notice"] as const;
 const settingsStopArgs = {
   tenantId: v.id("tenants"),
-  code: v.union(v.literal("paused"), v.literal("kind_lowered")),
+  code: v.union(v.literal("paused"), v.literal("kind_lowered"), v.literal("breaker"), v.literal("certificate_lapsed")),
   version: v.optional(v.number()),
   now: v.number(),
   kind: v.optional(decisionKindValidator),
@@ -109,6 +164,9 @@ const settingsStopArgs = {
 type SettingsStopArgs = ObjectType<typeof settingsStopArgs>;
 const stopPageRef = makeFunctionReference<"mutation", SettingsStopArgs>("automation/settings:stopPolicyPage");
 const stopPageSize = 50;
+const rederiveCallRef = makeFunctionReference<"mutation", {
+  meetingId: Id<"meetings">; cause: "settings";
+}>("automation/callDecisions:evaluateCallMeeting");
 
 function oldDecisions(ctx: MutationCtx, args: SettingsStopArgs) {
   return ctx.db.query("resultAutomationDecisions")
@@ -125,8 +183,12 @@ async function stopRows(ctx: MutationCtx, args: SettingsStopArgs, rows: Decision
         : row.activationVersion < args.version);
     if (!old || (args.throughCreationTime !== undefined && row.createdAt === args.now &&
       row._creationTime > args.throughCreationTime)) continue;
-    if (row.state === "notice") await stopDecision(ctx, row._id, null, args.code);
-    else await ctx.db.patch("resultAutomationDecisions", row._id, {
+    if (row.state === "notice") {
+      await stopDecision(ctx, row._id, null, args.code);
+      if (row.meetingId && (args.code === "breaker" || args.code === "certificate_lapsed")) {
+        await ctx.scheduler.runAfter(0, rederiveCallRef, { meetingId: row.meetingId, cause: "settings" });
+      }
+    } else await ctx.db.patch("resultAutomationDecisions", row._id, {
       state: "stopped", stopCode: args.code, resolvedAt: args.now,
     });
   }
@@ -144,6 +206,15 @@ async function stopPriorPolicy(ctx: MutationCtx, args: Omit<SettingsStopArgs, "s
       await ctx.scheduler.runAfter(0, stopPageRef, { ...params, throughCreationTime });
     }
   }
+}
+
+export async function stopBreakerNotices(
+  ctx: MutationCtx, tenantId: Id<"tenants">, now: number, version: number, code: "breaker" | "certificate_lapsed",
+): Promise<void> {
+  const args = { tenantId, kind: "refusal_loss", now, version, code, state: "notice", cursor: null } as const;
+  const rows = await oldDecisions(ctx, args).take(stopPageSize + 1);
+  await stopRows(ctx, args, rows.slice(0, stopPageSize));
+  if (rows.length > stopPageSize) await ctx.scheduler.runAfter(0, stopPageRef, args);
 }
 
 export async function stopCallDecisionsForDisabledInsights(ctx: MutationCtx, tenant: Doc<"tenants">, now: number): Promise<void> {
@@ -222,32 +293,40 @@ export const setKindMode = mutation({
   returns: v.null(),
   handler: async (ctx, { kind, mode }) => {
     const actor = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:lower"]]);
-    const now = Date.now();
     const tenant = await ctx.db.get("tenants", actor.tenantId);
-    const settings = tenant?.resultAutomation ?? initialSettings(actor.userId, now);
-    const previous = settings.kinds[kind];
-    const previousMode = previous?.mode ?? "off";
-    if (previousMode === mode) return null;
-    const raising = modeRank[mode] > modeRank[previousMode];
-    if (raising && !hasPermission(actor.role, "result-automation:raise")) {
-      throw expectedError("auth.insufficient_permissions", "Insufficient permissions");
-    }
-    const policyVersion = (previous?.policyVersion ?? 0) + 1;
-    const stamp = { changedAt: now, changedByUserId: actor.userId };
-    await saveSettings(ctx, actor, {
-      ...settings, ...stamp,
-      kinds: { ...settings.kinds, [kind]: { ...stamp, mode, policyVersion } },
-    }, { kind, fromMode: previousMode, toMode: mode, policyVersion });
-    if (!raising) {
-      await stopPriorPolicy(ctx, { tenantId: actor.tenantId, kind, now, code: "kind_lowered", version: policyVersion });
-    } else if (settings.enabled && isPaymentKind(kind)) {
-      await ctx.scheduler.runAfter(0, refreshTenantPayments, {
-        tenantId: actor.tenantId, activationVersion: settings.activationVersion,
-      });
-    }
+    if (!tenant) throw expectedError("auth.organization_mismatch", "Organization mismatch");
+    await setKindModeCore(ctx, actor, tenant, kind, mode);
     return null;
   },
 });
+
+export async function setKindModeCore(
+  ctx: MutationCtx, actor: TenantUserResult, tenant: Doc<"tenants">, kind: Kind, mode: typeof settableModeValidator.type,
+): Promise<void> {
+  const now = Date.now();
+  const settings = tenant.resultAutomation ?? initialSettings(actor.userId, now);
+  const previous = settings.kinds[kind];
+  const previousMode = previous?.mode ?? "off";
+  if (previousMode === mode) return;
+  const raising = modeRank[mode] > modeRank[previousMode];
+  if (raising && !hasPermission(actor.role, "result-automation:raise")) {
+    throw expectedError("auth.insufficient_permissions", "Insufficient permissions");
+  }
+  const policyVersion = (previous?.policyVersion ?? 0) + 1;
+  const stamp = { changedAt: now, changedByUserId: actor.userId };
+  await closeCollectingSample(ctx, tenant._id, kind, now);
+  await saveSettings(ctx, actor, {
+    ...settings, ...stamp,
+    kinds: { ...settings.kinds, [kind]: { ...previous, ...stamp, mode, policyVersion } },
+  }, { kind, fromMode: previousMode, toMode: mode, policyVersion });
+  if (!raising) {
+    await stopPriorPolicy(ctx, { tenantId: actor.tenantId, kind, now, code: "kind_lowered", version: policyVersion });
+  } else if (settings.enabled && isPaymentKind(kind)) {
+    await ctx.scheduler.runAfter(0, refreshTenantPayments, {
+      tenantId: actor.tenantId, activationVersion: settings.activationVersion,
+    });
+  }
+}
 
 export const setGrader = mutation({
   args: { userId: v.id("users") },

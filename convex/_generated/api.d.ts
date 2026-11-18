@@ -69,9 +69,14 @@ import type * as attribution_teamMemberRepoint from "../attribution/teamMemberRe
 import type * as attribution_teamProgramEventTypes from "../attribution/teamProgramEventTypes.js";
 import type * as attribution_teams from "../attribution/teams.js";
 import type * as auth from "../auth.js";
+import type * as automation_alert from "../automation/alert.js";
+import type * as automation_audit from "../automation/audit.js";
+import type * as automation_breaker from "../automation/breaker.js";
 import type * as automation_callDecisions from "../automation/callDecisions.js";
 import type * as automation_callReceipts from "../automation/callReceipts.js";
 import type * as automation_callRule from "../automation/callRule.js";
+import type * as automation_certificates from "../automation/certificates.js";
+import type * as automation_confirmCall from "../automation/confirmCall.js";
 import type * as automation_decisions from "../automation/decisions.js";
 import type * as automation_derive from "../automation/derive.js";
 import type * as automation_grading from "../automation/grading.js";
@@ -80,6 +85,7 @@ import type * as automation_mergeStandDown from "../automation/mergeStandDown.js
 import type * as automation_paymentHooks from "../automation/paymentHooks.js";
 import type * as automation_proposals from "../automation/proposals.js";
 import type * as automation_receipts from "../automation/receipts.js";
+import type * as automation_refusal from "../automation/refusal.js";
 import type * as automation_scorecard from "../automation/scorecard.js";
 import type * as automation_settings from "../automation/settings.js";
 import type * as automation_sweep from "../automation/sweep.js";
@@ -798,9 +804,14 @@ declare const fullApi: ApiFromModules<{
   "attribution/teamProgramEventTypes": typeof attribution_teamProgramEventTypes;
   "attribution/teams": typeof attribution_teams;
   auth: typeof auth;
+  "automation/alert": typeof automation_alert;
+  "automation/audit": typeof automation_audit;
+  "automation/breaker": typeof automation_breaker;
   "automation/callDecisions": typeof automation_callDecisions;
   "automation/callReceipts": typeof automation_callReceipts;
   "automation/callRule": typeof automation_callRule;
+  "automation/certificates": typeof automation_certificates;
+  "automation/confirmCall": typeof automation_confirmCall;
   "automation/decisions": typeof automation_decisions;
   "automation/derive": typeof automation_derive;
   "automation/grading": typeof automation_grading;
@@ -809,6 +820,7 @@ declare const fullApi: ApiFromModules<{
   "automation/paymentHooks": typeof automation_paymentHooks;
   "automation/proposals": typeof automation_proposals;
   "automation/receipts": typeof automation_receipts;
+  "automation/refusal": typeof automation_refusal;
   "automation/scorecard": typeof automation_scorecard;
   "automation/settings": typeof automation_settings;
   "automation/sweep": typeof automation_sweep;

@@ -4,6 +4,9 @@ import type { Doc } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { transcriptGone } from "../callInsights/retention";
 import { headerFor } from "../callInsights/trigger";
+import { tripOverdueAudit } from "./audit";
+import { checkTenantBreakers } from "./breaker";
+import { scheduleCallEvaluation } from "./callDecisions";
 import { scheduleEvaluation, stopDecision } from "./decisions";
 import { isCallKind } from "./proposals";
 import { effectiveKindMode } from "./settings";
@@ -60,11 +63,14 @@ export const run = internalMutation({
   args: tenantPageArgs,
   returns: v.null(),
   handler: async (ctx, args) => {
-    const through = args.through ?? Date.now() + 1;
+    const now = Date.now();
+    const through = args.through ?? now + 1;
+    if (args.through === undefined) await ctx.scheduler.runAfter(0, auditPage, { cursor: null, through: now });
     const tenants = await ctx.db.query("tenants")
       .withIndex("by_status", (q) => q.eq("status", "active").lt("_creationTime", through))
       .paginate({ cursor: args.cursor ?? null, numItems: pageSize, maximumBytesRead });
     for (const tenant of tenants.page) {
+      await checkTenantBreakers(ctx, tenant, now);
       await scheduleTenantPayments(ctx, tenant, through);
       if ((["call_back", "payment_owed", "refusal_loss"] as const).some((kind) =>
         effectiveKindMode(tenant, kind) !== "off")) {
@@ -139,10 +145,38 @@ export const callRepair = internalMutation({
         await stopDecision(ctx, row._id, null, "transcript_gone");
       } else if (!header?.active || header.meetingId !== row.meetingId || header.publishedRunId !== row.runId) {
         await stopDecision(ctx, row._id, null, "input_changed");
+      } else if (row.mode === "automatic") {
+        const tenant = await ctx.db.get("tenants", row.tenantId);
+        const policy = tenant?.resultAutomation?.kinds[row.kind];
+        if (tenant && row.meetingId && policy?.breaker && row.policyVersion < policy.policyVersion) {
+          await stopDecision(ctx, row._id, null, policy.breaker.reason === "certificate_lapsed" ? "certificate_lapsed" : "breaker");
+          await scheduleCallEvaluation(ctx, tenant, row.meetingId, "sweep");
+        }
       }
     }
     if (!page.isDone) await ctx.scheduler.runAfter(0, callRepairRef, { ...args, cursor: page.continueCursor });
     else if (args.state === "ready") await ctx.scheduler.runAfter(0, callRepairRef, { ...args, state: "notice", cursor: null });
+    return null;
+  },
+});
+
+const auditPageArgs = { cursor: v.union(v.string(), v.null()), through: v.number() };
+type AuditPageArgs = ObjectType<typeof auditPageArgs>;
+const auditPage = makeFunctionReference<"mutation", AuditPageArgs>("automation/sweep:auditDeadlinePage");
+
+async function sweepOverdueAudits(ctx: MutationCtx, args: AuditPageArgs) {
+  const page = await ctx.db.query("resultAutomationDecisions")
+    .withIndex("by_auditOpenDueAt", (q) => q.gt("auditOpenDueAt", undefined).lte("auditOpenDueAt", args.through))
+    .paginate({ cursor: args.cursor, numItems: pageSize, maximumBytesRead });
+  for (const row of page.page) await tripOverdueAudit(ctx, row, args.through);
+  if (!page.isDone) await ctx.scheduler.runAfter(0, auditPage, { ...args, cursor: page.continueCursor });
+}
+
+export const auditDeadlinePage = internalMutation({
+  args: auditPageArgs,
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await sweepOverdueAudits(ctx, args);
     return null;
   },
 });

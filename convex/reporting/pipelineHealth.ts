@@ -6,6 +6,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import {
   DEAL_POSITIONS,
+  RESERVED_LOSS_REASONS,
   dealPosition,
   dealStageOf,
   stageOfPosition,
@@ -50,7 +51,7 @@ const VELOCITY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 const DAY_MS = 86400000;
 
 type NoShowSource = "closer" | "calendly_webhook" | "none";
-type LossAttributionRole = "admin" | "closer" | "unknown";
+type LossAttributionRole = "admin" | "closer" | "automatic" | "unknown";
 type ReminderCreatedSource = "closer" | "admin" | "system";
 
 function toRate(numerator: number, denominator: number): number | null {
@@ -380,8 +381,8 @@ export type PipelineLosses = {
 };
 
 /**
- * Deals Closed lost in the range by `lostAt`, leaving out every loss the
- * system wrote (the Slack expiry, a no-show, a cancellation). It reads from
+ * Deals Closed lost in the range by `lostAt`, excluding Slack expiry, no-show
+ * and cancellation losses. Before aggregate cutover it reads from
  * the start of the range by activity
  * (by_tenantId_and_stage_and_outcome_and_latestActivityAt): a loss is
  * activity, so a deal lost in the range has activity at or after its start,
@@ -442,26 +443,51 @@ export async function readLossesByStage(
     }
     losses.push(opportunity);
   }
+  // Automatic refusals keep the prior activity time. Their receipts find losses
+  // that the activity range can miss before the historical backfill is verified.
+  if (!truncated) {
+    const decisions = ctx.db.query("resultAutomationDecisions")
+      .withIndex("by_tenantId_and_mode_and_state_and_resolvedAt", (q) =>
+        q.eq("tenantId", tenantId).eq("mode", "automatic").eq("state", "applied")
+          .gte("resolvedAt", startDate).lt("resolvedAt", endDate));
+    for await (const decision of decisions) {
+      if (scanned >= MAX_LOSS_STAGE_SCAN_ROWS) {
+        truncated = true;
+        break;
+      }
+      scanned += 1;
+      if (decision.kind !== "refusal_loss" || !decision.opportunityId) continue;
+      const deal = await ctx.db.get("opportunities", decision.opportunityId);
+      if (!deal || deal.tenantId !== tenantId || deal.outcome !== "lost" ||
+          deal.lostReason !== RESERVED_LOSS_REASONS.call_refusal || deal.lostByUserId !== undefined ||
+          deal.lostAt !== decision.resolvedAt || (deal.latestActivityAt ?? -Infinity) >= startDate) continue;
+      if (losses.length >= REPORT_ROW_CAP) {
+        truncated = true;
+        break;
+      }
+      losses.push(deal);
+    }
+  }
   return { losses, truncated, scanned };
 }
 
 export function countLossesByActor(losses: Array<Doc<"opportunities">>) {
   const lossCountsByActor = new Map<Id<"users">, number>();
+  const automaticLossCountsByCloser = new Map<Id<"users">, number>();
   let unknownLossCount = 0;
 
   for (const opportunity of losses) {
-    if (!opportunity.lostByUserId) {
+    const { lostByUserId, lostReason, assignedCloserId } = opportunity;
+    if (lostByUserId) {
+      lossCountsByActor.set(lostByUserId, (lossCountsByActor.get(lostByUserId) ?? 0) + 1);
+    } else if (lostReason === RESERVED_LOSS_REASONS.call_refusal && assignedCloserId) {
+      automaticLossCountsByCloser.set(assignedCloserId, (automaticLossCountsByCloser.get(assignedCloserId) ?? 0) + 1);
+    } else {
       unknownLossCount += 1;
-      continue;
     }
-
-    lossCountsByActor.set(
-      opportunity.lostByUserId,
-      (lossCountsByActor.get(opportunity.lostByUserId) ?? 0) + 1,
-    );
   }
 
-  return { lossCountsByActor, unknownLossCount };
+  return { lossCountsByActor, automaticLossCountsByCloser, unknownLossCount };
 }
 
 // ── Screens ─────────────────────────────────────────────────────────────
@@ -601,34 +627,27 @@ export async function buildPipelineBacklogAndLoss(
     noShowSourceSplit[toNoShowSource(noShowSource)] += count;
   }
 
-  const { lossCountsByActor, unknownLossCount } = input.lossCounts;
-
-  const actorIds = [...lossCountsByActor.keys()];
-  const actorDocs = await Promise.all(
-    actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
+  const { lossCountsByActor, automaticLossCountsByCloser, unknownLossCount } = input.lossCounts;
+  const actorIds = [...new Set([...lossCountsByActor.keys(), ...automaticLossCountsByCloser.keys()])];
+  const byActor = (await Promise.all(actorIds.map(async (userId) => {
+    const user = await ctx.db.get("users", userId);
+    const actorName = user ? getUserDisplayName(user) : "Removed user";
+    const actor = await reportingUserIdentity(ctx, user, "Removed user");
+    const rows: Array<{ userId: typeof userId; actorName: string; actor: typeof actor;
+      actorRole: LossAttributionRole; count: number }> = [];
+    const humanCount = lossCountsByActor.get(userId);
+    const automaticCount = automaticLossCountsByCloser.get(userId);
+    if (humanCount) rows.push({ userId, actorName, actor, actorRole: toLossAttributionRole(user?.role), count: humanCount });
+    if (automaticCount) rows.push({ userId, actorName, actor, actorRole: "automatic", count: automaticCount });
+    return rows;
+  }))).flat().sort(
+    (left, right) => right.count - left.count || left.actorName.localeCompare(right.actorName),
   );
-  const actorById = new Map(actorDocs);
-
-  const byActor = (await Promise.all(actorIds
-    .map(async (actorId) => {
-      const actor = actorById.get(actorId);
-      return {
-        userId: actorId,
-        actorName: actor ? getUserDisplayName(actor) : "Removed user",
-        actor: await reportingUserIdentity(ctx, actor, "Removed user"),
-        actorRole: toLossAttributionRole(actor?.role),
-        count: lossCountsByActor.get(actorId) ?? 0,
-      };
-    })))
-    .sort(
-      (left, right) =>
-        right.count - left.count ||
-        left.actorName.localeCompare(right.actorName),
-    );
 
   const lossAttribution = {
     admin: 0,
     closer: 0,
+    automatic: 0,
     unknown: unknownLossCount,
     byActor,
   };

@@ -14,6 +14,8 @@ import { ALLOCATION_HISTORY_LIMIT } from "../payments/allocation";
 import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "../payments/capacity";
 import { FINGERPRINT_TASK_LIMIT } from "../payments/fingerprint";
 import { findPaymentTarget } from "../payments/match";
+import { mappingBlockReason, promotedCertificate } from "./breaker";
+import { enrollInSample } from "./certificates";
 import { deriveDecision, PAYMENT_RULE_VERSION, paymentBillingReason, paymentDecisionTarget, type PaymentDecisionInput } from "./derive";
 import { stopCallDecisionsOnPayment } from "./paymentHooks";
 import { automationKindOf, modeAtLeastAsk, paymentEvidenceOf, type PaymentEvidence } from "./proposals";
@@ -406,7 +408,12 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
   });
   if (!derived) return { decisionId: null };
 
-  const inputKey = await sha256Hex(stableJson(derived.inputTuple));
+  const sample = mode === "automatic" && derived.wouldWrite ? await promotedCertificate(ctx, tenant, kind) : null;
+  const automaticGate = sample ? await mappingBlockReason(ctx, payment, evidence, sample.scopeBindingIds ?? []) : null;
+  const automatic = Boolean(sample) && !automaticGate;
+  const decisionMode = mode === "shadow" ? "shadow" : automatic ? "automatic" : "ask";
+  // An ask for a held/out-of-scope mapping and an automatic proposal have distinct keys.
+  const inputKey = await sha256Hex(stableJson(automaticGate ? [...derived.inputTuple, automaticGate] : derived.inputTuple));
   const previous = await ctx.db.query("resultAutomationDecisions")
     .withIndex("by_tenantId_and_inputKey", (q) => q.eq("tenantId", tenantId).eq("inputKey", inputKey))
     .unique();
@@ -414,13 +421,17 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
 
   const decisionId = await ctx.db.insert("resultAutomationDecisions", {
     tenantId, providerPaymentId, opportunityId: deal._id, leadId: deal.leadId,
-    kind: derived.kind, mode, state: mode === "shadow" ? "shadow" : derived.wouldWrite ? "ready" : "needs_person",
+    kind: derived.kind, mode: decisionMode, state: mode === "shadow" ? "shadow" : derived.wouldWrite ? "ready" : "needs_person",
     inputKey, vetoKey, ruleVersion: PAYMENT_RULE_VERSION,
     policyVersion, activationVersion: settings.activationVersion, humanResultRevision: dealFacts.humanResultRevision,
-    wouldWrite: derived.wouldWrite, gates: derived.gates, proposal: derived.proposal,
+    wouldWrite: derived.wouldWrite && !automaticGate,
+    gates: automaticGate ? [...derived.gates, automaticGate] : derived.gates, proposal: derived.proposal,
     confirmRoute: derived.confirmRoute, noticeUserId: derived.noticeUserId, assignedCloserId: dealFacts.assignedCloserId,
     meetingId: derived.meetingId, evidence, createdAt: now,
+    dueAt: automatic ? now + (kind === "payment_win" ? 15 * 60_000 : 0) : undefined,
   });
+  const inserted = await ctx.db.get("resultAutomationDecisions", decisionId);
+  if (inserted) await enrollInSample(ctx, inserted);
   await supersedePaymentDecisions(ctx, payment, decisionId);
   return { decisionId };
 }

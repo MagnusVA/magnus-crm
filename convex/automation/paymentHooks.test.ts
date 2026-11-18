@@ -37,7 +37,8 @@ it.each(["intake", "evaluate"] as const)("a Whop payment for the person stops th
   const refusalState = path === "intake" ? "ready" : "notice";
   if (refusalState === "notice") {
     await f.t.run((ctx) => ctx.db.patch("resultAutomationDecisions", refusal._id, {
-      mode: "automatic", state: "notice", noticeRound: 1,
+      // A hand-made notice row: it belongs to no certificate sample.
+      mode: "automatic", state: "notice", noticeRound: 1, sampleId: undefined,
     }));
   }
   expect(await rows()).toMatchObject([
