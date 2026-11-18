@@ -2,7 +2,7 @@
 
 The CRM can propose a result, and for a kind the owner has promoted, record it with no person. Two sources feed it: a Whop payment (`docs/agents/payments.md`) and a recorded call's evidence (`docs/agents/call-insights.md`). Code lives in `convex/automation/`. The owner's screen is Settings › Automatic results (`/workspace/settings/automatic-results`).
 
-Everything is off until the owner turns it on. With every kind off, no decision is derived or stored, readings use today's prompt, and the manual save paths behave as before.
+Everything is off until the owner turns it on. With every kind off, no decision is derived or stored, readings use today's prompt, and the manual save paths behave as before, with two exceptions that apply to every tenant: a side-deal void now runs through the payment exclusion (`docs/agents/payments.md`), and every payment save checks the capacity hold (40 payment rows on a deal, 100 deals on a person).
 
 ## Kinds and levels
 
@@ -30,7 +30,7 @@ Each kind has a level in `tenants.resultAutomation`:
 - **People first.** Every path where a person records a result calls `noteHumanResult` once, in the same mutation. It bumps `opportunities.humanResultRevision` and stops the deal's outstanding decisions. A new human result path needs the call. System paths (Calendly, the stale job, automatic Fathom matching) must not make it.
 - **A decision is derived, never typed.** `derive.ts` (payments) and `callRule.ts` (calls) are pure. `decisions.ts` and `callDecisions.ts` load the facts, hash them into `inputKey`, and read and insert in one mutation, so the same input yields one row. Every writer re-derives inside its own mutation and writes only if the key still matches.
 - **Words never leave runs.** Decisions, receipts, notices, pinned lines, events and logs hold ids, fixed codes, numbers and digests. Quotes are read from `callInsightRuns` at query time for the meeting page, through `maskEvidenceQuotes`.
-- **Money never marks attendance.** A win from Whop leaves the meeting scheduled and sets `meetings.attendanceOwedSince`. The closer answers with `recordAttendanceOnly`, which never moves the deal.
+- **Money never marks attendance.** A win from Whop leaves the meeting scheduled and sets `meetings.attendanceOwedSince`. The closer answers with `recordAttendanceOnly`, which never moves the deal and, by design, queues no Second opinion: the deal's result came from Whop, not from the closer.
 - **No standalone held.** A call is marked held only together with a call-back, a payment-owed task or a refusal, with `attendanceSource: "call_insights"` and `attendanceDecisionId`.
 - **A stop stays stopped.** A person's stop is stored under a veto key that survives a re-read, a reprojection and a policy change. `stood_down` is the gate that keeps it from coming back.
 - **Automatic needs a certificate.** `setKindMode` cannot set `automatic`. `promoteKind` (owner only) writes the certificate pointer and the level together, and refuses a sample that is not certified for this kind and the current rule version. Every executor calls `breaker.assertAutomaticAllowed` inside its own mutation.
