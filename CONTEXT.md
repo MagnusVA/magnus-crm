@@ -89,7 +89,7 @@ Of the deals whose first held call was in a period, the share that are won now. 
 _Avoid_: payment close rate, sales ÷ shows
 
 **Win rate**:
-A closer's won deals ÷ their won and lost deals, counting only losses a person recorded, so deals closed by a no-show or cancellation stay out. It is the closer's own card, not the close rate.
+A closer's won deals ÷ their won and lost deals, counting only losses a person recorded, so deals closed by a no-show or cancellation stay out. A deal closed because the prospect refused on the call counts as the closer's loss, whether a person confirmed it or the CRM recorded it. It is the closer's own card, not the close rate.
 
 **Business day**:
 The day a tenant's reports count by: from a start hour in the tenant's time zone, by default 1:00 am Honduras time, when the last qualifier's shift ends. Screens that use the viewer's browser clock say so.
@@ -108,6 +108,23 @@ A closer's account of one shift, counted by Magnus from the end of their previou
 
 **Recording**:
 A Fathom recording of a call, matched to its meeting by the recorder and the scheduled time. A recording never records attendance: a call is held only when a person records its result.
+
+**Whop payment**:
+A payment Whop reports for the tenant's account. It is a fact, not cash: it counts only once a CRM payment exists for it, by a person's confirmation or an automatic write.
+_Avoid_: provider payment in copy, Whop sale
+
+**Attendance owed**:
+A scheduled call on a deal a Whop payment won. Money never marks a call held, so the closer still answers "attended" or "didn't show".
+
+**Automatic results**:
+The owner's switches for what the CRM may propose or record by itself, one per kind of result: off, shadow, ask or automatic. A kind reaches automatic only after a clean graded sample.
+
+**Proposal**:
+What the CRM would record for a Whop payment or a recorded call. In ask mode a person confirms it in one tap.
+_Avoid_: suggestion (that is the prefill a reading gives a dialog)
+
+**Pending loss**:
+A refusal the CRM may close as lost. Nothing changes until the closer has acknowledged it, and then only after the notice period.
 
 **Second opinion**:
 Jev's check of a recorded call against the result its closer recorded: Agrees, Not sure or Disagrees. It never changes a record. A person acts on a disagreement through the paths that already exist.

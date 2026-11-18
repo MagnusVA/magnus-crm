@@ -1,6 +1,6 @@
 # Payment providers (Whop)
 
-A tenant can connect its Whop account. Whop's payments then arrive in the CRM as facts in `providerPayments`. A fact is not cash: no report reads these tables, and money counts only through a `paymentRecords` row, as it always has. In this phase a person links a Whop payment to a payment someone already recorded by hand, as evidence. Linking never creates a payment or wins a deal. Link, unlink, Seen and hold releases count in Activity.
+A tenant can connect its Whop account. Whop's payments then arrive in the CRM as facts in `providerPayments`. A fact is not cash: no report reads these tables, and money counts only through a `paymentRecords` row, as it always has. A person can link a Whop payment to a payment someone already recorded by hand, as evidence; linking never creates a payment or wins a deal. A person can also confirm a Whop payment into a CRM payment, and a promoted kind records it with no person (`docs/agents/automatic-results.md`). Link, unlink, Seen and hold releases count in Activity.
 
 Code lives in `convex/payments/`. The screens are Settings › Integrations › Whop (`/workspace/settings/whop`) and Billing › From Whop (`/workspace/billing/whop/[providerPaymentId]`).
 
@@ -64,6 +64,26 @@ An indexed stage also revisits provisional facts older than 15 minutes. Indexed 
 Provider-wide failures leave a checkpoint at the failing page. A run allows up to 64 pages across Workpool jobs and stops when it sees a repeated cursor in the run. A nightly sweep skips a busy lease.
 
 All requests share a per-connection clock (`connectionState.reserveRequest`) and pin `Api-Version-Date` (`WHOP_API_VERSION_DATE` in `whop/client.ts`). Change the pin on purpose, with the normalizer's tests.
+
+## Recording a Whop payment
+
+- **One insert.** The four manual writers and the provider writer share `lib/paymentWrite.ts` `insertRecordedPayment`, which checks capacity (40 stored rows on a deal, disputed included; 100 deals for a person) before it inserts.
+- **The manual writers ask first.** Each runs `reconcileCheck.checkPaymentReconciliation` after authorization and before its eligibility check. A Whop payment that may be the same money refuses the save with `payment.whop_payment_found` until the person answers: confirm it, "it's that payment", or "different money". The answer pins the payments the person saw, so one that arrived later is never declared different by accident.
+- **A row created from Whop** has `origin` and `recordedVia` of `provider`, whoever confirmed it. A row a person typed and later linked keeps its own origin, so Team Performance still counts it as theirs.
+- **`payments/apply.ts` `applyProviderPayment`** is the writer for Billing's confirm, the "they didn't attend" button and automatic writes. It repeats the manual writer's side effects in the same order and never touches attendance, proof or Second opinion.
+- **Times.** `recordedAt` and the deal's `paymentReceivedAt` are the commit time, as for any late entry. Nothing is backdated.
+
+## Taking a payment out and putting it back
+
+`payments/exclude.ts` is the one contract, whatever the cause (wrong match, refund, chargeback, a side-deal void). It looks at the payments that count afterwards:
+
+- Another payment still counts: the deal stays won and `paymentReceivedAt` moves to the earliest one.
+- None counts and nothing has happened since a Billing or automatic win: Undo returns the deal to where it was.
+- None counts otherwise: the approval must choose. Closed lost with the reserved reason `payment_excluded`, or Follow-up with one reminder due now.
+
+A won deal is never left with no counting payment, and every move off won clears `paymentReceivedAt` in the same transition. Attendance a person recorded is never touched. `payments/restore.ts` reverses a mistaken exclusion and refuses when the Whop payment now counts for another row. Both take a fingerprint from a preview; a retry returns `alreadyApplied` and anything that changed returns `stale_preview`. `lib/taskSettlement.ts` decides what happens to the deal's tasks in all three directions.
+
+`payment_excluded` and `call_refusal` are reserved loss reasons (`opportunities/stages.ts`). Every path where a person types a reason calls `assertTypedLossReason`, and screens print them through `lib/lossReasonLabel.ts`.
 
 ## Where a payment stands
 
