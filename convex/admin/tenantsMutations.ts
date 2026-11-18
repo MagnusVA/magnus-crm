@@ -29,6 +29,10 @@ const TENANT_INDEX_BY_TABLE = {
   meetings: "by_tenantId_and_scheduledAt",
   opportunities: "by_tenantId",
   paymentRecords: "by_tenantId_and_recordedAt",
+  paymentWebhookReceipts: "by_tenantId_and_connectionId_and_webhookId",
+  providerPayments: "by_tenantId_and_connectionId_and_externalPaymentId",
+  paymentProviderBindings: "by_tenantId_and_connectionId_and_kind_and_externalId",
+  tenantPaymentConnections: "by_tenantId_and_provider_and_environment",
   rawWebhookEvents: "by_tenantId_and_receivedAt",
   resparkBatchItems: "by_tenantId_and_workedAt",
   resparkBatches: "by_tenantId_and_userId_and_createdAt",
@@ -120,6 +124,11 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
       const id = ctx.db.normalizeId("leads", row._id);
       const lead = id && await ctx.db.get("leads", id);
       if (lead) await deleteResparkPoolEntry(ctx, lead);
+    }
+    if (tableName === "paymentWebhookReceipts") {
+      const id = ctx.db.normalizeId("paymentWebhookReceipts", row._id);
+      const receipt = id && await ctx.db.get("paymentWebhookReceipts", id);
+      if (receipt?.rawBodyStorageId) await ctx.storage.delete(receipt.rawBodyStorageId);
     }
     if (tableName === "fathomWebhookEvents") {
       const id = ctx.db.normalizeId("fathomWebhookEvents", row._id);

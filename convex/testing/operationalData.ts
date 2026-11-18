@@ -21,6 +21,12 @@ const BATCH_SIZE = 64;
 const DOMAIN_EVENT_BATCH_SIZE = 40;
 
 const OPERATIONAL_TABLES = [
+  // Stop Whop intake and reconciliation before deleting their rows and files.
+  "tenantPaymentConnections",
+  "paymentWebhookReceipts",
+  "paymentProviderBindings",
+  "providerPayments",
+
   "secondOpinions",
   "callInsightRuns",
   "callInsightFacts",
@@ -246,6 +252,10 @@ export const getSnapshot = internalQuery({
       endOfDayReports: await countTableDocuments(ctx, "endOfDayReports"),
       callRecordings: await countTableDocuments(ctx, "callRecordings"),
       fathomWebhookEvents: await countTableDocuments(ctx, "fathomWebhookEvents"),
+      paymentWebhookReceipts: await countTableDocuments(ctx, "paymentWebhookReceipts"),
+      paymentProviderBindings: await countTableDocuments(ctx, "paymentProviderBindings"),
+      providerPayments: await countTableDocuments(ctx, "providerPayments"),
+      tenantPaymentConnections: await countTableDocuments(ctx, "tenantPaymentConnections"),
       fathomOrgMembers: await countTableDocuments(ctx, "fathomOrgMembers"),
       tenantFathomConnections: await countTableDocuments(ctx, "tenantFathomConnections"),
       meetingFormResponses: await countTableDocuments(
@@ -430,6 +440,10 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("endOfDayReports"),
       v.literal("callRecordings"),
       v.literal("fathomWebhookEvents"),
+      v.literal("paymentWebhookReceipts"),
+      v.literal("paymentProviderBindings"),
+      v.literal("providerPayments"),
+      v.literal("tenantPaymentConnections"),
       v.literal("fathomOrgMembers"),
       v.literal("tenantFathomConnections"),
     ),
@@ -453,6 +467,15 @@ export const deleteOperationalDataBatch = internalMutation({
       case "paymentRecords":
         deleted = await deletePaymentRecordsBatch(ctx);
         break;
+      case "paymentWebhookReceipts": {
+        const rows = await ctx.db.query("paymentWebhookReceipts").take(BATCH_SIZE);
+        for (const row of rows) {
+          if (row.rawBodyStorageId) await ctx.storage.delete(row.rawBodyStorageId);
+          await ctx.db.delete("paymentWebhookReceipts", row._id);
+        }
+        deleted = rows.length;
+        break;
+      }
       case "fathomWebhookEvents": {
         const rows = await ctx.db.query("fathomWebhookEvents").take(BATCH_SIZE);
         for (const row of rows) {
@@ -541,6 +564,10 @@ export const resetOperationalData = internalAction({
       endOfDayReports: 0,
       callRecordings: 0,
       fathomWebhookEvents: 0,
+      paymentWebhookReceipts: 0,
+      paymentProviderBindings: 0,
+      providerPayments: 0,
+      tenantPaymentConnections: 0,
       fathomOrgMembers: 0,
       tenantFathomConnections: 0,
       resparkBatchItems: 0,

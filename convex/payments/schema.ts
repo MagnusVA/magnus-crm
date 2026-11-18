@@ -117,6 +117,14 @@ export const providerAdverseStateValidator = v.union(
   v.literal("dispute_lost"),
 );
 
+/** Why a person said a provider payment is not money for a deal here. */
+export const providerPaymentDismissReasonValidator = v.union(
+  v.literal("not_crm_money"),
+  v.literal("test_payment"),
+  v.literal("duplicate_in_provider"),
+  v.literal("other"),
+);
+
 export const webhookReceiptStatusValidator = v.union(
   v.literal("received"),
   v.literal("processed"),
@@ -285,6 +293,8 @@ export const paymentProviderTables = {
     matchMethod: v.optional(providerPaymentMatchMethodValidator),
     reviewState: providerPaymentReviewStateValidator,
     reviewReason: v.optional(providerPaymentReviewReasonValidator),
+    // Set while `reviewState` is `dismissed`.
+    dismissReason: v.optional(providerPaymentDismissReasonValidator),
     resolvedAt: v.optional(v.number()),
     resolvedByUserId: v.optional(v.id("users")),
   })

@@ -127,4 +127,8 @@ crons.interval("call-insights-sweep", { minutes: 15 }, internal.callInsights.mai
 
 crons.cron("call-insights-drift", "17 8 * * 1", makeFunctionReference<"mutation">("callInsights/eval/drift:weekly"), {});
 
+crons.interval("whop-payment-sweep", { minutes: 15 }, internal.payments.reconcile.sweep, { kind: "recent" });
+crons.cron("whop-payment-full-scan", "34 7 * * *", internal.payments.reconcile.sweep, { kind: "full" });
+crons.cron("whop-payment-retention", "54 7 * * *", internal.payments.reconcile.purge, {});
+
 export default crons;

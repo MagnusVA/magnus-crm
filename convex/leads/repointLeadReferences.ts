@@ -128,6 +128,33 @@ export async function moveOpportunityToLead(
     boundsHit: [],
   };
 
+  if (opportunity.leadId !== toLeadId) {
+    // A split moves only evidence for this deal. Evidence with just a person
+    // candidate follows that person only when the person is merged.
+    const [allocated, candidates] = await Promise.all([
+      ctx.db.query("providerPayments")
+        .withIndex("by_tenantId_and_opportunityId", (q) =>
+          q.eq("tenantId", tenantId).eq("opportunityId", opportunityId))
+        .take(ROW_LIMIT),
+      ctx.db.query("providerPayments")
+        .withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
+          q.eq("tenantId", tenantId).eq("candidateLeadId", opportunity.leadId))
+        .take(ROW_LIMIT),
+    ]);
+    noteBound(result.boundsHit, "provider_payments", allocated);
+    noteBound(result.boundsHit, "provider_payment_candidates", candidates);
+    for (const payment of allocated) {
+      if (payment.leadId !== toLeadId) {
+        await ctx.db.patch("providerPayments", payment._id, { leadId: toLeadId });
+      }
+    }
+    for (const payment of candidates) {
+      if (payment.candidateOpportunityId === opportunityId) {
+        await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
+      }
+    }
+  }
+
   const meetings = await ctx.db
     .query("meetings")
     .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
@@ -484,6 +511,25 @@ export async function moveRemainingLeadRows(
     await ctx.db.patch("followUps", followUp._id, { leadId: toLeadId });
   }
   result.followUps = followUps.length;
+
+  const [allocated, candidates] = await Promise.all([
+    ctx.db.query("providerPayments")
+      .withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", fromLeadId))
+      .take(ROW_LIMIT),
+    ctx.db.query("providerPayments")
+      .withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
+        q.eq("tenantId", tenantId).eq("candidateLeadId", fromLeadId))
+      .take(ROW_LIMIT),
+  ]);
+  noteBound(result.boundsHit, "provider_payments", allocated);
+  noteBound(result.boundsHit, "provider_payment_candidates", candidates);
+  for (const payment of allocated) {
+    await ctx.db.patch("providerPayments", payment._id, { leadId: toLeadId });
+  }
+  for (const payment of candidates) {
+    await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
+  }
 
   // Lead gen prospects and DM portal copies are the person's touches
   // (docs/plans/phase-2-person-first.md §5). A person can have more than one

@@ -125,6 +125,14 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "attached a payment receipt",
     iconHint: "paperclip",
   },
+  "payment.provider_linked": {
+    verb: "linked Whop evidence to a payment",
+    iconHint: "paperclip",
+  },
+  "payment.provider_unlinked": {
+    verb: "unlinked Whop evidence from a payment",
+    iconHint: "paperclip",
+  },
   "payment.recorded": {
     verb: "recorded a payment",
     iconHint: "dollar-sign",
