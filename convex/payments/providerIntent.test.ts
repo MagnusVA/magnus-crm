@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hasRecentWhopMoney, RECENT_WHOP_MONEY_MS } from "./reconcileCheck";
 import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { insertCloserMeeting, insertTask } from "../../tests/closerPipelineFixtures";
@@ -303,6 +304,35 @@ describe("confirming a Whop payment", () => {
       { attributedCloserId: otherId, origin: "closer_additional" },
     ]);
     await f.invariant();
+  });
+
+  it("sends an unassigned closer to Billing only while Whop money for the person is recent, linked money included", async () => {
+    const f = await meetingFixture();
+    const recent = (since: number) => f.t.run((ctx) =>
+      hasRecentWhopMoney(ctx, { tenantId: f.tenantId, leadId: f.personId, since }));
+    const paidAt = await f.t.run(async (ctx) => {
+      // A charge the assigned closer typed by hand and linked: it keeps its manual origin.
+      const recordId = await seedProviderWin(ctx, { ...f, approverId: f.adminId, recordedAt: FIXTURE_PAID_AT });
+      await ctx.db.patch("paymentRecords", recordId, { origin: "closer_meeting" });
+      await ctx.db.patch("providerPayments", f.providerPaymentId, { reviewState: "linked" });
+      return (await ctx.db.get("providerPayments", f.providerPaymentId))!.paidAt!;
+    });
+    expect(await recent(paidAt - 1)).toBe(true);
+    expect(await recent(paidAt + 1)).toBe(false);
+
+    await f.t.run((ctx) => ctx.db.insert("users", {
+      tenantId: f.tenantId, workosUserId: "user_other", email: "other@example.test", role: "closer", isActive: true,
+    }));
+    const other = f.t.withIdentity({ subject: "user_other", org_id: "org_test" });
+    const save = async () => other.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      opportunityId: f.opportunityId, amount: 300, currency: "USD", paymentType: "deposit", proofFileId: await storeProofFile(f.t),
+    });
+    await expect(save()).rejects.toHaveProperty("data.code", "payment.billing_review_required");
+    // Months later the same closer takes a separate payment: the old charge holds nothing.
+    await f.t.run((ctx) => ctx.db.patch("providerPayments", f.providerPaymentId, {
+      paidAt: Date.now() - RECENT_WHOP_MONEY_MS - 86_400_000,
+    }));
+    expect(await save()).toMatchObject({ paymentId: expect.any(String) });
   });
 
   it("uses additional-payment mode and inherits the won deal's sold program", async () => {

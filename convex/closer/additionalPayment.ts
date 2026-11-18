@@ -4,6 +4,8 @@ import {
   allocateReconciledPayment,
   attachReconciledPayment,
   checkPaymentReconciliation,
+  hasRecentWhopMoney,
+  RECENT_WHOP_MONEY_MS,
   finishReconciledPayment,
   providerIntentValidator,
   providerWaivesProof,
@@ -85,7 +87,12 @@ export const recordAdditionalPayment = mutation({
         writer: "additional",
         dealPayments,
       });
-      if (conflicts.length) {
+      // Only recent Whop money can be this payment. A charge from months ago
+      // must not send every later manual payment to Billing.
+      const since = now - RECENT_WHOP_MONEY_MS;
+      const recentConflict = conflicts.some((conflict) =>
+        conflict.state === "read_limit" || conflict.paidAt === undefined || conflict.paidAt >= since);
+      if (recentConflict || await hasRecentWhopMoney(ctx, { tenantId, leadId: opportunity.leadId, since })) {
         throw expectedError("payment.billing_review_required", "Billing needs to check this payment first.");
       }
     }

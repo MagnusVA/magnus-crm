@@ -426,11 +426,12 @@ function planExclusion(
 ): ExclusionPlan | PaymentCommandCode {
   const survivors = survivorsOf(state);
   const sideDeal = isSideDealExclusion(state, policy);
-  if (sideDeal && args.level === "undo") return "needs_review";
   if (survivors.length > 0) {
     if (args.disposition !== undefined) return "disposition_not_allowed";
     return { result: "kept_won", survivors, newFirst: earliestCountingPayment(survivors) };
   }
+  // A side deal has no earlier position to return to: only its last payment needs a reviewed correction.
+  if (sideDeal && args.level === "undo") return "needs_review";
   if (args.level === "undo") {
     const undo = planUndo(state, now);
     return undo ? { result: undo.result, survivors, undo } : "needs_review";

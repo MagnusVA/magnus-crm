@@ -110,9 +110,9 @@ describe("undoAutomaticWrite: payments", () => {
     await invariants(f);
   });
 
-  it("undoes an untouched automatic later payment and leaves the first payment and win intact", async () => {
+  it.each([undefined, "side_deal"] as const)("undoes an untouched automatic later payment and leaves the first payment and win intact (%s)", async (source) => {
     const membershipId = "mem_undo_later";
-    const f = await paymentConfirmationFixture({ fact: { membershipId } });
+    const f = await paymentConfirmationFixture({ source, fact: { membershipId } });
     const { membershipBindingId, providerPaymentId, paymentRecordId } = await f.t.run(async (ctx) => {
       const { paymentRecordId } = await seedBillingWin(ctx, {
         ...f, opportunityId: f.dealId, approverId: f.adminId, recordedAt: NOW,

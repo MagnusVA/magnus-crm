@@ -239,6 +239,40 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
   return conflicts;
 }
 
+/** How long after Whop collects a charge a second, hand-logged copy of it is plausible. */
+export const RECENT_WHOP_MONEY_MS = 30 * 86_400_000;
+
+/**
+ * True when Whop collected money from this person since `since`, in any state:
+ * waiting, recorded, or linked to a payment someone typed. A closer who is not
+ * on the deal can't be shown that money, so a recent charge sends their manual
+ * save to Billing. Older charges hold nothing: time narrows the hold, it never
+ * ties the two payments together.
+ */
+export async function hasRecentWhopMoney(ctx: ReadCtx, args: {
+  tenantId: Id<"tenants">; leadId: Id<"leads">; since: number;
+}): Promise<boolean> {
+  const { tenantId, leadId, since } = args;
+  const connections = (await Promise.all([
+    findConnection(ctx, tenantId, "live"), findConnection(ctx, tenantId, "sandbox"),
+  ])).filter((connection) => connection !== null).filter((connection) => !sandboxAllocationBlocked(connection));
+  if (!connections.length) return false;
+  const leadIds = await mergedLeadIds(ctx, tenantId, leadId);
+  if (leadIds.length >= PAYMENT_READ_LIMIT) return true;
+  for (const { _id: connectionId } of connections) {
+    for (const id of leadIds) {
+      const rows = await ctx.db.query("providerPayments")
+        .withIndex("by_connectionId_and_leadId_and_paidAt", (q) =>
+          q.eq("connectionId", connectionId).eq("leadId", id).gte("paidAt", since))
+        .take(PAYMENT_READ_LIMIT + 1);
+      if (rows.length > PAYMENT_READ_LIMIT) return true;
+      if (rows.some((row) => row.tenantId === tenantId && row.status === "paid" && row.totalMinor !== 0 &&
+          row.reviewState !== "dismissed")) return true;
+    }
+  }
+  return false;
+}
+
 function stalePreview() {
   return expectedError("payment.stale_preview", "The Whop confirmation changed. Reload before saving.");
 }
