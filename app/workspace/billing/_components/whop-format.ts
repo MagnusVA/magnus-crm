@@ -34,7 +34,7 @@ export const PROVIDER_REASON_SENTENCES: Record<ProviderReviewReason, string> = {
   historical: "Whop collected this before the account was connected.",
   dismissed: "Someone dismissed this payment.",
   stale_payment: "Whop collected this more than 7 days ago.",
-  unmapped_product: "The Whop product has no program mapped yet.",
+  unmapped_product: "The Whop product or its price is not mapped yet.",
   multi_item: "The checkout had more than one item.",
   financing: "The buyer paid through financing.",
   renewal_unbound: "This is a renewal, and no deal is tied to its membership.",

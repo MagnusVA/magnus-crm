@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { callEvidenceWanted } from "../callInsights/settings";
 import { scheduleCallEvaluation } from "./callDecisions";
+import { scheduleEvaluationsForLead } from "./decisions";
 import { isPaymentKind } from "./proposals";
 
 // A human result stands down every outstanding automatic proposal on its deal
@@ -117,7 +118,7 @@ export async function noteHumanResult(
   }
 
   if (RE_EVALUATE_AFTER_HUMAN_RESULT) {
-    await (await import("./decisions")).scheduleEvaluationsForLead(ctx, actor.tenantId, deal.leadId, "human_result", { opportunityId, previousRevision: revision - 1, actorUserId: actor.userId, consumeDecisionId });
+    await scheduleEvaluationsForLead(ctx, actor.tenantId, deal.leadId, "human_result", { opportunityId, previousRevision: revision - 1, actorUserId: actor.userId, consumeDecisionId });
   }
   return { revision };
 }
