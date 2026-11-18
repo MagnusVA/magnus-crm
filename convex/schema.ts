@@ -58,6 +58,7 @@ import { callInsightsSettingsValidator } from "./callInsights/validators";
 import { endOfDayTables } from "./closer/endOfDaySchema";
 import { leadGenShiftTables } from "./leadGen/endOfShiftSchema";
 import { contactAgainValidator } from "./lib/contactAgain";
+import { paymentProviderTables } from "./payments/schema";
 
 export default defineSchema({
   ...pipelineTables,
@@ -72,6 +73,7 @@ export default defineSchema({
   ...callInsightTables,
   ...endOfDayTables,
   ...leadGenShiftTables,
+  ...paymentProviderTables,
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
     // Set when the tenant moved to the booking coverage model: explicit Shared
@@ -1830,8 +1832,19 @@ export default defineSchema({
     // proofReused, which Billing shows to the reviewer.
     proofSha256: v.optional(v.string()),
     proofReused: v.optional(v.boolean()),
+    // The provider payment this row came from or was linked to
+    // (docs/agents/payments.md). Provenance: it stays after the row stops
+    // counting, so read the row that counts through
+    // `providerPayments.paymentRecordId`, and never `.unique()` this index.
+    providerPaymentId: v.optional(v.id("providerPayments")),
+    // When the provider collected the money. Reports keep using `recordedAt`.
+    providerPaidAt: v.optional(v.number()),
   })
     .index("by_tenantId_and_proofSha256", ["tenantId", "proofSha256"])
+    .index("by_tenantId_and_providerPaymentId", [
+      "tenantId",
+      "providerPaymentId",
+    ])
     .index("by_opportunityId_and_recordedAt", [
       "opportunityId",
       "recordedAt",

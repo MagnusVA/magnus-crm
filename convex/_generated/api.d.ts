@@ -1384,6 +1384,7 @@ export declare const components: {
   webhookWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"webhookWorkpool">;
   reportingWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"reportingWorkpool">;
   analyticsWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"analyticsWorkpool">;
+  providerWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"providerWorkpool">;
   workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
   migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
   posthog: import("@posthog/convex/_generated/component.js").ComponentApi<"posthog">;

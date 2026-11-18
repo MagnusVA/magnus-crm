@@ -70,6 +70,9 @@ const app = defineApp({
 app.use(workpool, { name: "webhookWorkpool" });
 app.use(workpool, { name: "reportingWorkpool" });
 app.use(workpool, { name: "analyticsWorkpool" });
+// Payment provider intake has its own budget, so Calendly bookings never wait
+// behind Whop refreshes (docs/agents/payments.md).
+app.use(workpool, { name: "providerWorkpool" });
 app.use(workOSAuthKit);
 app.use(migrations);
 app.use(posthog, {
