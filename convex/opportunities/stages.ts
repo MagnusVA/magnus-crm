@@ -132,6 +132,32 @@ export function isSystemLossReason(
   );
 }
 
+// Loss codes only a CRM core writes. A loss a person types can never equal
+// one (`assertTypedLossReason` in `opportunities/reservedLossReason.ts`), so a
+// stage exception may name one to reopen exactly the losses that core wrote.
+export const RESERVED_LOSS_REASONS = {
+  // A payment was taken out and no other payment on the deal counts
+  // (docs/agents/payments.md).
+  payment_excluded: "payment_excluded",
+} as const;
+
+export type ReservedLossReason =
+  (typeof RESERVED_LOSS_REASONS)[keyof typeof RESERVED_LOSS_REASONS];
+
+export const RESERVED_LOSS_REASON_LABELS: Record<ReservedLossReason, string> = {
+  payment_excluded: "Payment taken out",
+};
+
+/** Compares after trimming and lower-casing, so " Payment_Excluded" counts. */
+export function isReservedLossReason(
+  reason: string | undefined | null,
+): reason is ReservedLossReason {
+  if (!reason) return false;
+  return (Object.values(RESERVED_LOSS_REASONS) as string[]).includes(
+    reason.trim().toLowerCase(),
+  );
+}
+
 export type DealSource = NonNullable<Doc<"opportunities">["source"]>;
 
 export type DealStageAndOutcome = { stage: DealStage; outcome: DealOutcome };

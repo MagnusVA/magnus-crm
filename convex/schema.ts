@@ -38,7 +38,11 @@ import {
   lifecycleStageEnteredAtValidator,
   lifecycleStageValidator,
 } from "./leads/lifecycle";
-import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
+import {
+  paymentOriginValidator,
+  paymentRecordedViaValidator,
+  paymentTypeValidator,
+} from "./lib/paymentTypes";
 import { enrollmentStatusValidator } from "./enrollments/validators";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
@@ -1795,7 +1799,9 @@ export default defineSchema({
     attributedCloserId: v.optional(v.id("users")),
     amountMinor: v.number(),
     currency: v.string(),
-    recordedByUserId: v.id("users"),
+    // Who entered the payment. Absent only on a row the system created from a
+    // provider payment with nobody confirming it (`origin: "provider"`).
+    recordedByUserId: v.optional(v.id("users")),
     programId: v.id("tenantPrograms"),
     programName: v.string(),
     paymentType: paymentTypeValidator,
@@ -1824,7 +1830,7 @@ export default defineSchema({
     origin: paymentOriginValidator,
     // How the payment was entered (closer-assistant.md §6.3). Set on every
     // new payment; unset on rows written before the AI assistant.
-    recordedVia: v.optional(v.union(v.literal("web"), v.literal("mcp"))),
+    recordedVia: v.optional(paymentRecordedViaValidator),
     // clientInfo.name of the MCP client, for payments an agent logged.
     agentClient: v.optional(v.string()),
     // SHA-256 of the proof file, read from _storage when the payment is
