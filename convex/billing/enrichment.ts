@@ -10,8 +10,10 @@ import {
   userMemberIdentity,
 } from "../lib/memberIdentity";
 import {
+  paymentEntryOf,
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
+  type PaymentEntry,
 } from "../lib/paymentTypes";
 import type {
   BillingDmAttribution,
@@ -34,12 +36,21 @@ function tenantOwned<T extends { tenantId: Id<"tenants"> }>(
   return doc && doc.tenantId === tenantId ? doc : null;
 }
 
-function userDisplayName(user: Doc<"users"> | null | undefined) {
-  return user?.fullName?.trim() || user?.email || "Unknown user";
+function userDisplayName(user: Doc<"users"> | null | undefined, fallback = "Unknown user") {
+  return user?.fullName?.trim() || user?.email || fallback;
 }
 
 function nullableUserDisplayName(user: Doc<"users"> | null | undefined) {
   return user ? userDisplayName(user) : null;
+}
+
+export function providerEntryByline(entry: PaymentEntry, recorder: Doc<"users"> | null) {
+  if (entry === "provider_auto") return "Recorded automatically from Whop";
+  if (entry === "provider_confirmed") {
+    const name = userDisplayName(recorder, "");
+    return name ? `Confirmed from Whop by ${name}` : "Confirmed from Whop";
+  }
+  return undefined;
 }
 
 function slackUserLabel(user: Doc<"slackUsers"> | null | undefined) {
@@ -361,11 +372,15 @@ async function enrichOneBillingPaymentListRow(
     throw new Error("Cross-tenant payment read blocked.");
   }
 
-  const person = await resolveDealPerson(
-    ctx,
-    tenantId,
-    await resolvePaymentDeal(ctx, tenantId, payment),
-  );
+  const entry = paymentEntryOf(payment);
+  const [opportunity, recorder] = await Promise.all([
+    resolvePaymentDeal(ctx, tenantId, payment),
+    entry === "provider_confirmed" && payment.recordedByUserId
+      ? ctx.db.get("users", payment.recordedByUserId)
+      : null,
+  ]);
+  const person = await resolveDealPerson(ctx, tenantId, opportunity);
+  const providerByline = providerEntryByline(entry, tenantOwned(recorder, tenantId));
 
   return {
     payment: {
@@ -377,17 +392,21 @@ async function enrichOneBillingPaymentListRow(
       paymentType: payment.paymentType,
       programName: payment.programName,
       hasProofFile: payment.proofFileId !== undefined,
-      ...paymentProvenance(payment),
+      ...paymentProvenance(payment, providerByline),
     },
     customer: personBillingLabels(person),
   };
 }
 
-function paymentProvenance(payment: Doc<"paymentRecords">): BillingPaymentProvenance {
+function paymentProvenance(
+  payment: Doc<"paymentRecords">,
+  providerByline: string | undefined,
+): BillingPaymentProvenance {
   return {
-    recordedVia: payment.recordedVia ?? null,
+    recordedVia: providerByline ? "provider" : payment.recordedVia ?? null,
     agentClient: payment.agentClient ?? null,
     proofReused: payment.proofReused === true,
+    ...(providerByline === undefined ? {} : { providerByline }),
   };
 }
 
@@ -440,7 +459,10 @@ async function enrichOneBillingPaymentRow(
     payment,
   );
 
-  const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(payment);
+  const entry = paymentEntryOf(payment);
+  const recordedByUserId = entry === "person"
+    ? resolveLegacyCompatibleRecordedByUserId(payment)
+    : payment.recordedByUserId;
   const [enteredBy, reviewer, attribution] = await Promise.all([
     recordedByUserId ? ctx.db.get("users", recordedByUserId) : Promise.resolve(null),
     payment.verifiedByUserId
@@ -451,6 +473,7 @@ async function enrichOneBillingPaymentRow(
 
   const tenantEnteredBy = tenantOwned(enteredBy, tenantId);
   const tenantReviewer = tenantOwned(reviewer, tenantId);
+  const providerByline = providerEntryByline(entry, tenantEnteredBy);
 
   return {
     payment: {
@@ -463,11 +486,14 @@ async function enrichOneBillingPaymentRow(
       programId: payment.programId,
       programName: payment.programName,
       origin: payment.origin,
+      ...(providerByline !== undefined && payment.providerPaidAt !== undefined
+        ? { providerPaidAt: payment.providerPaidAt }
+        : {}),
       referenceCode: payment.referenceCode ?? null,
       note: payment.note ?? null,
       hasProofFile: payment.proofFileId !== undefined,
       fathomLink: payment.fathomLink ?? null,
-      ...paymentProvenance(payment),
+      ...paymentProvenance(payment, providerByline),
     },
     customer: { leadId: person?._id ?? null, ...personBillingLabels(person) },
     opportunity: opportunity
@@ -487,10 +513,12 @@ async function enrichOneBillingPaymentRow(
       : { id: null, scheduledAt: null, fathomLink: null },
     enteredBy: {
       id: tenantEnteredBy?._id ?? null,
-      name: tenantEnteredBy ? userDisplayName(tenantEnteredBy) : "Missing user",
+      name: tenantEnteredBy
+        ? userDisplayName(tenantEnteredBy, providerByline)
+        : providerByline ?? "Missing user",
       identity: tenantEnteredBy
         ? await userMemberIdentity(ctx, tenantEnteredBy)
-        : unknownMemberIdentity("Missing user", "unknown"),
+        : entry === "person" ? unknownMemberIdentity("Missing user", "unknown") : null,
     },
     phoneCloser: attribution.phoneCloser,
     dmAttribution: attribution.dmAttribution,

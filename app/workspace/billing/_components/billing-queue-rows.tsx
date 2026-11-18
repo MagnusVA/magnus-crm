@@ -20,7 +20,7 @@ import {
   STATUS_LABELS,
   STATUS_WORD,
 } from "./billing-format";
-import { AgentPaymentChip, ReusedProofIcon } from "./payment-provenance-markers";
+import { PaymentEntryChip, ReusedProofIcon } from "./payment-provenance-markers";
 
 // The queue's ruled column rows, one 44px line each. The card is the
 // container they fold by: every column from @4xl; under it PROGRAM and TYPE
@@ -69,7 +69,7 @@ export function QueueHeads() {
 
 export function QueueRow({ row, now }: { row: BillingQueueRow; now: number }) {
   const { payment, customer } = row;
-  // The name, else the email, else the phone; nothing under it.
+  // The name, else the email, else the phone.
   const name = customerName({ ...customer, phone: customer.phone ? formatPhone(customer.phone) : null });
   const paid = formatPaidAt(payment.recordedAt, now);
   const type = PAYMENT_TYPE_LABELS[payment.paymentType];
@@ -93,8 +93,11 @@ export function QueueRow({ row, now }: { row: BillingQueueRow; now: number }) {
           >
             {name ?? "Missing customer"}
           </Link>
-          <AgentPaymentChip recordedVia={payment.recordedVia} agentClient={payment.agentClient} />
+          <PaymentEntryChip recordedVia={payment.recordedVia} agentClient={payment.agentClient} />
         </div>
+        {payment.providerByline ? (
+          <p className="text-[13px] leading-[18px] text-muted-foreground">{payment.providerByline}</p>
+        ) : null}
         <p className="truncate text-[13px] leading-[18px] text-muted-foreground @2xl/payments:hidden">
           <span className="font-condensed text-[14px] font-semibold tabular-nums">{paid}</span> · {payment.programName} · {type}
         </p>

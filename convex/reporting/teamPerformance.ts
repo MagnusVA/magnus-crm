@@ -193,6 +193,8 @@ export async function buildTeamPerformanceMetrics(
 
   for (const payment of finalPayments) {
     if (
+      payment.origin === "provider" ||
+      payment.recordedByUserId === undefined ||
       payment.effectiveCloserId === null ||
       payment.recordedByUserId === payment.effectiveCloserId ||
       !activeCloserIds.has(payment.effectiveCloserId)

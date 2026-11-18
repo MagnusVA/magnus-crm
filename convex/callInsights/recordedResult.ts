@@ -1,11 +1,11 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { earliestCountingPayment } from "../lib/enrollments";
 
 /**
- * The result a person recorded for one meeting, read the way Second opinion
- * reads it: a payment carries the meeting, a call-back task names it as its
- * source, and a loss is written in the same transaction that marks the meeting
- * held. Undefined while the meeting has no result.
+ * The saved result of one meeting. A linked payment, call-back task or loss
+ * can record the result directly. A provider win can also explain a held
+ * call without linking the payment to it. Undefined while there is no result.
  */
 export type RecordedResult =
   | {
@@ -39,12 +39,17 @@ export async function recordedResultForMeeting(
     )
     .order("desc")
     .take(50);
-  const payment = payments.find(
+  const linkedPayment = payments.find(
     (p) =>
       p.tenantId === meeting.tenantId &&
       p.meetingId === meeting._id &&
       p.status !== "disputed",
   );
+  const payment =
+    linkedPayment ??
+    (deal.outcome === "won"
+      ? await providerPaymentForMeeting(ctx, meeting)
+      : undefined);
   if (payment)
     return {
       kind: "paid",
@@ -77,6 +82,51 @@ export async function recordedResultForMeeting(
   )
     return { kind: "call_back" };
   return { kind: "held_other" };
+}
+
+async function providerPaymentForMeeting(
+  ctx: QueryCtx | MutationCtx,
+  meeting: Doc<"meetings">,
+) {
+  const candidates = await Promise.all(
+    (["recorded", "verified"] as const).map((status) =>
+      ctx.db
+        .query("paymentRecords")
+        .withIndex("by_opportunityId_and_status_and_recordedAt", (q) =>
+          q.eq("opportunityId", meeting.opportunityId).eq("status", status),
+        )
+        .first(),
+    ),
+  );
+  const payment = earliestCountingPayment(
+    candidates.filter(
+      (row): row is Doc<"paymentRecords"> => row?.tenantId === meeting.tenantId,
+    ),
+  );
+  if (payment?.origin !== "provider") return undefined;
+
+  // The win explains one call. Prefer the latest slot up to and including
+  // the payment time, or the first slot when the payment predates them all.
+  const previous = await ctx.db
+    .query("meetings")
+    .withIndex("by_opportunityId_and_scheduledAt", (q) =>
+      q.eq("opportunityId", meeting.opportunityId)
+        .lte("scheduledAt", payment.recordedAt),
+    )
+    .order("desc")
+    .first();
+  const matched =
+    previous ??
+    (await ctx.db
+      .query("meetings")
+      .withIndex("by_opportunityId_and_scheduledAt", (q) =>
+        q.eq("opportunityId", meeting.opportunityId)
+          .gt("scheduledAt", payment.recordedAt),
+      )
+      .first());
+  return matched?.tenantId === meeting.tenantId && matched._id === meeting._id
+    ? payment
+    : undefined;
 }
 
 export type SuggestionComparison =

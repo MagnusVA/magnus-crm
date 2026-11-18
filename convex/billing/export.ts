@@ -54,7 +54,7 @@ export function toBillingExportRow(row: BillingPaymentRow): BillingExportRow {
     paymentType: row.payment.paymentType,
     referenceCode: row.payment.referenceCode,
     note: row.payment.note,
-    enteredBy: row.enteredBy.name,
+    enteredBy: row.payment.providerByline ?? row.enteredBy.name,
     phoneCloser: row.phoneCloser.name,
     dmTeam: row.dmAttribution.teamName,
     dmCloser: row.dmAttribution.dmCloserName,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 import { BotIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { BillingPaymentProvenance } from "@/convex/billing/types";
 import { DetailCard } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { clientDisplayName } from "@/lib/agentClient";
@@ -12,36 +13,29 @@ import { cn } from "@/lib/utils";
 import { FIGURE } from "./billing-format";
 import { PaidAt } from "./paid-at";
 
-// Billing's two markers (docs/plans/closer-assistant.md §7): a payment an
-// agent logged names its client, and a payment whose proof file also backs
-// another payment warns the reviewer, with links to the others.
-
 type BillingPaymentDetail = NonNullable<FunctionReturnType<typeof api.billing.queries.getPaymentDetail>>;
 
 export const REUSED_PROOF_MESSAGE = "This proof file also backs another payment";
 
-/** "VIA CLAUDE" as a condensed chip for a payment an agent logged; nothing for the web. */
-export function AgentPaymentChip({
+/** Marks Whop payments and payments an agent logged. */
+export function PaymentEntryChip({
   recordedVia,
   agentClient,
   className,
-}: {
-  recordedVia: "web" | "mcp" | null;
-  agentClient: string | null;
+}: Pick<BillingPaymentProvenance, "recordedVia" | "agentClient"> & {
   className?: string;
 }) {
-  if (recordedVia !== "mcp") return null;
-  const name = clientDisplayName(agentClient ?? undefined);
+  if (recordedVia !== "mcp" && recordedVia !== "provider") return null;
+  const agentName = recordedVia === "mcp" ? clientDisplayName(agentClient ?? undefined) : null;
   return (
     <span
-      title={`Logged through ${name}`}
+      title={agentName ? `Logged through ${agentName}` : undefined}
       className={cn(
         "inline-flex h-5 shrink-0 items-center gap-1 rounded-[4px] bg-muted px-1.5 font-condensed text-[11px] leading-none font-bold tracking-[0.1em] whitespace-nowrap text-muted-foreground uppercase",
         className,
       )}
     >
-      <BotIcon aria-hidden="true" className="size-3" />
-      via {name}
+      {agentName ? <><BotIcon aria-hidden="true" className="size-3" />via {agentName}</> : "From Whop"}
     </span>
   );
 }
