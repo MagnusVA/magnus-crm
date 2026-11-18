@@ -521,8 +521,8 @@ it("13: a contactless provisional payment holds refusals only while it is recent
     });
   });
   expect(await possible()).toMatchObject({ _id: factId });
-  // Past the matcher's age limit it can no longer settle into a match.
-  await f.t.run((ctx) => ctx.db.patch("providerPayments", factId, { sourceCreatedAt: DUE - 8 * 24 * HOUR_MS }));
+  // Pending for more than 30 days: no longer treated as about to settle.
+  await f.t.run((ctx) => ctx.db.patch("providerPayments", factId, { sourceCreatedAt: DUE - 31 * 24 * HOUR_MS }));
   expect(await possible()).toBeNull();
   // A purged row says nothing about who paid.
   await f.t.run((ctx) => ctx.db.patch("providerPayments", factId, {

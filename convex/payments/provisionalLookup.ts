@@ -4,7 +4,8 @@ import { followMergeChain } from "../leads/identityResolution";
 import { mergedLeadIds } from "../lib/mergedLeads";
 import { isPlaceholderEmail, isPlaceholderPhone, normalizeEmail, normalizePhone } from "../lib/normalization";
 import { findEnabledBinding } from "./bindingLookup";
-import { MAX_PROVIDER_PAYMENT_AGE_MS } from "./reviewTiming";
+/** A payment can stay pending for days before it settles and gets a fresh paid time. */
+const CONTACTLESS_WINDOW_MS = 30 * 86_400_000;
 
 type ReadCtx = QueryCtx | MutationCtx;
 type Payment = Doc<"providerPayments">;
@@ -63,15 +64,19 @@ export async function possibleProvisionalPayment(
   const tenantId = person.tenantId;
   let remaining = IDENTITY_LIMIT;
   // A payment with no contact details names nobody, so it could be anyone's.
-  // Only a recent one can still settle into a match: an older one is past the
-  // matcher's age limit, and one whose details were purged is older still.
-  // These rows get their own budget, read newest first, so old history can
-  // neither use it up nor stop every refusal in the tenant.
+  // Only one created in the last 30 days is still likely to settle, and one
+  // whose details were purged is older than that. These rows get their own
+  // budget, read newest first, so old history can neither use it up nor stop
+  // every refusal in the tenant.
   async function readContactless(range: { order(o: "desc"): { take(limit: number): Promise<Payment[]> } }) {
+    const since = now - CONTACTLESS_WINDOW_MS;
     const rows = await range.order("desc").take(IDENTITY_LIMIT + 1);
     const recent = rows.filter((payment) => payment.payerDetailsClearedAt === undefined &&
-      payment.sourceCreatedAt >= now - MAX_PROVIDER_PAYMENT_AGE_MS);
-    if (recent.length > IDENTITY_LIMIT) return "unknown" as const;
+      payment.sourceCreatedAt >= since);
+    // A row is stored no earlier than Whop created it. A full page whose
+    // oldest row was stored inside the window may hide more recent ones.
+    const pageMayHideRecent = rows.length > IDENTITY_LIMIT && rows[rows.length - 1]._creationTime >= since;
+    if (recent.length > IDENTITY_LIMIT || pageMayHideRecent) return "unknown" as const;
     return firstLive(recent);
   }
   async function readRange(range: { take(limit: number): Promise<Payment[]> }) {

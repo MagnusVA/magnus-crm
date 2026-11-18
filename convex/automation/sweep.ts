@@ -119,7 +119,8 @@ export const connectionPage = internalMutation({
     const { connection, cursor, policyVersions } = repair;
     const samePolicy = cursor?.policyVersions === policyVersions &&
       cursor.connectedAt === args.connectedAt && cursor.activationVersion === args.activationVersion;
-    if (samePolicy && args.through - cursor.lastTick < repairIntervalMs) return null;
+    // Half the interval: a cron that starts a little early must not skip its tick.
+    if (samePolicy && args.through - cursor.lastTick < repairIntervalMs / 2) return null;
 
     const through = (samePolicy ? cursor.paymentThrough : undefined) ?? args.through;
     const payments = await ctx.db.query("providerPayments")
