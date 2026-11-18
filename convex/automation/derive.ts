@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { PaymentType } from "../lib/paymentTypes";
-import type { DealPosition, SystemLossReason } from "../opportunities/stages";
+import { RESERVED_LOSS_REASONS, type DealPosition, type SystemLossReason } from "../opportunities/stages";
 import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "../payments/capacity";
 import type { PaymentTarget } from "../payments/match";
 import { MAX_PROVIDER_PAYMENT_AGE_MS } from "../payments/reviewTiming";
@@ -33,6 +33,8 @@ export type PaymentDecisionInput = {
     position: DealPosition;
     isSideDeal: boolean;
     systemLoss: SystemLossReason | null;
+    /** Lost through an automatic call refusal (`call_refusal`, no person). Only a person's Billing pick wins it. */
+    callRefusal?: boolean;
     createdAt: number;
     assignedCloserId?: Id<"users">;
     humanResultRevision: number;
@@ -73,6 +75,11 @@ export function paymentDecisionTarget(target: PaymentTarget) {
     return { leadId: target.candidateLeadId, opportunityId: target.candidateOpportunityIds[0] };
   }
   return null;
+}
+
+/** A deal an automatic call refusal closed: lost with `call_refusal` and no person on the loss. */
+export function isAutomaticCallRefusal(deal: Pick<Doc<"opportunities">, "outcome" | "lostReason" | "lostByUserId">): boolean {
+  return deal.outcome === "lost" && deal.lostReason === RESERVED_LOSS_REASONS.call_refusal && deal.lostByUserId === undefined;
 }
 
 export function paymentBillingReason(reason: string | undefined) {
@@ -118,7 +125,8 @@ export function deriveDecision(input: PaymentDecisionInput): DerivedDecision {
   if (deal.position === "qualified") gates.add("qualified_only");
   if (kind === "payment_win" && (deal.isSideDeal || deal.position === "call_held")) gates.add("side_deal");
   if (deal.position === "lost") {
-    if (!deal.systemLoss) gates.add("lost_by_person");
+    if (deal.callRefusal) gates.add("call_refusal_loss");
+    else if (!deal.systemLoss) gates.add("lost_by_person");
     else if (!bound && target.kind === "ready") gates.add("system_loss");
   }
   if (kind === "additional_payment" && !validMembership) gates.add("won_deal_no_membership");

@@ -744,3 +744,75 @@ export async function automationCallFixture(options?: Parameters<typeof provider
   });
   return { ...fixture, opportunityId: dealId!, ...ids };
 }
+
+// ─── Automatic writes (phase 3, package D2) ─────────────────────────────
+// Imports for the helpers below; ES modules hoist them.
+import type { TestConvex } from "convex-test";
+import { CERTIFICATE_TARGET as d2CertificateTarget } from "../convex/automation/certificates";
+import type d2Schema from "../convex/schema";
+
+type D2Kind = keyof typeof d2CertificateTarget;
+
+/**
+ * A certified sample of the kind's full target of distinct people, and the
+ * tenant's kind promoted to automatic on it, as `promoteKind` leaves it. The
+ * tenant must already have its automation settings. Members are written in
+ * pages, so the sample is real for invariants A6 to A8.
+ */
+export async function seedAutomaticCertificate(
+  t: TestConvex<typeof d2Schema>,
+  args: {
+    tenantId: Id<"tenants">;
+    promotedByUserId: Id<"users">;
+    kind: D2Kind;
+    ruleVersion: string;
+    scopeBindingIds?: Id<"paymentProviderBindings">[];
+    now?: number;
+  },
+): Promise<Id<"automationSamples">> {
+  const { tenantId, kind, ruleVersion } = args;
+  const now = args.now ?? FIXTURE_NOW;
+  const target = d2CertificateTarget[kind];
+  const sampleId = await t.run((ctx) => ctx.db.insert("automationSamples", {
+    tenantId, kind, ruleVersion, target, status: "certified",
+    firstCaseAt: now - 30 * 86_400_000, fullAt: now - 2 * 86_400_000, certifiedAt: now - 86_400_000,
+    scopeBindingIds: args.scopeBindingIds, createdAt: now - 30 * 86_400_000,
+  }));
+  for (let offset = 0; offset < target; offset += 100) {
+    await t.run(async (ctx) => {
+      for (let i = offset; i < Math.min(target, offset + 100); i++) {
+        const leadId = await insertProviderPerson(ctx, tenantId, { email: `d2-${kind}-${i}@example.com` });
+        await ctx.db.insert("resultAutomationDecisions", {
+          tenantId, kind, mode: "shadow", state: "shadow",
+          inputKey: await sha256Hex(stableJson(["d2-sample", kind, i])),
+          vetoKey: await sha256Hex(stableJson(["d2-sample-veto", kind, i])),
+          ruleVersion, policyVersion: 1, activationVersion: 1, humanResultRevision: 0,
+          wouldWrite: true, gates: [], leadId, sampleId,
+          evidence: { allocationRevision: 0, sourceUpdatedAt: FIXTURE_PAID_AT, bindingIds: [], bindingVersions: [] },
+          createdAt: now - 30 * 86_400_000,
+        });
+      }
+    });
+  }
+  await t.run(async (ctx) => {
+    const settings = (await ctx.db.get("tenants", tenantId))?.resultAutomation;
+    if (!settings) throw new Error("seedAutomaticCertificate needs the tenant's automation settings");
+    const policy = settings.kinds[kind] ?? {
+      mode: "off" as const, policyVersion: 0, changedAt: now, changedByUserId: args.promotedByUserId,
+    };
+    const { breaker: _breaker, ...rest } = policy;
+    await ctx.db.patch("tenants", tenantId, {
+      resultAutomation: {
+        ...settings,
+        kinds: {
+          ...settings.kinds,
+          [kind]: {
+            ...rest, mode: "automatic", policyVersion: policy.policyVersion + 1,
+            automatic: { promotedAt: now - 1000, promotedByUserId: args.promotedByUserId, sampleId, ruleVersion, writes: 0 },
+          },
+        },
+      },
+    });
+  });
+  return sampleId;
+}

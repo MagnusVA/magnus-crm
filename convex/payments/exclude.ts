@@ -282,14 +282,20 @@ function untouchedByWin(task: Task, row: Payment) {
   return task.status === "completed" && task.completionPaymentId === row._id;
 }
 
+/** The receipts one-tap undo may reverse: a Billing confirmation, or an automatic write. */
+function undoableReceipt(decision: Decision): boolean {
+  return decision.appliedVia === "billing" ||
+    (decision.appliedVia === "automatic" && decision.mode === "automatic" && decision.resolvedByUserId === undefined);
+}
+
 /**
- * One-tap undo: only for a Billing confirmation with stored before-fields
- * that no human result has followed (Calendly changes don't bump the
- * revision). Null when the reviewed correction is needed.
+ * One-tap undo: only for a Billing confirmation or an automatic write, with
+ * stored before-fields, that no human result has followed (Calendly changes
+ * don't bump the revision). Null when the reviewed correction is needed.
  */
 function planUndo(state: ExclusionState, now: number): UndoPlan | null {
   const { decision, deal, row } = state;
-  if (!decision || decision.state !== "applied" || decision.appliedVia !== "billing" || !decision.before) return null;
+  if (!decision || decision.state !== "applied" || !undoableReceipt(decision) || !decision.before) return null;
   if (decision.humanResultRevisionAfter === undefined ||
       (deal.humanResultRevision ?? 0) !== decision.humanResultRevisionAfter) return null;
   const before = decision.before;
@@ -716,9 +722,11 @@ export async function excludePaymentCore(
     })),
   });
   if (decision?.state === "applied") {
+    // A receipt leaving `applied` closes its audit: nothing is left to check.
     await ctx.db.patch("resultAutomationDecisions", decision._id, {
       state: plan.undo ? "undone" : "corrected",
       correctionId,
+      auditOpenDueAt: undefined,
     });
   }
   if (row.attributedCloserId) {

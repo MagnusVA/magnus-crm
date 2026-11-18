@@ -326,3 +326,53 @@ export async function seedCallDecisionReading(
     jevCost: { costUsd: 0 },
   };
 }
+
+// ─── Automatic call tasks (phase 3, package D2) ─────────────────────────
+// Imports for the helpers below; ES modules hoist them.
+import { makeFunctionReference as d2FunctionReference } from "convex/server";
+import { api as d2Api, internal as d2Internal } from "../convex/_generated/api";
+import { currentRuleVersion as d2CurrentRuleVersion } from "../convex/automation/settings";
+import {
+  insertMeetingAggregate as d2InsertMeetingAggregate, insertOpportunityAggregate as d2InsertOpportunityAggregate,
+} from "../convex/reporting/writeHooks";
+import { seedAutomaticCertificate as d2SeedAutomaticCertificate } from "./providerPaymentFixtures";
+
+type D2TaskKind = "call_back" | "payment_owed";
+const d2EvaluateCallMeeting = d2FunctionReference<"mutation", { meetingId: Id<"meetings">; cause: "published" }, {
+  decisionIds: Id<"resultAutomationDecisions">[];
+}>("automation/callDecisions:evaluateCallMeeting");
+
+/**
+ * The call harness with automation on and the task kind at ask, or promoted
+ * to automatic on a certified sample at today's rule version.
+ */
+export async function callTaskFixture(kind: D2TaskKind, automatic: boolean) {
+  const f = await callInsightsHarness();
+  // The harness writes its deal and call raw; the cores keep their aggregates.
+  await f.t.run(async (ctx) => {
+    await d2InsertOpportunityAggregate(ctx, f.opportunityId);
+    await d2InsertMeetingAggregate(ctx, f.meetingId);
+  });
+  await f.owner.mutation(d2Api.automation.settings.setEnabled, { enabled: true });
+  await f.owner.mutation(d2Api.automation.settings.setKindMode, { kind, mode: "ask" });
+  if (!automatic) return { ...f, sampleId: undefined };
+  const ruleVersion = await f.t.run(async (ctx) => d2CurrentRuleVersion((await ctx.db.get("tenants", f.tenantId))!, kind));
+  const sampleId = await d2SeedAutomaticCertificate(f.t, {
+    tenantId: f.tenantId, promotedByUserId: f.ownerId, kind, ruleVersion, now: Date.now(),
+  });
+  return { ...f, sampleId };
+}
+
+/** Publish a reading of the harness call and evaluate it. Returns the kind's stored decision. */
+export async function readCallForTask(
+  f: Awaited<ReturnType<typeof callInsightsHarness>>,
+  kind: D2TaskKind,
+): Promise<Id<"resultAutomationDecisions">> {
+  const args = await seedCallDecisionReading(f, { kind });
+  await f.t.mutation(d2Internal.callInsights.run.publish, args);
+  const { decisionIds } = await f.t.mutation(d2EvaluateCallMeeting, { meetingId: f.meetingId, cause: "published" });
+  const rows = await f.t.run(async (ctx) => await Promise.all(decisionIds.map((id) => ctx.db.get("resultAutomationDecisions", id))));
+  const decision = rows.find((row) => row?.kind === kind);
+  if (!decision) throw new Error(`No ${kind} decision`);
+  return decision._id;
+}

@@ -38,6 +38,11 @@ export async function paymentVetoKey(
  * existed) and returns its id. Call after the payment row and the active
  * allocation are written, in the same mutation. A retry that finds this
  * receipt already applied to the same row returns it unchanged.
+ *
+ * A person's confirmation stamps `mode: "ask"`, even on a decision derived
+ * at automatic, so it is never read as an automatic write. An automatic
+ * write (`appliedVia: "automatic"`) has no approver, names the certificate
+ * in force and records the deal's revision it left, for one-tap undo.
  */
 export async function recordApplyReceipt(
   ctx: MutationCtx,
@@ -49,12 +54,18 @@ export async function recordApplyReceipt(
     opportunityId: Id<"opportunities">;
     paymentRecordId: Id<"paymentRecords">;
     appliedVia: NonNullable<Decision["appliedVia"]>;
-    approverUserId: Id<"users">;
+    approverUserId?: Id<"users">;
+    certificateSampleId?: Id<"automationSamples">;
     before?: Decision["before"];
     now: number;
   },
 ): Promise<Id<"resultAutomationDecisions">> {
   const { tenantId, providerPaymentId, opportunityId, paymentRecordId } = args;
+  const automatic = args.appliedVia === "automatic";
+  if (automatic ? args.approverUserId || !args.certificateSampleId || !args.decisionId
+    : !args.approverUserId || args.certificateSampleId) {
+    throw new Error("A receipt has an approver unless an automatic decision wrote it");
+  }
   const [record, payment, deal] = await Promise.all([
     ctx.db.get("paymentRecords", paymentRecordId),
     ctx.db.get("providerPayments", providerPaymentId),
@@ -80,13 +91,22 @@ export async function recordApplyReceipt(
       throw new Error(`Decision ${decision._id} was applied to another payment`);
     }
     if (decision.state !== "ready") throw new Error(`Decision ${decision._id} is ${decision.state}, not ready`);
+    if (automatic && decision.mode !== "automatic") {
+      throw new Error(`Decision ${decision._id} is ${decision.mode}, not automatic`);
+    }
     await ctx.db.patch("resultAutomationDecisions", decision._id, {
       state: "applied",
+      mode: automatic ? "automatic" : "ask",
       resolvedAt: args.now,
       resolvedByUserId: args.approverUserId,
       appliedPaymentRecordId: paymentRecordId,
       appliedVia: args.appliedVia,
       before: args.before,
+      ...(automatic && {
+        certificateSampleId: args.certificateSampleId,
+        // A person's confirmation records its revision through noteHumanResult.
+        humanResultRevisionAfter: deal.humanResultRevision ?? 0,
+      }),
     });
     return decision._id;
   }

@@ -159,8 +159,12 @@ async function collect(
     if (!row.recordedByUserId) {
       const decision = row.automationDecisionId
         ? await ctx.db.get("resultAutomationDecisions", row.automationDecisionId) : null;
-      if (row.origin !== "provider" || decision?.tenantId !== row.tenantId || decision.state !== "applied" ||
-          decision.mode !== "automatic") {
+      // An automatic write that was later undone or corrected keeps its row
+      // (disputed, with no recorder) and its receipt.
+      const standing = decision?.state === "applied" ||
+        ((decision?.state === "undone" || decision?.state === "corrected") && row.status === "disputed");
+      if (row.origin !== "provider" || decision?.tenantId !== row.tenantId || !standing ||
+          decision?.mode !== "automatic") {
         fail("I5", `row ${row._id} has no recorder`);
       }
     }

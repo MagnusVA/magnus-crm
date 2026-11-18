@@ -1,6 +1,6 @@
 import { makeFunctionReference } from "convex/server";
 import { v, type ObjectType } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { transcriptGone } from "../callInsights/retention";
 import { headerFor } from "../callInsights/trigger";
@@ -8,6 +8,7 @@ import { tripOverdueAudit } from "./audit";
 import { checkTenantBreakers } from "./breaker";
 import { scheduleCallEvaluation } from "./callDecisions";
 import { scheduleEvaluation, stopDecision } from "./decisions";
+import { scheduleRefusalDeadlinePass } from "./notice";
 import { isCallKind } from "./proposals";
 import { effectiveKindMode } from "./settings";
 
@@ -65,7 +66,11 @@ export const run = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const through = args.through ?? now + 1;
-    if (args.through === undefined) await ctx.scheduler.runAfter(0, auditPage, { cursor: null, through: now });
+    if (args.through === undefined) {
+      await ctx.scheduler.runAfter(0, auditPage, { cursor: null, through: now });
+      await ctx.scheduler.runAfter(0, duePage, { cursor: null, through: now });
+      await scheduleRefusalDeadlinePass(ctx, now);
+    }
     const tenants = await ctx.db.query("tenants")
       .withIndex("by_status", (q) => q.eq("status", "active").lt("_creationTime", through))
       .paginate({ cursor: args.cursor ?? null, numItems: pageSize, maximumBytesRead });
@@ -177,6 +182,39 @@ export const auditDeadlinePage = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await sweepOverdueAudits(ctx, args);
+    return null;
+  },
+});
+
+// Due automatic writes (D2): a missed wake-up is retried here. Each row is
+// handed to its executor in its own mutation, which re-checks everything.
+const duePageArgs = { cursor: v.union(v.string(), v.null()), through: v.number() };
+type DuePageArgs = ObjectType<typeof duePageArgs>;
+const duePage = makeFunctionReference<"mutation", DuePageArgs>("automation/sweep:dueAutomaticPage");
+const executeAutomaticPaymentRef = makeFunctionReference<"mutation", { decisionId: Id<"resultAutomationDecisions"> }>(
+  "automation/automaticPayments:executeAutomaticPayment",
+);
+const executeCallTaskRef = makeFunctionReference<"mutation", { decisionId: Id<"resultAutomationDecisions"> }>(
+  "automation/apply:executeCallTask",
+);
+const DUE_PAGE_SIZE = 50;
+
+export const dueAutomaticPage = internalMutation({
+  args: duePageArgs,
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("resultAutomationDecisions")
+      .withIndex("by_state_and_dueAt", (q) => q.eq("state", "ready").gt("dueAt", undefined).lte("dueAt", args.through))
+      .paginate({ cursor: args.cursor, numItems: DUE_PAGE_SIZE, maximumBytesRead });
+    for (const row of page.page) {
+      if (row.mode !== "automatic") continue;
+      if (row.kind === "payment_win" || row.kind === "additional_payment") {
+        await ctx.scheduler.runAfter(0, executeAutomaticPaymentRef, { decisionId: row._id });
+      } else if (row.kind === "call_back" || row.kind === "payment_owed") {
+        await ctx.scheduler.runAfter(0, executeCallTaskRef, { decisionId: row._id });
+      }
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, duePage, { ...args, cursor: page.continueCursor });
     return null;
   },
 });

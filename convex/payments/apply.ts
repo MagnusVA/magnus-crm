@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { scheduleAudit } from "../automation/audit";
 import { supersedePaymentDecisions } from "../automation/decisions";
-import { deriveDecision, paymentBillingReason, type PaymentDecisionInput } from "../automation/derive";
+import { deriveDecision, isAutomaticCallRefusal, paymentBillingReason, type PaymentDecisionInput } from "../automation/derive";
 import { noteHumanResult } from "../automation/humanResult";
+import { stopCallDecisionsOnPayment } from "../automation/paymentHooks";
 import { recordApplyReceipt } from "../automation/receipts";
 import { modeAtLeastAsk, paymentEvidenceOf, paymentProposalOf } from "../automation/proposals";
 import { effectiveKindMode } from "../automation/settings";
@@ -12,7 +14,7 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { earliestCountingPayment, paymentCounts, syncPersonEnrollments } from "../lib/enrollments";
 import { computeLatestActivityAt, patchOpportunityLifecycle, transitionOpportunity } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolveLegacyCompatibleAttributedCloserId, type PaymentType } from "../lib/paymentTypes";
-import { insertRecordedPayment } from "../lib/paymentWrite";
+import { insertAutomaticPayment, insertRecordedPayment } from "../lib/paymentWrite";
 import { addPinnedLine } from "../lib/pinnedLines";
 import type { CrmRole } from "../lib/roleMapping";
 import { isSideDeal } from "../lib/sideDeals";
@@ -33,7 +35,9 @@ type Deal = Doc<"opportunities">;
 type Decision = Doc<"resultAutomationDecisions">;
 type Before = NonNullable<Decision["before"]>;
 
-export type ApplyVia = "billing" | "meeting_no_show";
+/** `automatic`: the system writes with no person (contract §2.13); only executeAutomaticPayment passes it. */
+export type ApplyVia = "billing" | "meeting_no_show" | "automatic";
+type Approver = { userId: Id<"users">; role: CrmRole; source: "admin" | "closer" };
 
 type PreviewArgs = {
   tenantId: Id<"tenants">;
@@ -45,8 +49,11 @@ type ApplyArgs = PreviewArgs & {
   decisionId?: Id<"resultAutomationDecisions">;
   expectedFingerprint: string;
   expectedAllocationRevision: number;
-  approver: { userId: Id<"users">; role: CrmRole; source: "admin" | "closer" };
+  /** The person who confirmed. Absent only for `via: "automatic"`. */
+  approver?: Approver;
   via: ApplyVia;
+  /** The certificate in force, for an automatic write. */
+  certificateSampleId?: Id<"automationSamples">;
   meetingId?: Id<"meetings">;
   programId?: Id<"tenantPrograms">;
   paymentType?: PaymentType;
@@ -132,7 +139,11 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   if (isSideDeal(deal) || rawPosition === "call_held") return refuse("side_deal");
   if (rawPosition === "qualified") return refuse("qualified_only");
   const systemLoss = systemLossReasonOf(deal);
-  if (rawPosition === "lost" && !systemLoss) return refuse("lost_by_person");
+  // An automatic call refusal is a loss no person recorded. Only a person's
+  // Billing pick wins it, through its own move, and only when the refusal's
+  // applied automatic receipt proves this loss is the one it wrote.
+  const callRefusal = isAutomaticCallRefusal(deal) && await automaticRefusalWrote(ctx, deal);
+  if (rawPosition === "lost" && !systemLoss && !callRefusal) return refuse("lost_by_person");
   const position = rawPosition === "lost" ? "system_loss" : rawPosition;
   if (payment.status !== "paid" || payment.paidAt === undefined || payment.totalMinor === 0) return refuse("not_paid");
   if (payment.totalMinor === undefined || !Number.isSafeInteger(payment.totalMinor) ||
@@ -237,7 +248,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
     autoImportAfter: connection.autoImportAfter, connectionEpoch: connection.connectedAt,
     target,
     deal: {
-      _id: deal._id, position: rawPosition, isSideDeal: false, systemLoss, createdAt: deal.createdAt,
+      _id: deal._id, position: rawPosition, isSideDeal: false, systemLoss, callRefusal, createdAt: deal.createdAt,
       assignedCloserId: attributedCloserId, humanResultRevision: deal.humanResultRevision ?? 0,
       storedPaymentCount: payments.length, personDealCount: personDeals.length, firstCountingCreditCloserId: firstCredit,
       blockingManualPaymentIds, currentMeeting: position === "booked" ? scheduled[0] : undefined,
@@ -282,8 +293,22 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
       expiresFollowUpIds: expiring.map((task) => task._id),
     },
   } as const satisfies Preview;
-  return { ...preview, deal, payment, derived, meetings, scheduled, pendingWinTasks, bindingRows, inheritedProgramId, membership, systemLoss };
+  return {
+    ...preview, deal, payment, derived, meetings, scheduled, pendingWinTasks, bindingRows, inheritedProgramId, membership,
+    systemLoss, callRefusal,
+  };
 }
+
+/** Whether an applied automatic refusal decision on the deal wrote its current loss. */
+async function automaticRefusalWrote(ctx: ReadCtx, deal: Deal): Promise<boolean> {
+  const applied = await ctx.db.query("resultAutomationDecisions")
+    .withIndex("by_tenantId_and_opportunityId_and_state", (q) =>
+      q.eq("tenantId", deal.tenantId).eq("opportunityId", deal._id).eq("state", "applied"))
+    .order("desc").take(APPLIED_DEAL_RECEIPT_LIMIT);
+  return applied.some((decision) => decision.kind === "refusal_loss" && decision.mode === "automatic" &&
+    decision.appliedVia === "automatic" && decision.resolvedByUserId === undefined && decision.resolvedAt === deal.lostAt);
+}
+const APPLIED_DEAL_RECEIPT_LIMIT = 50;
 
 export async function previewProviderApply(ctx: ReadCtx, args: PreviewArgs): Promise<Preview> {
   const prepared = await prepareApply(ctx, args);
@@ -307,6 +332,12 @@ async function readRetry(ctx: MutationCtx, args: ApplyArgs, payment: Payment, de
 
 export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): Promise<ApplyResult> {
   const { tenantId, providerPaymentId, opportunityId, approver, via, now, meetingId } = args;
+  const automatic = via === "automatic";
+  // A programming error, never a state: only the executor writes with no person.
+  if (automatic ? approver || !args.decisionId || !args.certificateSampleId || meetingId || args.programId || args.paymentType
+    : !approver || args.certificateSampleId) {
+    throw new Error("Only an automatic decision applies a payment with no approver");
+  }
   const [payment, decision] = await Promise.all([
     ctx.db.get("providerPayments", providerPaymentId),
     args.decisionId ? ctx.db.get("resultAutomationDecisions", args.decisionId) : null,
@@ -319,8 +350,12 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   if (payment.allocationRevision !== args.expectedAllocationRevision) return refuse("stale_preview");
   const prepared = await prepareApply(ctx, args);
   if (!prepared.ok) return prepared;
-  const { deal, derived, position, kind, proposal, pendingWinTasks, meetings, scheduled, bindingRows, inheritedProgramId, membership, systemLoss } = prepared;
+  const {
+    deal, derived, position, kind, proposal, pendingWinTasks, meetings, scheduled, bindingRows, inheritedProgramId, membership,
+    systemLoss, callRefusal,
+  } = prepared;
   if (prepared.fingerprint !== args.expectedFingerprint) return refuse("stale_preview");
+  if (automatic && (decision?.mode !== "automatic" || decision.state !== "ready")) return refuse("stale_preview");
 
   if (decision) {
     const settings = (await ctx.db.get("tenants", tenantId))?.resultAutomation;
@@ -343,12 +378,14 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
       return refuse("stale_preview");
     }
   }
+  if (callRefusal && (via !== "billing" || decision)) return refuse("needs_review");
   if (via === "meeting_no_show") {
     if (!meetingId || position !== "booked" || !derived.wouldWrite || derived.meetingId !== meetingId ||
         (decision && (decision.confirmRoute !== "meeting" || decision.meetingId !== meetingId))) return refuse("stale_preview");
   } else if (meetingId) {
     throw new Error("Billing confirmation cannot attach a meeting");
   }
+  if (automatic && position !== "booked" && position !== "follow_up" && position !== "won") return refuse("needs_review");
   if (position === "system_loss" && decision) return refuse("needs_review");
   if (position === "won" && decision && !membership) return refuse("binding_invalid");
   if ((!proposal.programId || !proposal.paymentType) && (!args.programId || !args.paymentType)) {
@@ -374,28 +411,38 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
       : [],
     tasks: pendingWinTasks.map((task) => ({ followUpId: task._id, status: task.status })),
   };
-  const eventActor = { tenantId, source: approver.source, actorUserId: approver.userId };
+  // Events: a person's approval names them; an automatic write is the system's, with no actor.
+  const actor = approver
+    ? { source: approver.source, actorUserId: approver.userId }
+    : { source: "system" as const, actorUserId: undefined };
+  const eventActor = { tenantId, ...actor };
   const { amountMinor, currency, attributedCloserId } = proposal;
-  const paymentRecordId = await insertRecordedPayment(ctx, {
+  const row = {
     tenantId, opportunityId, meetingId, amountMinor, currency, paymentType,
-    attributedCloserId, recordedByUserId: approver.userId,
-    programId, programName: program.name, recordedAt: now,
+    attributedCloserId, programId, programName: program.name, recordedAt: now,
     origin: "provider", recordedVia: "provider", providerPaymentId, providerPaidAt: payment.paidAt,
-  });
+  } as const;
+  const paymentRecordId = approver
+    ? await insertRecordedPayment(ctx, { ...row, recordedByUserId: approver.userId })
+    : await insertAutomaticPayment(ctx, { ...row, automationDecisionId: decision!._id });
   const record = await ctx.db.get("paymentRecords", paymentRecordId);
   if (!record) throw new Error("New payment record missing");
   await setActiveAllocation(ctx, {
     payment, record, expectedAllocationRevision: args.expectedAllocationRevision, reviewState: "recorded",
-    matchMethod: membership ? "membership_binding" : "person", actorUserId: approver.userId, now,
+    matchMethod: membership ? "membership_binding" : "person",
+    // The allocation names its resolver; an automatic write has none, and the field is optional on the row.
+    actorUserId: approver?.userId as Id<"users">,
+    now,
   });
 
   if (kind === "payment_win") {
-    const exception = position === "system_loss" ? "provider_payment_after_system_loss" : undefined;
+    const exception = position !== "system_loss" ? undefined
+      : callRefusal ? "provider_payment_after_call_refusal" : "provider_payment_after_system_loss";
     await setSoldProgramCaches(ctx, { tenantId, opportunityId, meetingId, programId, programName: program.name });
     await transitionOpportunity(ctx, opportunityId, {
       to: { stage: "closed", outcome: "won" },
       fields: { paymentReceivedAt: now, updatedAt: now },
-      source: approver.source, actorUserId: approver.userId, occurredAt: now,
+      ...actor, occurredAt: now,
       exception,
       metadata: { paymentId: paymentRecordId, providerPaymentId, decisionId: decision?._id, exception },
     });
@@ -405,8 +452,7 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
       amountMinor,
       currency,
       now,
-      source: approver.source,
-      actorUserId: approver.userId,
+      ...actor,
       decisionId: decision?._id,
     }, pendingWinTasks);
   } else {
@@ -420,8 +466,9 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
     occurredAt: now, toStatus: "recorded",
     metadata: {
       opportunityId, meetingId, amountMinor, currency, programId, paymentType, attributedCloserId,
-      recordedByUserId: approver.userId, origin: "provider", providerPaymentId,
+      recordedByUserId: approver?.userId, origin: "provider", providerPaymentId,
       ...(kind === "additional_payment" && { additionalPayment: true }),
+      ...(automatic && { decisionId: decision?._id }),
     },
   });
   if (kind === "payment_win") {
@@ -430,15 +477,24 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   }
   const decisionId = await recordApplyReceipt(ctx, {
     tenantId, opportunityId, providerPaymentId, paymentRecordId, kind, before,
-    decisionId: decision?._id, appliedVia: via, approverUserId: approver.userId, now,
+    decisionId: decision?._id, appliedVia: via, approverUserId: approver?.userId,
+    certificateSampleId: args.certificateSampleId, now,
   });
   await ctx.db.patch("paymentRecords", paymentRecordId, { automationDecisionId: decisionId });
+  // An automatic write is audited from the same mutation: the first ten, then a sample.
+  if (automatic) await scheduleAudit(ctx, { _id: decisionId }, now);
   await addPinnedLine(ctx, {
     tenantId, userId: attributedCloserId, opportunityId, paymentRecordId, decisionId, amountMinor, currency,
     kind: kind === "payment_win" ? "win_recorded_from_whop" : "instalment_credited",
     dealPositionAfter: "won", createdAt: now,
   });
   await supersedePaymentDecisions(ctx, payment, decisionId);
-  await noteHumanResult(ctx, opportunityId, { tenantId, userId: approver.userId }, { consumeDecisionId: decisionId });
+  if (approver) {
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId: approver.userId }, { consumeDecisionId: decisionId });
+  } else {
+    // No person acted: the deal's revision stays, so one-tap undo can prove
+    // it untouched. Money for the person withdraws their pending refusal or alert.
+    await stopCallDecisionsOnPayment(ctx, { tenantId, leadId: deal.leadId, opportunityId, paidAt: payment.paidAt });
+  }
   return { ok: true, alreadyApplied: false, paymentRecordId, decisionId };
 }

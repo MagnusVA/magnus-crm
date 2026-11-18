@@ -339,8 +339,10 @@ async function collect(ctx: QueryCtx, scope: AutomationInvariantScope): Promise<
     for (const row of rowsByDeal.get(deal._id) ?? []) {
       if (row.recordedByUserId) continue;
       const decision = row.automationDecisionId && await ctx.db.get("resultAutomationDecisions", row.automationDecisionId);
+      const standing = decision?.state === "applied" ||
+        ((decision?.state === "undone" || decision?.state === "corrected") && row.status === "disputed");
       if (row.origin !== "provider" || !decision || decision.tenantId !== row.tenantId ||
-          decision.state !== "applied" || decision.mode !== "automatic") {
+          !standing || decision.mode !== "automatic") {
         fail("A9", `row ${row._id} has no recorder and decision ${row.automationDecisionId ?? "none"} is not an applied automatic one`);
       }
     }

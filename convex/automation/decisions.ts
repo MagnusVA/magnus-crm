@@ -16,10 +16,13 @@ import { FINGERPRINT_TASK_LIMIT } from "../payments/fingerprint";
 import { findPaymentTarget } from "../payments/match";
 import { mappingBlockReason, promotedCertificate } from "./breaker";
 import { enrollInSample } from "./certificates";
-import { deriveDecision, PAYMENT_RULE_VERSION, paymentBillingReason, paymentDecisionTarget, type PaymentDecisionInput } from "./derive";
+import {
+  deriveDecision, isAutomaticCallRefusal, PAYMENT_RULE_VERSION, paymentBillingReason, paymentDecisionTarget,
+  type PaymentDecisionInput,
+} from "./derive";
 import { stopCallDecisionsOnPayment } from "./paymentHooks";
 import { automationKindOf, modeAtLeastAsk, paymentEvidenceOf, type PaymentEvidence } from "./proposals";
-import { APPLIED_RECEIPT_LIMIT, paymentVetoKey } from "./receipts";
+import { APPLIED_RECEIPT_LIMIT, paymentVetoKey, type PaymentDecisionKind } from "./receipts";
 import { stopCodeValidator } from "./schema";
 import { effectiveAlertMode, effectiveKindMode } from "./settings";
 
@@ -240,6 +243,7 @@ async function loadDealFacts(ctx: MutationCtx, deal: Doc<"opportunities">, payme
     position: dealPosition(deal.stage, deal.outcome),
     isSideDeal: isSideDeal(deal),
     systemLoss: systemLossReasonOf(deal),
+    callRefusal: isAutomaticCallRefusal(deal),
     createdAt: deal.createdAt,
     assignedCloserId: closer?.tenantId === deal.tenantId ? deal.assignedCloserId : undefined,
     humanResultRevision: deal.humanResultRevision ?? 0,
@@ -306,59 +310,46 @@ async function stopFromWhop(
   });
 }
 
-export async function evaluateSubject(ctx: MutationCtx, args: {
-  tenantId: Id<"tenants">; providerPaymentId: Id<"providerPayments">; cause: EvaluateCause; now: number;
-}): Promise<{ decisionId: Id<"resultAutomationDecisions"> | null }> {
-  const { tenantId, providerPaymentId, now } = args;
-  const [payment, tenant] = await Promise.all([
-    ctx.db.get("providerPayments", providerPaymentId), ctx.db.get("tenants", tenantId),
-  ]);
-  if (payment?.tenantId !== tenantId || !tenant) return { decisionId: null };
-  const settings = tenant.resultAutomation;
-  const knownLeadId = payment.leadId ?? payment.candidateLeadId;
-  await stopFromWhop(ctx, tenant, payment, knownLeadId);
-  if (payment.paymentRecordId) {
-    const receipts = await ctx.db.query("resultAutomationDecisions")
-      .withIndex("by_tenantId_and_providerPaymentId_and_state", (q) =>
-        q.eq("tenantId", tenantId).eq("providerPaymentId", providerPaymentId).eq("state", "applied"))
-      .take(APPLIED_RECEIPT_LIMIT + 1);
-    const receipt = receipts.length <= APPLIED_RECEIPT_LIMIT
-      ? receipts.find((row) => row.appliedPaymentRecordId === payment.paymentRecordId) : undefined;
-    await supersedePaymentDecisions(ctx, payment, receipt?._id);
-    return { decisionId: receipt?._id ?? null };
-  }
-  if (!settings?.enabled || tenant.status !== "active") {
-    await retirePaymentDecisions(ctx, { tenantId, providerPaymentId, code: "paused", superseded: false });
-    return { decisionId: null };
-  }
-  if (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off") {
-    await retirePaymentDecisions(ctx, { tenantId, providerPaymentId, code: "kind_lowered", superseded: false });
-    return { decisionId: null };
-  }
+type Settings = NonNullable<Doc<"tenants">["resultAutomation"]>;
 
+/** What a payment derives to now, read in the caller's mutation. Reads only. */
+type PaymentSubject =
+  | { status: "disconnected" }
+  | { status: "no_deal"; matchedLeadId?: Id<"leads"> }
+  | { status: "kind_off"; matchedLeadId?: Id<"leads">; kind: PaymentDecisionKind }
+  | { status: "underived"; matchedLeadId?: Id<"leads"> }
+  | {
+    status: "derived";
+    matchedLeadId?: Id<"leads">;
+    deal: Doc<"opportunities">;
+    dealFacts: NonNullable<PaymentDecisionInput["deal"]>;
+    mode: "shadow" | "ask" | "automatic";
+    derived: NonNullable<ReturnType<typeof deriveDecision>>;
+    evidence: Evidence;
+    vetoKey: string;
+    policyVersion: number;
+    automaticGate: "out_of_scope" | "mapping_held" | null;
+    automatic: boolean;
+    inputKey: string;
+  };
+
+async function derivePaymentSubject(
+  ctx: MutationCtx, tenant: Doc<"tenants">, settings: Settings, payment: Payment, now: number,
+): Promise<PaymentSubject> {
+  const tenantId = tenant._id;
   const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
-  if (connection?.tenantId !== tenantId || connection.status === "disconnected") {
-    await supersedePaymentDecisions(ctx, payment);
-    return { decisionId: null };
-  }
+  if (connection?.tenantId !== tenantId || connection.status === "disconnected") return { status: "disconnected" };
   const target = await findPaymentTarget(ctx, payment, now);
   const matchedLeadId = target.kind === "needs_person" ? target.candidateLeadId : target.leadId;
-  if (matchedLeadId !== knownLeadId) await stopFromWhop(ctx, tenant, payment, matchedLeadId);
   const candidate = paymentDecisionTarget(target);
   const deal = candidate && await ctx.db.get("opportunities", candidate.opportunityId);
   if (!candidate?.leadId || deal?.tenantId !== tenantId || deal.leadId !== candidate.leadId ||
       payment.status !== "paid" || payment.totalMinor === 0) {
-    await supersedePaymentDecisions(ctx, payment);
-    return { decisionId: null };
+    return { status: "no_deal", matchedLeadId };
   }
   const kind = deal.outcome === "won" ? "additional_payment" : "payment_win";
   const mode = effectiveKindMode(tenant, kind);
-  if (mode === "off") {
-    await retirePaymentDecisions(ctx, {
-      tenantId, providerPaymentId, code: "kind_lowered", superseded: false, stoppedKind: kind,
-    });
-    return { decisionId: null };
-  }
+  if (mode === "off") return { status: "kind_off", matchedLeadId, kind };
 
   const bindings = await bindingFacts(ctx, payment);
   const membership = await loadMembership(ctx, payment, deal, bindings.membership);
@@ -406,33 +397,116 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
     },
     membership, standDown: veto.standDown || paidBeforePause, factGates: gates,
   });
-  if (!derived) return { decisionId: null };
+  if (!derived) return { status: "underived", matchedLeadId };
 
   const sample = mode === "automatic" && derived.wouldWrite ? await promotedCertificate(ctx, tenant, kind) : null;
   const automaticGate = sample ? await mappingBlockReason(ctx, payment, evidence, sample.scopeBindingIds ?? []) : null;
-  const automatic = Boolean(sample) && !automaticGate;
-  const decisionMode = mode === "shadow" ? "shadow" : automatic ? "automatic" : "ask";
   // An ask for a held/out-of-scope mapping and an automatic proposal have distinct keys.
   const inputKey = await sha256Hex(stableJson(automaticGate ? [...derived.inputTuple, automaticGate] : derived.inputTuple));
+  return {
+    status: "derived", matchedLeadId, deal, dealFacts, mode, derived, evidence, vetoKey, policyVersion,
+    automaticGate, automatic: Boolean(sample) && !automaticGate, inputKey,
+  };
+}
+
+/**
+ * Re-derives a payment decision in the caller's mutation, the way
+ * evaluateSubject would insert it now. `same` is true only when the
+ * fingerprint equals the stored `inputKey` for the same deal.
+ */
+export async function rederivePayment(
+  ctx: MutationCtx, decision: Decision, now: number,
+): Promise<{ same: boolean }> {
+  const [payment, tenant] = await Promise.all([
+    decision.providerPaymentId ? ctx.db.get("providerPayments", decision.providerPaymentId) : null,
+    ctx.db.get("tenants", decision.tenantId),
+  ]);
+  const settings = tenant?.resultAutomation;
+  if (!payment || payment.tenantId !== decision.tenantId || !tenant || tenant.status !== "active" ||
+      !settings?.enabled || payment.paymentRecordId) return { same: false };
+  const subject = await derivePaymentSubject(ctx, tenant, settings, payment, now);
+  return {
+    same: subject.status === "derived" && subject.inputKey === decision.inputKey &&
+      subject.deal._id === decision.opportunityId && subject.derived.kind === decision.kind,
+  };
+}
+
+/** A first win waits this long after its decision becomes ready (plan §2.4). */
+export const AUTOMATIC_WIN_GRACE_MS = 15 * 60_000;
+const executeAutomaticPaymentRef = makeFunctionReference<"mutation", { decisionId: Id<"resultAutomationDecisions"> }>(
+  "automation/automaticPayments:executeAutomaticPayment",
+);
+
+export async function evaluateSubject(ctx: MutationCtx, args: {
+  tenantId: Id<"tenants">; providerPaymentId: Id<"providerPayments">; cause: EvaluateCause; now: number;
+}): Promise<{ decisionId: Id<"resultAutomationDecisions"> | null }> {
+  const { tenantId, providerPaymentId, now } = args;
+  const [payment, tenant] = await Promise.all([
+    ctx.db.get("providerPayments", providerPaymentId), ctx.db.get("tenants", tenantId),
+  ]);
+  if (payment?.tenantId !== tenantId || !tenant) return { decisionId: null };
+  const settings = tenant.resultAutomation;
+  const knownLeadId = payment.leadId ?? payment.candidateLeadId;
+  await stopFromWhop(ctx, tenant, payment, knownLeadId);
+  if (payment.paymentRecordId) {
+    const receipts = await ctx.db.query("resultAutomationDecisions")
+      .withIndex("by_tenantId_and_providerPaymentId_and_state", (q) =>
+        q.eq("tenantId", tenantId).eq("providerPaymentId", providerPaymentId).eq("state", "applied"))
+      .take(APPLIED_RECEIPT_LIMIT + 1);
+    const receipt = receipts.length <= APPLIED_RECEIPT_LIMIT
+      ? receipts.find((row) => row.appliedPaymentRecordId === payment.paymentRecordId) : undefined;
+    await supersedePaymentDecisions(ctx, payment, receipt?._id);
+    return { decisionId: receipt?._id ?? null };
+  }
+  if (!settings?.enabled || tenant.status !== "active") {
+    await retirePaymentDecisions(ctx, { tenantId, providerPaymentId, code: "paused", superseded: false });
+    return { decisionId: null };
+  }
+  if (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off") {
+    await retirePaymentDecisions(ctx, { tenantId, providerPaymentId, code: "kind_lowered", superseded: false });
+    return { decisionId: null };
+  }
+
+  const subject = await derivePaymentSubject(ctx, tenant, settings, payment, now);
+  if (subject.status !== "disconnected" && subject.matchedLeadId !== knownLeadId) {
+    await stopFromWhop(ctx, tenant, payment, subject.matchedLeadId);
+  }
+  if (subject.status === "disconnected" || subject.status === "no_deal") {
+    await supersedePaymentDecisions(ctx, payment);
+    return { decisionId: null };
+  }
+  if (subject.status === "kind_off") {
+    await retirePaymentDecisions(ctx, {
+      tenantId, providerPaymentId, code: "kind_lowered", superseded: false, stoppedKind: subject.kind,
+    });
+    return { decisionId: null };
+  }
+  if (subject.status === "underived") return { decisionId: null };
+
+  const { deal, dealFacts, mode, derived, evidence, vetoKey, policyVersion, automaticGate, automatic, inputKey } = subject;
+  const kind = derived.kind;
   const previous = await ctx.db.query("resultAutomationDecisions")
     .withIndex("by_tenantId_and_inputKey", (q) => q.eq("tenantId", tenantId).eq("inputKey", inputKey))
     .unique();
   if (previous) return { decisionId: previous._id };
 
+  const decisionMode = mode === "shadow" ? "shadow" : automatic ? "automatic" : "ask";
+  const dueAt = automatic ? now + (kind === "payment_win" ? AUTOMATIC_WIN_GRACE_MS : 0) : undefined;
   const decisionId = await ctx.db.insert("resultAutomationDecisions", {
     tenantId, providerPaymentId, opportunityId: deal._id, leadId: deal.leadId,
-    kind: derived.kind, mode: decisionMode, state: mode === "shadow" ? "shadow" : derived.wouldWrite ? "ready" : "needs_person",
+    kind, mode: decisionMode, state: mode === "shadow" ? "shadow" : derived.wouldWrite ? "ready" : "needs_person",
     inputKey, vetoKey, ruleVersion: PAYMENT_RULE_VERSION,
     policyVersion, activationVersion: settings.activationVersion, humanResultRevision: dealFacts.humanResultRevision,
     wouldWrite: derived.wouldWrite && !automaticGate,
     gates: automaticGate ? [...derived.gates, automaticGate] : derived.gates, proposal: derived.proposal,
     confirmRoute: derived.confirmRoute, noticeUserId: derived.noticeUserId, assignedCloserId: dealFacts.assignedCloserId,
-    meetingId: derived.meetingId, evidence, createdAt: now,
-    dueAt: automatic ? now + (kind === "payment_win" ? 15 * 60_000 : 0) : undefined,
+    meetingId: derived.meetingId, evidence, createdAt: now, dueAt,
   });
   const inserted = await ctx.db.get("resultAutomationDecisions", decisionId);
   if (inserted) await enrollInSample(ctx, inserted);
   await supersedePaymentDecisions(ctx, payment, decisionId);
+  // The wake-up is not authority: the executor re-checks everything in its own mutation.
+  if (dueAt !== undefined) await ctx.scheduler.runAt(dueAt, executeAutomaticPaymentRef, { decisionId });
   return { decisionId };
 }
 

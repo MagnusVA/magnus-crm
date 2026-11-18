@@ -17,6 +17,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { isOtherProspectsCall } from "../secondOpinion/trigger";
 import { enrollInSample } from "./certificates";
 import { callRuleVersion, deriveCallDecisions, type CallDecisionInput, type DerivedCallDecision } from "./callRule";
+import { captureRefusalNoticeBefore } from "./notice";
 import { isCallKind, type DecisionKind } from "./proposals";
 import { automationTables, decisionStateValidator } from "./schema";
 import { currentRuleVersion, DEFAULT_ALERT_GRACE_MINUTES, effectiveAlertMode, effectiveKindMode } from "./settings";
@@ -42,6 +43,9 @@ const HOUR = 3_600_000;
 
 const evaluateRef = makeFunctionReference<"mutation", { meetingId: Id<"meetings">; cause: CallEvaluateCause }>(
   "automation/callDecisions:evaluateCallMeeting",
+);
+const executeCallTaskRef = makeFunctionReference<"mutation", { decisionId: Id<"resultAutomationDecisions"> }>(
+  "automation/apply:executeCallTask",
 );
 
 function callModes(tenant: Tenant) {
@@ -327,6 +331,7 @@ async function evaluateLoaded(ctx: MutationCtx, tenant: Tenant, meeting: Meeting
     const mode = policy.mode === "shadow" ? "shadow" : automatic ? "automatic" : "ask";
     const state = mode === "shadow" ? "shadow" : !askable ? "needs_person" :
       automatic && kind === "refusal_loss" ? "notice" : "ready";
+    const dueAt = derived.dueAt ?? (automatic && kind !== "refusal_loss" ? args.now : undefined);
     const id = await ctx.db.insert("resultAutomationDecisions", {
       tenantId: args.tenantId, leadId: loaded.leadId, opportunityId: deal?._id, meetingId: meeting._id,
       assignedCloserId: deal?.assignedCloserId, kind, mode, state, inputKey,
@@ -337,8 +342,11 @@ async function evaluateLoaded(ctx: MutationCtx, tenant: Tenant, meeting: Meeting
       confirmRoute: kind !== "paid_on_call_alert" && askable ? "meeting" : undefined,
       noticeUserId: askable && mode !== "shadow" ? derived.noticeUserId : undefined,
       runId: run._id, recordingId: input.recording._id,
-      dueAt: derived.dueAt ?? (automatic && kind !== "refusal_loss" ? args.now : undefined),
+      dueAt,
       noticeRound: state === "notice" ? (loaded.priorNoticeRound ?? 0) + 1 : undefined,
+      // What the deal and meeting looked like when the notice was raised: the
+      // deadline writes only if they still match.
+      callBefore: state === "notice" && deal ? await captureRefusalNoticeBefore(ctx, deal._id, meeting) : undefined,
       evidence: {
         type: "call", runId: run._id, recordingId: input.recording._id, generation: run.generation,
         promptVersion: run.config.promptVersion, model: run.config.model, thresholdsVersion: run.config.thresholdsVersion,
@@ -349,6 +357,10 @@ async function evaluateLoaded(ctx: MutationCtx, tenant: Tenant, meeting: Meeting
     });
     const inserted = await ctx.db.get("resultAutomationDecisions", id);
     if (inserted) await enrollInSample(ctx, inserted);
+    // An automatic task is due at once. The executor re-checks everything in its own mutation.
+    if (state === "ready" && mode === "automatic" && (kind === "call_back" || kind === "payment_owed") && dueAt !== undefined) {
+      await ctx.scheduler.runAt(dueAt, executeCallTaskRef, { decisionId: id });
+    }
     replacements.set(kind, id);
   }
   await supersede(ctx, args, input, replacements);
