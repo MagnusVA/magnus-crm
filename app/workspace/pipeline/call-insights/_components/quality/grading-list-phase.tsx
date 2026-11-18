@@ -54,6 +54,13 @@ import {
   type Resolution,
   type SuggestionKind,
 } from "@/lib/callInsights/taxonomy";
+import {
+  EvidenceFields,
+  evidenceReady,
+  evidenceToValues,
+  initialEvidence,
+  type EvidenceDraft,
+} from "./evidence-truth";
 import { SEGMENT, SEGMENT_GROUP, type GradingView } from "./grading-parts";
 
 /** The item being written, lifted to the page so a clicked transcript line can fill it. */
@@ -242,12 +249,16 @@ export function GradingListPhase({
   const removeItem = useMutation(api.callInsights.eval.labels.removeAdminItem);
   const setResult = useMutation(api.callInsights.eval.labels.setAdminResult);
   const commitList = useMutation(api.callInsights.eval.labels.commitList);
+  const setEvidence = useMutation(api.callInsights.eval.labels.setAdminEvidence);
 
   const [itemError, setItemError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [result, setResultDraft] = useState<ResultDraft>(() =>
     initialResult(view.adminItems),
+  );
+  const [evidence, setEvidenceDraft] = useState<EvidenceDraft>(() =>
+    initialEvidence(view.adminItems),
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [committing, setCommitting] = useState<"done" | "skip" | null>(null);
@@ -260,13 +271,17 @@ export function GradingListPhase({
     ? categories[draft.category]?.definition
     : undefined;
   const resultFields = new Set(resultValueFields(result.kind || undefined));
-  const resultReady = Boolean(result.kind && result.attended);
+  const resultReady = Boolean(
+    result.kind && result.attended && evidenceReady(evidence),
+  );
   const transcriptGone = lineCount === 0;
 
   const update = (patch: Partial<ItemDraft>) =>
     setDraft({ ...draft, ...patch });
   const updateResult = (patch: Partial<ResultDraft>) =>
     setResultDraft({ ...result, ...patch });
+  const updateEvidence = (patch: Partial<EvidenceDraft>) =>
+    setEvidenceDraft({ ...evidence, ...patch });
 
   const add = async () => {
     const parsed = draftToArgs(draft, lineCount);
@@ -308,9 +323,16 @@ export function GradingListPhase({
       setSubmitError(parsed.error);
       return;
     }
+    const truth = evidenceToValues(evidence);
+    if ("error" in truth) {
+      setSubmitError(truth.error);
+      return;
+    }
     setCommitting("done");
     setSubmitError(null);
     try {
+      // The evidence is saved first: the commit freezes it as blind truth.
+      await setEvidence({ caseId, evidence: truth.evidence });
       await setResult({
         caseId,
         resultKind: result.kind as SuggestionKind,
@@ -326,9 +348,16 @@ export function GradingListPhase({
   };
 
   const skip = async () => {
+    const truth = evidenceReady(evidence) ? evidenceToValues(evidence) : null;
+    if (truth && "error" in truth) {
+      setSubmitError(truth.error);
+      return;
+    }
     setCommitting("skip");
     setSubmitError(null);
     try {
+      // Evidence answered before skipping still counts as blind truth.
+      if (truth) await setEvidence({ caseId, evidence: truth.evidence });
       await commitList({ caseId, skipped: true });
     } catch (error) {
       setSubmitError(getErrorMessage(error, "Couldn't skip your list."));
@@ -795,6 +824,7 @@ export function GradingListPhase({
             </RadioGroup>
           </FormRow>
         </div>
+        <EvidenceFields draft={evidence} onChange={updateEvidence} />
         {submitError ? (
           <p
             role="alert"
@@ -805,7 +835,9 @@ export function GradingListPhase({
         ) : null}
         <DetailCardFooter className="bg-background">
           <span className="text-[13px] font-normal">
-            Once the reading shows, your list can&apos;t change.
+            {evidenceReady(evidence)
+              ? "Once the reading shows, your list can't change."
+              : "Answer the evidence questions to continue."}
           </span>
           <Button
             type="button"

@@ -259,6 +259,12 @@ export function ResultsCard({ campaign }: { campaign: string }) {
                                   {needs}
                                 </p>
                               ) : null}
+                              {bar.key === "call_evidence" &&
+                              bar.result === "inconclusive" ? (
+                                <p className="text-[13px] text-muted-foreground">
+                                  Inconclusive under 15 calls
+                                </p>
+                              ) : null}
                               {bound ? (
                                 <p className="text-[13px] text-muted-foreground">
                                   {bound}

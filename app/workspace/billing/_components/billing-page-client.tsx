@@ -20,6 +20,7 @@ import {
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useNow } from "@/hooks/use-now";
 import { cn } from "@/lib/utils";
+import { AutomationBanner } from "@/app/workspace/_components/automation-banner";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
@@ -202,6 +203,7 @@ export function BillingPageClient() {
         />
       </PageBand>
 
+      <AutomationBanner />
       {view === "whop" ? (
         <WhopExceptionsView id={CARD_ID} labelledBy={tabId("whop")} now={now} />
       ) : (

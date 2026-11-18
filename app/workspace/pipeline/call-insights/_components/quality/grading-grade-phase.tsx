@@ -34,6 +34,7 @@ import {
   type Verdict,
 } from "@/lib/callInsights/quality-display";
 import type { ConfirmRequest } from "../confirm-dialog";
+import { EvidenceComparison } from "./evidence-truth";
 import {
   CandidateRow,
   GradingSubhead,
@@ -427,6 +428,11 @@ export function GradingGradePhase({ view }: { view: GradingView }) {
         ) : (
           <SectionEmpty title="The reading gave no no-show tier." />
         )}
+
+        <EvidenceComparison
+          adminItems={view.adminItems}
+          candidates={candidates}
+        />
       </DetailCard>
 
       <DetailCard

@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { useRole } from "@/components/auth/role-context";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { WHOP_SETTINGS_HREF, dayTimeFormat, useWhopConnection } from "@/components/whop/whop-settings-parts";
+import { AutomationBanner } from "@/app/workspace/_components/automation-banner";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { CARD } from "@/app/workspace/team/_components/team-ui";
@@ -40,6 +41,7 @@ export function AutomaticResultsPageClient() {
   return (
     <div className={SETTINGS_ROOT}>
       <AutomaticResultsBand />
+      <AutomationBanner onPanel />
 
       {paused ? (
         <div role="status" className={cn(CARD, "border-warning-ink/40 bg-warning-surface px-4 py-3")}>

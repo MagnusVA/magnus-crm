@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AlertTriangleIcon } from "lucide-react";
@@ -42,6 +42,8 @@ type ExceptionRow = FunctionReturnType<typeof api.payments.review.listProviderEx
 
 type Counts = FunctionReturnType<typeof api.payments.review.getProviderExceptionCounts>;
 type AdverseRow = FunctionReturnType<typeof api.payments.review.listAdverseOnResolved>["page"][number];
+type HandoffRow = FunctionReturnType<typeof api.automation.alert.listAlertHandoffs>[number];
+type Filter = (typeof FILTERS)[number];
 
 const FILTERS = [
   { state: "needs_person", label: "Waiting", empty: "No Whop payments are waiting for review." },
@@ -67,6 +69,15 @@ export function WhopExceptionsView({
   now: number;
 }) {
   const counts = useQuery(api.payments.review.getProviderExceptionCounts, {});
+  // Lifted so a closer's handoff can open the waiting payments.
+  const [filter, setFilter] = useState<Filter>(FILTERS[0]);
+  const paymentsRef = useRef<HTMLElement>(null);
+  const showWaiting = () => {
+    setFilter(FILTERS[0]);
+    const card = paymentsRef.current;
+    card?.scrollIntoView({ block: "start", behavior: "smooth" });
+    card?.focus({ preventScroll: true });
+  };
 
   return (
     <section id={id} role="tabpanel" aria-labelledby={labelledBy} className="flex min-w-0 flex-col gap-3.5">
@@ -74,8 +85,9 @@ export function WhopExceptionsView({
         <div className="overflow-hidden rounded-xl border border-border bg-card"><QueueRowsSkeleton rows={4} /></div>
       ) : counts.connected ? (
         <Fragment key={counts.environment}>
-          <PaymentQueue counts={counts} now={now} />
+          <PaymentQueue counts={counts} now={now} filter={filter} setFilter={setFilter} cardRef={paymentsRef} />
           <AdverseQueue counts={counts} />
+          <AlertHandoffs now={now} onPickPayment={showWaiting} />
         </Fragment>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -90,8 +102,19 @@ export function WhopExceptionsView({
   );
 }
 
-function PaymentQueue({ counts, now }: { counts: Counts; now: number }) {
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>(FILTERS[0]);
+function PaymentQueue({
+  counts,
+  now,
+  filter,
+  setFilter,
+  cardRef,
+}: {
+  counts: Counts;
+  now: number;
+  filter: Filter;
+  setFilter: (filter: Filter) => void;
+  cardRef: React.Ref<HTMLElement>;
+}) {
   const [asOf, setAsOf] = useState(now);
   const queue = usePaginatedQuery(api.payments.review.listProviderExceptions, { state: filter.state, asOf }, { initialNumItems: PAGE_SIZE });
   const rows = queue.results;
@@ -107,7 +130,12 @@ function PaymentQueue({ counts, now }: { counts: Counts; now: number }) {
   const fresh = isWhopSweepFresh(lastRead, now);
 
   return (
-    <section aria-label="Whop payments" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+    <section
+      ref={cardRef}
+      tabIndex={-1}
+      aria-label="Whop payments"
+      className="min-w-0 scroll-mt-4 overflow-hidden rounded-xl border border-border bg-card outline-none"
+    >
       <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
         <h2 className="mr-auto text-[15px] font-semibold">Whop payments</h2>
         {fresh && lastRead !== null ? (
@@ -252,6 +280,124 @@ function AdverseRowItem({ row }: { row: AdverseRow }) {
           </Button>
         ) : null}
       </div>
+    </li>
+  );
+}
+
+/**
+ * A closer said a call was paid in Whop by someone else. Billing finds that
+ * payment in the waiting list (the deal is the candidate), or closes the
+ * question when there is none. Rows leave once a payment counts or one
+ * waits for this person, so the card shows only while some are open.
+ */
+function AlertHandoffs({ now, onPickPayment }: { now: number; onPickPayment: () => void }) {
+  const rows = useQuery(api.automation.alert.listAlertHandoffs, {});
+  // The server's age is as of its read; keep the clock moving from there.
+  const [readAt, setReadAt] = useState<{ rows: HandoffRow[]; at: number } | null>(null);
+  if (rows && readAt?.rows !== rows) setReadAt({ rows, at: now });
+  if (!rows || rows.length === 0) return null;
+  const elapsed = Math.max(0, now - (readAt?.at ?? now));
+
+  return (
+    <section aria-labelledby="whop-handoffs-heading" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+        <h2 id="whop-handoffs-heading" className="mr-auto text-[15px] font-semibold">
+          A closer says it was paid in Whop by someone else
+        </h2>
+        <span className="text-[13px] text-muted-foreground">
+          <span className="font-condensed text-[14px] font-semibold tabular-nums">{rows.length}</span> open
+        </span>
+      </div>
+      <ul aria-label="Calls a closer says were paid in Whop by someone else">
+        {rows.map((row) => (
+          <HandoffRowItem key={row.decisionId} row={row} now={now} ageMs={row.ageMs + elapsed} onPickPayment={onPickPayment} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function HandoffRowItem({
+  row,
+  now,
+  ageMs,
+  onPickPayment,
+}: {
+  row: HandoffRow;
+  now: number;
+  ageMs: number;
+  onPickPayment: () => void;
+}) {
+  const { hasPermission } = useRole();
+  const resolve = useMutation(api.automation.alert.resolveAlertHandoff);
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const personHref = `/workspace/leads-customers/${row.leadId}`;
+  const dealHref = `${personHref}?opportunityId=${row.opportunityId}`;
+
+  async function noPaymentFound() {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await resolve({ decisionId: row.decisionId, resolution: "no_payment_found" });
+      if (result.ok) {
+        toast.success(result.alreadyApplied ? "This was already closed." : "Closed. No Whop payment is linked to this call.");
+      } else {
+        setError(result.code === "alert_closed" ? "This is no longer open." : "Couldn't close this. Try again.");
+      }
+      setConfirming(false);
+    } catch (caught) {
+      setError(providerErrorMessage(caught, "Couldn't close this. Try again."));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b px-4 py-2.5 last:border-b-0">
+      <div className="min-w-0">
+        <p className="flex flex-wrap items-baseline gap-x-2 leading-6">
+          <Link href={personHref} translate="no" className={cn(detailLinkClass, "text-[14px]")}>
+            {row.personName}
+          </Link>
+          <Link href={dealHref} className={cn(detailLinkClass, "text-[13px] font-medium")}>
+            Open the deal
+          </Link>
+        </p>
+        <p className="text-[13px] text-muted-foreground">
+          Call {formatPaidAt(row.callAt, now)} · the closer was asked{" "}
+          <span className="font-condensed text-[14px] font-semibold tabular-nums">{formatWaitAge(now - ageMs, now)}</span> ago
+        </p>
+        {confirming ? (
+          <p className="mt-1 text-[13px] font-medium">Close this with no Whop payment linked? The deal stays as it is.</p>
+        ) : null}
+        {error ? <p role="alert" className="text-[13px] text-danger-ink">{error}</p> : null}
+      </div>
+      {hasPermission("billing:review") ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {confirming ? (
+            <>
+              <Button type="button" size="sm" variant="outline" className="h-8" disabled={pending} onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" className="h-8" disabled={pending} onClick={() => void noPaymentFound()}>
+                {pending ? <Spinner data-icon="inline-start" /> : null}
+                <TranslatableText>Yes, no payment found</TranslatableText>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" size="sm" variant="outline" className="h-8" onClick={onPickPayment}>
+                Pick the Whop payment
+              </Button>
+              <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setConfirming(true)}>
+                No payment found
+              </Button>
+            </>
+          )}
+        </div>
+      ) : null}
     </li>
   );
 }
