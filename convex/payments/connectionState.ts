@@ -191,7 +191,7 @@ export const releaseSweepLease = internalMutation({
     if (checkpoint?.kind === "recent") {
       await ctx.db.patch("tenantPaymentConnections", row._id, {
         sweepCreatedThrough: Math.max(row.sweepCreatedThrough ?? 0, checkpoint.through),
-        lastSuccessfulSweepAt: Date.now(),
+        lastSuccessfulSweepAt: checkpoint.through,
         recentSweepProgress: undefined,
       });
     } else if (checkpoint?.kind === "recent_reset") {

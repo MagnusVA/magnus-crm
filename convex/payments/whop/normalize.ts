@@ -158,7 +158,10 @@ export function webhookObject(eventType: string, data: unknown) {
 
 export type WhopPayment = z.infer<typeof paymentSchema>;
 
-function paymentAdverseState(payment: WhopPayment): Infer<typeof providerAdverseStateValidator> {
+function paymentAdverseState(
+  payment: WhopPayment,
+  refundedMinor: bigint,
+): Infer<typeof providerAdverseStateValidator> {
   switch (payment.substatus) {
     case "dispute_lost":
       return "dispute_lost";
@@ -177,11 +180,11 @@ function paymentAdverseState(payment: WhopPayment): Infer<typeof providerAdverse
   }
   if (payment.auto_refunded) return "refunded";
   const refund = payment.refunded_amount;
-  if (refund && refund.minor > 0n) {
+  if (refund && refundedMinor > 0n) {
     const total = payment.total;
     if (
       total && total.currency === refund.currency &&
-      total.decimals === refund.decimals && refund.minor >= total.minor
+      total.decimals === refund.decimals && refundedMinor >= total.minor
     ) return "refunded";
     return "partially_refunded";
   }
@@ -207,6 +210,8 @@ export function normalizePayment(payment: WhopPayment) {
   const firstItem = payment.line_items?.[0];
   const total = payment.total;
   const charged = payment.amount_charged;
+  const refundMinor = payment.refunded_amount?.minor ?? 0n;
+  const refundedMinor = refundMinor < 0n ? -refundMinor : refundMinor;
   return {
     externalPaymentId: payment.id,
     status: paymentStatuses.safeParse(payment.status).data ?? "unknown" as const,
@@ -220,8 +225,8 @@ export function normalizePayment(payment: WhopPayment) {
     decimals: total?.decimals ?? charged?.decimals ?? 0,
     buyerChargedMinor: charged?.decimals === 2 ? toSafeMinorUnits(charged.minor) : undefined,
     buyerChargedCurrency: charged?.currency,
-    refundedMinor: toSafeMinorUnits(payment.refunded_amount?.minor ?? 0n),
-    adverseState: paymentAdverseState(payment),
+    refundedMinor: toSafeMinorUnits(refundedMinor),
+    adverseState: paymentAdverseState(payment, refundedMinor),
     refundedAt: payment.refunded_at ?? undefined,
     disputeCreatedAt: payment.dispute_created_at ?? undefined,
     membershipId: payment.membership_id ?? undefined,

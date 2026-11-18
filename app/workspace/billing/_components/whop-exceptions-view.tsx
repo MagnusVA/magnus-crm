@@ -201,7 +201,11 @@ function AdverseRowItem({ row }: { row: AdverseRow }) {
     setPending(true);
     setError(null);
     try {
-      await acknowledge({ providerPaymentId: row.providerPaymentId });
+      await acknowledge({
+        providerPaymentId: row.providerPaymentId,
+        expectedPaymentRecordId: row.paymentRecordId,
+        expectedAdverseReviewRevision: row.adverseReviewRevision,
+      });
     } catch (caught) {
       setError(providerErrorMessage(caught, "Couldn't mark this as seen. Try again."));
     } finally {

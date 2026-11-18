@@ -137,6 +137,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "acknowledged a refund or dispute reported by Whop",
     iconHint: "badge-check",
   },
+  "payment.provider_hold_released": {
+    verb: "released a Whop hold on a payment",
+    iconHint: "badge-check",
+  },
   "payment.recorded": {
     verb: "recorded a payment",
     iconHint: "dollar-sign",

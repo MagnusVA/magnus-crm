@@ -1,3 +1,4 @@
+import { insertProviderFact } from "../../tests/providerPaymentFixtures";
 import { api, internal } from "../_generated/api";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
@@ -18,7 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stubApi(handler: (url: URL) => Response) {
+function stubApi(handler: (url: URL) => Response | Promise<Response>) {
   const requests: URL[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     const request = new URL(url);
@@ -99,7 +100,7 @@ test("pages a recent sweep with independent overlapping windows and rereads old 
   expect(requests.map(({ pathname }) => pathname)).toContain("/api/v1/payments/pay_old_fixture");
   expect(await t.run((ctx) => ctx.db.get("providerPayments", known._id))).toMatchObject({ status: "paid" });
   expect(await connection(fixture)).toMatchObject({
-    sweepCreatedThrough: TEST_TIME, lastSuccessfulSweepAt: expect.any(Number),
+    sweepCreatedThrough: TEST_TIME, lastSuccessfulSweepAt: TEST_TIME,
   });
   expect((await connection(fixture))?.sweepToken).toBeUndefined();
 });
@@ -260,7 +261,9 @@ test.each([429, 503])("resumes a provider-wide HTTP %s failure at the same page 
   expect((await connection(fixture))?.lastSuccessfulSweepAt).toBeUndefined();
   await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME + 60_000 });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
-  expect((await connection(fixture))?.sweepCreatedThrough).toBe(TEST_TIME);
+  expect(await connection(fixture)).toMatchObject({
+    sweepCreatedThrough: TEST_TIME, lastSuccessfulSweepAt: TEST_TIME,
+  });
   const createdWindows = requests.filter((url) => url.searchParams.has("created_after"));
   expect(createdWindows.map((url) => url.searchParams.get("after"))).toEqual([null, "resume_here", "resume_here"]);
   expect(createdWindows.every((url) => url.searchParams.get("created_before") === iso(TEST_TIME))).toBe(true);
@@ -375,4 +378,120 @@ test("counts and deletes inline receipt bodies in bounded operational reset page
     .toMatchObject({ deleted: 20, hasMore: true });
   expect(await t.mutation(ops.deleteOperationalDataBatch, { tableName: "paymentWebhookReceipts" }))
     .toMatchObject({ deleted: 1, hasMore: false });
+});
+
+test("retries an unreadable detail before the next window and removes it after a stored read", async () => {
+  const fixture = await whopFixture({ sweepCreatedThrough: TEST_TIME - 15 * 60_000 });
+  const { t, connectionId } = fixture;
+  const createdAt = TEST_TIME - 29 * 60_000;
+  let readable = false;
+  const requests = stubApi((url) => {
+    if (url.pathname !== "/api/v1/payments") {
+      return readable
+        ? Response.json(paymentFixture({ created_at: iso(createdAt) }))
+        : new Response(null, { status: 404 });
+    }
+    const after = url.searchParams.get("created_after");
+    return listPage(after && Date.parse(after) <= createdAt ? [PAYMENT_ID] : []);
+  });
+  const sweep = async (through: number) => {
+    vi.setSystemTime(Math.max(Date.now(), through));
+    await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  };
+
+  await sweep(TEST_TIME);
+  await sweep(TEST_TIME + 15 * 60_000);
+  expect(await connection(fixture)).toMatchObject({
+    unreadablePaymentIds: [PAYMENT_ID], sweepCreatedThrough: TEST_TIME + 15 * 60_000,
+  });
+
+  const readsBeforeRecovery = requests.length;
+  readable = true;
+  await sweep(TEST_TIME + 30 * 60_000);
+  const recovery = requests.slice(readsBeforeRecovery);
+  expect(recovery[0].pathname).toBe(`/api/v1/payments/${PAYMENT_ID}`);
+  expect(Date.parse(recovery[1].searchParams.get("created_after")!)).toBeGreaterThan(createdAt);
+  expect(recovery.filter((url) => url.pathname.endsWith(`/${PAYMENT_ID}`))).toHaveLength(1);
+  expect(await connection(fixture)).toMatchObject({
+    unreadablePaymentIds: [], lastSuccessfulSweepAt: TEST_TIME + 30 * 60_000,
+  });
+  expect(await t.run((ctx) => ctx.db.query("providerPayments").first())).toMatchObject({ status: "paid" });
+});
+
+test("retries an old provisional fact even when it is absent from the unreadable list", async () => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  const row = (await connection(fixture))!;
+  const identity = { connectionId, connectedAt: row.connectedAt, accountId: ACCOUNT_ID };
+  vi.setSystemTime(TEST_TIME - 16 * 60_000);
+  await t.mutation(internal.payments.intake.beginPaymentRead, { ...identity, externalPaymentId: "pay_old_provisional" });
+  vi.setSystemTime(TEST_TIME - 14 * 60_000);
+  await t.mutation(internal.payments.intake.beginPaymentRead, { ...identity, externalPaymentId: "pay_new_provisional" });
+  vi.setSystemTime(TEST_TIME);
+
+  const requests = stubApi((url) => url.pathname === "/api/v1/payments" ? listPage([])
+    : Response.json(paymentFixture({ id: url.pathname.split("/").at(-1) })));
+  await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(requests.filter((url) => url.pathname !== "/api/v1/payments").map((url) => url.pathname))
+    .toEqual(["/api/v1/payments/pay_old_provisional"]);
+  expect(await t.run((ctx) => ctx.db.query("providerPayments").take(2))).toMatchObject([
+    { externalPaymentId: "pay_old_provisional", status: "paid" },
+    { externalPaymentId: "pay_new_provisional", status: "unknown" },
+  ]);
+});
+
+test("puts a superseded sweep detail on the retry list when no later read stored it", async () => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  const row = (await connection(fixture))!;
+  const identity = { connectionId, connectedAt: row.connectedAt, accountId: ACCOUNT_ID, externalPaymentId: PAYMENT_ID };
+  stubApi(async (url) => {
+    if (url.pathname === "/api/v1/payments") {
+      return listPage(url.searchParams.has("created_after") ? [PAYMENT_ID] : []);
+    }
+    await t.mutation(internal.payments.intake.beginPaymentRead, identity);
+    return Response.json(paymentFixture());
+  });
+  await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await connection(fixture)).toMatchObject({
+    unreadablePaymentIds: [PAYMENT_ID], lastSuccessfulSweepAt: TEST_TIME,
+  });
+  expect(await t.run((ctx) => ctx.db.query("providerPayments").first())).toMatchObject({
+    status: "unknown", refreshGeneration: 2,
+  });
+});
+
+test("uses a single indexed fence page regardless of unfenced terminal history", async () => {
+  const fixture = await whopFixture();
+  const { t, tenantId, connectionId } = fixture;
+  await t.run(async (ctx) => {
+    for (const adverseState of ["partially_refunded", "refunded", "dispute_won", "dispute_lost"] as const) {
+      for (let i = 0; i < 25; i++) {
+        await insertProviderFact(ctx, tenantId, connectionId, {
+          externalPaymentId: `pay_${adverseState}_${i}`, adverseState,
+        });
+      }
+    }
+    await insertProviderFact(ctx, tenantId, connectionId, {
+      externalPaymentId: PAYMENT_ID, adverseState: "refunded", adverseFencedAt: TEST_TIME,
+    });
+  });
+  const requests = stubApi((url) => url.pathname === "/api/v1/payments" ? listPage([])
+    : Response.json(paymentFixture({ substatus: "refunded" })));
+  expect(await t.query(internal.payments.reconcile.listKnownPayments, {
+    connectionId, selector: { kind: "fenced" }, paginationOpts: { cursor: null, numItems: 1 },
+  })).toEqual({ ids: [PAYMENT_ID], cursor: null });
+
+  // Leave only one page per stage. Paging terminal rows would exhaust this budget.
+  await t.action(internal.payments.reconcile.sweepRecent, {
+    connectionId, through: TEST_TIME, pages: SWEEP_PAGE_BUDGET - 13,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await connection(fixture)).toMatchObject({ lastSuccessfulSweepAt: TEST_TIME });
+  expect(requests).toHaveLength(5);
+  expect(requests.filter((url) => url.pathname !== "/api/v1/payments").map((url) => url.pathname))
+    .toEqual([`/api/v1/payments/${PAYMENT_ID}`]);
 });

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useMutation, usePreloadedQuery, useQuery, type Preloaded } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
+import { ConvexError } from "convex/values";
 import { CheckIcon, CopyIcon, LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -58,7 +59,6 @@ const NOT_A_CRM_PAYMENT = "This is Whop's record, not a CRM payment. It is in no
 
 type Detail = NonNullable<FunctionReturnType<typeof api.payments.review.getProviderPayment>>;
 type ProviderPayment = Detail["payment"];
-type ManualPayment = Detail["manualPayments"][number];
 
 function whopAmount(payment: Pick<Doc<"providerPayments">, "totalMinor" | "currency">) {
   return payment.totalMinor !== undefined ? formatAmountMinor(payment.totalMinor, payment.currency) : null;
@@ -74,7 +74,9 @@ function currentReason(detail: Detail): ProviderReviewReason | null {
 
 export function WhopPaymentPageClient({
   preloadedPayment,
+  providerPaymentId,
 }: {
+  providerPaymentId: Id<"providerPayments">;
   preloadedPayment: Preloaded<typeof api.payments.review.getProviderPayment>;
 }) {
   const now = useNow();
@@ -91,23 +93,27 @@ export function WhopPaymentPageClient({
       : "skip",
   );
   const detail = agedDetail === undefined ? preloadedDetail : agedDetail;
-  const amount = detail ? (whopAmount(detail.payment) ?? detail.payment.currency.toUpperCase()) : null;
+  const archived = useQuery(
+    api.payments.review.getArchivedProviderPayment,
+    detail === null ? { providerPaymentId } : "skip",
+  );
+  const snapshot = detail ?? archived;
+  const amount = snapshot ? (whopAmount(snapshot.payment) ?? snapshot.payment.currency.toUpperCase()) : null;
   usePageTitle(`Billing · Whop ${amount ?? "payment"}`);
 
-  if (!detail) {
+  if (!snapshot) {
+    const loading = archived === undefined;
     return (
       <div className={PAGE}>
-        <PageBand back={BACK} title="Whop payment not found" description="Billing can’t show this Whop payment." />
+        <PageBand back={BACK} title={loading ? "Whop payment" : "Whop payment not found"} />
         <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
-          <SectionEmpty title="This Whop payment doesn’t exist in this workspace.">
-            The link may point to another workspace.
-          </SectionEmpty>
+          <SectionEmpty title={loading ? "Loading Whop payment…" : "This Whop payment doesn’t exist in this workspace."} />
         </div>
       </div>
     );
   }
 
-  const { payment } = detail;
+  const { payment } = snapshot;
   const product = [payment.productTitle, payment.variantTitle].filter(Boolean).join(" · ");
 
   return (
@@ -134,7 +140,7 @@ export function WhopPaymentPageClient({
             ) : null}
             {" · "}
             {payment.paymentRecordId ? "Evidence for a CRM payment" : "Not a CRM payment, in no cash total"}
-            {detail.environment === "sandbox" ? <Badge variant="outline" className="ml-2">Sandbox</Badge> : null}
+            {snapshot.environment === "sandbox" ? <Badge variant="outline" className="ml-2">Sandbox</Badge> : null}
           </>
         }
       />
@@ -150,15 +156,22 @@ export function WhopPaymentPageClient({
             <WhopReportsCard payment={payment} now={now} />
           </div>
           <div className="order-4 min-w-0">
-            <NotCrmMoneyCard payment={payment} resolvedByName={detail.resolvedByName} now={now} />
+            {detail ? <NotCrmMoneyCard payment={payment} resolvedByName={detail.resolvedByName} now={now} /> : null}
           </div>
         </div>
         <div className="contents @4xl:col-start-1 @4xl:row-start-1 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-3.5 short:@4xl:gap-3">
           <div className="order-2 min-w-0">
-            <WhereItStandsCard detail={detail} now={now} />
+            {detail ? <WhereItStandsCard detail={detail} now={now} /> : (
+              <DetailCard title="Where it stands">
+                <div className="px-4 py-3">
+                  <p className="text-[15px] font-medium">Whop account disconnected</p>
+                  <LinkedPaymentLine payment={payment} />
+                </div>
+              </DetailCard>
+            )}
           </div>
           <div className="order-3 min-w-0">
-            <LinkCard detail={detail} now={now} />
+            {detail ? <LinkCard detail={detail} now={now} /> : null}
           </div>
         </div>
       </div>
@@ -428,6 +441,7 @@ function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
   return (
     <DetailCard title="Where it stands" meta={<span className={cn(STATUS_WORD, state.ink)}>{state.word}</span>}>
       <div className="px-4 py-3">{body}</div>
+      {payment.adverseFencedAt !== undefined ? <AdverseHold providerPaymentId={payment._id} /> : null}
       {!isWhopSweepFresh(detail.lastSuccessfulSweepAt, now) ? (
         <p className="border-t px-4 py-2 text-[13px] text-warning-ink">
           {detail.lastSuccessfulSweepAt === null
@@ -437,6 +451,43 @@ function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
       ) : null}
       {payment.reviewState === "needs_person" ? <CandidateDeals detail={detail} now={now} /> : null}
     </DetailCard>
+  );
+}
+
+function AdverseHold({ providerPaymentId }: { providerPaymentId: Id<"providerPayments"> }) {
+  const { hasPermission } = useRole();
+  const release = useMutation(api.payments.review.releaseAdverseHold);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function releaseHold() {
+    setPending(true);
+    setError(null);
+    try {
+      await release({ providerPaymentId });
+      toast.success("Whop hold released.");
+    } catch (caught) {
+      const fallback = "Couldn't release the Whop hold. Try again.";
+      setError(getErrorCode(caught)?.startsWith("provider_payment.") ? providerErrorMessage(caught, fallback) : fallback);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t px-4 py-3">
+      <p className="text-[13px] text-warning-ink">
+        Whop sent a refund or dispute event that Magnus could not confirm. Check this payment in Whop.
+        If nothing was refunded or disputed, release the hold.
+      </p>
+      {hasPermission("billing:correct") ? (
+        <Button type="button" variant="outline" size="sm" className="w-fit" disabled={pending} onClick={() => void releaseHold()}>
+          {pending ? <Spinner data-icon="inline-start" /> : null}
+          <TranslatableText>Release hold</TranslatableText>
+        </Button>
+      ) : null}
+      {error ? <p role="alert" className="text-[13px] text-danger-ink">{error}</p> : null}
+    </div>
   );
 }
 
@@ -462,8 +513,8 @@ function LinkedPaymentLine({ payment }: { payment: ProviderPayment }) {
     setPending(true);
     setError(null);
     try {
-      await unlink({ providerPaymentId: payment._id, ...confirmation });
-      toast.success("Unlinked. The CRM payment no longer has this Whop payment as evidence.");
+      const allocation = await unlink({ providerPaymentId: payment._id, ...confirmation });
+      if (allocation.paymentRecordId === null) toast.success("Whop evidence was removed from the CRM payment.");
       setConfirmation(null);
     } catch (caught) {
       setError(providerErrorMessage(caught, "Couldn't unlink. Try again."));
@@ -488,7 +539,7 @@ function LinkedPaymentLine({ payment }: { payment: ProviderPayment }) {
       {canUnlink && confirmation ? (
         <div className="flex flex-col gap-2 rounded-[7px] border bg-muted/40 p-3">
           <p className="text-[13px]">
-            Unlinking sends this Whop payment back to the list. The CRM payment still counts.
+            This removes the Whop evidence from the CRM payment. The CRM payment still counts.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="destructive" disabled={pending} onClick={() => void submit()}>
@@ -583,6 +634,18 @@ function LinkCard({ detail, now }: { detail: Detail; now: number }) {
   );
 }
 
+type AcknowledgedAmounts = { crmAmountMinor: number; providerTotalMinor: number };
+
+function amountMismatch(error: unknown): AcknowledgedAmounts | null {
+  if (!(error instanceof ConvexError) || getErrorCode(error) !== "provider_payment.amount_mismatch") return null;
+  const data: unknown = error.data;
+  if (typeof data !== "object" || data === null) return null;
+  const amounts = data as Partial<AcknowledgedAmounts>;
+  return typeof amounts.crmAmountMinor === "number" && typeof amounts.providerTotalMinor === "number"
+    ? { crmAmountMinor: amounts.crmAmountMinor, providerTotalMinor: amounts.providerTotalMinor }
+    : null;
+}
+
 function ManualPaymentChoice({
   detail,
   leadId,
@@ -606,10 +669,9 @@ function ManualPaymentChoice({
     paymentRecordId: Id<"paymentRecords">;
     allocationRevision: number;
   } | null>(null);
-  const [mismatch, setMismatch] = useState<ManualPayment | null>(null);
+  const [mismatch, setMismatch] = useState<AcknowledgedAmounts | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const whop = whopAmount(payment);
 
   if (source === undefined) {
     return (
@@ -629,22 +691,25 @@ function ManualPaymentChoice({
   const options = source.manualPayments;
   const choice = options.find((row) => row.paymentRecordId === selected?.paymentRecordId) ?? null;
 
-  const submit = async (acknowledgeAmountDifference: boolean) => {
+  const submit = async (acknowledgedAmounts?: AcknowledgedAmounts) => {
     if (!choice || !selected) return;
     setPending(true);
     setError(null);
     try {
-      await link({
+      const allocation = await link({
         providerPaymentId: payment._id,
         paymentRecordId: choice.paymentRecordId,
         expectedAllocationRevision: selected.allocationRevision,
-        acknowledgeAmountDifference,
+        acknowledgedAmounts,
       });
       setMismatch(null);
-      toast.success("Linked. The CRM payment now has this Whop payment as its evidence.");
+      if (allocation.paymentRecordId === choice.paymentRecordId) {
+        toast.success("The CRM payment now has Whop evidence.");
+      }
     } catch (caught) {
-      if (getErrorCode(caught) === "provider_payment.amount_mismatch" && !acknowledgeAmountDifference) {
-        setMismatch(choice);
+      const amounts = amountMismatch(caught);
+      if (amounts) {
+        setMismatch(amounts);
       } else {
         setMismatch(null);
         setError(providerErrorMessage(caught, "Couldn't link. Try again."));
@@ -724,14 +789,14 @@ function ManualPaymentChoice({
         {mismatch ? (
           <div role="alert" className="flex flex-col gap-2.5 rounded-[7px] border border-warning/60 bg-warning-surface p-3">
             <p className="text-[14px] font-medium">
-              Whop collected <span className={FIGURE}>{whop ?? payment.currency.toUpperCase()}</span>. The CRM payment says{" "}
-              <span className={FIGURE}>{formatAmountMinor(mismatch.amountMinor, mismatch.currency)}</span>.
+              Whop collected <span className={FIGURE}>{formatAmountMinor(mismatch.providerTotalMinor, payment.currency)}</span>.
+              The CRM payment says <span className={FIGURE}>{formatAmountMinor(mismatch.crmAmountMinor, payment.currency)}</span>.
             </p>
             <p className="text-[13px] text-muted-foreground">
               Linking keeps the amount, date and credit of the CRM payment, so no cash figure changes. It records that this Whop payment is the proof for that payment.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" disabled={pending} onClick={() => void submit(true)} className="font-semibold">
+              <Button type="button" disabled={pending} onClick={() => void submit(mismatch)} className="font-semibold">
                 {pending ? <Spinner data-icon="inline-start" /> : null}
                 <TranslatableText>Link anyway</TranslatableText>
               </Button>
@@ -749,7 +814,7 @@ function ManualPaymentChoice({
               type="button"
               className="w-fit font-semibold"
               disabled={!choice || pending}
-              onClick={() => void submit(false)}
+              onClick={() => void submit()}
             >
               {pending ? <Spinner data-icon="inline-start" /> : <LinkIcon aria-hidden="true" data-icon="inline-start" />}
               <TranslatableText>Link as evidence</TranslatableText>

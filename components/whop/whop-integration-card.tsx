@@ -129,7 +129,7 @@ function WhopSummary({ quiet }: { quiet: boolean }) {
           </div>
           <WhopConnectForm
             quiet={quiet}
-            existing={connection ? { accountId: connection.accountId, environment: connection.environment } : null}
+            initialEnvironment={connection?.environment}
           />
         </>
       )}

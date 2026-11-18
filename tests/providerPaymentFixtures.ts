@@ -57,6 +57,7 @@ export async function insertProviderFact(
     sourceCreatedAt: FIXTURE_PAID_AT,
     refreshGeneration: 1,
     allocationRevision: 0,
+    adverseReviewRevision: 0,
     firstSeenAt: FIXTURE_NOW - 2000,
     paidAt: FIXTURE_PAID_AT,
     totalMinor: 10000,

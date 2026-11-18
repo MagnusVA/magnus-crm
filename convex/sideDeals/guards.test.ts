@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -158,33 +158,49 @@ describe("nudgeStaleSideDeals", () => {
   });
 });
 
-it("voiding a side-deal payment clears its active Whop allocation and keeps provenance", async () => {
-  const fixture = await providerPaymentFixture({ source: "side_deal" });
-  const { t, admin, closer, dealId, personId, providerPaymentId, programId } = fixture;
-  const { paymentId } = await closer.mutation(api.sideDeals.logPayment.logPayment, {
-    opportunityId: dealId!, amount: 100, currency: "USD", paymentType: "pif", programId,
-    proofFileId: await storeProofFile(t),
-  });
-  await admin.mutation(api.payments.review.linkToPaymentRecord, {
-    providerPaymentId, paymentRecordId: paymentId, expectedAllocationRevision: 0,
-    acknowledgeAmountDifference: false,
-  });
-  const bindingId = await t.run((ctx) => insertProviderBinding(ctx, {
-    ...fixture, externalId: "mem_side_fixture",
-    binding: {
-      kind: "membership_deal", leadId: personId,
-      opportunityId: dealId!, anchorPaymentRecordId: paymentId,
-    },
-  }));
-  await admin.mutation(api.sideDeals.voidPayment.voidPayment, { paymentId, reason: "Synthetic correction" });
-  const state = await t.run(async (ctx) => ({
-    record: await ctx.db.get("paymentRecords", paymentId),
-    fact: await ctx.db.get("providerPayments", providerPaymentId),
-    binding: await ctx.db.get("paymentProviderBindings", bindingId),
-  }));
-  expect(state.record).toMatchObject({ status: "disputed", providerPaymentId });
-  expect(state.fact).toMatchObject({ reviewState: "needs_person", allocationRevision: 2 });
-  expect(state.fact?.paymentRecordId).toBeUndefined();
-  expect(state.fact?.resolvedAt).toBeUndefined();
-  expect(state.binding).toMatchObject({ enabled: false, disabledReason: "anchor_undone" });
+it.each([1, 101])("voiding a side-deal payment clears its allocation with %i membership bindings", async (bindingCount) => {
+  vi.useFakeTimers();
+  try {
+    const fixture = await providerPaymentFixture({ source: "side_deal" });
+    const { t, admin, closer, dealId, personId, providerPaymentId, programId } = fixture;
+    const { paymentId } = await closer.mutation(api.sideDeals.logPayment.logPayment, {
+      opportunityId: dealId!, amount: 100, currency: "USD", paymentType: "pif", programId,
+      proofFileId: await storeProofFile(t),
+    });
+    await admin.mutation(api.payments.review.linkToPaymentRecord, {
+      providerPaymentId, paymentRecordId: paymentId, expectedAllocationRevision: 0,
+    });
+    const bindingIds = await t.run(async (ctx) => {
+      const ids = [];
+      for (let i = 0; i < bindingCount; i++) {
+        ids.push(await insertProviderBinding(ctx, {
+          ...fixture, externalId: `mem_side_fixture_${i}`,
+          binding: {
+            kind: "membership_deal", leadId: personId,
+            opportunityId: dealId!, anchorPaymentRecordId: paymentId,
+          },
+        }));
+      }
+      return ids;
+    });
+    await admin.mutation(api.sideDeals.voidPayment.voidPayment, { paymentId, reason: "Synthetic correction" });
+    const state = await t.run(async (ctx) => ({
+      record: await ctx.db.get("paymentRecords", paymentId),
+      fact: await ctx.db.get("providerPayments", providerPaymentId),
+    }));
+    expect(state.record).toMatchObject({ status: "disputed", providerPaymentId });
+    expect(state.fact).toMatchObject({ reviewState: "needs_person", allocationRevision: 2 });
+    expect(state.fact?.paymentRecordId).toBeUndefined();
+    expect(state.fact?.resolvedAt).toBeUndefined();
+
+    const loadBindings = () => t.run((ctx) => Promise.all(bindingIds.map((id) => ctx.db.get("paymentProviderBindings", id))));
+    expect((await loadBindings()).filter((binding) => binding?.enabled === false)).toHaveLength(Math.min(100, bindingCount));
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    for (const binding of await loadBindings()) {
+      expect(binding).toMatchObject({ enabled: false, disabledReason: "anchor_undone", version: 2 });
+    }
+  } finally {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
 });

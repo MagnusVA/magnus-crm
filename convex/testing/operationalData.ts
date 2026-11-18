@@ -27,7 +27,6 @@ const OPERATIONAL_TABLES = [
   "tenantPaymentConnections",
   "paymentWebhookReceipts",
   "paymentProviderBindings",
-  "providerPaymentAllocationCommands",
   "providerPayments",
 
   "secondOpinions",
@@ -258,7 +257,6 @@ export const getSnapshot = internalQuery({
       paymentWebhookReceipts: args.paymentWebhookReceiptCount ??
         await countTableDocuments(ctx, "paymentWebhookReceipts"),
       paymentProviderBindings: await countTableDocuments(ctx, "paymentProviderBindings"),
-      providerPaymentAllocationCommands: await countTableDocuments(ctx, "providerPaymentAllocationCommands"),
       providerPayments: await countTableDocuments(ctx, "providerPayments"),
       tenantPaymentConnections: await countTableDocuments(ctx, "tenantPaymentConnections"),
       fathomOrgMembers: await countTableDocuments(ctx, "fathomOrgMembers"),
@@ -447,7 +445,6 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("fathomWebhookEvents"),
       v.literal("paymentWebhookReceipts"),
       v.literal("paymentProviderBindings"),
-      v.literal("providerPaymentAllocationCommands"),
       v.literal("providerPayments"),
       v.literal("tenantPaymentConnections"),
       v.literal("fathomOrgMembers"),
@@ -592,7 +589,6 @@ export const resetOperationalData = internalAction({
       fathomWebhookEvents: 0,
       paymentWebhookReceipts: 0,
       paymentProviderBindings: 0,
-      providerPaymentAllocationCommands: 0,
       providerPayments: 0,
       tenantPaymentConnections: 0,
       fathomOrgMembers: 0,

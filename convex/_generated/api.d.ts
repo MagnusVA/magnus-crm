@@ -502,6 +502,7 @@ import type * as opportunities_stageLabels from "../opportunities/stageLabels.js
 import type * as opportunities_stages from "../opportunities/stages.js";
 import type * as opportunities_staleness from "../opportunities/staleness.js";
 import type * as opportunities_validators from "../opportunities/validators.js";
+import type * as payments_allocation from "../payments/allocation.js";
 import type * as payments_bindingLookup from "../payments/bindingLookup.js";
 import type * as payments_bindings from "../payments/bindings.js";
 import type * as payments_connection from "../payments/connection.js";
@@ -1191,6 +1192,7 @@ declare const fullApi: ApiFromModules<{
   "opportunities/stages": typeof opportunities_stages;
   "opportunities/staleness": typeof opportunities_staleness;
   "opportunities/validators": typeof opportunities_validators;
+  "payments/allocation": typeof payments_allocation;
   "payments/bindingLookup": typeof payments_bindingLookup;
   "payments/bindings": typeof payments_bindings;
   "payments/connection": typeof payments_connection;

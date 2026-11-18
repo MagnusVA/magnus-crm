@@ -150,6 +150,7 @@ export const webhookFailureCodeValidator = v.union(
   v.literal("provider_read_failed"),
   v.literal("account_mismatch"),
   v.literal("attempts_exhausted"),
+  v.literal("released_by_person"),
   v.literal("connection_unavailable"),
 );
 
@@ -236,7 +237,7 @@ export const paymentProviderTables = {
       "environment",
     ])
     // The status suffix lets ownership checks skip disconnected history.
-    .index("by_provider_and_environment_and_accountId", [
+    .index("by_provider_and_environment_and_accountId_and_status", [
       "provider",
       "environment",
       "accountId",
@@ -279,6 +280,7 @@ export const paymentProviderTables = {
     adverseFencedAt: v.optional(v.number()),
     sourceAdverseState: v.optional(providerAdverseStateValidator),
     adverseReviewAt: v.optional(v.number()),
+    adverseReviewRevision: v.number(),
     refundedAt: v.optional(v.number()),
     disputeCreatedAt: v.optional(v.number()),
     membershipId: v.optional(v.string()),
@@ -355,30 +357,12 @@ export const paymentProviderTables = {
     .index("by_connectionId_and_leadId_and_paidAt", ["connectionId", "leadId", "paidAt"])
     .index("by_connectionId_and_candidateLeadId_and_paidAt", ["connectionId", "candidateLeadId", "paidAt"])
     .index("by_connectionId_and_payerEmail_and_paidAt", ["connectionId", "payerEmail", "paidAt"])
-    .index("by_connectionId_and_status_and_sourceCreatedAt", [
-      "connectionId",
-      "status",
-      "sourceCreatedAt",
+    .index("by_connectionId_and_status_and_sourceCreatedAt_and_firstSeenAt", [
+      "connectionId", "status", "sourceCreatedAt", "firstSeenAt",
     ])
-    .index("by_connectionId_and_adverseState", ["connectionId", "adverseState"])
+    .index("by_connectionId_and_adverseFencedAt", ["connectionId", "adverseFencedAt"])
+    .index("by_connectionId_and_adverseState_and_adverseFencedAt", ["connectionId", "adverseState", "adverseFencedAt"])
     .index("by_hasPayerDetails_and_payerDetailsExpireAt", ["hasPayerDetails", "payerDetailsExpireAt"]),
-
-  // Applied commands remain idempotent even after a later allocation change.
-  providerPaymentAllocationCommands: defineTable({
-    tenantId: v.id("tenants"),
-    providerPaymentId: v.id("providerPayments"),
-    expectedAllocationRevision: v.number(),
-    command: v.union(
-      v.object({
-        kind: v.literal("link"),
-        paymentRecordId: v.id("paymentRecords"),
-        acknowledgeAmountDifference: v.boolean(),
-      }),
-      v.object({ kind: v.literal("unlink"), paymentRecordId: v.id("paymentRecords") }),
-    ),
-  }).index("by_tenantId_and_providerPaymentId_and_expectedAllocationRevision", [
-    "tenantId", "providerPaymentId", "expectedAllocationRevision",
-  ]),
 
   paymentProviderBindings: defineTable({
     tenantId: v.id("tenants"),
@@ -412,7 +396,7 @@ export const paymentProviderTables = {
       "kind",
       "externalId",
     ])
-    .index("by_tenantId_and_kind_and_enabled_and_anchorPaymentRecordId", [
+    .index("by_tenantId_and_kind_and_enabled_and_binding_anchorPaymentRecordId", [
       "tenantId", "kind", "enabled", "binding.anchorPaymentRecordId",
     ])
     .index("by_tenantId_and_opportunityId_and_kind", [
@@ -447,8 +431,10 @@ export const paymentProviderTables = {
       "connectionId",
       "webhookId",
     ])
-    .index("by_status_and_retryAt", ["status", "retryAt"])
     .index("by_hasRawBody_and_receivedAt", ["hasRawBody", "receivedAt"])
+    .index("by_connectionId_and_externalPaymentId_and_externalObjectId", [
+      "connectionId", "externalPaymentId", "externalObjectId",
+    ])
     .index("by_connectionId_and_externalPaymentId_and_adversePending", [
       "connectionId", "externalPaymentId", "adversePending",
     ]),

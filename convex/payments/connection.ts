@@ -280,7 +280,7 @@ export const saveConnection = internalMutation({
     rejectOtherConnectedEnvironment(other?.status);
     for (const status of ["connected", "invalid_key"] as const) {
       const holders = await ctx.db.query("tenantPaymentConnections")
-        .withIndex("by_provider_and_environment_and_accountId", (q) => q
+        .withIndex("by_provider_and_environment_and_accountId_and_status", (q) => q
           .eq("provider", "whop").eq("environment", args.environment)
           .eq("accountId", args.accountId).eq("status", status))
         .take(2);

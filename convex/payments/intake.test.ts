@@ -455,28 +455,30 @@ test.each([false, true])("depends on a durable successor before accepting a supe
     .toMatchObject({ status: "processed", attempts: covered ? 1 : 2 });
 });
 
-test("a forbidden dispute resource still refreshes the payment and retains the fence", async () => {
-  const fixture = await whopFixture({ disputeAccess: "forbidden" });
-  const { t, connectionId } = fixture;
-  const fetchMock = vi.fn(async (url: string) => {
-    vi.setSystemTime(Date.now() + 200);
-    return new URL(url).pathname.includes("/disputes/")
-      ? new Response(null, { status: 403 })
-      : Response.json(paymentFixture({ substatus: "dispute_needs_response" }));
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  await deliver(t, connectionId, {
-    type: "dispute.created", data: { id: "disp_fixture", payment: { id: PAYMENT_ID } },
-  });
-  const [receipt] = await t.run((ctx) => ctx.db.query("paymentWebhookReceipts").take(1));
-  await t.action(internal.payments.intake.processReceipt, { receiptId: receipt._id, attempt: 1 });
-  expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect((await providerPayments(fixture))[0]).toMatchObject({
-    status: "paid", adverseState: "dispute_open", adverseFencedAt: TEST_TIME,
-  });
-  expect(await t.run((ctx) => ctx.db.get("paymentWebhookReceipts", receipt._id)))
-    .toMatchObject({ status: "received", adversePending: true });
-});
+test.each(["refund", "dispute"] as const)(
+  "a forbidden %s resource still refreshes the known payment and retains the fence", async (kind) => {
+    const fixture = await whopFixture({ disputeAccess: "forbidden" });
+    const { t, connectionId } = fixture;
+    const fetchMock = vi.fn(async (url: string) => {
+      vi.setSystemTime(Date.now() + 200);
+      return new URL(url).pathname.includes(`/${kind}s/`)
+        ? new Response(null, { status: 403 })
+        : Response.json(paymentFixture());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await deliver(t, connectionId, {
+      type: `${kind}.created`, data: { id: `${kind}_fixture`, payment: { id: PAYMENT_ID } },
+    });
+    const [receipt] = await t.run((ctx) => ctx.db.query("paymentWebhookReceipts").take(1));
+    await t.action(internal.payments.intake.processReceipt, { receiptId: receipt._id, attempt: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((await providerPayments(fixture))[0]).toMatchObject({
+      status: "paid", adverseState: kind === "refund" ? "refund_pending" : "dispute_open", adverseFencedAt: TEST_TIME,
+    });
+    expect(await t.run((ctx) => ctx.db.get("paymentWebhookReceipts", receipt._id)))
+      .toMatchObject({ status: "received", adversePending: true });
+  },
+);
 
 test("marks an unavailable connection's queued or incoming receipt failed without retrying", async () => {
   const { t, connectionId } = await whopFixture();
@@ -517,4 +519,40 @@ test("handled Whop request failures are tagged as integration errors without pro
   } finally {
     log.mockRestore();
   }
+});
+
+test("a signed refund resource requires a canonical refund at least as large in magnitude", async () => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  let refundedAmount = "10.00";
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    vi.setSystemTime(Date.now() + 200);
+    if (new URL(url).pathname.includes("/refunds/")) {
+      return Response.json({
+        id: "ref_signed_fixture", account_id: ACCOUNT_ID, payment_id: PAYMENT_ID, status: "succeeded",
+        updated_at: iso(TEST_TIME), amount: { amount: "-20.00", currency: "usd", decimals: 2 },
+      });
+    }
+    return Response.json(paymentFixture({
+      refunded_at: iso(TEST_TIME), refunded_amount: { amount: refundedAmount, currency: "usd", decimals: 2 },
+    }));
+  }));
+  await deliver(t, connectionId, {
+    type: "refund.updated", data: { id: "ref_signed_fixture", payment: { id: PAYMENT_ID } },
+  });
+  const [receipt] = await t.run((ctx) => ctx.db.query("paymentWebhookReceipts").take(1));
+  await t.action(internal.payments.intake.processReceipt, { receiptId: receipt._id, attempt: 1 });
+  expect((await providerPayments(fixture))[0]).toMatchObject({
+    adverseState: "partially_refunded", refundedMinor: 1000, adverseFencedAt: TEST_TIME,
+  });
+  expect(await t.run((ctx) => ctx.db.get("paymentWebhookReceipts", receipt._id)))
+    .toMatchObject({ adversePending: true });
+
+  refundedAmount = "-20.00";
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [resolved] = await providerPayments(fixture);
+  expect(resolved.adverseFencedAt).toBeUndefined();
+  expect(resolved).toMatchObject({ adverseState: "partially_refunded", refundedMinor: 2000 });
+  expect(await t.run((ctx) => ctx.db.get("paymentWebhookReceipts", receipt._id)))
+    .toMatchObject({ status: "processed", attempts: 2 });
 });

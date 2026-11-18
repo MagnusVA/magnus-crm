@@ -1,5 +1,5 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireBillingOpsEnabled, requireBillingPermission } from "../billing/guards";
@@ -10,8 +10,9 @@ import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { dealOutcomeValidator, dealStageValidator } from "../opportunities/stages";
-import { allocationChanged, clearActiveAllocation, isAllocationRetry, rememberAllocationCommand } from "./allocation";
+import { allocationChanged, clearActiveAllocation } from "./allocation";
 import { findConnection } from "./connection";
+import { adverseReviewRequired, releasePaymentFence } from "./intake";
 import { findPaymentTarget, refreshProviderPaymentReview, type PaymentTarget } from "./match";
 import { payerDetailsDeadline } from "./payerRetention";
 import {
@@ -123,17 +124,22 @@ function adverseQueue(ctx: QueryCtx, connection: Doc<"tenantPaymentConnections">
       .eq("connectionId", connection._id).eq("tenantId", connection.tenantId).gt("adverseReviewAt", undefined));
 }
 
-async function billingConnection(ctx: QueryCtx, tenantId: Id<"tenants">) {
+async function billingConnection(ctx: QueryCtx | MutationCtx, tenantId: Id<"tenants">) {
   const connections = await Promise.all([
     findConnection(ctx, tenantId, "live"), findConnection(ctx, tenantId, "sandbox"),
   ]);
   return connections.find((connection) => connection?.status === "connected") ?? null;
 }
 
-async function connectedPaymentSource(ctx: QueryCtx | MutationCtx, payment: Doc<"providerPayments">) {
-  const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
-  return connection?.tenantId === payment.tenantId && connection.status === "connected"
-    ? connection : null;
+async function activePaymentSource(ctx: QueryCtx | MutationCtx, payment: Doc<"providerPayments">) {
+  const connection = await billingConnection(ctx, payment.tenantId);
+  return connection?._id === payment.connectionId ? connection : null;
+}
+
+async function requireActivePaymentSource(ctx: MutationCtx, payment: Doc<"providerPayments">) {
+  if (!await activePaymentSource(ctx, payment)) {
+    throw expectedError("provider_payment.connection_unavailable", "The Whop connection is unavailable.");
+  }
 }
 
 function targetIds(target: PaymentTarget) {
@@ -278,6 +284,7 @@ export const listAdverseOnResolved = query({
       totalMinor: nullableNumber,
       currency: v.string(),
       adverseState: providerAdverseStateValidator,
+      adverseReviewRevision: v.number(),
       environment: providerEnvironmentValidator,
     })),
     isDone: v.boolean(),
@@ -297,6 +304,7 @@ export const listAdverseOnResolved = query({
       totalMinor: payment.totalMinor ?? null,
       currency: payment.currency,
       adverseState: payment.adverseState,
+      adverseReviewRevision: payment.adverseReviewRevision,
       environment: connection.environment,
     }] : []) };
   },
@@ -362,7 +370,7 @@ export const getProviderPayment = query({
     await requireBillingOpsEnabled(ctx, tenantId);
     const stored = await ctx.db.get("providerPayments", providerPaymentId);
     if (stored?.tenantId !== tenantId) return null;
-    const connection = await connectedPaymentSource(ctx, stored);
+    const connection = await activePaymentSource(ctx, stored);
     if (!connection) return null;
     const payment = paymentForReview(stored, Date.now());
     const classification = await findPaymentTarget(ctx, payment, asOf);
@@ -389,10 +397,35 @@ export const getProviderPayment = query({
   },
 });
 
+/** Old evidence remains readable after disconnect or after switching environments. */
+export const getArchivedProviderPayment = query({
+  args: providerPaymentArgs,
+  returns: v.union(v.null(), v.object({
+    payment: providerPaymentValidator,
+    environment: providerEnvironmentValidator,
+  })),
+  handler: async (ctx, { providerPaymentId }) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:view");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const payment = await ctx.db.get("providerPayments", providerPaymentId);
+    if (payment?.tenantId !== tenantId || await activePaymentSource(ctx, payment)) return null;
+    const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
+    if (connection?.tenantId !== tenantId) return null;
+    return {
+      payment: paymentForReview(payment, Date.now()),
+      environment: connection.environment,
+    };
+  },
+});
+
 /** The evidence attached to a CRM payment, including retained provenance. */
 export const getLinkedProviderPayment = query({
   args: { paymentRecordId: paymentRecordIdValidator },
-  returns: v.union(v.object({ ...providerPaymentValidator.fields, environment: providerEnvironmentValidator }), v.null()),
+  returns: v.union(v.object({
+    ...providerPaymentValidator.fields,
+    environment: providerEnvironmentValidator,
+    sourceConnected: v.boolean(),
+  }), v.null()),
   handler: async (ctx, { paymentRecordId }) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
@@ -400,8 +433,16 @@ export const getLinkedProviderPayment = query({
     if (record?.tenantId !== tenantId || !record.providerPaymentId) return null;
     const payment = await ctx.db.get("providerPayments", record.providerPaymentId);
     if (payment?.tenantId !== tenantId) return null;
-    const connection = await connectedPaymentSource(ctx, payment);
-    return connection ? { ...paymentForReview(payment, Date.now()), environment: connection.environment } : null;
+    const [connection, activeSource] = await Promise.all([
+      ctx.db.get("tenantPaymentConnections", payment.connectionId),
+      activePaymentSource(ctx, payment),
+    ]);
+    if (connection?.tenantId !== tenantId) return null;
+    return {
+      ...paymentForReview(payment, Date.now()),
+      environment: connection.environment,
+      sourceConnected: activeSource !== null,
+    };
   },
 });
 
@@ -433,23 +474,28 @@ async function emitLinkEvent(
   });
 }
 
+const allocationState = v.object({
+  allocationRevision: v.number(),
+  paymentRecordId: v.union(paymentRecordIdValidator, v.null()),
+});
+
 export const linkToPaymentRecord = mutation({
   args: {
     ...providerPaymentArgs,
     paymentRecordId: paymentRecordIdValidator,
-    acknowledgeAmountDifference: v.boolean(),
+    acknowledgedAmounts: v.optional(v.object({ crmAmountMinor: v.number(), providerTotalMinor: v.number() })),
     expectedAllocationRevision: v.number(),
   },
-  returns: v.null(),
-  handler: async (ctx, { providerPaymentId, paymentRecordId, acknowledgeAmountDifference, expectedAllocationRevision }) => {
+  returns: allocationState,
+  handler: async (ctx, { providerPaymentId, paymentRecordId, acknowledgedAmounts, expectedAllocationRevision }) => {
     const actor = await requireBillingPermission(ctx, "billing:review");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
-    const command = { kind: "link" as const, paymentRecordId, acknowledgeAmountDifference };
-    if (await isAllocationRetry(ctx, payment, expectedAllocationRevision, command)) return null;
-    if (!await connectedPaymentSource(ctx, payment)) {
-      throw expectedError("provider_payment.connection_unavailable", "The Whop connection is unavailable.");
+    await requireActivePaymentSource(ctx, payment);
+    if (payment.paymentRecordId === paymentRecordId) {
+      return { allocationRevision: payment.allocationRevision, paymentRecordId };
     }
+    if (payment.allocationRevision !== expectedAllocationRevision) throw allocationChanged();
     const record = await ctx.db.get("paymentRecords", paymentRecordId);
     if (record?.tenantId !== actor.tenantId) throw expectedError("provider_payment.record_not_found", "CRM payment not found.");
 
@@ -462,8 +508,15 @@ export const linkToPaymentRecord = mutation({
     if (record.providerPaymentId) throw expectedError("provider_payment.record_already_linked", "This CRM payment already has provider evidence.");
     if (payment.currency !== record.currency) throw expectedError("provider_payment.currency_mismatch", "The payment currencies differ.");
     if (payment.totalMinor === undefined) throw expectedError("provider_payment.unsupported_currency", "The provider amount is unavailable.");
-    if (payment.totalMinor !== record.amountMinor && !acknowledgeAmountDifference) {
-      throw expectedError("provider_payment.amount_mismatch", "Confirm the difference between the two amounts.");
+    if (payment.totalMinor !== record.amountMinor &&
+        (acknowledgedAmounts?.crmAmountMinor !== record.amountMinor ||
+          acknowledgedAmounts.providerTotalMinor !== payment.totalMinor)) {
+      throw new ConvexError({
+        code: "provider_payment.amount_mismatch",
+        message: "Confirm the difference between the two amounts.",
+        crmAmountMinor: record.amountMinor,
+        providerTotalMinor: payment.totalMinor,
+      });
     }
 
     // The active pointer is authoritative. Fail closed if an older or
@@ -489,10 +542,13 @@ export const linkToPaymentRecord = mutation({
       providerPaidAt: payment.paidAt,
     });
     const resolvedAt = Date.now();
-    await rememberAllocationCommand(ctx, payment, command);
+    const allocationRevision = payment.allocationRevision + 1;
+    const reviewAdverse = adverseReviewRequired(payment);
     await ctx.db.patch("providerPayments", providerPaymentId, {
       paymentRecordId,
-      allocationRevision: payment.allocationRevision + 1,
+      allocationRevision,
+      adverseReviewAt: reviewAdverse ? resolvedAt : undefined,
+      adverseReviewRevision: payment.adverseReviewRevision + (reviewAdverse ? 1 : 0),
       opportunityId: deal._id,
       leadId: lead._id,
       matchMethod: "person",
@@ -503,7 +559,7 @@ export const linkToPaymentRecord = mutation({
       resolvedByUserId: actor.userId,
     });
     await emitLinkEvent(ctx, "payment.provider_linked", actor, paymentRecordId, providerPaymentId);
-    return null;
+    return { allocationRevision, paymentRecordId };
   },
 });
 
@@ -513,14 +569,16 @@ export const unlinkPaymentRecord = mutation({
     expectedPaymentRecordId: paymentRecordIdValidator,
     expectedAllocationRevision: v.number(),
   },
-  returns: v.null(),
+  returns: allocationState,
   handler: async (ctx, { providerPaymentId, expectedPaymentRecordId, expectedAllocationRevision }) => {
     const actor = await requireBillingPermission(ctx, "billing:correct");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
-    const command = { kind: "unlink" as const, paymentRecordId: expectedPaymentRecordId };
-    if (await isAllocationRetry(ctx, payment, expectedAllocationRevision, command)) return null;
-    if (payment.paymentRecordId !== expectedPaymentRecordId) throw allocationChanged();
+    if (payment.paymentRecordId === undefined && payment.allocationRevision === expectedAllocationRevision + 1) {
+      return { allocationRevision: payment.allocationRevision, paymentRecordId: null };
+    }
+    if (payment.allocationRevision !== expectedAllocationRevision ||
+        payment.paymentRecordId !== expectedPaymentRecordId) throw allocationChanged();
     if (payment.reviewState !== "linked") {
       throw expectedError("provider_payment.not_manually_linked", "This provider payment has no manual link to remove.");
     }
@@ -529,7 +587,6 @@ export const unlinkPaymentRecord = mutation({
     if (record?.tenantId !== actor.tenantId || record.providerPaymentId !== providerPaymentId) {
       throw expectedError("provider_payment.link_inconsistent", "The provider payment and CRM payment no longer refer to each other.");
     }
-    await rememberAllocationCommand(ctx, payment, command);
     // A manual unlink corrects the provenance itself.
     await ctx.db.patch("paymentRecords", record._id, {
       providerPaymentId: undefined,
@@ -537,23 +594,52 @@ export const unlinkPaymentRecord = mutation({
     });
     await clearActiveAllocation(ctx, record);
     await emitLinkEvent(ctx, "payment.provider_unlinked", actor, record._id, providerPaymentId);
-    return null;
+    return { allocationRevision: payment.allocationRevision + 1, paymentRecordId: null };
   },
 });
 
 export const acknowledgeAdverse = mutation({
-  args: providerPaymentArgs,
+  args: {
+    ...providerPaymentArgs,
+    expectedAdverseReviewRevision: v.number(),
+    expectedPaymentRecordId: paymentRecordIdValidator,
+  },
   returns: v.null(),
-  handler: async (ctx, { providerPaymentId }) => {
+  handler: async (ctx, { providerPaymentId, expectedAdverseReviewRevision, expectedPaymentRecordId }) => {
     const actor = await requireBillingPermission(ctx, "billing:review");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
-    if (!payment.paymentRecordId || payment.adverseReviewAt === undefined) return null;
-    if (!await connectedPaymentSource(ctx, payment)) {
-      throw expectedError("provider_payment.connection_unavailable", "The Whop connection is unavailable.");
-    }
+    await requireActivePaymentSource(ctx, payment);
+    if (payment.paymentRecordId !== expectedPaymentRecordId ||
+        payment.adverseReviewRevision !== expectedAdverseReviewRevision) throw allocationChanged();
+    if (payment.adverseReviewAt === undefined) return null;
     await ctx.db.patch("providerPayments", payment._id, { adverseReviewAt: undefined });
-    await emitLinkEvent(ctx, "payment.provider_adverse_acknowledged", actor, payment.paymentRecordId, providerPaymentId);
+    await emitLinkEvent(ctx, "payment.provider_adverse_acknowledged", actor, expectedPaymentRecordId, providerPaymentId);
+    return null;
+  },
+});
+
+export const releaseAdverseHold = mutation({
+  args: providerPaymentArgs,
+  returns: v.null(),
+  handler: async (ctx, { providerPaymentId }) => {
+    const actor = await requireBillingPermission(ctx, "billing:correct");
+    await requireBillingOpsEnabled(ctx, actor.tenantId);
+    const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
+    await requireActivePaymentSource(ctx, payment);
+    if (payment.adverseFencedAt === undefined) {
+      throw expectedError("provider_payment.hold_already_cleared", "This Whop hold has already cleared.");
+    }
+    await releasePaymentFence(ctx, payment);
+    await emitDomainEvent(ctx, {
+      tenantId: actor.tenantId,
+      entityType: "payment",
+      entityId: payment.paymentRecordId ?? payment._id,
+      eventType: "payment.provider_hold_released",
+      source: "admin",
+      actorUserId: actor.userId,
+      metadata: { providerPaymentId, paymentRecordId: payment.paymentRecordId },
+    });
     return null;
   },
 });
@@ -565,6 +651,7 @@ export const dismissProviderPayment = mutation({
     const actor = await requireBillingPermission(ctx, "billing:review");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
+    await requireActivePaymentSource(ctx, payment);
     if (payment.reviewState === "dismissed") return null;
     if (payment.paymentRecordId || payment.reviewState !== "needs_person") {
       throw expectedError("provider_payment.not_reviewable", "This provider payment is not waiting for review.");
@@ -589,6 +676,7 @@ export const reopenProviderPayment = mutation({
     const actor = await requireBillingPermission(ctx, "billing:correct");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
+    await requireActivePaymentSource(ctx, payment);
     if (payment.reviewState === "needs_person" || payment.reviewState === "not_actionable") return null;
     if (payment.paymentRecordId || payment.reviewState !== "dismissed") {
       throw expectedError("provider_payment.not_dismissed", "This provider payment is not dismissed.");

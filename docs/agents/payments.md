@@ -1,6 +1,6 @@
 # Payment providers (Whop)
 
-A tenant can connect its Whop account. Whop's payments then arrive in the CRM as facts in `providerPayments`. A fact is not cash: no report reads these tables, and money counts only through a `paymentRecords` row, as it always has. In this phase a person links a Whop payment to a payment someone already recorded by hand, as evidence. Linking never creates a payment or wins a deal. Link, unlink and Seen actions count in Activity.
+A tenant can connect its Whop account. Whop's payments then arrive in the CRM as facts in `providerPayments`. A fact is not cash: no report reads these tables, and money counts only through a `paymentRecords` row, as it always has. In this phase a person links a Whop payment to a payment someone already recorded by hand, as evidence. Linking never creates a payment or wins a deal. Link, unlink, Seen and hold releases count in Activity.
 
 Code lives in `convex/payments/`. The screens are Settings › Integrations › Whop (`/workspace/settings/whop`) and Billing › From Whop (`/workspace/billing/whop/[providerPaymentId]`).
 
@@ -8,11 +8,13 @@ Code lives in `convex/payments/`. The screens are Settings › Integrations › 
 
 These tables live in `convex/payments/schema.ts`.
 
-- `tenantPaymentConnections`: one connected Whop environment per tenant. Within an environment a Whop account belongs to one tenant until disconnected. Holds credentials, dispute access, the pinned API version and sweep state. Only internal functions read the key and secrets; `connection.getConnection` returns a masked view.
+- `tenantPaymentConnections` holds credentials, dispute access, the pinned API version and sweep state.
+  Each tenant can have one connected Whop environment. Settings offers Live and Sandbox when no environment is connected.
+  Each environment stays tied to the account first saved there. Within an environment, a tenant keeps its claim on the account until it disconnects.
+  Only internal functions read the key and secrets. `connection.getConnection` returns a masked view.
 - `providerPayments`: one row per Whop payment, as last read. Keyed on tenant, connection and Whop's payment id.
 - `paymentProviderBindings`: a Whop product mapped to a program, a Whop variant (price) mapped to a payment type, and later a membership or checkout mapped to a deal. A change inserts a new version and disables the old row.
 - `paymentWebhookReceipts` holds a permanent receipt per delivery. The same write saves the capped raw body on the receipt. Retention clears the body after 7 days. Separate pending receipts track separate refund and dispute resources.
-- `providerPaymentAllocationCommands` records successful link and unlink commands by their expected revision. The same command can be retried without creating another event or changing a newer allocation.
 
 `paymentRecords` gains two optional fields: `providerPaymentId` and `providerPaidAt`.
 
@@ -22,7 +24,9 @@ These tables live in `convex/payments/schema.ts`.
 - **One active allocation.** `providerPayments.paymentRecordId` names the one CRM payment that counts for a Whop payment. `paymentRecords.providerPaymentId` is provenance and stays on a row after it stops counting, so two rows may cite the same Whop payment. Read the row that counts through the pointer, and query the `by_tenantId_and_providerPaymentId` index with `take()`, never `.unique()`.
 - **Amount and time never tie anything together.** They don't choose the person, the deal or the manual payment. An identifier or a person does.
 - **The matcher doesn't use `resolveLeadIdentity`.** This is a deliberate exception to the lead lifecycle ADR's rule 3. Outside bookings that function picks the first match, and it can write. `findPaymentTarget` (`match.ts`) is read-only: it creates nobody and never adds the payer's email to a person.
-- **A link adds evidence.** Link and unlink leave cash, payment counts, deal counts and enrollments unchanged. The provider payment's `allocationRevision` starts at zero and advances on each link, unlink or void that clears an allocation. An unlink clears the CRM row's provenance. A side-deal void preserves provenance, releases the allocation and disables membership bindings anchored on that row.
+- **A link adds evidence.** Link and unlink leave cash, payment counts, deal counts and enrollments unchanged. The provider payment's `allocationRevision` starts at zero and advances on each link, unlink or void that clears an allocation. An unlink clears the CRM row's provenance. A side-deal void preserves provenance and releases the allocation. Clearing an allocation reclassifies the fact and disables up to 100 anchored membership bindings in the transaction. A continuation disables any remaining bindings.
+- **Retries read the current allocation.** Link succeeds without a write if the requested record is already linked. Unlink does the same if the pointer is clear and the revision advanced exactly once. Other writes must match the displayed revision, and unlink also checks the displayed CRM record. Both return the current revision and record id.
+- **Amount consent uses the two amounts on screen.** If Whop's total and the CRM amount differ, the link requires both acknowledged values to match their stored values. The mismatch response includes the current amounts so Billing can ask again.
 - **Times.** `recordedAt` stays the time every report uses. `providerPaidAt` is when Whop collected the money and is shown, never bucketed.
 - **Money.** Whop sends `total` as a decimal string with its own `decimals`. `whop/normalize.ts` converts it by exact string arithmetic. `totalMinor` is set only for two-decimal currencies; any other currency goes to a person as `unsupported_currency`. Don't use `toAmountMinor` here: it always multiplies by 100.
 - **Personal data.** Normalized facts hold payer email and a phone that arrived with a country code. Email and phone expire 90 days after first seen for historical and non-actionable payments, and 180 days after first seen for payments awaiting review. Resolution shortens the deadline to 90 days after resolution if that is earlier. Expiry survives disconnect and a fresh read cannot restore cleared details. Logs, errors and event metadata carry IDs and fixed codes only.
@@ -39,8 +43,9 @@ These tables live in `convex/payments/schema.ts`.
 Every event means "read this payment again". `intake.ts` reads `GET /payments/{id}` and stores it in `storePaymentRead`:
 
 - An older source revision or refresh generation cannot replace newer facts. A superseded receipt retries unless a later generation has already stored a source revision at least as new.
-- A refund or dispute delivery sets `adverseFencedAt` as soon as its payment is known. A resource read and canonical payment read settle that resource. The fence stays while any resource remains pending. A key missing dispute access still refreshes the payment if the delivery names it.
-- Receipts stop retrying when the connection is disconnected or the key is rejected. Sweeps resume from the connection's checkpoints after reconnect and revisit pending resources. Whop's `Retry-After` accepts seconds or an HTTP date and is capped at 15 minutes.
+- A refund or dispute delivery sets `adverseFencedAt` as soon as its payment is known. A resource read and a canonical payment read settle that resource. Refunds are compared by magnitude because Whop can send signed amounts. The fence stays while a resource remains pending. A refund or dispute resource that returns HTTP 403 still triggers the canonical read if its payment id is known.
+- Billing can release a stuck fence after checking Whop. Release clears the fence, resolves the attached pending receipts as `released_by_person`, and schedules a canonical refresh through intake. A real refund or dispute can still appear on the next read.
+- Receipts stop retrying when the connection is disconnected or the key is rejected. Sweeps resume from the connection's checkpoints after reconnect and revisit pending receipts for known payments. Whop's `Retry-After` accepts seconds or an HTTP date and is capped at 15 minutes.
 - A re-read never overwrites the resolution (`leadId`, `opportunityId`, `paymentRecordId`, `matchMethod`, or a `reviewState` of `linked`, `recorded` or `dismissed`).
 - After storing, `refreshProviderPaymentReview` recomputes where an unresolved payment stands.
 
@@ -48,11 +53,13 @@ Every event means "read this payment again". `intake.ts` reads `GET /payments/{i
 
 | Cron | When | What |
 | --- | --- | --- |
-| `whop-payment-sweep` | every 15 minutes | Payments created, refunded or disputed since the last sweep, plus known non-final facts including drafts. Covers a 30-minute overlap |
+| `whop-payment-sweep` | every 15 minutes | Payments created, refunded or disputed since the last sweep, plus non-final facts, fenced facts and older provisional facts. Covers a 30-minute overlap |
 | `whop-payment-full-scan` | 07:34 UTC | Every payment, paged across runs. Whop has no `updated_after`, and an old pending payment can turn paid |
 | `whop-payment-retention` | 07:54 UTC | Clears raw bodies after 7 days and payer details at their indexed deadlines |
 
-A sweep records unreadable payment IDs and continues with the rest of the page. Provider-wide failures leave a checkpoint at the failing page. A run allows up to 64 pages across Workpool jobs and stops when a cursor repeats. A nightly sweep skips a busy lease.
+At the start of each recent sweep, retry up to 25 previously unreadable or superseded payment details. A stored read removes its id from the list. An indexed stage also retries provisional facts older than 15 minutes. Indexed fence reads and Whop's recent refund and dispute filters keep terminal history out of these stages. A sweep's success timestamp is the end of the window it covered.
+
+Provider-wide failures leave a checkpoint at the failing page. A run allows up to 64 pages across Workpool jobs and stops when it sees a repeated cursor in the run. A nightly sweep skips a busy lease.
 
 All requests share a per-connection clock (`connectionState.reserveRequest`) and pin `Api-Version-Date` (`WHOP_API_VERSION_DATE` in `whop/client.ts`). Change the pin on purpose, with the normalizer's tests.
 
@@ -73,14 +80,25 @@ All requests share a per-connection clock (`connectionState.reserveRequest`) and
 
 `reviewReason: "ready"` means the rule found one person with one open deal. It still needs a person in this phase.
 
-Billing shows the connected environment and badges sandbox facts. Waiting uses a live match for each of its 25 rows and flags rows whose classification was deferred when the read budget ran low. Linked, Dismissed and History are available as filters. Historical payments never appear as suggestions. Refunds and disputes on linked or recorded payments have a separate review list. The table indexes `[tenantId, adverseReviewAt]` and a connection-scoped version for Billing. Seen clears the review item and records an IDs-only Activity event.
+Billing shows the connected environment and badges sandbox facts. Waiting uses a live match for each of its 25 rows and flags rows whose classification was deferred when the read budget ran low. Linked, Dismissed and History are available as filters. Historical payments never appear as suggestions. Refunds and disputes on linked or recorded payments have a separate review list. Linking an adverse or fenced fact opens an item. Changes to the adverse state, an increased refund or a newly observed refund or dispute id advance the review revision. Seen checks that revision and the linked CRM record before clearing the item and recording an IDs-only Activity event.
 
-**Known limits.** A phone saved only on a person's profile is not seen by the matcher. Phone conflict checks use normalized phone identifiers.
+The active environment supplies the Billing queues, detail review and review actions. Evidence on a CRM payment shows its original environment and whether its source is connected. You can open the Whop detail and unlink a manual link after disconnecting or switching environments.
+
+## Known limits
+
+- Billing defers live classification when its read budget runs low.
+  A single match with large CRM records can still exceed the transaction budget.
+- Request pacing, webhook tracking and sweep checkpoints write to the connection row.
+  Concurrent work can contend there and rerun Billing subscriptions.
+- Connect and rotate pass credentials as Convex function arguments.
+  Convex diagnostics can include the arguments when validation fails before the handler runs.
+- Phone conflict checks use normalized phone identifiers.
+  They miss a phone saved only on a person's profile.
 
 ## Permissions
 
 - Connect, rotate, disconnect and map: `settings:manage`.
-- See the Billing view: `billing:view`. Link, dismiss and mark a refund or dispute seen: `billing:review`. Unlink and reopen: `billing:correct`. All need Billing Ops enabled.
+- See the Billing view: `billing:view`. Link, dismiss and mark a refund or dispute seen: `billing:review`. Unlink, reopen and release a hold: `billing:correct`. All need Billing Ops enabled.
 
 ## Tests
 

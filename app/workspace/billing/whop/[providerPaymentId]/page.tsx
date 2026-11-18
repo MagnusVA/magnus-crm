@@ -27,11 +27,12 @@ export default async function BillingWhopPaymentPage({
   }
 
   const { providerPaymentId } = await params;
+  const paymentId = providerPaymentId as Id<"providerPayments">;
   let preloadedPayment;
   try {
     preloadedPayment = await preloadQuery(
       api.payments.review.getProviderPayment,
-      { providerPaymentId: providerPaymentId as Id<"providerPayments"> },
+      { providerPaymentId: paymentId },
       { token: access.session.accessToken },
     );
   } catch (error) {
@@ -42,7 +43,7 @@ export default async function BillingWhopPaymentPage({
 
   return (
     <ContentReveal>
-      <WhopPaymentPageClient preloadedPayment={preloadedPayment} />
+      <WhopPaymentPageClient preloadedPayment={preloadedPayment} providerPaymentId={paymentId} />
     </ContentReveal>
   );
 }

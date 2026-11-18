@@ -37,7 +37,6 @@ const TENANT_INDEX_BY_TABLE = {
   opportunities: "by_tenantId",
   paymentRecords: "by_tenantId_and_recordedAt",
   paymentWebhookReceipts: "by_tenantId_and_connectionId_and_webhookId",
-  providerPaymentAllocationCommands: "by_tenantId_and_providerPaymentId_and_expectedAllocationRevision",
   providerPayments: "by_tenantId_and_connectionId_and_externalPaymentId",
   paymentProviderBindings: "by_tenantId_and_connectionId_and_kind_and_externalId",
   tenantPaymentConnections: "by_tenantId_and_provider_and_environment",

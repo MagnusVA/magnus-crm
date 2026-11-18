@@ -149,7 +149,7 @@ const ERROR_SENTENCES: Record<string, string> = {
   "provider_payment.invalid_record_target": "That CRM payment needs a deal with a current person before it can be linked.",
   "provider_payment.not_manually_linked": "This Whop payment has no link a person made, so there is nothing to unlink.",
   "provider_payment.link_inconsistent": "The Whop payment and the CRM payment no longer point to each other. Nothing changed.",
-  "provider_payment.binding_limit": "Too many membership links to check, so nothing was unlinked.",
+  "provider_payment.hold_already_cleared": "This Whop hold has already cleared.",
   "provider_payment.not_reviewable": "This Whop payment is no longer waiting for review.",
   "provider_payment.not_dismissed": "This Whop payment is not dismissed.",
 };

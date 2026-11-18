@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { formatAmountMinor } from "@/lib/format-currency";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { FIGURE } from "./billing-format";
 import { PaidAt } from "./paid-at";
@@ -41,12 +42,18 @@ export function WhopEvidenceCard({
     <DetailCard
       title="Whop evidence"
       meta={
-        <Link href={`/workspace/billing/whop/${evidence._id}`} className={cn(detailLinkClass, "gap-0.5")}>
-          Open in Billing
-          <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {evidence.environment === "sandbox" ? <Badge variant="outline">Sandbox</Badge> : null}
+          <Link href={`/workspace/billing/whop/${evidence._id}`} className={cn(detailLinkClass, "gap-0.5")}>
+            Open in Billing
+            <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+          </Link>
+        </div>
       }
     >
+      {!evidence.sourceConnected ? (
+        <p className="border-b px-4 py-2 text-[13px] text-muted-foreground">Whop account disconnected</p>
+      ) : null}
       <dl className="py-1">
         <Row label="Collected">
           {evidence.paidAt !== undefined ? (

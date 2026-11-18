@@ -12,7 +12,7 @@ import {
   providerPaymentFixture,
 } from "../../tests/providerPaymentFixtures";
 import { api, internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   billingPaymentsByStatus,
   billingPaymentsByStatusProgram,
@@ -35,7 +35,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(FIXTURE_NOW);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 function refresh(fixture: Fixture) {
   return fixture.t.run((ctx) => refreshProviderPaymentReview(ctx, fixture.providerPaymentId));
@@ -55,6 +59,39 @@ async function manualRecord(fixture: Fixture, fields: Partial<Doc<"paymentRecord
     await insertPaymentAggregate(ctx, id);
     return id;
   });
+}
+
+function adverseItems(fixture: Fixture) {
+  return fixture.admin.query(review.listAdverseOnResolved, { paginationOpts: { numItems: 25, cursor: null } });
+}
+
+function seenArgs(item: Awaited<ReturnType<typeof adverseItems>>["page"][number]) {
+  return {
+    providerPaymentId: item.providerPaymentId,
+    expectedPaymentRecordId: item.paymentRecordId,
+    expectedAdverseReviewRevision: item.adverseReviewRevision,
+  };
+}
+
+async function storeRead(
+  fixture: Fixture,
+  offset: number,
+  facts: Record<string, unknown>,
+  evidence?: { receiptId: Id<"paymentWebhookReceipts">; kind: "dispute"; state: string; updatedAt: number }[],
+) {
+  const { t, connectionId } = fixture;
+  const connection = (await t.run((ctx) => ctx.db.get("tenantPaymentConnections", connectionId)))!;
+  const identity = {
+    connectionId, connectedAt: connection.connectedAt,
+    accountId: connection.accountId, externalPaymentId: "pay_fixture",
+  };
+  const generation = (await t.mutation(internal.payments.intake.beginPaymentRead, identity))!;
+  const payment = normalizePayment(paymentSchema.parse(paymentFixture({
+    id: "pay_fixture", account_id: connection.accountId, updated_at: iso(FIXTURE_NOW + offset),
+    paid_at: iso(FIXTURE_PAID_AT), total: { amount: "100.00", currency: "usd", decimals: 2 },
+    ...facts,
+  })));
+  return t.mutation(internal.payments.intake.storePaymentRead, { ...identity, generation, payment, evidence });
 }
 
 describe("provider exception reads", () => {
@@ -152,7 +189,7 @@ describe("manual evidence links", () => {
   it("links, retries, and unlinks without changing cash, CRM payment data, deals or enrollments", async () => {
     const fixture = await providerPaymentFixture();
     const paymentRecordId = await manualRecord(fixture);
-    const args = { providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false };
+    const args = { providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 };
     const payment = () => fixture.t.run((ctx) => ctx.db.get("paymentRecords", paymentRecordId));
     const reports = () => fixture.t.run(async (ctx) => {
       const index = { namespace: fixture.tenantId };
@@ -173,7 +210,7 @@ describe("manual evidence links", () => {
     const initial = await payment();
     const baseline = await reports();
     expect(baseline.sums).toEqual([1, 10000]);
-    expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toBeNull();
+    expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toEqual({ allocationRevision: 1, paymentRecordId });
     expect(await payment()).toEqual({
       ...initial, providerPaymentId: fixture.providerPaymentId, providerPaidAt: FIXTURE_PAID_AT,
     });
@@ -181,14 +218,15 @@ describe("manual evidence links", () => {
     expect(evidence).toMatchObject({
       paymentRecordId, leadId: fixture.personId, opportunityId: fixture.dealId,
       reviewState: "linked", matchMethod: "person", resolvedByUserId: fixture.adminId,
+      environment: "sandbox", sourceConnected: true,
       resolvedAt: FIXTURE_NOW,
     });
     expect(await reports()).toEqual(baseline);
 
     vi.setSystemTime(FIXTURE_NOW + 1000);
-    expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toBeNull();
+    expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toEqual({ allocationRevision: 1, paymentRecordId });
     expect(await fixture.admin.query(review.getLinkedProviderPayment, { paymentRecordId })).toEqual(evidence);
-    expect(await fixture.admin.mutation(review.unlinkPaymentRecord, { providerPaymentId: fixture.providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1 })).toBeNull();
+    expect(await fixture.admin.mutation(review.unlinkPaymentRecord, { providerPaymentId: fixture.providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1 })).toEqual({ allocationRevision: 2, paymentRecordId: null });
     expect(await payment()).toEqual(initial);
     expect(await fixture.admin.query(review.getLinkedProviderPayment, { paymentRecordId })).toBeNull();
     const detail = await fixture.admin.query(review.getProviderPayment, { providerPaymentId: fixture.providerPaymentId });
@@ -214,16 +252,32 @@ describe("manual evidence links", () => {
     );
   });
 
-  it("requires explicit acknowledgement for unequal amounts and preserves the human amount", async () => {
+  it("asks for consent again when billing corrects the CRM amount while the prompt is open", async () => {
     const fixture = await providerPaymentFixture();
     const paymentRecordId = await manualRecord(fixture, { amountMinor: 12000 });
-    const args = { providerPaymentId: fixture.providerPaymentId, paymentRecordId };
-    await expect(fixture.admin.mutation(review.linkToPaymentRecord, { ...args, expectedAllocationRevision: 0, acknowledgeAmountDifference: false }))
-      .rejects.toThrow(/provider_payment\.amount_mismatch/);
+    const args = { providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 };
+    const link = (acknowledgedAmounts?: { crmAmountMinor: number; providerTotalMinor: number }) =>
+      fixture.admin.mutation(review.linkToPaymentRecord, { ...args, acknowledgedAmounts });
+
+    await expect(link()).rejects.toMatchObject({
+      data: { code: "provider_payment.amount_mismatch", crmAmountMinor: 12000, providerTotalMinor: 10000 },
+    });
+    await fixture.admin.mutation(api.billing.mutations.correctPayment, {
+      paymentRecordId, amount: 130, reason: "Fixture amount correction",
+    });
+    const current = { crmAmountMinor: 13000, providerTotalMinor: 10000 };
+    for (const stale of [
+      { ...current, crmAmountMinor: 12000 },
+      { ...current, providerTotalMinor: 9999 },
+    ]) {
+      await expect(link(stale)).rejects.toMatchObject({
+        data: { code: "provider_payment.amount_mismatch", ...current },
+      });
+    }
     expect(await fixture.admin.query(review.getLinkedProviderPayment, { paymentRecordId })).toBeNull();
-    await fixture.admin.mutation(review.linkToPaymentRecord, { ...args, expectedAllocationRevision: 0, acknowledgeAmountDifference: true });
+    await expect(link(current)).resolves.toEqual({ allocationRevision: 1, paymentRecordId });
     expect(await fixture.t.run((ctx) => ctx.db.get("paymentRecords", paymentRecordId)))
-      .toMatchObject({ providerPaymentId: fixture.providerPaymentId, amountMinor: 12000 });
+      .toMatchObject({ providerPaymentId: fixture.providerPaymentId, amountMinor: 13000 });
   });
 
   it.each([
@@ -233,7 +287,7 @@ describe("manual evidence links", () => {
     const fixture = await providerPaymentFixture();
     const paymentRecordId = await manualRecord(fixture, fields);
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: true,
+      providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgedAmounts: { crmAmountMinor: 12000, providerTotalMinor: 10000 },
     })).rejects.toThrow(`provider_payment.${code}`);
   });
 
@@ -245,13 +299,13 @@ describe("manual evidence links", () => {
       externalPaymentId: "pay_another",
     }));
     await fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: fixture.providerPaymentId, paymentRecordId: firstRecord, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+      providerPaymentId: fixture.providerPaymentId, paymentRecordId: firstRecord, expectedAllocationRevision: 0,
     });
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: fixture.providerPaymentId, paymentRecordId: secondRecord, expectedAllocationRevision: 1, acknowledgeAmountDifference: false,
+      providerPaymentId: fixture.providerPaymentId, paymentRecordId: secondRecord, expectedAllocationRevision: 1,
     })).rejects.toThrow(/provider_payment\.already_allocated/);
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: anotherProvider, paymentRecordId: firstRecord, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+      providerPaymentId: anotherProvider, paymentRecordId: firstRecord, expectedAllocationRevision: 0,
     })).rejects.toThrow(/provider_payment\.record_already_linked/);
   });
 
@@ -259,7 +313,7 @@ describe("manual evidence links", () => {
     const fixture = await providerPaymentFixture({ fact: { status: "pending" } });
     const paymentRecordId = await manualRecord(fixture);
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: true,
+      providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgedAmounts: { crmAmountMinor: 12000, providerTotalMinor: 10000 },
     })).rejects.toThrow(/provider_payment\.not_paid/);
   });
 
@@ -268,11 +322,11 @@ describe("manual evidence links", () => {
     const { providerPaymentId } = fixture;
     const prior = await manualRecord(fixture, { providerPaymentId });
     const paymentRecordId = await manualRecord(fixture);
-    const args = { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false };
+    const args = { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 };
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, args))
       .rejects.toThrow(/provider_payment\.already_allocated/);
     await fixture.t.run((ctx) => ctx.db.patch("paymentRecords", prior, { status: "disputed" }));
-    expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toBeNull();
+    expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toEqual({ allocationRevision: 1, paymentRecordId });
   });
 
   it("does not link either direction across tenants", async () => {
@@ -289,10 +343,10 @@ describe("manual evidence links", () => {
     });
 
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: fixture.providerPaymentId, paymentRecordId: other.recordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+      providerPaymentId: fixture.providerPaymentId, paymentRecordId: other.recordId, expectedAllocationRevision: 0,
     })).rejects.toThrow(/provider_payment\.record_not_found/);
     await expect(fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: other.providerPaymentId, paymentRecordId: ownRecord, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+      providerPaymentId: other.providerPaymentId, paymentRecordId: ownRecord, expectedAllocationRevision: 0,
     })).rejects.toThrow(/provider_payment\.not_found/);
     expect(await fixture.admin.query(review.getProviderPayment, { providerPaymentId: other.providerPaymentId })).toBeNull();
     expect(await fixture.admin.query(review.getLinkedProviderPayment, { paymentRecordId: other.recordId })).toBeNull();
@@ -303,7 +357,7 @@ describe("manual evidence links", () => {
     const paymentRecordId = await manualRecord(fixture);
     const { providerPaymentId, personId, dealId } = fixture;
     await fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+      providerPaymentId, paymentRecordId, expectedAllocationRevision: 0,
     });
     const bindingId = await fixture.t.run((ctx) => insertProviderBinding(ctx, {
       ...fixture, externalId: "mem_anchor",
@@ -346,21 +400,25 @@ describe("review decisions and permissions", () => {
       client.query(review.listProviderExceptions, { paginationOpts: { numItems: 10, cursor: null } }),
       client.query(review.getProviderExceptionCounts, {}),
       client.query(review.listAdverseOnResolved, { paginationOpts: { numItems: 10, cursor: null } }),
-      client.mutation(review.acknowledgeAdverse, { providerPaymentId }),
+      client.mutation(review.acknowledgeAdverse, {
+        providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAdverseReviewRevision: 0,
+      }),
+      client.mutation(review.releaseAdverseHold, { providerPaymentId }),
+      client.query(review.getArchivedProviderPayment, { providerPaymentId }),
       client.query(review.getProviderPayment, { providerPaymentId }),
       client.query(review.getLinkedProviderPayment, { paymentRecordId }),
-      client.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false }),
+      client.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 }),
       client.mutation(review.unlinkPaymentRecord, { providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1 }),
       client.mutation(review.dismissProviderPayment, { providerPaymentId, reason: "other" }),
       client.mutation(review.reopenProviderPayment, { providerPaymentId }),
     ];
     for (const client of [fixture.t, fixture.closer]) {
       const results = await Promise.allSettled(attempts(client));
-      expect(results.map(({ status }) => status)).toEqual(Array(10).fill("rejected"));
+      expect(results.map(({ status }) => status)).toEqual(Array(12).fill("rejected"));
     }
     await fixture.t.run((ctx) => ctx.db.patch("tenants", fixture.tenantId, { billingOpsEnabled: false }));
     const results = await Promise.allSettled(attempts(fixture.admin));
-    expect(results.map(({ status }) => status)).toEqual(Array(10).fill("rejected"));
+    expect(results.map(({ status }) => status)).toEqual(Array(12).fill("rejected"));
   });
 
   it("repoints both fields on a merge, including a candidate without a deal", async () => {
@@ -368,7 +426,7 @@ describe("review decisions and permissions", () => {
     await refresh(fixture);
     const paymentRecordId = await manualRecord(fixture);
     await fixture.admin.mutation(review.linkToPaymentRecord, {
-      providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+      providerPaymentId: fixture.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0,
     });
     const [targetLeadId, candidate] = await fixture.t.run(async (ctx) => {
       const targetLeadId = await insertProviderPerson(ctx, fixture.tenantId, { email: "survivor@example.com" });
@@ -398,7 +456,7 @@ describe("review decisions and permissions", () => {
     await refresh(fixture);
     const { tenantId, dealId, providerPaymentId, personId } = fixture;
     const paymentRecordId = await manualRecord(fixture);
-    await fixture.admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false });
+    await fixture.admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
     await fixture.t.run(async (ctx) => {
       for (let index = 0; index < 200; index++) {
         await insertProviderFact(ctx, tenantId, fixture.connectionId, {
@@ -423,33 +481,46 @@ describe("review decisions and permissions", () => {
   });
 });
 
-it("rejects stale allocation commands and makes historical exact retries write nothing", async () => {
+it("returns current allocation state on retries by either admin and rejects stale writes", async () => {
   const fixture = await providerPaymentFixture();
-  const { admin, t, providerPaymentId } = fixture;
+  const { admin, t, tenantId, providerPaymentId } = fixture;
+  const secondAdminId = await t.run((ctx) => ctx.db.insert("users", {
+    tenantId, workosUserId: "user_second_admin", email: "second-admin@example.invalid",
+    role: "tenant_admin", isActive: true,
+  }));
+  const secondAdmin = t.withIdentity({ subject: "user_second_admin", org_id: "org_test" });
   const first = await manualRecord(fixture);
   const second = await manualRecord(fixture);
-  const oldLink = {
-    providerPaymentId, paymentRecordId: first, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
-  };
-  const oldUnlink = { providerPaymentId, expectedPaymentRecordId: first, expectedAllocationRevision: 1 };
-  await admin.mutation(review.linkToPaymentRecord, oldLink);
-  await expect(admin.mutation(review.unlinkPaymentRecord, { ...oldUnlink, expectedPaymentRecordId: second }))
+  const linkFirst = { providerPaymentId, paymentRecordId: first, expectedAllocationRevision: 0 };
+  const unlinkFirst = { providerPaymentId, expectedPaymentRecordId: first, expectedAllocationRevision: 1 };
+  const firstState = { allocationRevision: 1, paymentRecordId: first };
+  const cleared = { allocationRevision: 2, paymentRecordId: null };
+
+  await expect(admin.mutation(review.linkToPaymentRecord, linkFirst)).resolves.toEqual(firstState);
+  await expect(secondAdmin.mutation(review.linkToPaymentRecord, linkFirst)).resolves.toEqual(firstState);
+  await expect(secondAdmin.mutation(review.unlinkPaymentRecord, { ...unlinkFirst, expectedPaymentRecordId: second }))
     .rejects.toThrow(/provider_payment\.changed/);
-  await admin.mutation(review.unlinkPaymentRecord, oldUnlink);
-  await admin.mutation(review.linkToPaymentRecord, {
-    ...oldLink, paymentRecordId: second, expectedAllocationRevision: 2,
-  });
-  await expect(admin.mutation(review.linkToPaymentRecord, { ...oldLink, acknowledgeAmountDifference: true }))
+  await expect(admin.mutation(review.unlinkPaymentRecord, unlinkFirst)).resolves.toEqual(cleared);
+  await expect(secondAdmin.mutation(review.unlinkPaymentRecord, unlinkFirst)).resolves.toEqual(cleared);
+  await expect(secondAdmin.mutation(review.unlinkPaymentRecord, { ...unlinkFirst, expectedPaymentRecordId: second }))
+    .resolves.toEqual(cleared);
+  await expect(secondAdmin.mutation(review.linkToPaymentRecord, linkFirst))
     .rejects.toThrow(/provider_payment\.changed/);
-  await expect(admin.mutation(review.unlinkPaymentRecord, { ...oldUnlink, expectedAllocationRevision: 3 }))
+
+  const linkSecond = { ...linkFirst, paymentRecordId: second, expectedAllocationRevision: 2 };
+  await expect(secondAdmin.mutation(review.linkToPaymentRecord, linkSecond))
+    .resolves.toEqual({ allocationRevision: 3, paymentRecordId: second });
+  await expect(admin.mutation(review.linkToPaymentRecord, linkSecond))
+    .resolves.toEqual({ allocationRevision: 3, paymentRecordId: second });
+  await expect(admin.mutation(review.linkToPaymentRecord, linkFirst)).rejects.toThrow(/provider_payment\.changed/);
+  await expect(admin.mutation(review.unlinkPaymentRecord, unlinkFirst)).rejects.toThrow(/provider_payment\.changed/);
+  await expect(admin.mutation(review.unlinkPaymentRecord, { ...unlinkFirst, expectedAllocationRevision: 3 }))
     .rejects.toThrow(/provider_payment\.changed/);
-  await expect(admin.mutation(review.linkToPaymentRecord, oldLink)).resolves.toBeNull();
-  await expect(admin.mutation(review.unlinkPaymentRecord, oldUnlink)).resolves.toBeNull();
   expect(await admin.query(review.getProviderPayment, { providerPaymentId })).toMatchObject({
-    allocationRevision: 3, environment: "sandbox", payment: { paymentRecordId: second },
+    allocationRevision: 3, payment: { paymentRecordId: second, resolvedByUserId: secondAdminId },
   });
-  expect(await t.run((ctx) => ctx.db.query("providerPaymentAllocationCommands").take(10))).toHaveLength(3);
-  expect(await t.run((ctx) => ctx.db.query("domainEvents").take(10))).toHaveLength(3);
+  expect((await t.run((ctx) => ctx.db.query("domainEvents").take(10))).map((event) => event.actorUserId))
+    .toEqual([fixture.adminId, fixture.adminId, secondAdminId]);
 });
 
 it("lists Waiting, Linked, Dismissed and History for the connected environment only", async () => {
@@ -485,7 +556,6 @@ it("lists Waiting, Linked, Dismissed and History for the connected environment o
   const paymentRecordId = await manualRecord(fixture);
   await expect(admin.mutation(review.linkToPaymentRecord, {
     providerPaymentId: states.inactive, paymentRecordId, expectedAllocationRevision: 0,
-    acknowledgeAmountDifference: false,
   })).rejects.toThrow(/provider_payment\.connection_unavailable/);
 
   await t.run((ctx) => ctx.db.patch("tenantPaymentConnections", connectionId, { status: "invalid_key" }));
@@ -538,40 +608,30 @@ it("falls back to flagged stored classifications at the page read budget", async
 
 it("surfaces linked reversals, and link, unlink and Seen all count as Activity", async () => {
   const fixture = await providerPaymentFixture();
-  const { t, admin, providerPaymentId, connectionId, tenantId } = fixture;
+  const { t, admin, providerPaymentId, tenantId } = fixture;
   const paymentRecordId = await manualRecord(fixture);
   await admin.mutation(review.linkToPaymentRecord, {
-    providerPaymentId, paymentRecordId, expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+    providerPaymentId, paymentRecordId, expectedAllocationRevision: 0,
   });
-  const connection = (await t.run((ctx) => ctx.db.get("tenantPaymentConnections", connectionId)))!;
-  const identity = {
-    connectionId, connectedAt: connection.connectedAt,
-    accountId: connection.accountId, externalPaymentId: "pay_fixture",
-  };
-  const store = async (offset: number, facts: Record<string, unknown>) => {
-    const generation = (await t.mutation(internal.payments.intake.beginPaymentRead, identity))!;
-    const payment = normalizePayment(paymentSchema.parse(paymentFixture({
-      id: "pay_fixture", account_id: connection.accountId, updated_at: iso(FIXTURE_NOW + offset), ...facts,
-    })));
-    await t.mutation(internal.payments.intake.storePaymentRead, { ...identity, generation, payment });
-  };
-  await store(0, {
+  await storeRead(fixture, 0, {
     substatus: "partially_refunded",
     refunded_amount: { amount: "1.00", currency: "usd", decimals: 2 },
   });
-  const list = () => admin.query(review.listAdverseOnResolved, { paginationOpts: { numItems: 25, cursor: null } });
+  const list = () => adverseItems(fixture);
   expect((await list()).page).toMatchObject([{ providerPaymentId, paymentRecordId, adverseState: "partially_refunded", environment: "sandbox" }]);
   expect(await admin.query(review.getProviderExceptionCounts, {})).toMatchObject({ count: 0, adverseCount: 1 });
   const before = await t.run((ctx) => ctx.db.get("paymentRecords", paymentRecordId));
-  await admin.mutation(review.acknowledgeAdverse, { providerPaymentId });
-  await admin.mutation(review.acknowledgeAdverse, { providerPaymentId });
+  const [item] = (await list()).page;
+  const seen = seenArgs(item);
+  await admin.mutation(review.acknowledgeAdverse, seen);
+  await admin.mutation(review.acknowledgeAdverse, seen);
   expect((await list()).page).toEqual([]);
   expect(await t.run((ctx) => ctx.db.get("paymentRecords", paymentRecordId))).toEqual(before);
   expect(await admin.query(review.getProviderPayment, { providerPaymentId }))
     .toMatchObject({ allocationRevision: 1, payment: { paymentRecordId, reviewState: "linked" } });
-  await store(1, { substatus: "dispute_needs_response" });
+  await storeRead(fixture, 1, { substatus: "dispute_needs_response" });
   expect((await list()).page).toHaveLength(1);
-  await store(2, { substatus: "dispute_won" });
+  await storeRead(fixture, 2, { substatus: "dispute_won" });
   expect((await list()).page).toEqual([]);
   await admin.mutation(review.unlinkPaymentRecord, {
     providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1,
@@ -592,4 +652,208 @@ it("surfaces linked reversals, and link, unlink and Seen all count as Activity",
   expect(events.find((event) => event.eventType === "payment.provider_adverse_acknowledged")?.metadata)
     .toBe(JSON.stringify({ providerPaymentId, paymentRecordId }));
   expect((await getActivity()).byEventType).toEqual(scan.byEventType);
+});
+
+it("opens an adverse item when a person links a payment that was already refunded", async () => {
+  const fixture = await providerPaymentFixture();
+  const { admin, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  await storeRead(fixture, 0, { substatus: "refunded" });
+  expect((await adverseItems(fixture)).page).toEqual([]);
+  await admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
+  expect((await adverseItems(fixture)).page).toMatchObject([
+    { providerPaymentId, paymentRecordId, adverseState: "refunded", adverseReviewRevision: 1 },
+  ]);
+});
+
+it("rejects Seen for a CRM payment that has since been replaced by a new link", async () => {
+  const fixture = await providerPaymentFixture({ fact: { adverseState: "refunded" } });
+  const { t, admin, providerPaymentId } = fixture;
+  const first = await manualRecord(fixture);
+  const second = await manualRecord(fixture);
+  await admin.mutation(review.linkToPaymentRecord, {
+    providerPaymentId, paymentRecordId: first, expectedAllocationRevision: 0,
+  });
+  const [old] = (await adverseItems(fixture)).page;
+  await admin.mutation(review.unlinkPaymentRecord, {
+    providerPaymentId, expectedPaymentRecordId: first, expectedAllocationRevision: 1,
+  });
+  await admin.mutation(review.linkToPaymentRecord, {
+    providerPaymentId, paymentRecordId: second, expectedAllocationRevision: 2,
+  });
+  const [current] = (await adverseItems(fixture)).page;
+  expect(current.paymentRecordId).toBe(second);
+  expect(current.adverseReviewRevision).toBeGreaterThan(old.adverseReviewRevision);
+  for (const revision of [old.adverseReviewRevision, current.adverseReviewRevision]) {
+    await expect(admin.mutation(review.acknowledgeAdverse, { ...seenArgs(old), expectedAdverseReviewRevision: revision }))
+      .rejects.toThrow(/provider_payment\.changed/);
+  }
+  expect((await adverseItems(fixture)).page).toEqual([current]);
+  expect(await t.run((ctx) => ctx.db.query("domainEvents").take(10)))
+    .not.toContainEqual(expect.objectContaining({ eventType: "payment.provider_adverse_acknowledged" }));
+});
+
+it("rejects Seen for a smaller refund even if the CRM record and summary state stayed the same", async () => {
+  const fixture = await providerPaymentFixture();
+  const { admin, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  await admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
+  await storeRead(fixture, 0, {
+    substatus: "partially_refunded", refunded_amount: { amount: "8.00", currency: "usd", decimals: 2 },
+  });
+  const [old] = (await adverseItems(fixture)).page;
+  await storeRead(fixture, 1, {
+    substatus: "partially_refunded", refunded_amount: { amount: "15.00", currency: "usd", decimals: 2 },
+  });
+  await expect(admin.mutation(review.acknowledgeAdverse, seenArgs(old))).rejects.toThrow(/provider_payment\.changed/);
+  const [current] = (await adverseItems(fixture)).page;
+  expect(current).toMatchObject({ paymentRecordId, adverseReviewRevision: old.adverseReviewRevision + 1 });
+  await admin.mutation(review.acknowledgeAdverse, seenArgs(current));
+  expect((await adverseItems(fixture)).page).toEqual([]);
+});
+
+it("reopens Seen for a second dispute resource with the same summary state", async () => {
+  const fixture = await providerPaymentFixture();
+  const { t, admin, connectionId, tenantId, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  await admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
+  const connection = (await t.run((ctx) => ctx.db.get("tenantPaymentConnections", connectionId)))!;
+  const receive = async (webhookId: string, externalObjectId: string, eventType: string) => {
+    await t.mutation(internal.payments.intake.receiveWebhook, {
+      tenantId, connectionId, accountId: connection.accountId, connectedAt: connection.connectedAt,
+      webhookId, eventType, externalPaymentId: "pay_fixture", externalObjectId,
+      bodySha256: "fixture_hash", rawBody: "{}",
+    });
+    return (await t.run((ctx) => ctx.db.query("paymentWebhookReceipts")
+      .withIndex("by_tenantId_and_connectionId_and_webhookId", (q) =>
+        q.eq("tenantId", tenantId).eq("connectionId", connectionId).eq("webhookId", webhookId))
+      .unique()))!._id;
+  };
+  const first = await receive("msg_first_fixture", "disp_first_fixture", "dispute.created");
+  await storeRead(fixture, 0, { substatus: "dispute_needs_response" }, [
+    { receiptId: first, kind: "dispute", state: "needs_response", updatedAt: FIXTURE_NOW },
+  ]);
+  const [old] = (await adverseItems(fixture)).page;
+  await admin.mutation(review.acknowledgeAdverse, seenArgs(old));
+  await receive("msg_repeat_fixture", "disp_first_fixture", "dispute.updated");
+  expect((await adverseItems(fixture)).page).toEqual([]);
+  await receive("msg_second_fixture", "disp_second_fixture", "dispute.created");
+  expect((await adverseItems(fixture)).page).toMatchObject([
+    { paymentRecordId, adverseState: "dispute_open", adverseReviewRevision: old.adverseReviewRevision + 1 },
+  ]);
+});
+
+it("releases a fenced payment's pending receipts and reads Whop again", async () => {
+  const fixture = await providerPaymentFixture();
+  const { t, admin, tenantId, connectionId, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  const args = { providerPaymentId };
+  await admin.mutation(review.linkToPaymentRecord, { ...args, paymentRecordId, expectedAllocationRevision: 0 });
+  await expect(admin.mutation(review.releaseAdverseHold, args)).rejects.toThrow(/provider_payment\.hold_already_cleared/);
+
+  const receipts = await t.run(async (ctx) => {
+    await ctx.db.patch("providerPayments", providerPaymentId, {
+      adverseFencedAt: FIXTURE_NOW, sourceAdverseState: "none", adverseState: "refund_pending",
+    });
+    const ids = [];
+    for (let i = 0; i < 21; i++) {
+      ids.push(await ctx.db.insert("paymentWebhookReceipts", {
+        tenantId, connectionId, externalPaymentId: "pay_fixture", webhookId: `msg_hold_${i}`,
+        externalObjectId: i === 0 ? "disp_hold_fixture" : `ref_hold_${i}`,
+        eventType: i === 0 ? "dispute.updated" : "refund.updated",
+        receivedAt: FIXTURE_NOW, adversePending: true, status: "failed",
+        attempts: 8, bodySha256: "fixture_hash", failureCode: "attempts_exhausted",
+      }));
+    }
+    return ids;
+  });
+  await expect(fixture.closer.mutation(review.releaseAdverseHold, args)).rejects.toThrow();
+  const fetchMock = vi.fn(async (_url: string) => Response.json(paymentFixture({
+    id: "pay_fixture", account_id: "biz_fixture", substatus: "refunded",
+    updated_at: iso(FIXTURE_NOW + 1000), refunded_amount: { amount: "100.00", currency: "usd", decimals: 2 },
+  })));
+  vi.stubGlobal("fetch", fetchMock);
+  await admin.mutation(review.releaseAdverseHold, args);
+  const getFact = () => t.run((ctx) => ctx.db.get("providerPayments", providerPaymentId));
+  const getReceipts = () => t.run((ctx) => Promise.all(receipts.map((id) => ctx.db.get("paymentWebhookReceipts", id))));
+  expect((await getFact())?.adverseFencedAt).toBeUndefined();
+  expect((await getReceipts()).filter((receipt) => receipt?.failureCode === "released_by_person")).toHaveLength(20);
+  expect(fetchMock).not.toHaveBeenCalled();
+  const events = await t.run((ctx) => ctx.db.query("domainEvents").take(10));
+  expect(events.filter((event) => event.eventType === "payment.provider_hold_released")).toMatchObject([
+    { actorUserId: fixture.adminId, entityId: paymentRecordId, metadata: JSON.stringify({ providerPaymentId, paymentRecordId }) },
+  ]);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  for (const receipt of await getReceipts()) {
+    expect(receipt).toMatchObject({ status: "processed", failureCode: "released_by_person" });
+    expect(receipt?.adversePending).toBeUndefined();
+  }
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/payments\/pay_fixture$/);
+  expect(await getFact()).toMatchObject({ adverseState: "refunded", refundedMinor: 10000 });
+  expect((await adverseItems(fixture)).page).toMatchObject([{ paymentRecordId, adverseState: "refunded" }]);
+});
+
+it("keeps sandbox evidence visible and unlinkable after disconnect", async () => {
+  const fixture = await providerPaymentFixture();
+  const { admin, connectionId, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  await admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
+  await admin.mutation(api.payments.connection.disconnect, { connectionId });
+  expect(await admin.query(review.getLinkedProviderPayment, { paymentRecordId })).toMatchObject({
+    _id: providerPaymentId, environment: "sandbox", sourceConnected: false, paymentRecordId,
+  });
+  expect(await admin.query(review.getProviderPayment, { providerPaymentId })).toBeNull();
+  expect(await admin.query(review.getArchivedProviderPayment, { providerPaymentId })).toMatchObject({
+    environment: "sandbox", payment: { paymentRecordId, reviewState: "linked" },
+  });
+  await expect(admin.mutation(review.unlinkPaymentRecord, {
+    providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1,
+  })).resolves.toEqual({ allocationRevision: 2, paymentRecordId: null });
+  expect(await admin.query(review.getLinkedProviderPayment, { paymentRecordId })).toBeNull();
+});
+
+it("rejects active review operations on a non-active source even when that row says connected", async () => {
+  const fixture = await providerPaymentFixture();
+  const { t, admin, tenantId, connectionId, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  await refresh(fixture);
+  const dismissedId = await t.run(async (ctx) => {
+    const { _id, _creationTime, ...sandbox } = (await ctx.db.get("tenantPaymentConnections", connectionId))!;
+    await ctx.db.insert("tenantPaymentConnections", { ...sandbox, environment: "live", accountId: "biz_live_fixture" });
+    return insertProviderFact(ctx, tenantId, connectionId, { externalPaymentId: "pay_dismissed_fixture", reviewState: "dismissed" });
+  });
+  expect(await admin.query(review.getProviderExceptionCounts, {})).toMatchObject({ environment: "live" });
+  expect(await admin.query(review.getProviderPayment, { providerPaymentId })).toBeNull();
+  await expect(admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 }))
+    .rejects.toThrow(/provider_payment\.connection_unavailable/);
+  await expect(admin.mutation(review.dismissProviderPayment, { providerPaymentId, reason: "other" }))
+    .rejects.toThrow(/provider_payment\.connection_unavailable/);
+  await expect(admin.mutation(review.reopenProviderPayment, { providerPaymentId: dismissedId }))
+    .rejects.toThrow(/provider_payment\.connection_unavailable/);
+  await t.run((ctx) => ctx.db.patch("providerPayments", providerPaymentId, {
+    paymentRecordId, reviewState: "linked", adverseReviewRevision: 1, adverseReviewAt: FIXTURE_NOW, adverseFencedAt: FIXTURE_NOW,
+  }));
+  await expect(admin.mutation(review.acknowledgeAdverse, {
+    providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAdverseReviewRevision: 1,
+  })).rejects.toThrow(/provider_payment\.connection_unavailable/);
+  await expect(admin.mutation(review.releaseAdverseHold, { providerPaymentId }))
+    .rejects.toThrow(/provider_payment\.connection_unavailable/);
+});
+
+it.each([
+  ["non-paid", { status: "pending" }, "not_actionable"],
+  ["zero", { totalMinor: 0, paidAt: FIXTURE_NOW - 35 * 86_400_000 }, "not_actionable"],
+  ["historical", { paidAt: FIXTURE_NOW - 35 * 86_400_000 }, "historical"],
+] as const)("restores the %s review state when unlinking", async (_label, fields, reviewState) => {
+  const fixture = await providerPaymentFixture();
+  const { t, admin, providerPaymentId } = fixture;
+  const paymentRecordId = await manualRecord(fixture);
+  await admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
+  await t.run((ctx) => ctx.db.patch("providerPayments", providerPaymentId, fields));
+  await admin.mutation(review.unlinkPaymentRecord, {
+    providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1,
+  });
+  expect(await t.run((ctx) => ctx.db.get("providerPayments", providerPaymentId))).toMatchObject({ reviewState });
+  expect(await admin.query(review.getProviderExceptionCounts, {})).toMatchObject({ count: 0 });
 });

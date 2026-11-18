@@ -316,7 +316,7 @@ describe("Whop mapping refresh", () => {
       const base = {
         tenantId, connectionId, productId, variantId,
         status: "paid", reviewState: "needs_person",
-        sourceUpdatedAt: now, sourceCreatedAt: now, refreshGeneration: 1, allocationRevision: 0, firstSeenAt: now,
+        sourceUpdatedAt: now, sourceCreatedAt: now, refreshGeneration: 1, allocationRevision: 0, adverseReviewRevision: 0, firstSeenAt: now,
         currency: "usd", decimals: 2, totalMinor: 100, refundedMinor: 0,
         adverseState: "none", lineItemCount: 1, failedAttemptCount: 0,
       } as const satisfies Omit<Doc<"providerPayments">, "_id" | "_creationTime" | "externalPaymentId">;

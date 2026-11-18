@@ -419,6 +419,15 @@ export async function findPaymentTarget(
   return { kind: "ready", leadId: person._id, opportunityId: deal._id, matchMethod: "email_one_open_deal" };
 }
 
+export function baseProviderReviewState(
+  payment: Pick<Payment, "status" | "totalMinor" | "paidAt">,
+  autoImportAfter: number,
+): "not_actionable" | "historical" | "needs_person" {
+  if (payment.status !== "paid" || payment.totalMinor === 0) return "not_actionable";
+  if (payment.paidAt !== undefined && payment.paidAt < autoImportAfter) return "historical";
+  return "needs_person";
+}
+
 /** Intake calls this after storing a fresh read. Repeated classifications keep their timestamp. */
 export async function refreshProviderPaymentReview(
   ctx: MutationCtx,

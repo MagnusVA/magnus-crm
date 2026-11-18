@@ -1,14 +1,14 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useAction, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -30,14 +30,17 @@ export const WHOP_CATALOG_SCOPES = ["plan:basic:read", "access_pass:basic:read"]
 
 type Environment = WhopConnection["environment"];
 
-/**
- * The tenant's Whop connection: live unless only a sandbox one is in use.
- * `undefined` while loading, `null` when Whop was never connected.
- */
-export function useWhopConnection(enabled = true): WhopConnection | null | undefined {
+function useWhopConnectionRows(enabled = true) {
   const live = useQuery(api.payments.connection.getConnection, enabled ? { environment: "live" } : "skip");
   const sandbox = useQuery(api.payments.connection.getConnection, enabled ? { environment: "sandbox" } : "skip");
-  if (live === undefined || sandbox === undefined) return undefined;
+  return live === undefined || sandbox === undefined ? undefined : { live, sandbox };
+}
+
+/** The connected environment or the best available row for the setup status. */
+export function useWhopConnection(enabled = true): WhopConnection | null | undefined {
+  const rows = useWhopConnectionRows(enabled);
+  if (!rows) return undefined;
+  const { live, sandbox } = rows;
   if (live?.status === "connected") return live;
   if (sandbox?.status === "connected") return sandbox;
   if (live?.status === "invalid_key") return live;
@@ -121,35 +124,31 @@ const connectSchema = z.object({
     .trim()
     .regex(/^biz_[a-zA-Z0-9_]{1,124}$/, "Enter the account id. It starts with biz_."),
   apiKey: z.string().trim().min(8, "Enter the Whop API key.").max(1024, "That key is too long."),
-  sandbox: z.boolean(),
+  environment: z.enum(["live", "sandbox"]),
 });
 
-/**
- * The account id and key fields, then Connect (lime unless `quiet`). A
- * connection that exists keeps its account and environment: Whop payments
- * already read belong to that account.
- */
+/** Setup for either environment, with the account pinned on existing rows. */
 export function WhopConnectForm({
   quiet,
-  existing,
-  onDone,
+  initialEnvironment = "live",
 }: {
   quiet: boolean;
-  /** A rejected or disconnected connection being connected again. */
-  existing?: { accountId: string; environment: Environment } | null;
-  onDone?: () => void;
+  initialEnvironment?: Environment;
 }) {
   const connect = useAction(api.payments.connection.connect);
+  const connections = useWhopConnectionRows();
   const id = useId();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const form = useForm({
     resolver: standardSchemaResolver(connectSchema),
     defaultValues: {
-      accountId: existing?.accountId ?? "",
+      accountId: connections?.[initialEnvironment]?.accountId ?? "",
       apiKey: "",
-      sandbox: existing?.environment === "sandbox",
+      environment: initialEnvironment,
     },
   });
+  const environment = useWatch({ control: form.control, name: "environment" });
+  const accountId = connections?.[environment]?.accountId;
 
   async function submit(values: z.infer<typeof connectSchema>) {
     setSubmitError(null);
@@ -157,11 +156,10 @@ export function WhopConnectForm({
       await connect({
         accountId: values.accountId,
         apiKey: values.apiKey,
-        environment: values.sandbox ? "sandbox" : "live",
+        environment: values.environment,
       });
       form.reset({ ...values, apiKey: "" });
       toast.success("Whop connected.");
-      onDone?.();
     } catch (error) {
       setSubmitError(connectErrorSentence(error));
     }
@@ -171,6 +169,37 @@ export function WhopConnectForm({
   return (
     <form onSubmit={form.handleSubmit(submit)} noValidate>
       <FieldGroup className="gap-0">
+        <Controller
+          control={form.control}
+          name="environment"
+          render={({ field }) => (
+            <Field className="gap-1.5 px-4 pt-3 pb-1.5">
+              <span id={`${id}-environment`} className="text-[13px] font-medium">Environment</span>
+              <RadioGroup
+                value={field.value}
+                disabled={submitting}
+                aria-labelledby={`${id}-environment`}
+                className="flex gap-4"
+                onValueChange={(value) => {
+                  if (value !== "live" && value !== "sandbox") return;
+                  field.onChange(value);
+                  form.resetField("accountId", { defaultValue: connections?.[value]?.accountId ?? "" });
+                  form.resetField("apiKey");
+                  setSubmitError(null);
+                }}
+              >
+                <Field orientation="horizontal" className="items-center gap-2">
+                  <RadioGroupItem id={`${id}-live`} value="live" />
+                  <FieldLabel htmlFor={`${id}-live`}>Live</FieldLabel>
+                </Field>
+                <Field orientation="horizontal" className="items-center gap-2">
+                  <RadioGroupItem id={`${id}-sandbox`} value="sandbox" />
+                  <FieldLabel htmlFor={`${id}-sandbox`}>Sandbox</FieldLabel>
+                </Field>
+              </RadioGroup>
+            </Field>
+          )}
+        />
         <Controller
           control={form.control}
           name="accountId"
@@ -186,13 +215,13 @@ export function WhopConnectForm({
                 autoComplete="off"
                 spellCheck={false}
                 translate="no"
-                readOnly={Boolean(existing)}
+                readOnly={accountId !== undefined}
                 aria-invalid={fieldState.invalid || undefined}
                 className="font-mono text-[13px]"
               />
               <FieldDescription className="text-[13px] leading-[1.45]">
-                {existing
-                  ? "This workspace's Whop connection is tied to this account."
+                {accountId
+                  ? `This environment is tied to ${accountId}. Payments already read stay with it.`
                   : "Your Whop company id. It starts with biz_ and shows in your Whop dashboard's address."}
               </FieldDescription>
               <FieldError className="text-[13px] text-danger-ink" errors={[fieldState.error]} />
@@ -225,24 +254,6 @@ export function WhopConnectForm({
             </Field>
           )}
         />
-        {existing ? null : (
-          <Controller
-            control={form.control}
-            name="sandbox"
-            render={({ field }) => (
-              <Field orientation="horizontal" className="items-center gap-2 px-4 pt-1.5 pb-3">
-                <Checkbox
-                  id={`${id}-sandbox`}
-                  checked={field.value}
-                  onCheckedChange={(checked) => field.onChange(checked === true)}
-                />
-                <FieldLabel htmlFor={`${id}-sandbox`} className="text-[13px] font-normal text-muted-foreground">
-                  Sandbox account, for testing
-                </FieldLabel>
-              </Field>
-            )}
-          />
-        )}
       </FieldGroup>
       {submitError ? (
         <div className="px-4 pb-3">
@@ -262,7 +273,6 @@ export function WhopConnectForm({
           {submitting ? <Spinner data-icon="inline-start" /> : null}
           <TranslatableText>{submitting ? "Checking with Whop…" : "Connect Whop"}</TranslatableText>
         </Button>
-        {existing?.environment === "sandbox" ? <NoteLine>Sandbox account</NoteLine> : null}
       </ActionRow>
     </form>
   );

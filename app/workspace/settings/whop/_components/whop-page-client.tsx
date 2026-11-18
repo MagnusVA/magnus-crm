@@ -47,7 +47,7 @@ export function WhopPageClient() {
               </div>
               <WhopConnectForm
                 quiet={false}
-                existing={connection ? { accountId: connection.accountId, environment: connection.environment } : null}
+                initialEnvironment={connection?.environment}
               />
             </section>
           </SectionErrorBoundary>

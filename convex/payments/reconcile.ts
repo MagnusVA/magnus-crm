@@ -14,6 +14,7 @@ import { whopId } from "./whop/normalize";
 
 const PAGE_SIZE = 20;
 export const SWEEP_PAGE_BUDGET = 64;
+const PROVISIONAL_RETRY_AGE_MS = 15 * 60_000;
 const DAY_MS = 86_400_000;
 export const SWEEP_OVERLAP_MS = 30 * 60_000;
 const connectionId = v.id("tenantPaymentConnections");
@@ -48,16 +49,11 @@ export const sweep = internalMutation({
 });
 
 const KNOWN_STATUSES = ["draft", "open", "pending", "authorized", "unresolved"] as const;
-const KNOWN_ADVERSE_STATES = [
-  "refund_pending", "dispute_open", "partially_refunded", "refunded", "dispute_won", "dispute_lost",
-] as const;
+const OPEN_ADVERSE_STATES = ["refund_pending", "dispute_open"] as const;
 const knownStatus = v.union(
   v.literal("draft"), v.literal("open"), v.literal("pending"), v.literal("authorized"), v.literal("unresolved"),
 );
-const knownAdverseState = v.union(
-  v.literal("refund_pending"), v.literal("dispute_open"), v.literal("partially_refunded"),
-  v.literal("refunded"), v.literal("dispute_won"), v.literal("dispute_lost"),
-);
+const openAdverseState = v.union(v.literal("refund_pending"), v.literal("dispute_open"));
 
 export const listKnownPayments = internalQuery({
   args: {
@@ -65,7 +61,9 @@ export const listKnownPayments = internalQuery({
     paginationOpts: paginationOptsValidator,
     selector: v.union(
       v.object({ kind: v.literal("status"), value: knownStatus }),
-      v.object({ kind: v.literal("adverse"), value: knownAdverseState }),
+      v.object({ kind: v.literal("adverse"), value: openAdverseState }),
+      v.object({ kind: v.literal("fenced") }),
+      v.object({ kind: v.literal("provisional"), firstSeenThrough: v.number() }),
     ),
   },
   returns: v.object({ ids: v.array(v.string()), cursor }),
@@ -73,20 +71,30 @@ export const listKnownPayments = internalQuery({
     const connection = await ctx.db.get("tenantPaymentConnections", args.connectionId);
     if (connection?.status !== "connected") return { ids: [], cursor: null };
     const selector = args.selector;
-    const page = await (selector.kind === "status"
-      ? ctx.db.query("providerPayments").withIndex("by_connectionId_and_status_and_sourceCreatedAt",
-        (q) => q.eq("connectionId", connection._id).eq("status", selector.value))
-      : ctx.db.query("providerPayments").withIndex("by_connectionId_and_adverseState",
-        (q) => q.eq("connectionId", connection._id).eq("adverseState", selector.value)))
-      .paginate({ ...args.paginationOpts, numItems: Math.min(PAGE_SIZE, args.paginationOpts.numItems) });
-    const ids = [];
-    for (const row of page.page) {
-      if (row.tenantId !== connection.tenantId) continue;
-      if (selector.kind === "status" || selector.value === "refund_pending" ||
-        selector.value === "dispute_open" || row.adverseFencedAt !== undefined) {
-        ids.push(row.externalPaymentId);
+    const payments = ctx.db.query("providerPayments");
+    const index = (() => {
+      switch (selector.kind) {
+        case "status":
+          return payments.withIndex("by_connectionId_and_status_and_sourceCreatedAt_and_firstSeenAt",
+            (q) => q.eq("connectionId", connection._id).eq("status", selector.value));
+        case "provisional":
+          return payments.withIndex("by_connectionId_and_status_and_sourceCreatedAt_and_firstSeenAt",
+            (q) => q.eq("connectionId", connection._id).eq("status", "unknown")
+              .eq("sourceCreatedAt", 0).lte("firstSeenAt", selector.firstSeenThrough));
+        case "adverse":
+          return payments.withIndex("by_connectionId_and_adverseState_and_adverseFencedAt",
+            (q) => q.eq("connectionId", connection._id).eq("adverseState", selector.value)
+              .eq("adverseFencedAt", undefined));
+        case "fenced":
+          return payments.withIndex("by_connectionId_and_adverseFencedAt",
+            (q) => q.eq("connectionId", connection._id).gt("adverseFencedAt", undefined));
       }
-    }
+    })();
+    const page = await index.paginate({
+      ...args.paginationOpts,
+      numItems: Math.min(PAGE_SIZE, args.paginationOpts.numItems),
+    });
+    const ids = page.page.filter((row) => row.tenantId === connection.tenantId).map((row) => row.externalPaymentId);
     return { ids, cursor: page.isDone ? null : page.continueCursor };
   },
 });
@@ -137,8 +145,10 @@ const WINDOWS = [
 const RECENT_STAGES = [
   ...WINDOWS.map(([after, before]) => ({ kind: "window" as const, after, before })),
   ...KNOWN_STATUSES.map((value) => ({ kind: "status" as const, value })),
-  ...KNOWN_ADVERSE_STATES.map((value) => ({ kind: "adverse" as const, value })),
-];
+  ...OPEN_ADVERSE_STATES.map((value) => ({ kind: "adverse" as const, value })),
+  { kind: "fenced" },
+  { kind: "provisional" },
+] as const;
 
 export const recordUnreadablePayments = internalMutation({
   args: { connectionId, connectedAt: v.number(), ids: v.array(v.string()) },
@@ -164,7 +174,8 @@ async function refreshPage(
   try {
     for (const id of new Set(ids)) {
       try {
-        await refreshWhopPaymentForSweep(ctx, connection, id);
+        const result = await refreshWhopPaymentForSweep(ctx, connection, id);
+        if (result === "superseded") unreadable.push(id);
       } catch (error) {
         if (!(error instanceof WhopRequestError) || error.code !== "unexpected_response" ||
             (error.status !== undefined && error.status !== 404 && error.status >= 300)) throw error;
@@ -267,11 +278,14 @@ export const sweepRecent = internalAction({
     const through = continuation?.through ?? args.through;
     const stageIndex = continuation?.stage ?? args.stage ?? 0;
     const pageCursor = continuation?.cursor ?? args.cursor ?? null;
-    if ((connection.sweepCreatedThrough ?? 0) >= through) {
-      await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, leaseArgs);
-      return null;
-    }
     try {
+      if (!args.token && connection.unreadablePaymentIds?.length) {
+        await refreshPage(ctx, connection, connection.unreadablePaymentIds);
+      }
+      if ((connection.sweepCreatedThrough ?? 0) >= through) {
+        await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, leaseArgs);
+        return null;
+      }
       const stage = RECENT_STAGES[stageIndex];
       const from = Math.max(0, (connection.sweepCreatedThrough ?? connection.connectedAt) - SWEEP_OVERLAP_MS);
       const page = stage.kind === "window"
@@ -281,7 +295,9 @@ export const sweepRecent = internalAction({
         }, pageCursor)
         : await ctx.runQuery(internal.payments.reconcile.listKnownPayments, {
           connectionId: connection._id,
-          selector: stage,
+          selector: stage.kind === "provisional"
+            ? { ...stage, firstSeenThrough: through - PROVISIONAL_RETRY_AGE_MS }
+            : stage,
           paginationOpts: { cursor: pageCursor, numItems: PAGE_SIZE },
         });
       const seenCursors = args.seenCursors ?? (pageCursor ? [pageCursor] : []);

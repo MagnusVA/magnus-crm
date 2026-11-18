@@ -8,9 +8,9 @@ import {
 import { log } from "../lib/observability/log";
 import { providerPool } from "../pipeline/workpools";
 import { noteWebhook } from "./connectionState";
-import { refreshProviderPaymentReview } from "./match";
+import { baseProviderReviewState, refreshProviderPaymentReview } from "./match";
 import { payerDetailsDeadline } from "./payerRetention";
-import { paymentProviderTables } from "./schema";
+import { paymentProviderTables, RAW_RECEIPT_BATCH } from "./schema";
 import { MAX_RETRY_AFTER_MS, reportWhopRequestError, WhopRequestError } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
 import {
@@ -81,6 +81,7 @@ async function insertProvisionalPayment(
     firstSeenAt: Date.now(),
     refreshGeneration: 1,
     allocationRevision: 0,
+    adverseReviewRevision: 0,
     currency: "",
     decimals: 0,
     refundedMinor: 0,
@@ -97,16 +98,24 @@ function pendingAdverseState(kind: AdverseEvent) {
   return kind === "refund" ? "refund_pending" as const : "dispute_open" as const;
 }
 
-async function fencePayment(
+async function fenceForReceipt(
   ctx: MutationCtx,
   connection: Doc<"tenantPaymentConnections">,
   externalPaymentId: string,
+  externalObjectId: string,
   kind: AdverseEvent,
   receivedAt: number,
 ) {
-  const existing = await findPayment(ctx, connection, externalPaymentId);
-  const priorFence = existing?.adverseFencedAt ?? 0;
-  const fencedAt = Math.max(receivedAt, priorFence);
+  const [existing, seen] = await Promise.all([
+    findPayment(ctx, connection, externalPaymentId),
+    ctx.db.query("paymentWebhookReceipts")
+      .withIndex("by_connectionId_and_externalPaymentId_and_externalObjectId", (q) => q
+        .eq("connectionId", connection._id)
+        .eq("externalPaymentId", externalPaymentId)
+        .eq("externalObjectId", externalObjectId))
+      .first(),
+  ]);
+  const fencedAt = Math.max(receivedAt, existing?.adverseFencedAt ?? 0);
   if (existing) {
     const sourceAdverseState = existing.sourceAdverseState ?? existing.adverseState;
     const adverseState = sourceAdverseState === "none" || sourceAdverseState === "dispute_won"
@@ -115,7 +124,9 @@ async function fencePayment(
       adverseFencedAt: fencedAt,
       sourceAdverseState,
       adverseState,
-      adverseReviewAt: adverseReviewTimestamp(existing, adverseState, existing.refundedMinor, receivedAt),
+      ...adverseReviewUpdate(existing, {
+        adverseState, adverseFencedAt: fencedAt, refundedMinor: existing.refundedMinor,
+      }, receivedAt, seen === null),
       refreshGeneration: existing.refreshGeneration + 1,
     });
   } else {
@@ -174,6 +185,9 @@ export const receiveWebhook = internalMutation({
       : args.externalObjectId ? undefined : "missing_object";
     const adversePending = kind !== undefined && !failureCode;
     const unavailable = connection.status !== "connected";
+    if (kind && adversePending && args.externalPaymentId && args.externalObjectId) {
+      await fenceForReceipt(ctx, connection, args.externalPaymentId, args.externalObjectId, kind, now);
+    }
     const id = await ctx.db.insert("paymentWebhookReceipts", {
       tenantId: connection.tenantId,
       connectionId: connection._id,
@@ -191,9 +205,6 @@ export const receiveWebhook = internalMutation({
       processedAt: failureCode || unavailable ? now : undefined,
       failureCode: failureCode ?? (unavailable ? "connection_unavailable" : undefined),
     });
-    if (kind && adversePending && args.externalPaymentId) {
-      await fencePayment(ctx, connection, args.externalPaymentId, kind, now);
-    }
     await noteWebhook(ctx, connection, now);
     if (!failureCode && !unavailable) await enqueueReceipt(ctx, id, 1);
     return "received";
@@ -304,10 +315,10 @@ type AdverseEvidence = typeof adverseEvidence.type;
 
 function corroboratesResource(payment: PaymentFacts, evidence: AdverseEvidence) {
   const refunded = payment.adverseState === "refunded" ||
-    payment.adverseState === "partially_refunded" || payment.refundedMinor > 0;
+    payment.adverseState === "partially_refunded" || Math.abs(payment.refundedMinor) > 0;
   const reflectedRefund = refunded &&
     (payment.refundedAt ?? payment.sourceUpdatedAt) >= evidence.updatedAt &&
-    (evidence.refundMinor === undefined || payment.refundedMinor >= evidence.refundMinor);
+    (evidence.refundMinor === undefined || Math.abs(payment.refundedMinor) >= Math.abs(evidence.refundMinor));
   if (evidence.kind === "refund") {
     if (evidence.state === "failed" || evidence.state === "canceled") {
       return payment.adverseState === "none" && payment.refundedMinor === 0;
@@ -330,34 +341,43 @@ function pendingAdverseReceipts(
   ctx: QueryCtx | MutationCtx,
   connectionId: Id<"tenantPaymentConnections">,
   externalPaymentId: string,
+  through?: number,
 ) {
   return ctx.db.query("paymentWebhookReceipts")
-    .withIndex("by_connectionId_and_externalPaymentId_and_adversePending", (q) => q
-      .eq("connectionId", connectionId)
-      .eq("externalPaymentId", externalPaymentId)
-      .eq("adversePending", true));
+    .withIndex("by_connectionId_and_externalPaymentId_and_adversePending", (q) => {
+      const range = q.eq("connectionId", connectionId)
+        .eq("externalPaymentId", externalPaymentId)
+        .eq("adversePending", true);
+      return through === undefined ? range : range.lte("_creationTime", through);
+    });
 }
 
-function adverseReviewTimestamp(
+type AdverseFacts = Pick<Doc<"providerPayments">, "adverseState" | "adverseFencedAt" | "refundedMinor">;
+
+export function adverseReviewRequired({ adverseState, adverseFencedAt }: AdverseFacts) {
+  return adverseFencedAt !== undefined || (adverseState !== "none" && adverseState !== "dispute_won");
+}
+
+function adverseReviewUpdate(
   row: Doc<"providerPayments">,
-  state: Doc<"providerPayments">["adverseState"],
-  refundedMinor: number,
+  next: AdverseFacts,
   now: number,
+  newAdverseFact: boolean,
 ) {
-  if (!row.paymentRecordId || (row.reviewState !== "linked" && row.reviewState !== "recorded")) return undefined;
-  if (state === "none" || state === "dispute_won") return undefined;
-  if (state !== row.adverseState || refundedMinor > row.refundedMinor) return row.adverseReviewAt ?? now;
-  return row.adverseReviewAt;
-}
-
-function reviewState(
-  payment: PaymentFacts,
-  autoImportAfter: number,
-): Doc<"providerPayments">["reviewState"] {
-  if (payment.status !== "paid") return "not_actionable";
-  if (payment.paidAt !== undefined && payment.paidAt < autoImportAfter) return "historical";
-  if (payment.totalMinor === 0) return "not_actionable";
-  return "needs_person";
+  if (!row.paymentRecordId || (row.reviewState !== "linked" && row.reviewState !== "recorded")) return {};
+  if (!adverseReviewRequired(next)) {
+    return row.adverseReviewAt === undefined ? {} : {
+      adverseReviewAt: undefined, adverseReviewRevision: row.adverseReviewRevision + 1,
+    };
+  }
+  if (newAdverseFact || next.adverseState !== row.adverseState ||
+      Math.abs(next.refundedMinor) > Math.abs(row.refundedMinor)) {
+    return {
+      adverseReviewAt: row.adverseReviewAt ?? now,
+      adverseReviewRevision: row.adverseReviewRevision + 1,
+    };
+  }
+  return {};
 }
 
 const readResult = v.union(
@@ -403,7 +423,7 @@ export const storePaymentRead = internalMutation({
         (evidence.state === "failed" || evidence.state === "canceled"));
     if (payment.sourceUpdatedAt === row.sourceUpdatedAt && !confirmsCleanRefund && (
       (row.adverseFencedAt !== undefined || sourceAdverseState !== "none") &&
-      (payment.adverseState !== sourceAdverseState || payment.refundedMinor < row.refundedMinor)
+      (payment.adverseState !== sourceAdverseState || Math.abs(payment.refundedMinor) < Math.abs(row.refundedMinor))
     )) return row.adverseFencedAt !== undefined ? "fenced" : "stale";
 
     for (const { receipt } of confirmed) {
@@ -416,7 +436,8 @@ export const storePaymentRead = internalMutation({
       (payment.adverseState === "none" || payment.adverseState === "dispute_won")
       ? pendingAdverseState(pendingKind)
       : payment.adverseState;
-    const nextReviewState = reviewState(payment, connection.autoImportAfter);
+    const adverseFencedAt = pending ? row.adverseFencedAt : undefined;
+    const nextReviewState = baseProviderReviewState(payment, connection.autoImportAfter);
     const protectedReview = row.reviewState === "linked" || row.reviewState === "recorded" ||
       row.reviewState === "dismissed";
     const now = Date.now();
@@ -434,10 +455,12 @@ export const storePaymentRead = internalMutation({
       ...factsPatch,
       refreshedAt: now,
       storedRefreshGeneration: args.generation,
-      adverseFencedAt: pending ? row.adverseFencedAt : undefined,
+      adverseFencedAt,
       adverseState,
       sourceAdverseState: payment.adverseState,
-      adverseReviewAt: adverseReviewTimestamp(row, adverseState, payment.refundedMinor, now),
+      ...adverseReviewUpdate(row, {
+        adverseState, adverseFencedAt, refundedMinor: payment.refundedMinor,
+      }, now, payment.adverseState !== sourceAdverseState),
       payerDetailsExpireAt,
       hasPayerDetails: !expiredPayer && Boolean(payment.payerEmail || payment.payerPhone) || undefined,
       payerEmail: expiredPayer ? undefined : payment.payerEmail,
@@ -453,6 +476,11 @@ export const storePaymentRead = internalMutation({
         } : {}),
       }),
     });
+    if (connection.unreadablePaymentIds?.includes(payment.externalPaymentId)) {
+      await ctx.db.patch("tenantPaymentConnections", connection._id, {
+        unreadablePaymentIds: connection.unreadablePaymentIds.filter((id) => id !== payment.externalPaymentId),
+      });
+    }
     await refreshProviderPaymentReview(ctx, row._id);
     return pending ? "fenced" : "stored";
   },
@@ -499,7 +527,10 @@ export const attachAdversePayment = internalMutation({
     if (row.externalPaymentId) {
       return row.externalPaymentId === args.externalPaymentId ? row.receivedAt : null;
     }
-    const fencedAt = await fencePayment(ctx, connection, args.externalPaymentId, kind, row.receivedAt);
+    if (!row.adversePending || !row.externalObjectId) return null;
+    const fencedAt = await fenceForReceipt(
+      ctx, connection, args.externalPaymentId, row.externalObjectId, kind, row.receivedAt,
+    );
     await ctx.db.patch("paymentWebhookReceipts", row._id, { externalPaymentId: args.externalPaymentId });
     return fencedAt;
   },
@@ -518,12 +549,14 @@ async function fetchAdverseResource(
       : disputeAlertSchema.parse(value);
     if (object.account_id !== connection.accountId) throw new WhopAccountMismatch();
     if (object.id !== externalObjectId) throw new WhopRequestError("unexpected_response");
+    const amount = "amount" in object ? object.amount : undefined;
+    const refundMagnitude = amount ? (amount.minor < 0n ? -amount.minor : amount.minor) : undefined;
     return {
       paymentId: "payment" in object ? object.payment.id : object.payment_id,
       state: "status" in object ? object.status : object.auto_refunded ? "auto_refunded" : "alerted",
       updatedAt: object.updated_at,
-      refundMinor: "amount" in object && object.amount?.decimals === 2 &&
-        object.amount.minor <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(object.amount.minor) : undefined,
+      refundMinor: amount?.decimals === 2 && refundMagnitude !== undefined &&
+        refundMagnitude <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(refundMagnitude) : undefined,
     };
   });
 }
@@ -565,6 +598,79 @@ export async function refreshWhopPaymentForSweep(
     ({ receiptId, kind, state, updatedAt, refundMinor }) => ({ receiptId, kind, state, updatedAt, refundMinor }),
   ));
 }
+
+async function resolveReleasedReceipts(
+  ctx: MutationCtx,
+  payment: Doc<"providerPayments">,
+  through?: number,
+) {
+  const { _id: providerPaymentId, connectionId, externalPaymentId } = payment;
+  const receipts = through === undefined ? [] : await pendingAdverseReceipts(
+    ctx, connectionId, externalPaymentId, through,
+  ).take(RAW_RECEIPT_BATCH + 1);
+  const now = Date.now();
+  for (const receipt of receipts.slice(0, RAW_RECEIPT_BATCH)) {
+    await ctx.db.patch("paymentWebhookReceipts", receipt._id, {
+      adversePending: undefined,
+      status: "processed",
+      failureCode: "released_by_person",
+      processedAt: now,
+      retryAt: undefined,
+    });
+  }
+  if (through !== undefined && receipts.length > RAW_RECEIPT_BATCH) {
+    await ctx.scheduler.runAfter(0, internal.payments.intake.continueAdverseRelease, { providerPaymentId, through });
+  } else {
+    await providerPool.enqueueAction(ctx, internal.payments.intake.refreshReleasedPayment, {
+      connectionId, externalPaymentId,
+    });
+  }
+}
+
+export async function releasePaymentFence(ctx: MutationCtx, payment: Doc<"providerPayments">) {
+  const newest = await pendingAdverseReceipts(ctx, payment.connectionId, payment.externalPaymentId)
+    .order("desc").first();
+  const adverseState = payment.sourceAdverseState ?? "none";
+  await ctx.db.patch("providerPayments", payment._id, {
+    adverseFencedAt: undefined,
+    adverseState,
+    refreshGeneration: payment.refreshGeneration + 1,
+    ...adverseReviewUpdate(payment, {
+      adverseState, adverseFencedAt: undefined, refundedMinor: payment.refundedMinor,
+    }, Date.now(), false),
+  });
+  await resolveReleasedReceipts(ctx, payment, newest?._creationTime);
+  await refreshProviderPaymentReview(ctx, payment._id);
+}
+
+export const continueAdverseRelease = internalMutation({
+  args: { providerPaymentId: v.id("providerPayments"), through: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { providerPaymentId, through }) => {
+    const payment = await ctx.db.get("providerPayments", providerPaymentId);
+    if (payment) await resolveReleasedReceipts(ctx, payment, through);
+    return null;
+  },
+});
+
+export const refreshReleasedPayment = internalAction({
+  args: { connectionId, externalPaymentId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { connectionId, externalPaymentId }): Promise<null> => {
+    const connection = await ctx.runQuery(internal.payments.connectionState.connection, { connectionId });
+    if (connection?.status !== "connected") return null;
+    try {
+      const result = await refreshWhopPayment(ctx, connection, externalPaymentId);
+      if (result !== "superseded") return null;
+    } catch (error) {
+      reportWhopRequestError("whop.hold.refresh_failed", error, { connectionId });
+    }
+    await ctx.runMutation(internal.payments.reconcile.recordUnreadablePayments, {
+      connectionId, connectedAt: connection.connectedAt, ids: [externalPaymentId],
+    });
+    return null;
+  },
+});
 
 const attemptOutcome = v.union(
   v.literal("processed"), v.literal("missing_object"), v.literal("account_mismatch"),
@@ -662,7 +768,7 @@ export const processReceipt = internalAction({
               };
             }
           } catch (error) {
-            if (!externalPaymentId || kind === "refund" ||
+            if (!externalPaymentId ||
                 !(error instanceof WhopRequestError) || error.code !== "forbidden") throw error;
             // Refresh canonical facts while the resource remains fenced.
           }
