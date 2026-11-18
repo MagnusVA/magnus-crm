@@ -1,12 +1,14 @@
+import type { Doc } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { stopCallDecisionsForDisabledInsights } from "../automation/settings";
-import { requireTenantUser } from "../requireTenantUser";
+import { hasPermission } from "../lib/permissions";
+import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { insightsViewer } from "./access";
-import { initialSettings } from "./settings";
+import { callKinds, effectiveSettings, initialSettings } from "./settings";
 import { queueRead } from "./trigger";
 import {
   cancelJob as cancelJobCore,
@@ -19,6 +21,16 @@ export const scopeValidator = v.union(
   v.literal("unread"),
   v.literal("unread_and_outdated"),
 );
+
+function requireCanResumeAutomaticCalls(tenant: Doc<"tenants">, actor: TenantUserResult) {
+  if (effectiveSettings(tenant) || hasPermission(actor.role, "result-automation:raise")) return;
+  if (callKinds.some((kind) => tenant.resultAutomation?.kinds[kind]?.mode === "automatic")) {
+    throw rejectRequest(
+      "call_insights.automatic_resume_owner_required",
+      "Only the owner can turn Call insights back on while a call result is recorded automatically.",
+    );
+  }
+}
 
 export const enable = mutation({
   args: {},
@@ -36,6 +48,7 @@ export const enable = mutation({
       );
     const previous = tenant.callInsights;
     if (!previous || previous.mode === "off") {
+      requireCanResumeAutomaticCalls(tenant, actor);
       const now = Date.now();
       await ctx.db.patch("tenants", tenant._id, {
         callInsights: {
@@ -120,6 +133,7 @@ export const updateSettings = mutation({
         "call_insights.invalid_wait",
         "Choose a wait of 5, 7 or 10 minutes.",
       );
+    if (next.mode !== "off") requireCanResumeAutomaticCalls(tenant, actor);
     await ctx.db.patch("tenants", tenant._id, { callInsights: next });
     if (next.mode === "off" && tenant.callInsights.mode !== "off") {
       await stopCallDecisionsForDisabledInsights(ctx, tenant, next.changedAt);

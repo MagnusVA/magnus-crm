@@ -7,6 +7,7 @@ import { hasPermission, PERMISSIONS } from "../lib/permissions";
 import {
   automationCommandRefusalValidator, refuseAutomation, type AutomationCommandResult, type PaymentCommandCode,
 } from "../payments/commandResult";
+import { requireBillingOpsEnabled } from "../billing/guards";
 import { excludePaymentCore, previewExclusionCore } from "../payments/exclude";
 import { requireTenantUser } from "../requireTenantUser";
 import { automationKindOf, isPaymentKind } from "./proposals";
@@ -34,6 +35,9 @@ const automaticWriteValidator = v.object({
   decisionId: v.id("resultAutomationDecisions"),
   kind: automationKindValidator,
   writtenAt: v.number(),
+  before: v.optional(v.object({
+    position: v.union(v.literal("booked"), v.literal("follow_up"), v.literal("system_loss"), v.literal("won")),
+  })),
   leadId: v.optional(v.id("leads")),
   opportunityId: v.optional(v.id("opportunities")),
   meetingId: v.optional(v.id("meetings")),
@@ -66,8 +70,10 @@ export const listAutomaticWrites = query({
       const rowKind = automationKindOf(row.kind);
       if (!rowKind || (kind && rowKind !== kind) || row.appliedVia !== "automatic") continue;
       const deal = row.opportunityId ? await ctx.db.get("opportunities", row.opportunityId) : null;
+      const before = row.before ?? row.callBefore;
       writes.push({
         decisionId: row._id, kind: rowKind, writtenAt: row.resolvedAt ?? row.createdAt,
+        before: before ? { position: before.position } : undefined,
         leadId: row.leadId, opportunityId: row.opportunityId, meetingId: row.meetingId,
         providerPaymentId: row.providerPaymentId, paymentRecordId: row.appliedPaymentRecordId,
         followUpId: row.writtenFollowUpId, auditReason: row.auditReason, auditOpenDueAt: row.auditOpenDueAt,
@@ -95,6 +101,7 @@ async function undoAutomaticPayment(
       userId: actor.userId, role: actor.role,
     });
   }
+  await requireBillingOpsEnabled(ctx, actor.tenantId);
   if (decision.state === "undone" && decision.appliedVia === "automatic") return { ok: true, alreadyApplied: true };
   if (decision.state !== "applied" || !isAutomaticReceipt(decision) || !decision.before ||
       !decision.appliedPaymentRecordId || !decision.opportunityId) {
@@ -109,11 +116,22 @@ async function undoAutomaticPayment(
   // The preview pins the facts; the core re-reads them in this same mutation.
   const preview = await previewExclusionCore(ctx, actor, exclusion);
   if (preview.refusal) return refuseAutomation(preview.refusal === "deal_not_won" ? "needs_review" : fromPaymentCode(preview.refusal));
-  if (!preview.undo.allowed) return refuseAutomation("needs_review");
+  // A later payment can be removed only while another payment keeps the deal won.
+  const keepsWin = decision.kind === "additional_payment" && preview.survivors.length > 0;
+  if (!preview.undo.allowed && !keepsWin) return refuseAutomation("needs_review");
   const result = await excludePaymentCore(ctx, actor, {
     ...exclusion, level: "undo", expectedFingerprint: preview.fingerprint,
   }, "billing");
-  return result.ok ? { ok: true, alreadyApplied: result.alreadyApplied } : refuseAutomation(fromPaymentCode(result.code));
+  if (!result.ok) return refuseAutomation(fromPaymentCode(result.code));
+  // The exclusion core records a kept win as a correction. This route has
+  // also checked the untouched automatic receipt, so it can mark it undone.
+  if (!result.alreadyApplied) {
+    await ctx.db.patch("resultAutomationDecisions", decision._id, {
+      state: "undone",
+      auditOpenDueAt: decision.auditOpenDueAt,
+    });
+  }
+  return { ok: true, alreadyApplied: result.alreadyApplied };
 }
 
 async function undoAutomaticTask(
@@ -134,14 +152,7 @@ async function undoAutomaticRefusal(
   ctx: MutationCtx, actor: CoreActor, decision: Decision,
 ): Promise<AutomationCommandResult> {
   if (decision.state === "applied" && !isAutomaticReceipt(decision)) return refuseAutomation("not_ready");
-  const result = await reopenRefusalCore(ctx, actor, decision._id);
-  if (result.ok && !result.alreadyApplied) {
-    const after = await ctx.db.get("resultAutomationDecisions", decision._id);
-    if (after?.auditOpenDueAt !== undefined) {
-      await ctx.db.patch("resultAutomationDecisions", decision._id, { auditOpenDueAt: undefined });
-    }
-  }
-  return result;
+  return await reopenRefusalCore(ctx, actor, decision._id);
 }
 
 export async function undoAutomaticWriteCore(

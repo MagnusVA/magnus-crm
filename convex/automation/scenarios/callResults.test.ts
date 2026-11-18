@@ -288,21 +288,29 @@ it("works a promised payment through correction, then corrects and vetoes call-b
     return result.followUpId;
   });
 
-  await step("the admin tries This call didn't happen after Change the next step", async () => {
+  await step("the admin withdraws attendance and keeps the edited next step", async () => {
+    expect(await admin.query(confirmCall.getCallResultSummary, { meetingId: callback.call.meetingId }))
+      .toMatchObject({
+        task: { followUpId: replacementId, contactMethod: "text" },
+        can: { changeNextStep: false, withdrawAttendance: true, undo: false },
+      });
     const result = await admin.mutation(taskCorrections.callDidNotHappen, { decisionId: callback.ask.decisionId });
-    const state = await callState(callback.call);
-    // SKIPPED [withdraw attendance after changing the next step]:
-    // expect(result).toMatchObject({ ok: true });
-    // expect(state).toMatchObject({ meeting: { status: "scheduled" }, person: { lifecycleStage: "booked" } });
-    // readAppliedTask refuses the corrected receipt before examining attendance.
-    expect(await admin.query(confirmCall.getCallResultSummary, { meetingId: callback.call.meetingId })).toBeNull();
-    expect(result).toEqual({ ok: false, code: "not_ready" });
-    expect(await t.run((ctx) => ctx.db.get("resultAutomationDecisions", callback.ask.decisionId)))
-      .toMatchObject({ state: "corrected" });
-    expect(state).toMatchObject({
-      deal: { stage: "follow_up" }, person: { lifecycleStage: "showed" },
-      meeting: { status: "held" }, pending: [{ _id: replacementId }],
+    expect(result).toMatchObject({ ok: true });
+    expect(await callState(callback.call)).toMatchObject({
+      deal: { stage: "follow_up" }, person: { lifecycleStage: "booked" },
+      meeting: { status: "scheduled" }, pending: [{ _id: replacementId }],
     });
+    expect(await admin.query(confirmCall.getCallResultSummary, { meetingId: callback.call.meetingId })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.get("resultAutomationDecisions", callback.ask.decisionId)))
+      .toMatchObject({ state: "undone" });
+  });
+
+  await step("sets up an earlier held call for the shared-person attendance case", async () => {
+    const earlier = await anotherCall(f, "Avery", callback.call.leadId);
+    await publish(earlier, { kind: "call_back" });
+    await confirmTask(earlier, await askFor(earlier));
+    await cancelSecondOpinionWorkers(f);
+    expect((await callState(earlier)).meeting).toMatchObject({ status: "held" });
   });
 
   for (const hasOtherHeldCall of [false, true]) {

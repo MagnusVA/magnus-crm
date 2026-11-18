@@ -5,7 +5,7 @@ import { insertProgram } from "../../tests/enrollmentFixtures";
 import { assertPaymentInvariants, type InvariantId } from "../../tests/paymentInvariants";
 import {
   FIXTURE_NOW, insertProviderBinding, insertProviderFact, insertProviderMeeting, paymentConfirmationFixture,
-  PRODUCT_ID, seedAutomaticCertificate, VARIANT_ID,
+  PRODUCT_ID, seedAutomaticCertificate, seedBillingWin, VARIANT_ID,
 } from "../../tests/providerPaymentFixtures";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -73,7 +73,7 @@ describe("undoAutomaticWrite: payments", () => {
     const f = await automaticWin();
     const writes = await f.admin.query(list, { days: 7 });
     expect(writes).toMatchObject({ capped: false, writes: [{
-      decisionId: f.decisionId, kind: "payment_win", paymentRecordId: f.paymentRecordId, untouched: true, auditReason: "canary",
+      decisionId: f.decisionId, kind: "payment_win", paymentRecordId: f.paymentRecordId, untouched: true, auditReason: "canary", before: { position: "booked" },
     }] });
     await expect(f.closer.query(list, { days: 7 })).rejects.toThrow("Insufficient permissions");
     await expect(f.closer.mutation(undo, { decisionId: f.decisionId })).rejects.toThrow("Insufficient permissions");
@@ -91,7 +91,7 @@ describe("undoAutomaticWrite: payments", () => {
     expect(row).toMatchObject({ status: "disputed", origin: "provider", automationDecisionId: f.decisionId });
     expect(row?.recordedByUserId).toBeUndefined();
     expect(receipt).toMatchObject({ state: "undone", mode: "automatic", appliedVia: "automatic" });
-    expect(receipt?.auditOpenDueAt).toBeUndefined();
+    expect(receipt?.auditOpenDueAt).toBe(writes.writes[0].auditOpenDueAt);
     expect(payment?.paymentRecordId).toBeUndefined();
     expect(payment?.excludedOpportunityIds).toEqual([f.dealId]);
     expect(meeting).toMatchObject({ status: "scheduled" });
@@ -100,6 +100,60 @@ describe("undoAutomaticWrite: payments", () => {
 
     expect(await f.admin.mutation(undo, { decisionId: f.decisionId })).toEqual({ ok: true, alreadyApplied: true });
     expect((await f.admin.query(list, { days: 7 })).writes).toEqual([]);
+  });
+
+  it("refuses automatic payment Undo when Billing Ops is off", async () => {
+    const f = await automaticWin();
+    await f.t.run((ctx) => ctx.db.patch("tenants", f.tenantId, { billingOpsEnabled: false }));
+    await expect(f.admin.mutation(undo, { decisionId: f.decisionId })).rejects.toThrow("Billing Ops is not enabled");
+    expect(await f.t.run((ctx) => ctx.db.get("paymentRecords", f.paymentRecordId))).toMatchObject({ status: "recorded" });
+    await invariants(f);
+  });
+
+  it("undoes an untouched automatic later payment and leaves the first payment and win intact", async () => {
+    const membershipId = "mem_undo_later";
+    const f = await paymentConfirmationFixture({ fact: { membershipId } });
+    const { membershipBindingId, providerPaymentId, paymentRecordId } = await f.t.run(async (ctx) => {
+      const { paymentRecordId } = await seedBillingWin(ctx, {
+        ...f, opportunityId: f.dealId, approverId: f.adminId, recordedAt: NOW,
+      });
+      const membershipBindingId = await insertProviderBinding(ctx, {
+        ...f, externalId: membershipId,
+        binding: {
+          kind: "membership_deal", leadId: f.personId, opportunityId: f.dealId,
+          anchorPaymentRecordId: paymentRecordId,
+        },
+      });
+      const providerPaymentId = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: "pay_undo_later", membershipId, billingReason: "subscription_cycle",
+        paidAt: Date.now(), sourceCreatedAt: Date.now(), sourceUpdatedAt: Date.now(),
+        reviewState: "needs_person", totalMinor: 4_000,
+      });
+      return { membershipBindingId, providerPaymentId, paymentRecordId };
+    });
+    await seedAutomaticCertificate(f.t, {
+      tenantId: f.tenantId, promotedByUserId: f.ownerId, kind: "additional_payment", ruleVersion: PAYMENT_RULE_VERSION,
+      scopeBindingIds: [membershipBindingId, f.productBindingId, f.variantBindingId],
+      now: Date.now(),
+    });
+    const { decisionId } = await f.t.run((ctx) => evaluateSubject(ctx, {
+      tenantId: f.tenantId, providerPaymentId, cause: "provider_read", now: Date.now(),
+    }));
+    expect(await f.t.mutation(executePayment, { decisionId: decisionId! })).toBe("applied");
+    const receipt = (await f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", decisionId!)))!;
+    expect(receipt.kind).toBe("additional_payment");
+    expect(await f.admin.mutation(undo, { decisionId: receipt._id })).toEqual({ ok: true, alreadyApplied: false });
+    expect(await f.admin.mutation(undo, { decisionId: receipt._id })).toEqual({ ok: true, alreadyApplied: true });
+    await f.t.run(async (ctx) => {
+      expect(await ctx.db.get("opportunities", f.dealId)).toMatchObject({
+        stage: "closed", outcome: "won", paymentReceivedAt: NOW,
+      });
+      expect(await ctx.db.get("paymentRecords", paymentRecordId)).toMatchObject({ status: "recorded" });
+      expect(await ctx.db.get("paymentRecords", receipt.appliedPaymentRecordId!)).toMatchObject({ status: "disputed" });
+      expect(await ctx.db.get("providerPayments", providerPaymentId)).toMatchObject({ excludedOpportunityIds: [f.dealId] });
+      expect(await ctx.db.get("resultAutomationDecisions", receipt._id)).toMatchObject({ state: "undone" });
+    });
+    await invariants(f, UNDONE_ROW);
   });
 
   it("refuses one-tap undo after a person touched the deal", async () => {
@@ -116,6 +170,7 @@ describe("undoAutomaticWrite: payments", () => {
 describe("undoAutomaticWrite: call tasks", () => {
   it("lets an admin undo an untouched task and the held mark when the call didn't happen", async () => {
     const f = await automaticTask();
+    const original = await f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", f.decisionId));
     await expect(f.admin.mutation(undo, { decisionId: f.decisionId })).rejects.toThrow("Say whether the call happened");
     expect(await f.closer.mutation(undo, { decisionId: f.decisionId, callHappened: false }))
       .toEqual({ ok: false, code: "not_yours" });
@@ -132,10 +187,33 @@ describe("undoAutomaticWrite: call tasks", () => {
     expect(meeting?.attendanceDecisionId).toBeUndefined();
     expect(deal).toMatchObject({ stage: "booked", outcome: "open" });
     expect(decision).toMatchObject({ state: "undone" });
-    expect(decision?.auditOpenDueAt).toBeUndefined();
+    expect(decision?.auditOpenDueAt).toBe(original?.auditOpenDueAt);
     await invariants(f);
     expect(await f.admin.mutation(undo, { decisionId: f.decisionId, callHappened: false }))
       .toEqual({ ok: true, alreadyApplied: true });
+  });
+
+  it("keeps the original sampled task in the audit queue after its next step changes", async () => {
+    const f = await automaticTask();
+    const original = await f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", f.decisionId));
+    const scheduledAt = NOW + 86_400_000;
+    await expect(f.closer.mutation(api.automation.taskCorrections.changeNextStep, {
+      decisionId: f.decisionId, contactMethod: "text", reminderScheduledAt: scheduledAt,
+    })).resolves.toMatchObject({ ok: true });
+    const queue = await f.admin.query(api.automation.audit.listAuditQueue, {});
+    expect(queue.cases).toMatchObject([{
+      decisionId: f.decisionId, dueAt: original?.auditOpenDueAt, correction: "corrected",
+      originalTask: { contactMethod: "call" },
+      replacementTask: { contactMethod: "text", reminderScheduledAt: scheduledAt },
+    }]);
+    expect(await f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", f.decisionId))).toMatchObject({
+      proposal: original?.proposal, writtenFollowUpId: f.followUpId,
+    });
+    expect(await f.admin.mutation(api.automation.audit.recordAudit, {
+      decisionId: f.decisionId, verdict: "wrong", wrongFields: ["person"],
+    })).toEqual({ ok: true, alreadyApplied: false });
+    expect((await f.admin.query(api.automation.audit.listAuditQueue, {})).cases).toEqual([]);
+    await invariants(f);
   });
 
   it("lets the assigned closer undo their own task when the call happened, keeping the held call", async () => {
@@ -166,6 +244,7 @@ describe("undoAutomaticWrite: a task, then a win (X1)", () => {
     const f = await automaticTask(kind);
     const paidAt = NOW + 60_000;
     const whop = await f.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", f.tenantId, { billingOpsEnabled: true });
       const programId = await insertProgram(ctx, f.tenantId, "Scale Program");
       const connectionId = await ctx.db.insert("tenantPaymentConnections", {
         tenantId: f.tenantId, provider: "whop", environment: "sandbox", accountId: "biz_d2", credentialKind: "account_key",

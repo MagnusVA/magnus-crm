@@ -376,6 +376,21 @@ export const resultAutomationSettingsValidator = v.object({
 });
 
 export const automationTables = {
+  automationPaymentRepairCursors: defineTable({
+    tenantId: v.id("tenants"),
+    connectionId: v.id("tenantPaymentConnections"),
+    connectedAt: v.number(),
+    activationVersion: v.number(),
+    policyVersions: v.string(),
+    lastTick: v.number(),
+    paymentCursor: v.optional(v.string()),
+    paymentThrough: v.optional(v.number()),
+    decisionLane: v.number(),
+    decisionCursor: v.optional(v.string()),
+    decisionThrough: v.optional(v.number()),
+  })
+    .index("by_connectionId", ["connectionId"])
+    .index("by_tenantId", ["tenantId"]),
   resultAutomationDecisions: defineTable({
     tenantId: v.id("tenants"),
     kind: decisionKindValidator,
@@ -430,6 +445,7 @@ export const automationTables = {
     vetoReleasedByUserId: v.optional(v.id("users")),
     // Apply receipt (call kinds).
     writtenFollowUpId: v.optional(v.id("followUps")),
+    replacementFollowUpId: v.optional(v.id("followUps")),
     callBefore: v.optional(callBeforeValidator),
     // Certificates and audit.
     sampleId: v.optional(v.id("automationSamples")),
@@ -457,6 +473,9 @@ export const automationTables = {
     .index("by_tenantId_and_noticeUserId_and_state", ["tenantId", "noticeUserId", "state"])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
     .index("by_tenantId_and_state_and_createdAt", ["tenantId", "state", "createdAt"])
+    .index("by_tenantId_state_stopCode_resolvedAt", ["tenantId", "state", "stopCode", "resolvedAt"])
+    .index("by_tenantId_kind_state_resolvedAt", ["tenantId", "kind", "state", "resolvedAt"])
+    .index("by_tenantId_kind_state_acknowledgedAt", ["tenantId", "kind", "state", "acknowledgedAt"])
     .index("by_tenantId_and_kind_and_createdAt", ["tenantId", "kind", "createdAt"])
     .index("by_tenantId_and_kind_and_state_and_createdAt", ["tenantId", "kind", "state", "createdAt"])
     .index("by_tenantId_and_kind_and_ruleVersion_and_createdAt", ["tenantId", "kind", "ruleVersion", "createdAt"])
@@ -465,6 +484,7 @@ export const automationTables = {
     .index("by_state_and_dueAt", ["state", "dueAt"]) // Cron: due grace, alert, notice.
     .index("by_tenantId_and_recordingId_and_state", ["tenantId", "recordingId", "state"])
     .index("by_tenantId_and_sampleId_and_leadId", ["tenantId", "sampleId", "leadId"])
+    .index("by_tenantId_and_auditOpenDueAt", ["tenantId", "auditOpenDueAt"])
     .index("by_auditOpenDueAt", ["auditOpenDueAt"]) // Cron: audit deadlines.
     .index("by_tenantId_and_mode_and_state_and_resolvedAt", ["tenantId", "mode", "state", "resolvedAt"]),
 

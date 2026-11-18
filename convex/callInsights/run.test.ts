@@ -1460,6 +1460,76 @@ describe("opt-in call evidence", () => {
     });
   });
 
+  it("reads and stores a queued p2 serving call exactly like p1 after Off", async () => {
+    async function read(switchOff: boolean) {
+      const f = await callInsightsHarness({ callEvidence: switchOff, transcript });
+      const gateway = gatewayFetch({ extraction: { ...PAID_EXTRACTION, evidence: callback } });
+      const fetch = vi.fn(gateway.fetchImpl);
+      vi.stubGlobal("fetch", fetch);
+      const runId = (await queue(f))!;
+      if (switchOff) {
+        expect((await runs(f))[0].config.promptVersion).toBe("p2");
+        await f.t.run((ctx) => ctx.db.patch("tenants", f.tenantId, {
+          resultAutomation: { ...callEvidenceSettings(f.ownerId, Date.now()), enabled: false },
+        }));
+      }
+      await f.t.action(internal.callInsights.run.read, { runId });
+      return {
+        requests: fetch.mock.calls.map(([url, init]) => [url, init?.body]),
+        budget: await budget(f),
+        run: (await runs(f))[0],
+        promptVersion: (await header(f)).promptVersion,
+      };
+    }
+    expect(await read(true)).toEqual(await read(false));
+  });
+
+  it("keeps explicitly requested p2 evidence for eval after serving automation is Off", async () => {
+    const f = await callInsightsHarness({ callEvidence: true, transcript });
+    const calls = stubGateway({ extraction: { ...PAID_EXTRACTION, evidence: callback } });
+    const queued = (await queue(f))!;
+    const runId = await f.t.run(async (ctx) => {
+      const { _id, _creationTime, ...run } = (await ctx.db.get("callInsightRuns", queued))!;
+      void _id;
+      void _creationTime;
+      await ctx.db.patch("tenants", f.tenantId, { resultAutomation: undefined });
+      return await ctx.db.insert("callInsightRuns", {
+        ...run, purpose: "eval", evalRole: "candidate", trigger: "eval", generation: 0, inputKey: "fixture-eval",
+      });
+    });
+    await f.t.action(internal.callInsights.run.read, { runId });
+    const run = await f.t.run((ctx) => ctx.db.get("callInsightRuns", runId));
+    expect(run).toMatchObject({ status: "answered", config: { promptVersion: "p2" }, callChecks: { incomplete: false } });
+    expect(run?.evidence?.recordingScope).toBe("whole");
+    expect(calls).toEqual({ messages: 1, decisions: 9 });
+  });
+
+  it("finishes the legacy output without retrying automation checks after Off", async () => {
+    const f = await callInsightsHarness({ callEvidence: true, transcript });
+    const calls = stubGateway({
+      extraction: { ...PAID_EXTRACTION, evidence: callback },
+      decisions: (body) => body.questions.next_step
+        ? new Response("unavailable", { status: 503 })
+        : decisionsAnswer(body),
+    });
+    const runId = (await queue(f))!;
+    await f.t.action(internal.callInsights.run.read, { runId });
+    expect((await runs(f))[0]).toMatchObject({
+      status: "checking", earlyReading: { incomplete: false },
+    });
+    expect(calls).toEqual({ messages: 1, decisions: 9 });
+    await f.t.run((ctx) => ctx.db.patch("tenants", f.tenantId, {
+      resultAutomation: { ...callEvidenceSettings(f.ownerId, Date.now()), enabled: false },
+    }));
+    await drain(f);
+    const [run] = await runs(f);
+    expect(run.status).toBe("answered");
+    expect(run.evidence).toBeUndefined();
+    expect(run.callChecks).toBeUndefined();
+    expect(run.receipts.at(-1)?.reservedMicroUsd).toBe(0);
+    expect(calls).toEqual({ messages: 1, decisions: 9 });
+  });
+
   it("keeps evidence quotes out of the meeting and person browser responses", async () => {
     const f = await callInsightsHarness({
       callEvidence: true,

@@ -96,6 +96,10 @@ export function GradingCard({
           sample={sample}
           gradeCase={next}
         />
+      ) : queue.notGrader ? (
+        <SectionEmpty title="Someone else grades.">
+          Only the named grader sees cases. The owner can change who grades under Grader.
+        </SectionEmpty>
       ) : (
         <SectionEmpty title="Nothing to grade here.">
           {definition.source === "call"

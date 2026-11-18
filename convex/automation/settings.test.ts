@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
 import {
@@ -148,4 +149,36 @@ describe("automatic results settings", () => {
     expect(JSON.parse(rows[0].metadata!)).toEqual({ kind: "grader", graderUserId: f.adminId, activationVersion: 0 });
     await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
+});
+
+it("reports the Call insights switch even with no call automation configured", async () => {
+  const f = await automationPaymentFixture();
+  const load = () => f.admin.query(automationFixtureApi.settings.getSettings, {});
+  expect(await load()).toMatchObject({ callInsightsOn: false });
+  await f.t.run(async (ctx) => {
+    const { initialSettings } = await import("../callInsights/settings");
+    await ctx.db.patch("tenants", f.tenantId, { callInsights: initialSettings(f.ownerId, FIXTURE_NOW) });
+  });
+  expect(await load()).toMatchObject({ callInsightsOn: true });
+});
+
+const source = (path: string) => readFileSync(path, "utf8");
+const integrations = "app/workspace/settings/_components/integrations/integrations-tab.tsx";
+const gradingCase = "app/workspace/settings/automatic-results/_components/grading-case.tsx";
+
+it("blocks replay capture on the grading payer email", () => {
+  expect(source(gradingCase)).toMatch(/<span[^>]*className="[^"]*ph-no-capture[^"]*"[^>]*>\{evidence\.payerEmail\}<\/span>/);
+});
+
+it("links directly to Automatic results from Settings only for authorized roles", () => {
+  expect(source(integrations)).toMatch(
+    /hasPermission\("result-automation:view"\)[\s\S]*?<Link href="\/workspace\/settings\/automatic-results">Automatic results\s*<ChevronRightIcon/,
+  );
+});
+
+it("keeps the Fathom priority read below a boundary with a quiet Whop fallback", () => {
+  const code = source(integrations);
+  expect(code.slice(0, code.indexOf("function WhopWithFathomStatus"))).not.toContain("useQuery(api.fathom.connection.settings");
+  expect(code).toMatch(/<SectionErrorBoundary[^>]*fallback=\{<WhopIntegrationCard quiet \/>\}>[\s\S]*?<WhopWithFathomStatus/);
+  expect(code).toMatch(/function WhopWithFathomStatus[\s\S]*?useQuery\(api\.fathom\.connection\.settings/);
 });

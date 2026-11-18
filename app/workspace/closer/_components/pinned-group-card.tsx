@@ -148,12 +148,12 @@ function lineText(
   }
 }
 
-/** Where a line's text leads: the task a call result set, else the deal. */
-function lineHref(line: PinnedLine): string {
+/** Where a line's text leads: the task a call result set, else the deal. Null once the reader can no longer open either. */
+function lineHref(line: PinnedLine): string | null {
   if (line.kind === "call_result_set" && line.followUpId) {
     return `/workspace/closer/reminders/${line.followUpId}`;
   }
-  return `/workspace/opportunities/${line.opportunityId}`;
+  return line.opportunityId ? `/workspace/opportunities/${line.opportunityId}` : null;
 }
 
 /** Where a removed win left the deal. */
@@ -460,6 +460,7 @@ function PinnedLineRow({ line, text }: { line: PinnedLine; text: string }) {
   const dismiss = useMutation(api.closer.pinnedLines.dismissPinnedLine);
   const [pending, setPending] = useState(false);
   const after = positionAfter(line);
+  const href = lineHref(line);
 
   const gotIt = async (lineId: Id<"closerPinnedLines">) => {
     setPending(true);
@@ -478,9 +479,11 @@ function PinnedLineRow({ line, text }: { line: PinnedLine; text: string }) {
     <li className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 ${ROW}`}>
       <div className="min-w-0">
         <p>
-          <Link href={lineHref(line)} className={NAME_LINK}>
-            {text}
-          </Link>
+          {href ? (
+            <Link href={href} className={NAME_LINK}>
+              {text}
+            </Link>
+          ) : text}
         </p>
         {after ? <p className="text-[13px] text-muted-foreground">{after}</p> : null}
       </div>

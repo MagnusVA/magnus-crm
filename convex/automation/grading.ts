@@ -149,11 +149,13 @@ export const listToGrade = query({
       call: v.optional(callReferenceValidator),
     })),
     capped: v.boolean(),
+    // True when someone else is the named grader: the queue is theirs alone.
+    notGrader: v.optional(v.boolean()),
   }),
   handler: async (ctx, { kind, sample }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
     const grader = await designatedGrader(ctx, tenantId);
-    if (grader && grader !== userId) return { cases: [], capped: false };
+    if (grader && grader !== userId) return { cases: [], capped: false, notGrader: true };
     const { rows, capped } = await scopedDecisions(ctx, tenantId, kind, sample === "writes");
     const people = await personIds(ctx, tenantId, rows);
     const seen = new Set<Id<"leads">>();

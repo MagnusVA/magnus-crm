@@ -103,7 +103,9 @@ export async function reopenRefusalCore(
 
   // The held mark stands. Its automation link is only valid while the receipt is applied.
   await patchMeetingLifecycle(ctx, meeting._id, { attendanceSource: undefined, attendanceDecisionId: undefined });
-  await ctx.db.patch("resultAutomationDecisions", decisionId, { state: "undone", auditOpenDueAt: undefined });
+  await ctx.db.patch("resultAutomationDecisions", decisionId, {
+    state: "undone", replacementFollowUpId: followUpId,
+  });
   await addPinnedLine(ctx, {
     tenantId: deal.tenantId, userId: closerId, kind: "refusal_reopened",
     opportunityId: deal._id, meetingId: meeting._id, followUpId, decisionId,

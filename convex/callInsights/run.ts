@@ -53,7 +53,7 @@ import {
 } from "./prompt";
 import { projectRun, storeSuggestion } from "./publish";
 import { transcriptGone } from "./retention";
-import { effectiveSettings } from "./settings";
+import { callEvidenceWanted, effectiveSettings } from "./settings";
 import { deriveSuggestion } from "./suggest/derive";
 import { CERTAIN_AFTER_SLOT_MS, upsertSuggestion } from "./suggest/state";
 import {
@@ -77,6 +77,7 @@ import {
   droppedCountsValidator,
   earlyReadingValidator,
   EVIDENCE_PROMPT_VERSION,
+  PROMPT_VERSION,
   evidenceFailureValidator,
   insightItemValidator,
   resultEvidenceValidator,
@@ -430,11 +431,15 @@ export const begin = internalMutation({
     expect: v.union(v.literal("extract"), v.literal("check")),
     claudeMicroUsd: v.number(),
     jevMicroUsd: v.number(),
+    reserveCallChecks: v.optional(v.boolean()),
     secondOpinionSpentUsd: v.number(),
   },
   returns: v.union(
     v.null(),
-    v.object({ claimToken: v.string(), attempt: v.number() }),
+    v.object({
+      claimToken: v.string(), attempt: v.number(),
+      promptVersion: v.string(), evidenceEnabled: v.boolean(),
+    }),
   ),
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -464,6 +469,22 @@ export const begin = internalMutation({
       await noteJobItem(ctx, run, "skipped");
       return null;
     }
+    const evidenceEnabled = run.config.promptVersion === EVIDENCE_PROMPT_VERSION &&
+      run.config.callEvidence === true &&
+      (run.purpose === "eval" || callEvidenceWanted(tenant));
+    const config = run.purpose === "serve" && !resuming &&
+      run.config.promptVersion === EVIDENCE_PROMPT_VERSION && !evidenceEnabled
+      ? { ...run.config, promptVersion: PROMPT_VERSION, callEvidence: undefined }
+      : run.config;
+    // A p2 run may have finished its legacy checks before the evidence
+    // switch changed. Its retry only needs to reserve unfinished item checks.
+    const skipCompletedChecks = resuming && run.purpose === "serve" &&
+      run.config.callEvidence && !evidenceEnabled && run.earlyReading;
+    const legacyJevMicroUsd = skipCompletedChecks
+      ? (run.config.itemCheck ? (run.items ?? []).filter(needsItemCheck).length * JEV_ITEM_MICRO_USD : 0)
+      : args.jevMicroUsd;
+    const jevMicroUsd = legacyJevMicroUsd +
+      (evidenceEnabled && args.reserveCallChecks ? 2 * CALL_CHECK_MICRO_USD : 0);
     if (run.jobId) {
       const job = await ctx.db.get("callInsightJobs", run.jobId);
       // A job never commits more than its ceiling: what it spent, what its
@@ -473,7 +494,7 @@ export const begin = internalMutation({
         job.spentMicroUsd +
           (await jobOpenReservationsMicroUsd(ctx, job._id, run._id)) +
           args.claudeMicroUsd +
-          args.jevMicroUsd >
+          jevMicroUsd >
           job.ceilingMicroUsd;
       if (!job || job.status !== "running" || overCeiling) {
         await ctx.db.patch("callInsightRuns", run._id, {
@@ -508,7 +529,7 @@ export const begin = internalMutation({
       {
         key: `jev:${suffix}`,
         origin: "jev_item" as const,
-        amount: args.jevMicroUsd,
+        amount: jevMicroUsd,
       },
     ];
     // One admission for the whole attempt: both reservations fit or neither is made.
@@ -556,6 +577,7 @@ export const begin = internalMutation({
       status: resuming ? "checking" : "running",
       reason: undefined,
       kind: resuming ? run.kind : args.kind,
+      config,
       attempt,
       claimToken,
       leaseUntil: now + LEASE_MS,
@@ -571,7 +593,7 @@ export const begin = internalMutation({
       undefined,
       now,
     );
-    return { claimToken, attempt };
+    return { claimToken, attempt, promptVersion: config.promptVersion, evidenceEnabled };
   },
 });
 
@@ -906,6 +928,7 @@ export const publish = internalMutation({
     const settings = effectiveSettings(tenant);
     if (!meeting || !settings) return await end("skipped", "disabled");
 
+    const keepEvidence = run.purpose === "eval" || callEvidenceWanted(tenant);
     const primaryBlockerExtracted = run.primaryBlockerExtracted;
     const survived = args.items.filter((item) => item.check !== "rejected");
     const finished = {
@@ -913,7 +936,9 @@ export const publish = internalMutation({
       reason: undefined,
       items: args.items,
       earlyReading: args.earlyReading,
-      callChecks: args.callChecks,
+      callChecks: keepEvidence ? args.callChecks : undefined,
+      evidence: keepEvidence ? run.evidence : undefined,
+      evidenceFailure: keepEvidence ? run.evidenceFailure : undefined,
       primaryBlocker:
         primaryBlockerExtracted &&
         survived.some(
@@ -984,6 +1009,10 @@ function sumCost(costs: Array<number | undefined>): number | undefined {
     (cost): cost is number => typeof cost === "number",
   );
   return known.length ? known.reduce((a, b) => a + b, 0) : undefined;
+}
+
+function needsItemCheck(item: InsightItem) {
+  return item.check === "unchecked" && item.score === undefined;
 }
 
 async function inChunks<T, R>(
@@ -1101,21 +1130,14 @@ export const read = internalAction({
     const recordingLengthSeconds = Math.round(
       (input.recordingEndAt - input.recordingStartAt) / 1000,
     );
-    const evidenceWanted =
+    const canRunCallChecks =
       kind === "full" &&
-      input.config.promptVersion === EVIDENCE_PROMPT_VERSION &&
-      input.config.callEvidence === true;
-    const callChecksWanted =
-      evidenceWanted &&
-      input.recordingEndAt - input.recordingStartAt <=
-        MAX_CALL_CHECK_RECORDING_MS &&
+      input.recordingEndAt - input.recordingStartAt <= MAX_CALL_CHECK_RECORDING_MS &&
       (!resuming || input.evidence !== undefined);
     const readingsWanted = input.earlyReading ? 0 : kind === "full" ? 4 : 2;
     const itemsBound = resuming
       ? (input.items?.length ?? 0)
-      : kind === "full"
-        ? 44
-        : 0;
+      : kind === "full" ? 44 : 0;
 
     const claim = await ctx.runMutation(internal.callInsights.run.begin, {
       runId: args.runId,
@@ -1128,11 +1150,8 @@ export const read = internalAction({
             transcript.estimatedTokens,
             MAX_OUTPUT_TOKENS,
           ),
-      jevMicroUsd: jevReserveMicroUsd(
-        input.config.itemCheck ? itemsBound : 0,
-        readingsWanted,
-        callChecksWanted,
-      ),
+      jevMicroUsd: jevReserveMicroUsd(input.config.itemCheck ? itemsBound : 0, readingsWanted),
+      reserveCallChecks: canRunCallChecks,
       secondOpinionSpentUsd: await secondOpinionSpendUsd(
         ctx,
         input.tenantId,
@@ -1141,6 +1160,8 @@ export const read = internalAction({
     });
     if (!claim) return null;
     const { claimToken } = claim;
+    const evidenceWanted = kind === "full" && claim.evidenceEnabled;
+    const callChecksWanted = canRunCallChecks && claim.evidenceEnabled;
     const claudeKey = `claude:${claim.attempt}`;
     const getToken = () => getServiceToken("ai-gateway");
 
@@ -1168,7 +1189,7 @@ export const read = internalAction({
             model: input.config.model,
             system:
               kind === "full"
-                ? extractionSystem(input.config.promptVersion)
+                ? extractionSystem(claim.promptVersion)
                 : ATTENDANCE_SYSTEM,
             user: buildUserMessage({
               rendered,
@@ -1178,7 +1199,7 @@ export const read = internalAction({
             }),
             schema:
               kind === "full"
-                ? extractionSchema(input.config.promptVersion)
+                ? extractionSchema(claim.promptVersion)
                 : ATTENDANCE_SCHEMA,
             maxTokens: MAX_OUTPUT_TOKENS,
             effort: "low",
@@ -1339,8 +1360,7 @@ export const read = internalAction({
       let missing = false;
       const checked = input.config.itemCheck
         ? await inChunks(items, JEV_PARALLEL, async (item) => {
-            if (item.check !== "unchecked" || item.score !== undefined)
-              return item;
+            if (!needsItemCheck(item)) return item;
             const answer = await callGenericDecisions(
               buildItemCheck(item, transcript.lines),
               getToken,

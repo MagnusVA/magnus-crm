@@ -23,6 +23,7 @@ import { noteHumanResult } from "./humanResult";
 import { callEvidenceOf, isCallKind, modeAtLeastAsk, refusalProposalOf, taskProposalOf } from "./proposals";
 import { automationGateValidator, refusalProposalValidator, taskProposalValidator } from "./schema";
 import { effectiveKindMode } from "./settings";
+import { correctedNextStepForWithdrawal } from "./taskCorrections";
 
 type Decision = Doc<"resultAutomationDecisions">;
 type Deal = Doc<"opportunities">;
@@ -348,23 +349,31 @@ export const getCallResultSummary = query({
     if (meeting.status !== "held" || meeting.attendanceSource !== "call_insights" || !meeting.attendanceDecisionId) return null;
     const decision = await ctx.db.get("resultAutomationDecisions", meeting.attendanceDecisionId);
     if (!decision || decision.tenantId !== deal.tenantId || decision.opportunityId !== deal._id ||
-        decision.meetingId !== meetingId || decision.state !== "applied" || !isCallKind(decision.kind) ||
+        decision.meetingId !== meetingId || !isCallKind(decision.kind) ||
+        (decision.state !== "applied" && !(decision.state === "corrected" && decision.kind !== "refusal_loss")) ||
         decision.resolvedAt === undefined ||
         (decision.appliedVia !== "meeting_confirm" && decision.appliedVia !== "automatic")) return null;
 
     const { kind, resolvedAt, resolvedByUserId } = decision;
     const resolvedByName = await nameInTenant(ctx, deal.tenantId, resolvedByUserId);
     const isRefusal = kind === "refusal_loss";
-    const task = decision.writtenFollowUpId ? await ctx.db.get("followUps", decision.writtenFollowUpId) : null;
+    // After "Change the next step" the receipt is corrected and names the
+    // reminder the person set; the summary shows that one.
+    const replacement = await correctedNextStepForWithdrawal(ctx, decision, deal);
+    if (decision.state === "corrected" && !replacement) return null;
+    const written = decision.writtenFollowUpId ? await ctx.db.get("followUps", decision.writtenFollowUpId) : null;
+    const task = replacement ?? written;
     const taskView = task && task.tenantId === deal.tenantId && task.opportunityId === deal._id &&
-      task.automationDecisionId === decision._id && task.purpose === kind &&
+      (replacement !== null || (task.automationDecisionId === decision._id && task.purpose === kind)) &&
       task.contactMethod && task.reminderScheduledAt !== undefined ? {
-        followUpId: task._id, purpose: task.purpose, contactMethod: task.contactMethod,
+        followUpId: task._id, purpose: replacement ? replacement.purpose ?? "call_back" as const : kind as "call_back" | "payment_owed",
+        contactMethod: task.contactMethod,
         reminderScheduledAt: task.reminderScheduledAt,
         expectedAmountMinor: task.expectedAmountMinor, expectedCurrency: task.expectedCurrency,
         promisedPaymentAt: task.promisedPaymentAt, declineCode: task.declineCode, status: task.status,
       } : null;
-    const untouched = decision.humanResultRevisionAfter === (deal.humanResultRevision ?? 0);
+    const untouched = decision.state === "applied" &&
+      decision.humanResultRevisionAfter === (deal.humanResultRevision ?? 0);
     const changeNextStep = !!(untouched && taskView && task && await taskIsUntouched(ctx, decision, deal, meeting, task));
     const reopen = untouched && isRefusal && !!deal.assignedCloserId && matchesAppliedRefusal(decision, deal) &&
       !(await loadDealOpenTasks(ctx, deal._id)).hasOpenTask;
@@ -381,7 +390,8 @@ export const getCallResultSummary = query({
       ...await readCallQuotes(ctx, viewer, meeting, decision),
       can: {
         changeNextStep,
-        withdrawAttendance: viewer.isAdmin && changeNextStep && await noLaterMeetingResult(ctx, deal, meeting, resolvedAt),
+        withdrawAttendance: viewer.isAdmin && (changeNextStep || replacement !== null) &&
+          await noLaterMeetingResult(ctx, deal, meeting, resolvedAt),
         undo: viewer.isAdmin && automatic && (reopen || changeNextStep),
         reopen,
       },

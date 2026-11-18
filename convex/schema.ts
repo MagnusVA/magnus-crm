@@ -65,6 +65,8 @@ import { contactAgainValidator } from "./lib/contactAgain";
 import { paymentProviderTables } from "./payments/schema";
 import { automationTables, resultAutomationSettingsValidator } from "./automation/schema";
 
+const { providerPayments, ...otherPaymentProviderTables } = paymentProviderTables;
+
 export default defineSchema({
   ...pipelineTables,
   ...businessDayTables,
@@ -79,7 +81,10 @@ export default defineSchema({
   ...automationTables,
   ...endOfDayTables,
   ...leadGenShiftTables,
-  ...paymentProviderTables,
+  ...otherPaymentProviderTables,
+  providerPayments: providerPayments.index("by_connectionId_status_paymentRecordId_paidAt", [
+    "connectionId", "status", "paymentRecordId", "paidAt",
+  ]),
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
     // Set when the tenant moved to the booking coverage model: explicit Shared
@@ -2043,6 +2048,9 @@ export default defineSchema({
       "tenantId",
       "status",
       "createdAt",
+    ])
+    .index("by_tenantId_source_reason_status_reminderScheduledAt", [
+      "tenantId", "createdSource", "reason", "status", "reminderScheduledAt",
     ])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
     .index("by_opportunityId_and_status_and_reason", [

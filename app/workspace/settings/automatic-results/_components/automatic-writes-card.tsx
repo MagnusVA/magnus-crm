@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import dynamic from "next/dynamic";
 import { useQuery } from "convex/react";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -106,6 +107,8 @@ export function AutomaticWritesCard({ canUndo }: { canUndo: boolean }) {
 
 function WriteRow({ write, canUndo, onUndo }: { write: AutomaticWrite; canUndo: boolean; onUndo: () => void }) {
   const definition = kindDefinition(write.kind);
+  const before = write.before?.position;
+  const beforeLabel = before === "system_loss" ? "System loss" : before ? dealPositionLabel(before) : null;
   return (
     <div className="flex flex-col gap-2 px-4 py-3 @2xl/writes:flex-row @2xl/writes:items-start @2xl/writes:justify-between">
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -136,6 +139,7 @@ function WriteRow({ write, canUndo, onUndo }: { write: AutomaticWrite; canUndo: 
             <Button type="button" size="sm" variant="outline" disabled={!canUndo} onClick={onUndo}>
               {write.kind === "refusal_loss" ? "Reopen" : "Undo"}
             </Button>
+            {beforeLabel ? <NoteLine>Deal position before this result was {beforeLabel}.</NoteLine> : null}
             {canUndo ? null : <NoteLine>Only an owner or admin can undo this.</NoteLine>}
           </>
         ) : (

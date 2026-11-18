@@ -51,19 +51,6 @@ const ALERT_LEVELS: ReadonlyArray<{ value: AlertLevel; label: string }> = [
 ];
 const ALERT_RANK: Record<AlertLevel, number> = { off: 0, shadow: 1, on: 2 };
 
-/** Call insights reads as off: never set up, or a call switch is on and still reads as off while running. */
-export function callInsightsReadsOff(view: AutomationSettingsView) {
-  const effective = view.callEffective;
-  if (effective === undefined) return true;
-  if (view.paused) return false;
-  const kinds = view.configured?.kinds;
-  const callKindOff = (["call_back", "payment_owed", "refusal_loss"] as const).some(
-    (kind) => (kinds?.[kind]?.mode ?? "off") !== "off" && effective[kind] === "off",
-  );
-  const alertOff = (view.configured?.paidOnCallAlert?.mode ?? "off") !== "off" && effective.paid_on_call_alert === "off";
-  return callKindOff || alertOff;
-}
-
 /**
  * The switches: Everything (Paused or Running), one row per kind with its
  * level and its clean sample, the paid-on-call alert, and the refusal notice.
@@ -90,7 +77,7 @@ export function ControlsCard({
   const { configured, canRaise, canLower } = view;
   const running = configured?.enabled === true;
   const noticeHours = configured?.refusalNoticeHours ?? DEFAULT_NOTICE_HOURS;
-  const callOff = callInsightsReadsOff(view);
+  const callOff = !view.callInsightsOn;
 
   const modeOf = (kind: AutomationKind): Level => configured?.kinds[kind]?.mode ?? "off";
   const certificateOf = (kind: AutomationKind) => certificates?.find((row) => row.kind === kind);

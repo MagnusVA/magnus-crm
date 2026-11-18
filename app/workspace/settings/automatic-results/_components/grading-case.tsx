@@ -188,7 +188,7 @@ function Evidence({ evidence }: { evidence: GradeCase["evidence"] }) {
         <Fact label="Product">{product || <span className="text-muted-foreground">Not given</span>}</Fact>
         <Fact label="Payer email">
           {evidence.payerEmail ? (
-            <span translate="no" className="break-words select-text">{evidence.payerEmail}</span>
+            <span translate="no" className="ph-no-capture break-words select-text">{evidence.payerEmail}</span>
           ) : (
             <span className="text-muted-foreground">No email</span>
           )}

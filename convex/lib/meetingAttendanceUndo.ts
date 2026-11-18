@@ -21,7 +21,10 @@ export async function withdrawAutomatedHeld(
     ctx.db.get("resultAutomationDecisions", decisionId),
     ctx.db.get("meetings", meetingId),
   ]);
-  if (!decision?.callBefore || decision.state !== "applied" || !meeting ||
+  // A person may have changed the next step first: the receipt is then
+  // `corrected` and names its replacement, and the deal's revision moved once.
+  const corrected = decision?.state === "corrected" && decision.replacementFollowUpId !== undefined;
+  if (!decision?.callBefore || (decision.state !== "applied" && !corrected) || !meeting ||
       decision.meetingId !== meetingId || decision.callBefore.meetingId !== meetingId ||
       decision.tenantId !== meeting.tenantId || decision.opportunityId !== meeting.opportunityId ||
       (decision.kind !== "call_back" && decision.kind !== "payment_owed")) {
@@ -33,7 +36,9 @@ export async function withdrawAutomatedHeld(
         meeting,
         decisionId,
         humanResultRevision: deal.humanResultRevision ?? 0,
-        humanResultRevisionAfter: decision.humanResultRevisionAfter,
+        humanResultRevisionAfter: corrected && decision.humanResultRevisionAfter !== undefined
+          ? decision.humanResultRevisionAfter + 1
+          : decision.humanResultRevisionAfter,
       })) {
     throw new Error("Call attendance is no longer safe to withdraw");
   }
@@ -47,7 +52,7 @@ export async function withdrawAutomatedHeld(
   });
   await correctLeadLifecycle(ctx, deal.leadId, "attendance_withdrawn", actorUserId);
 
-  if (decision.callBefore.position === "booked" && deal.stage === "follow_up" && deal.outcome === "open" &&
+  if (!corrected && decision.callBefore.position === "booked" && deal.stage === "follow_up" && deal.outcome === "open" &&
       deal.latestMeetingId === meetingId &&
       decision.resolvedAt !== undefined && deal.updatedAt <= decision.resolvedAt) {
     await transitionOpportunity(ctx, deal._id, {

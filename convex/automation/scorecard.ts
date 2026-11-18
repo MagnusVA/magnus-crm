@@ -1,14 +1,15 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
+import { callKinds } from "../callInsights/settings";
 import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { expectedError } from "../lib/observability/errors";
 import { readOpenAudits } from "./audit";
 import { automationKindValidator, breakerReasonValidator } from "./schema";
 import { PAYMENT_RULE_VERSION } from "./derive";
-import { automationKindOf, modeAtLeastAsk } from "./proposals";
-import { effectiveKindMode } from "./settings";
+import { automationKindOf, isCallKind, modeAtLeastAsk, type AutomationKind } from "./proposals";
+import { currentRuleVersion, effectiveKindMode } from "./settings";
 
 const countValidator = v.object({ count: v.number(), capped: v.boolean() });
 const nullableNumber = v.union(v.number(), v.null());
@@ -24,6 +25,27 @@ const kindStats = v.object({
   corrected: countValidator,
 });
 
+const partialCountValidator = v.object({ count: v.number(), partial: v.boolean() });
+const callKindStats = v.object({
+  ruleVersion: v.string(),
+  proposed: partialCountValidator,
+  leftForPerson: partialCountValidator,
+  graded: partialCountValidator,
+  wrong: partialCountValidator,
+  corrected: partialCountValidator,
+  shareOfCallsDue: nullableNumber,
+});
+const closerActivityValidator = v.object({
+  partial: v.boolean(),
+  rows: v.array(v.object({
+    closerId: v.id("users"),
+    name: v.string(),
+    stops: partialCountValidator,
+    unacknowledgedRefusalNotices: partialCountValidator,
+    stoppedRefusalNotices: partialCountValidator,
+  })),
+});
+
 const automaticCounts = v.object({
   payment_win: countValidator, additional_payment: countValidator, call_back: countValidator,
   payment_owed: countValidator, refusal_loss: countValidator,
@@ -31,10 +53,15 @@ const automaticCounts = v.object({
 const kinds = ["payment_win", "additional_payment"] as const;
 const limit = 500;
 type Payment = Doc<"providerPayments">;
+type Decision = Doc<"resultAutomationDecisions">;
 type Tenant = Doc<"tenants">;
 
 function count(n: number, capped: boolean) {
   return { count: n, capped };
+}
+
+function partialCount(n: number, partial: boolean) {
+  return { count: Math.min(n, limit), partial: partial || n >= limit };
 }
 
 function oldest(current: number | null, time: number) {
@@ -42,12 +69,12 @@ function oldest(current: number | null, time: number) {
 }
 
 async function readKind(
-  ctx: QueryCtx, tenantId: Id<"tenants">, kind: (typeof kinds)[number], since: number,
-  paidInWindow: Set<Id<"providerPayments">>, paymentsCapped: boolean,
+  ctx: QueryCtx, tenantId: Id<"tenants">, kind: AutomationKind, ruleVersion: string, since: number,
+  subjects: ReadonlySet<string>, subjectField: "providerPaymentId" | "meetingId", subjectsPartial: boolean,
 ) {
   const rows = await ctx.db.query("resultAutomationDecisions")
     .withIndex("by_tenantId_and_kind_and_ruleVersion_and_createdAt", (q) =>
-      q.eq("tenantId", tenantId).eq("kind", kind).eq("ruleVersion", PAYMENT_RULE_VERSION).gte("createdAt", since))
+      q.eq("tenantId", tenantId).eq("kind", kind).eq("ruleVersion", ruleVersion).gte("createdAt", since))
     .take(limit + 1);
   const capped = rows.length > limit;
   let proposed = 0;
@@ -56,11 +83,12 @@ async function readKind(
   let wrong = 0;
   let corrected = 0;
   let oldestUngraded: number | null = null;
-  const covered = new Set<Id<"providerPayments">>();
+  const covered = new Set<string>();
   for (const row of rows.slice(0, limit)) {
     if (row.wouldWrite) {
       proposed += 1;
-      if (row.providerPaymentId && paidInWindow.has(row.providerPaymentId)) covered.add(row.providerPaymentId);
+      const subjectId = row[subjectField];
+      if (subjectId && subjects.has(subjectId)) covered.add(subjectId);
     } else {
       leftForPerson += 1;
     }
@@ -73,16 +101,103 @@ async function readKind(
     if (row.correctionId || row.state === "corrected" || row.state === "undone") corrected += 1;
   }
   return {
-    ruleVersion: PAYMENT_RULE_VERSION,
-    proposed: count(proposed, capped),
-    leftForPerson: count(leftForPerson, capped),
-    graded: count(graded, capped),
-    wrong: count(wrong, capped),
-    ungraded: { ...count(Math.min(rows.length, limit) - graded, capped), oldestAt: oldestUngraded },
-    shareOfPaidWhopPayments: capped || paymentsCapped || paidInWindow.size === 0
-      ? null : covered.size / paidInWindow.size,
-    corrected: count(corrected, capped),
+    proposed, leftForPerson, graded, wrong, corrected, capped, read: Math.min(rows.length, limit),
+    oldestUngraded,
+    share: capped || subjectsPartial || subjects.size === 0 ? null : covered.size / subjects.size,
   };
+}
+
+async function readPaymentKind(
+  ctx: QueryCtx, tenantId: Id<"tenants">, kind: (typeof kinds)[number], since: number,
+  paid: { ids: Set<Id<"providerPayments">>; capped: boolean },
+) {
+  const stats = await readKind(ctx, tenantId, kind, PAYMENT_RULE_VERSION, since, paid.ids, "providerPaymentId", paid.capped);
+  const total = (n: number) => count(n, stats.capped);
+  return {
+    ruleVersion: PAYMENT_RULE_VERSION,
+    proposed: total(stats.proposed), leftForPerson: total(stats.leftForPerson),
+    graded: total(stats.graded), wrong: total(stats.wrong), corrected: total(stats.corrected),
+    ungraded: { ...total(stats.read - stats.graded), oldestAt: stats.oldestUngraded },
+    shareOfPaidWhopPayments: stats.share,
+  };
+}
+
+async function dueCalls(ctx: QueryCtx, tenantId: Id<"tenants">, since: number, now: number) {
+  const meetings = await ctx.db.query("meetings")
+    .withIndex("by_tenantId_and_scheduledAt", (q) => q.eq("tenantId", tenantId).gte("scheduledAt", since).lte("scheduledAt", now))
+    .take(limit);
+  const ids = new Set(meetings.flatMap((meeting) =>
+    meeting.status !== "canceled" && meeting.scheduledAt + meeting.durationMinutes * 60_000 <= now ? [meeting._id] : []));
+  return { ids, partial: meetings.length === limit };
+}
+
+async function readCallKind(
+  ctx: QueryCtx, tenant: Tenant, kind: (typeof callKinds)[number], since: number,
+  due: Awaited<ReturnType<typeof dueCalls>>,
+) {
+  const ruleVersion = currentRuleVersion(tenant, kind);
+  const stats = await readKind(ctx, tenant._id, kind, ruleVersion, since, due.ids, "meetingId", due.partial);
+  const partial = stats.read === limit;
+  const total = (n: number) => partialCount(n, partial);
+  return {
+    ruleVersion,
+    proposed: total(stats.proposed), leftForPerson: total(stats.leftForPerson),
+    graded: total(stats.graded), wrong: total(stats.wrong), corrected: total(stats.corrected),
+    shareOfCallsDue: partial ? null : stats.share,
+  };
+}
+
+async function readCloserActivity(ctx: QueryCtx, tenantId: Id<"tenants">, since: number) {
+  const [stops, unacknowledged, stoppedNotices] = await Promise.all([
+    ctx.db.query("resultAutomationDecisions").withIndex("by_tenantId_state_stopCode_resolvedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("state", "stopped").eq("stopCode", "person_stop").gte("resolvedAt", since)).take(limit),
+    ctx.db.query("resultAutomationDecisions").withIndex("by_tenantId_kind_state_acknowledgedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("kind", "refusal_loss").eq("state", "notice").eq("acknowledgedAt", undefined)).take(limit),
+    ctx.db.query("resultAutomationDecisions").withIndex("by_tenantId_kind_state_resolvedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("kind", "refusal_loss").eq("state", "stopped").gte("resolvedAt", since)).take(limit),
+  ]);
+  const byCloser = new Map<Id<"users">, { stops: number; unacknowledged: number; stoppedNotices: number }>();
+  function tally(row: Decision, field: "stops" | "unacknowledged" | "stoppedNotices") {
+    const closerId = row.noticeUserId ?? row.assignedCloserId;
+    if (!closerId) return;
+    const totals = byCloser.get(closerId) ?? { stops: 0, unacknowledged: 0, stoppedNotices: 0 };
+    totals[field]++;
+    byCloser.set(closerId, totals);
+  }
+  for (const row of stops) if (isCallKind(row.kind)) tally(row, "stops");
+  for (const row of unacknowledged) tally(row, "unacknowledged");
+  for (const row of stoppedNotices) if (row.noticeRound !== undefined) tally(row, "stoppedNotices");
+  const rows = await Promise.all([...byCloser.entries()].slice(0, limit).map(async ([closerId, totals]) => {
+    const closer = await ctx.db.get("users", closerId);
+    return {
+      closerId,
+      name: (closer?.tenantId === tenantId && closer.fullName?.trim()) || "Unnamed closer",
+      stops: partialCount(totals.stops, stops.length === limit),
+      unacknowledgedRefusalNotices: partialCount(totals.unacknowledged, unacknowledged.length === limit),
+      stoppedRefusalNotices: partialCount(totals.stoppedNotices, stoppedNotices.length === limit),
+    };
+  }));
+  return {
+    rows: rows.sort((a, b) => a.name.localeCompare(b.name)),
+    partial: byCloser.size >= limit || [stops, unacknowledged, stoppedNotices].some((rows) => rows.length === limit),
+  };
+}
+
+async function overdueAutomaticTasks(ctx: QueryCtx, tenantId: Id<"tenants">, now: number) {
+  const rows = await ctx.db.query("followUps")
+    .withIndex("by_tenantId_source_reason_status_reminderScheduledAt", (q) =>
+      q.eq("tenantId", tenantId).eq("createdSource", "system").eq("reason", "call_insights").eq("status", "pending")
+        .gt("reminderScheduledAt", undefined).lt("reminderScheduledAt", now))
+    .take(limit);
+  return partialCount(rows.length, false);
+}
+
+async function withoutSecondOpinion(ctx: QueryCtx, applied: Decision[]) {
+  const meetings = new Set(applied.slice(0, limit).flatMap((row) =>
+    isCallKind(row.kind) && row.appliedVia === "automatic" && row.meetingId ? [row.meetingId] : []));
+  const checks = await Promise.all([...meetings].map((meetingId) => ctx.db.query("secondOpinions")
+    .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId)).first()));
+  return partialCount(checks.filter((check) => check === null).length, applied.length >= limit);
 }
 
 async function waitingPayments(ctx: QueryCtx, tenant: Tenant, connections: Doc<"tenantPaymentConnections">[]) {
@@ -164,7 +279,14 @@ async function paidWindow(ctx: QueryCtx, tenantId: Id<"tenants">, connections: D
 export const getAutomationScorecard = query({
   args: { windowDays: v.number() },
   returns: v.object({
-    kinds: v.object({ payment_win: kindStats, additional_payment: kindStats }),
+    kinds: v.object({
+      payment_win: kindStats, additional_payment: kindStats,
+      call_back: callKindStats, payment_owed: callKindStats, refusal_loss: callKindStats,
+    }),
+    callsDue: partialCountValidator,
+    closerActivity: closerActivityValidator,
+    automaticTasksOverdue: partialCountValidator,
+    automaticCallsWithoutSecondOpinion: partialCountValidator,
     paidWhopPayments: countValidator,
     winsAwaitingAttendance: queueValidator,
     paymentsWaiting: v.object({ ...queueValidator.fields, billing: queueValidator, closer: queueValidator }),
@@ -184,7 +306,8 @@ export const getAutomationScorecard = query({
     }
     const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) throw expectedError("auth.organization_mismatch", "Organization mismatch");
-    const since = Date.now() - windowDays * 86_400_000;
+    const now = Date.now();
+    const since = now - windowDays * 86_400_000;
     const connections: Doc<"tenantPaymentConnections">[] = [];
     for (const environment of ["live", "sandbox"] as const) {
       const row = await ctx.db.query("tenantPaymentConnections")
@@ -193,7 +316,10 @@ export const getAutomationScorecard = query({
       if (row) connections.push(row);
     }
     const active = connections.flatMap((row) => row.status === "disconnected" ? [] : [row]);
-    const [paid, paymentsWaiting, winsAwaitingAttendance, flags, audits, automaticRows] = await Promise.all([
+    const [
+      paid, paymentsWaiting, winsAwaitingAttendance, flags, audits, automaticRows,
+      due, closerActivity, automaticTasksOverdue,
+    ] = await Promise.all([
       paidWindow(ctx, tenantId, connections, since),
       waitingPayments(ctx, tenant, active),
       attendanceOwed(ctx, tenantId),
@@ -204,9 +330,16 @@ export const getAutomationScorecard = query({
         .withIndex("by_tenantId_and_mode_and_state_and_resolvedAt", (q) => q.eq("tenantId", tenantId)
           .eq("mode", "automatic").eq("state", state).gte("resolvedAt", since))
         .take(limit + 1))),
+      dueCalls(ctx, tenantId, since, now),
+      readCloserActivity(ctx, tenantId, since),
+      overdueAutomaticTasks(ctx, tenantId, now),
     ]);
-    const [payment_win, additional_payment] = await Promise.all(kinds.map((kind) =>
-      readKind(ctx, tenantId, kind, since, paid.ids, paid.capped)));
+    const [[payment_win, additional_payment], [call_back, payment_owed, refusal_loss], automaticCallsWithoutSecondOpinion] =
+      await Promise.all([
+        Promise.all(kinds.map((kind) => readPaymentKind(ctx, tenantId, kind, since, paid))),
+        Promise.all(callKinds.map((kind) => readCallKind(ctx, tenant, kind, since, due))),
+        withoutSecondOpinion(ctx, automaticRows[0]),
+      ]);
     const capped = automaticRows.some((rows) => rows.length > limit);
     const automaticWrites = {
       payment_win: count(0, capped), additional_payment: count(0, capped), call_back: count(0, capped),
@@ -225,7 +358,11 @@ export const getAutomationScorecard = query({
     const oldestAudit = audits.rows.reduce<number | null>((current, row) =>
       oldest(current, row.resolvedAt ?? row.createdAt), null);
     return {
-      kinds: { payment_win, additional_payment },
+      kinds: { payment_win, additional_payment, call_back, payment_owed, refusal_loss },
+      callsDue: partialCount(due.ids.size, due.partial),
+      closerActivity,
+      automaticTasksOverdue,
+      automaticCallsWithoutSecondOpinion,
       automaticWrites, breakers, auditQueue: { ...count(audits.rows.length, audits.capped), oldestAt: oldestAudit },
       paidWhopPayments: count(paid.ids.size, paid.capped),
       winsAwaitingAttendance,

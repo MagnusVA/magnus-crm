@@ -42,6 +42,7 @@ const TENANT_INDEX_BY_TABLE = {
   tenantPaymentConnections: "by_tenantId_and_provider_and_environment",
   resultAutomationDecisions: "by_tenantId_and_state_and_createdAt",
   automationSamples: "by_tenantId_and_kind_and_status",
+  automationPaymentRepairCursors: "by_tenantId",
   paymentCorrections: "by_tenantId_and_requestKey",
   closerPinnedLines: "by_tenantId_and_userId_and_dismissedAt_and_createdAt",
   rawWebhookEvents: "by_tenantId_and_receivedAt",

@@ -18,7 +18,7 @@ import { AutomaticResultsSkeleton } from "./automatic-results-skeleton";
 import { AutomaticWritesCard } from "./automatic-writes-card";
 import { BreakerBanners } from "./breaker-banners";
 import { CertificatesCard } from "./certificates-card";
-import { ControlsCard, callInsightsReadsOff } from "./controls-card";
+import { ControlsCard } from "./controls-card";
 import { GraderCard } from "./grader-card";
 import { GradingCard } from "./grading-card";
 import { LevelsCard } from "./levels-card";
@@ -87,7 +87,7 @@ export function AutomaticResultsPageClient() {
         </div>
       ) : null}
 
-      {callKindsOn && callInsightsReadsOff(view) ? (
+      {callKindsOn && !view.callInsightsOn ? (
         <div className={cn(CARD, "px-4 py-3")}>
           <NoteLine tone="warning">
             Call insights is off, so the three kinds that read calls and the paid-on-call alert do nothing. The payment

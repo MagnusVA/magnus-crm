@@ -91,6 +91,7 @@ export const getSettings = query({
     })),
     automatic: kindStatuses,
     paused: v.boolean(),
+    callInsightsOn: v.boolean(),
     whopLagging: v.boolean(),
     whopLastReadAt: v.union(v.number(), v.null()),
     whopConnected: v.boolean(),
@@ -139,6 +140,7 @@ export const getSettings = query({
     const automatic = { payment_win, additional_payment, call_back, payment_owed, refusal_loss };
     return {
       automatic, paused, whopLagging,
+      callInsightsOn: effectiveCallInsights(tenant) !== null,
       whopLastReadAt: connected?.lastSuccessfulSweepAt ?? null,
       whopConnected: connected !== undefined,
       breakers: Object.values(automatic).flatMap(({ breaker }) => breaker ? [breaker] : []),

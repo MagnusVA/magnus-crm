@@ -39,8 +39,7 @@ const REASON_WORDS: Record<AuditCase["reason"], string> = {
 
 /**
  * Automatic writes waiting for a person's check, soonest deadline first.
- * The queue pages through the automatic writes 50 at a time, so "Look
- * further back" reads the next page. An overdue check is said in words.
+ * The queue pages through open checks 50 at a time in deadline order.
  * With `show` false (no kind at Automatic) the card hides while nothing waits.
  */
 export function AuditCard({ show }: { show: boolean }) {
@@ -106,9 +105,9 @@ function AuditPage({
       </ul>
       {last && page.nextCursor ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border bg-background px-4 py-2.5">
-          <NoteLine className="mr-auto">Older automatic writes may also be waiting.</NoteLine>
+          <NoteLine className="mr-auto">More automatic writes are waiting for a check.</NoteLine>
           <Button type="button" size="sm" variant="outline" onClick={() => onMore(page.nextCursor as string)}>
-            Look further back
+            Show more checks
           </Button>
         </div>
       ) : null}
@@ -131,6 +130,17 @@ function AuditRow({ entry }: { entry: AuditCase }) {
       <p className="text-[13px] text-muted-foreground">
         {definition.recordedWords}, <span className="tabular-nums">{dayTimeFormat.format(entry.writtenAt)}</span>.
       </p>
+      {entry.originalTask ? (
+        <p className="text-[13px] text-muted-foreground">Originally set to {taskWords(entry.originalTask)}.</p>
+      ) : null}
+      {entry.correction ? (
+        <p className="text-[13px]">
+          {entry.correction === "undone"
+            ? entry.kind === "refusal_loss" ? "The deal was reopened." : "The result was undone."
+            : "The result was corrected."}
+          {entry.replacementTask ? <> The replacement is to {taskWords(entry.replacementTask)}.</> : null}
+        </p>
+      ) : null}
       {overdue ? (
         <p className="flex items-start gap-1.5 text-[13px] font-medium text-warning-ink">
           <ClockAlertIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
@@ -153,6 +163,11 @@ function AuditRow({ entry }: { entry: AuditCase }) {
       <AuditVerdictForm entry={entry} fields={definition.wrongFields} />
     </div>
   );
+}
+
+function taskWords(task: NonNullable<AuditCase["originalTask"]>) {
+  const method = task.contactMethod;
+  return `${method} at ${dayTimeFormat.format(task.reminderScheduledAt)}`;
 }
 
 function AuditVerdictForm({ entry, fields }: { entry: AuditCase; fields: readonly WrongField[] }) {
@@ -190,7 +205,7 @@ function AuditVerdictForm({ entry, fields }: { entry: AuditCase; fields: readonl
   return (
     <div className="mt-1 flex flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <p id={labelId} className="text-[13px] font-semibold">Is this result right?</p>
+        <p id={labelId} className="text-[13px] font-semibold">Was the original result right?</p>
         <ToggleGroup
           type="single"
           value={verdict}

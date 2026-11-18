@@ -7,7 +7,7 @@ import { sha256Hex } from "../lib/stableHash";
 import { automationCommandRefusalValidator, refuseAutomation } from "../payments/commandResult";
 import { requireTenantUser } from "../requireTenantUser";
 import { holdMapping, oneBusinessDayAfter, tripBreaker } from "./breaker";
-import { automationKindOf, isPaymentKind, paymentEvidenceOf, type AutomationKind } from "./proposals";
+import { automationKindOf, isPaymentKind, paymentEvidenceOf, taskProposalOf, type AutomationKind } from "./proposals";
 import { automationKindValidator, wrongFieldValidator } from "./schema";
 
 type Decision = Doc<"resultAutomationDecisions">;
@@ -56,21 +56,27 @@ export async function scheduleAudit(
   });
 }
 
-function automaticReceipts(ctx: QueryCtx, tenantId: Id<"tenants">) {
+function openAudits(ctx: QueryCtx, tenantId: Id<"tenants">) {
   return ctx.db.query("resultAutomationDecisions")
-    .withIndex("by_tenantId_and_mode_and_state_and_resolvedAt", (q) =>
-      q.eq("tenantId", tenantId).eq("mode", "automatic").eq("state", "applied"))
-    .order("desc");
+    .withIndex("by_tenantId_and_auditOpenDueAt", (q) =>
+      q.eq("tenantId", tenantId).gt("auditOpenDueAt", undefined));
 }
+
+function isAuditableState(state: Decision["state"]) {
+  return state === "applied" || state === "corrected" || state === "undone";
+}
+
+const auditTaskValidator = v.object({
+  contactMethod: v.union(v.literal("call"), v.literal("text")),
+  reminderScheduledAt: v.number(),
+});
 
 export async function readOpenAudits(
   ctx: QueryCtx, tenantId: Id<"tenants">,
 ): Promise<{ rows: Decision[]; capped: boolean }> {
-  // The due index is global. Keep the scorecard scan tenant-scoped and show
-  // the cap; the audit queue can page further through this same tenant range.
-  const rows = await automaticReceipts(ctx, tenantId).take(AUDIT_READ_LIMIT + 1);
+  const rows = await openAudits(ctx, tenantId).take(AUDIT_READ_LIMIT + 1);
   return {
-    rows: rows.slice(0, AUDIT_READ_LIMIT).filter((row) => row.auditOpenDueAt !== undefined),
+    rows: rows.slice(0, AUDIT_READ_LIMIT),
     capped: rows.length > AUDIT_READ_LIMIT,
   };
 }
@@ -81,26 +87,40 @@ export const listAuditQueue = query({
     cases: v.array(v.object({
       decisionId: v.id("resultAutomationDecisions"), kind: automationKindValidator,
       reason: auditReasonValidator, dueAt: v.number(), writtenAt: v.number(),
+      correction: v.optional(v.union(v.literal("corrected"), v.literal("undone"))),
+      originalTask: v.optional(auditTaskValidator),
+      replacementTask: v.optional(auditTaskValidator),
       leadId: v.optional(v.id("leads")), opportunityId: v.optional(v.id("opportunities")),
       meetingId: v.optional(v.id("meetings")), providerPaymentId: v.optional(v.id("providerPayments")),
     })), capped: v.boolean(), nextCursor: v.union(v.null(), v.string()),
   }),
   handler: async (ctx, { kind, cursor }) => {
     const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
-    const page = await automaticReceipts(ctx, tenantId).paginate({
+    const page = await openAudits(ctx, tenantId).paginate({
       cursor: cursor ?? null, numItems: AUDIT_PAGE_SIZE, maximumRowsRead: AUDIT_PAGE_SIZE, maximumBytesRead: 256 * 1024,
     });
-    const cases = page.page.flatMap((row) => {
+    const cases = [];
+    for (const row of page.page) {
       const auditKind = automationKindOf(row.kind);
-      if (!auditKind || (kind && kind !== auditKind) || !row.auditReason || row.auditOpenDueAt === undefined) return [];
-      return [{
+      if (!auditKind || (kind && kind !== auditKind) || !row.auditReason || row.auditOpenDueAt === undefined) continue;
+      const originalTask = taskProposalOf(row);
+      const replacement = row.replacementFollowUpId ? await ctx.db.get("followUps", row.replacementFollowUpId) : null;
+      cases.push({
         decisionId: row._id, kind: auditKind, reason: row.auditReason, dueAt: row.auditOpenDueAt,
         writtenAt: row.resolvedAt ?? row.createdAt, leadId: row.leadId, opportunityId: row.opportunityId,
         meetingId: row.meetingId, providerPaymentId: row.providerPaymentId,
-      }];
-    });
+        correction: row.state === "corrected" || row.state === "undone" ? row.state : undefined,
+        originalTask: originalTask ? {
+          contactMethod: originalTask.contactMethod, reminderScheduledAt: originalTask.reminderScheduledAt,
+        } : undefined,
+        replacementTask: replacement?.tenantId === tenantId && replacement.opportunityId === row.opportunityId &&
+          replacement.contactMethod && replacement.reminderScheduledAt !== undefined ? {
+            contactMethod: replacement.contactMethod, reminderScheduledAt: replacement.reminderScheduledAt,
+          } : undefined,
+      });
+    }
     return {
-      cases: cases.sort((a, b) => a.dueAt - b.dueAt),
+      cases,
       capped: !page.isDone, nextCursor: page.isDone ? null : page.continueCursor,
     };
   },
@@ -123,7 +143,7 @@ export const recordAudit = mutation({
     if (row.auditVerdict === verdict && fields.join() === row.auditWrongFields?.join()) {
       return { ok: true as const, alreadyApplied: true };
     }
-    if (row.state !== "applied" || row.auditOpenDueAt === undefined || row.auditVerdict) return refuseAutomation("not_ready");
+    if (!isAuditableState(row.state) || row.auditOpenDueAt === undefined || row.auditVerdict) return refuseAutomation("not_ready");
     const now = Date.now();
     const severe = fields.some((field) =>
       field === "person" || field === "deal" || field === "false_loss" || field === "should_abstain");
@@ -153,7 +173,7 @@ export const recordAudit = mutation({
 
 export async function tripOverdueAudit(ctx: MutationCtx, decision: Decision, now: number): Promise<void> {
   const kind: AutomationKind | null = automationKindOf(decision.kind);
-  if (kind && decision.mode === "automatic" && decision.state === "applied" &&
+  if (kind && decision.mode === "automatic" && isAuditableState(decision.state) &&
       decision.auditOpenDueAt !== undefined && decision.auditOpenDueAt <= now) {
     await tripBreaker(ctx, decision.tenantId, kind, "audit_overdue", decision._id);
   }

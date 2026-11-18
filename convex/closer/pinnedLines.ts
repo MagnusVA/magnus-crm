@@ -9,6 +9,7 @@ export const listMyPinnedLines = query({
   args: {},
   returns: v.array(v.object({
     ...automationTables.closerPinnedLines.validator.fields,
+    opportunityId: v.optional(v.id("opportunities")),
     _id: v.id("closerPinnedLines"),
     _creationTime: v.number(),
     leadId: v.union(v.id("leads"), v.null()),
@@ -24,18 +25,23 @@ export const listMyPinnedLines = query({
         q.eq("tenantId", tenantId).eq("userId", userId).eq("dismissedAt", undefined))
       .order("desc").take(20);
     return await Promise.all(lines.map(async (line) => {
-      const [deal, followUp] = await Promise.all([
-        ctx.db.get("opportunities", line.opportunityId),
-        line.kind === "call_result_set" && line.followUpId
-          ? ctx.db.get("followUps", line.followUpId)
-          : null,
+      const deal = await ctx.db.get("opportunities", line.opportunityId);
+      const canSeeDeal = deal?.tenantId === tenantId && deal.assignedCloserId === userId;
+      const [lead, followUp, meeting] = await Promise.all([
+        canSeeDeal ? ctx.db.get("leads", deal.leadId) : null,
+        canSeeDeal && line.followUpId ? ctx.db.get("followUps", line.followUpId) : null,
+        canSeeDeal && line.meetingId ? ctx.db.get("meetings", line.meetingId) : null,
       ]);
-      const lead = deal?.tenantId === tenantId ? await ctx.db.get("leads", deal.leadId) : null;
-      const task = followUp?.tenantId === tenantId && followUp.opportunityId === line.opportunityId
-        ? followUp
-        : null;
+      const task = followUp?.tenantId === tenantId && followUp.opportunityId === line.opportunityId &&
+        followUp.closerId === userId && followUp.leadId === deal?.leadId ? followUp : null;
       return {
         ...line,
+        opportunityId: canSeeDeal ? line.opportunityId : undefined,
+        meetingId: meeting?.tenantId === tenantId && meeting.opportunityId === line.opportunityId ? meeting._id : undefined,
+        followUpId: task?._id,
+        paymentRecordId: canSeeDeal ? line.paymentRecordId : undefined,
+        decisionId: canSeeDeal ? line.decisionId : undefined,
+        correctionId: canSeeDeal ? line.correctionId : undefined,
         leadId: lead?.tenantId === tenantId ? lead._id : null,
         personName: lead?.tenantId === tenantId
           ? leadDisplayFromShape({ fullName: lead.fullName, leadId: lead._id })

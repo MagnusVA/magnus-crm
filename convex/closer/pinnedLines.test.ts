@@ -88,3 +88,38 @@ it("returns the named task even after completion and hides a foreign-tenant task
     })),
   ]));
 });
+
+it("keeps static credit and hides live case details after reassignment", async () => {
+  const f = await paymentConfirmationFixture();
+  const { otherId, followUpId, lineId } = await f.t.run(async (ctx) => {
+    const otherId = await ctx.db.insert("users", {
+      tenantId: f.tenantId, workosUserId: "user_reassigned", email: "reassigned@example.com",
+      role: "closer", isActive: true,
+    });
+    const followUpId = await ctx.db.insert("followUps", {
+      tenantId: f.tenantId, opportunityId: f.dealId, leadId: f.personId, closerId: f.closerId,
+      type: "manual_reminder", status: "pending", reason: "closer_initiated", purpose: "call_back",
+      contactMethod: "text", reminderScheduledAt: FIXTURE_NOW, createdAt: FIXTURE_NOW,
+    });
+    const lineId = await addPinnedLine(ctx, {
+      tenantId: f.tenantId, opportunityId: f.dealId, userId: f.closerId,
+      kind: "call_result_set", followUpId, amountMinor: 12_000, currency: "USD", createdAt: FIXTURE_NOW,
+    });
+    return { otherId, followUpId, lineId };
+  });
+  expect(await f.closer.query(listMyPinnedLines, {})).toMatchObject([{
+    _id: lineId, leadId: f.personId, opportunityId: f.dealId, followUpId, taskContactMethod: "text",
+  }]);
+  await f.t.run((ctx) => ctx.db.patch("followUps", followUpId, { closerId: otherId }));
+  const [taskTransferred] = await f.closer.query(listMyPinnedLines, {});
+  expect(taskTransferred).toMatchObject({ opportunityId: f.dealId, taskContactMethod: null });
+  expect(taskTransferred.followUpId).toBeUndefined();
+  await f.t.run((ctx) => ctx.db.patch("opportunities", f.dealId, { assignedCloserId: otherId }));
+  const [dealTransferred] = await f.closer.query(listMyPinnedLines, {});
+  expect(dealTransferred).toMatchObject({
+    _id: lineId, kind: "call_result_set", amountMinor: 12_000, currency: "USD",
+    leadId: null, personName: null, taskPurpose: null, taskContactMethod: null, taskScheduledAt: null,
+  });
+  expect(dealTransferred.opportunityId).toBeUndefined();
+  expect(dealTransferred.followUpId).toBeUndefined();
+});

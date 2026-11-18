@@ -46,12 +46,12 @@ export function initialSettings(
   };
 }
 
-const CALL_KINDS = ["call_back", "payment_owed", "refusal_loss"] as const;
+export const callKinds = ["call_back", "payment_owed", "refusal_loss"] as const;
 type EvidenceTenant = {
   resultAutomation?: {
     enabled?: boolean;
     pausedAt?: number;
-    kinds?: Partial<Record<(typeof CALL_KINDS)[number], { mode?: string }>>;
+    kinds?: Partial<Record<(typeof callKinds)[number], { mode?: string }>>;
     paidOnCallAlert?: { mode?: string };
   };
 };
@@ -67,7 +67,7 @@ export function callEvidenceWanted(
   return (
     alert === "shadow" ||
     alert === "on" ||
-    CALL_KINDS.some((kind) => {
+    callKinds.some((kind) => {
       const mode = settings.kinds?.[kind]?.mode;
       return mode === "shadow" || mode === "ask" || mode === "automatic";
     })

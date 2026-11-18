@@ -273,7 +273,9 @@ async function collect(ctx: QueryCtx, scope: AutomationInvariantScope): Promise<
     }
 
     // A9 is read from the payment rows below; A11's other parts follow.
-    if (decision.auditOpenDueAt !== undefined && (decision.state !== "applied" || decision.mode !== "automatic")) {
+    // A sampled check stays open after the result is corrected or undone.
+    if (decision.auditOpenDueAt !== undefined &&
+        (!["applied", "corrected", "undone"].includes(decision.state) || decision.mode !== "automatic")) {
       fail("A11", `decision ${decision._id} has an open audit but is ${decision.state} at ${decision.mode}`);
     }
     const sameKey = await ctx.db.query("resultAutomationDecisions")

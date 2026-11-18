@@ -11,9 +11,7 @@ import { cn } from "@/lib/utils";
 import {
   AUTOMATION_KINDS,
   BREAKER_WORDS,
-  PAYMENT_KINDS,
   ageWords,
-  countWords,
   type AutomationScorecard,
   type KindDefinition,
 } from "./automation-kinds";
@@ -22,7 +20,8 @@ import { INLINE_FIGURE, QueueLine, SEGMENT, SEGMENT_GROUP } from "./automation-u
 export const SCORECARD_WINDOWS = [7, 30, 90] as const;
 type WindowDays = (typeof SCORECARD_WINDOWS)[number];
 
-type Count = { count: number; capped: boolean };
+type PartialCount = { count: number; partial: boolean };
+type Count = { count: number; capped: boolean } | PartialCount;
 type ScoredKind = keyof AutomationScorecard["kinds"];
 export type ScorecardKindStats = AutomationScorecard["kinds"][ScoredKind];
 const DAY_MS = 86_400_000;
@@ -39,19 +38,26 @@ export const SCORECARD_COLUMNS: ReadonlyArray<{
   { key: "wrong", label: "Wrong", cell: (stats) => <CountCell value={stats.wrong} /> },
   {
     key: "share",
-    label: "Share of paid Whop payments",
-    cell: (stats) =>
-      stats.shareOfPaidWhopPayments === null ? (
+    label: "Share",
+    cell: (stats) => {
+      const share = "shareOfPaidWhopPayments" in stats ? stats.shareOfPaidWhopPayments : stats.shareOfCallsDue;
+      return share === null ? (
         <span className="text-muted-foreground">—</span>
       ) : (
-        <span className={INLINE_FIGURE}>{Math.round(stats.shareOfPaidWhopPayments * 100)}%</span>
-      ),
+        <span className={INLINE_FIGURE}>{Math.round(share * 100)}%</span>
+      );
+    },
   },
   { key: "corrected", label: "Corrected", cell: (stats) => <CountCell value={stats.corrected} /> },
 ];
 
+function scorecardCountWords(value: Count) {
+  const limited = "partial" in value ? value.partial : value.capped;
+  return limited ? `${value.count} or more` : String(value.count);
+}
+
 function CountCell({ value }: { value: Count }) {
-  return <span className={INLINE_FIGURE}>{countWords(value.count, value.capped)}</span>;
+  return <span className={INLINE_FIGURE}>{scorecardCountWords(value)}</span>;
 }
 
 /** "Whop read 4 minutes ago", from the newer of the last webhook and the last check. */
@@ -63,10 +69,10 @@ function freshnessWords(freshness: AutomationScorecard["freshness"], now: number
 
 /**
  * How each kind did in the window, then what is waiting on a person. Counts
- * the server stopped at read "N+". The table scrolls inside its own frame on
+ * shown with "or more" reached a read limit. The table scrolls inside its own frame on
  * a phone; while a new window loads, the old figures stay, dimmed.
  */
-export function ScorecardCard({ kinds = PAYMENT_KINDS }: { kinds?: readonly KindDefinition[] }) {
+export function ScorecardCard({ kinds = AUTOMATION_KINDS }: { kinds?: readonly KindDefinition[] }) {
   const id = useId();
   const now = useNow();
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
@@ -121,14 +127,9 @@ export function ScorecardCard({ kinds = PAYMENT_KINDS }: { kinds?: readonly Kind
 
 type AlertMetrics = FunctionReturnType<typeof api.automation.alert.getAlertMetrics>;
 
-/** Only the payment kinds have per-kind figures on the scorecard today. */
-function scored(definition: KindDefinition): definition is KindDefinition & { kind: ScoredKind } {
-  return definition.kind === "payment_win" || definition.kind === "additional_payment";
-}
-
 function ScorecardBody({
   data,
-  kinds: allKinds,
+  kinds,
   now,
   alerts,
 }: {
@@ -137,11 +138,10 @@ function ScorecardBody({
   now: number;
   alerts: AlertMetrics | undefined;
 }) {
-  const kinds = allKinds.filter(scored);
   const waiting = data.paymentsWaiting;
-  const ungraded = kinds.reduce(
-    (sum, definition) => {
-      const stats = data.kinds[definition.kind].ungraded;
+  const ungraded = (["payment_win", "additional_payment"] as const).reduce(
+    (sum, kind) => {
+      const stats = data.kinds[kind].ungraded;
       return {
         count: sum.count + stats.count,
         capped: sum.capped || stats.capped,
@@ -152,6 +152,7 @@ function ScorecardBody({
     { count: 0, capped: false, oldestAt: null as number | null },
   );
   const oldest = (at: number | null) => (at === null ? null : `oldest ${ageWords(at, now)}`);
+  const showCallStats = kinds.some(({ kind }) => "shareOfCallsDue" in data.kinds[kind]);
 
   return (
     <>
@@ -186,14 +187,29 @@ function ScorecardBody({
       </div>
       <p className="px-4 pt-2 pb-2.5 text-[13px] leading-[1.45] text-muted-foreground">
         Share of paid Whop payments: of the{" "}
-        <span className={INLINE_FIGURE}>{countWords(data.paidWhopPayments.count, data.paidWhopPayments.capped)}</span>{" "}
+        <span className={INLINE_FIGURE}>{scorecardCountWords(data.paidWhopPayments)}</span>{" "}
         paid Whop payments in the window, the share the rule would have written. A dash when there were none or the
         count stopped early.
       </p>
+      {showCallStats ? (
+        <p className="px-4 pb-2.5 text-[13px] leading-[1.45] text-muted-foreground">
+          The call share is the percentage of the{" "}
+          <span className={INLINE_FIGURE}>{scorecardCountWords(data.callsDue)}</span>{" "}
+          calls that came due and received a proposal for that kind.
+        </p>
+      ) : null}
       <dl>
+        {showCallStats ? (
+          <>
+            <QueueLine term="Overdue automatic tasks" figure={scorecardCountWords(data.automaticTasksOverdue)}
+              tone={data.automaticTasksOverdue.count ? "warning" : "muted"} />
+            <QueueLine term="Automatic calls without a Second opinion"
+              figure={scorecardCountWords(data.automaticCallsWithoutSecondOpinion)} />
+          </>
+        ) : null}
         <QueueLine
           term="Wins from Whop still waiting for attendance"
-          figure={countWords(data.winsAwaitingAttendance.count, data.winsAwaitingAttendance.capped)}
+          figure={scorecardCountWords(data.winsAwaitingAttendance)}
           tone={data.winsAwaitingAttendance.count > 0 ? "warning" : "muted"}
         >
           {joinWords(
@@ -203,27 +219,27 @@ function ScorecardBody({
         </QueueLine>
         <QueueLine
           term="Whop payments waiting for a person"
-          figure={countWords(waiting.count, waiting.capped)}
+          figure={scorecardCountWords(waiting)}
           tone={waiting.count > 0 ? "warning" : "muted"}
         >
           {waiting.count > 0
             ? joinWords(
                 oldest(waiting.oldestAt),
-                `${countWords(waiting.billing.count, waiting.billing.capped)} in Billing, ${countWords(waiting.closer.count, waiting.closer.capped)} with a closer`,
+                `${scorecardCountWords(waiting.billing)} in Billing, ${scorecardCountWords(waiting.closer)} with a closer`,
               )
             : null}
         </QueueLine>
-        <QueueLine term="Ungraded payment proposals" figure={countWords(ungraded.count, ungraded.capped)}>
+        <QueueLine term="Ungraded payment proposals" figure={scorecardCountWords(ungraded)}>
           {oldest(ungraded.oldestAt)}
         </QueueLine>
         <QueueLine
           term={"Unanswered “This isn’t my sale” flags"}
-          figure={countWords(data.unansweredNotMySale.count, data.unansweredNotMySale.capped)}
+          figure={scorecardCountWords(data.unansweredNotMySale)}
           tone={data.unansweredNotMySale.count > 0 ? "warning" : "muted"}
         />
         <QueueLine
           term="Automatic results waiting for a person's check"
-          figure={countWords(data.auditQueue.count, data.auditQueue.capped)}
+          figure={scorecardCountWords(data.auditQueue)}
           tone={data.auditQueue.count > 0 ? "warning" : "muted"}
         >
           {oldest(data.auditQueue.oldestAt)}
@@ -257,12 +273,46 @@ function ScorecardBody({
           </>
         ) : null}
       </dl>
+      {showCallStats && (data.closerActivity.rows.length > 0 || data.closerActivity.partial) ? (
+        <CloserActivity activity={data.closerActivity} />
+      ) : null}
       <AutomaticWritesTable data={data} />
     </>
   );
 }
 
 /** Results each kind recorded by itself in the window, and whether it is back at one tap. */
+function CloserActivity({ activity }: { activity: AutomationScorecard["closerActivity"] }) {
+  return (
+    <div className="overflow-x-auto border-t border-border">
+      <table className="w-full min-w-[32rem] text-left text-[13px]">
+        <caption className={cn(LABEL, "px-4 py-2 text-left font-semibold")}>Closer activity</caption>
+        <thead>
+          <tr className="border-b border-border">
+            <th scope="col" className="px-4 py-2">Closer</th>
+            <th scope="col" className="px-3 py-2 text-right">Stops</th>
+            <th scope="col" className="px-3 py-2 text-right">Unacknowledged refusal notices</th>
+            <th scope="col" className="px-3 py-2 text-right">Stopped refusal notices</th>
+          </tr>
+        </thead>
+        <tbody>
+          {activity.rows.map((row) => (
+            <tr key={row.closerId} className="border-b border-border">
+              <th scope="row" className="px-4 py-2 font-medium">{row.name}</th>
+              <td className="px-3 py-2 text-right"><CountCell value={row.stops} /></td>
+              <td className="px-3 py-2 text-right"><CountCell value={row.unacknowledgedRefusalNotices} /></td>
+              <td className="px-3 py-2 text-right"><CountCell value={row.stoppedRefusalNotices} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {activity.partial ? (
+        <p className="px-4 py-2 text-[13px] text-muted-foreground">Some closer activity may be missing.</p>
+      ) : null}
+    </div>
+  );
+}
+
 function AutomaticWritesTable({ data }: { data: AutomationScorecard }) {
   return (
     <div className="overflow-x-auto border-t border-border">
@@ -282,7 +332,7 @@ function AutomaticWritesTable({ data }: { data: AutomationScorecard }) {
               <tr key={definition.kind} className="h-11 border-b border-border last:border-b-0">
                 <th scope="row" className="px-4 py-2 font-medium">{definition.shortName}</th>
                 <td className="px-3 py-2 text-right">
-                  <span className={INLINE_FIGURE}>{countWords(writes.count, writes.capped)}</span>
+                  <span className={INLINE_FIGURE}>{scorecardCountWords(writes)}</span>
                 </td>
                 <td className={cn("px-4 py-2", breaker ? "text-warning-ink" : "text-muted-foreground")}>
                   {breaker ? "Back at one tap" : "Not stopped"}

@@ -121,3 +121,13 @@ it.each(["canary", "sampled"] as const)("trips at the %s deadline in the bounded
     .toEqual({ ok: false, code: "needs_review" });
   await assertAutomationInvariants(f.t, f);
 });
+
+it.each(["corrected", "undone"] as const)("trips an overdue sampled audit on a %s receipt", async (state) => {
+  const f = await fixture();
+  const [row] = await recordWrites(f, 1);
+  await f.t.run((ctx) => ctx.db.patch("resultAutomationDecisions", row._id, { state }));
+  vi.setSystemTime(row.auditOpenDueAt!);
+  await f.t.mutation(sweepDeadlines, { cursor: null, through: Date.now() });
+  expect((await f.owner.query(automationFixtureApi.settings.getSettings, {})).breakers)
+    .toMatchObject([{ kind: "call_back", reason: "audit_overdue", decisionId: row._id }]);
+});

@@ -2,12 +2,13 @@ import { makeFunctionReference } from "convex/server";
 import { v, type ObjectType } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
+import { MAX_PROVIDER_PAYMENT_AGE_MS } from "../payments/reviewTiming";
 import { transcriptGone } from "../callInsights/retention";
 import { headerFor } from "../callInsights/trigger";
 import { tripOverdueAudit } from "./audit";
 import { checkTenantBreakers } from "./breaker";
 import { scheduleCallEvaluation } from "./callDecisions";
-import { scheduleEvaluation, stopDecision } from "./decisions";
+import { schedulePaymentEvaluation, stopDecision } from "./decisions";
 import { scheduleRefusalDeadlinePass } from "./notice";
 import { isCallKind } from "./proposals";
 import { effectiveKindMode } from "./settings";
@@ -25,12 +26,33 @@ const tenantPage = makeFunctionReference<"mutation", ObjectType<typeof tenantPag
 const paymentPage = makeFunctionReference<"mutation", ObjectType<typeof paymentPageArgs>>("automation/sweep:connectionPage");
 
 const pageSize = 20;
+const repairIntervalMs = 15 * 60_000; // payment-decision-repair in crons.ts
+const paymentRepairBandMs = MAX_PROVIDER_PAYMENT_AGE_MS + 86_400_000;
+const paymentKinds = ["payment_win", "additional_payment"] as const;
+const outstandingStates = ["ready", "shadow", "needs_person", "blocked"] as const;
+const decisionLanes = paymentKinds.flatMap((kind) => outstandingStates.map((state) => ({ kind, state })));
+const decisionPageArgs = {
+  tenantId: v.id("tenants"),
+  connectionId: v.id("tenantPaymentConnections"),
+  connectedAt: v.number(),
+  activationVersion: v.number(),
+  through: v.number(),
+};
+const decisionPage = makeFunctionReference<"mutation", ObjectType<typeof decisionPageArgs>>("automation/sweep:paymentDecisionPage");
+const evaluatePayment = makeFunctionReference<"mutation", {
+  providerPaymentId: Id<"providerPayments">; activationVersion: number; cause: "sweep";
+}>("automation/decisions:evaluateProviderPayment");
 const maximumBytesRead = 256 * 1024;
 
+function paymentPolicy(tenant: Doc<"tenants"> | null) {
+  const settings = tenant?.resultAutomation;
+  return tenant?.status === "active" && settings?.enabled &&
+    paymentKinds.some((kind) => settings.kinds[kind].mode !== "off") ? settings : null;
+}
+
 async function scheduleTenantPayments(ctx: MutationCtx, tenant: Doc<"tenants">, through: number) {
-  const settings = tenant.resultAutomation;
-  if (tenant.status !== "active" || !settings?.enabled ||
-      (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off")) return;
+  const settings = paymentPolicy(tenant);
+  if (!settings) return;
   // One Whop connection per environment, with at most one active.
   for (const environment of ["live", "sandbox"] as const) {
     const connection = await ctx.db.query("tenantPaymentConnections")
@@ -57,9 +79,8 @@ export const tenantPayments = internalMutation({
   },
 });
 
-// Each mutation reads one indexed page. Scheduled continuations hold the
-// cursor, cutoff and authority versions. Every cron tick starts a fresh pass
-// so a failed or interrupted pass gets repaired on the next tick.
+// Payment repair advances one page per connection per tick. The other work
+// is separate, so a payment backlog cannot delay deadlines.
 export const run = internalMutation({
   args: tenantPageArgs,
   returns: v.null(),
@@ -93,32 +114,99 @@ export const connectionPage = internalMutation({
   args: paymentPageArgs,
   returns: v.null(),
   handler: async (ctx, args) => {
-    const [tenant, connection] = await Promise.all([
-      ctx.db.get("tenants", args.tenantId), ctx.db.get("tenantPaymentConnections", args.connectionId),
-    ]);
-    const settings = tenant?.resultAutomation;
-    if (tenant?.status !== "active" || !settings?.enabled || settings.activationVersion !== args.activationVersion ||
-        connection?.tenantId !== args.tenantId || connection.status === "disconnected" ||
-        connection.connectedAt !== args.connectedAt) return null;
+    const repair = await loadPaymentRepair(ctx, args);
+    if (!repair) return null;
+    const { connection, cursor, policyVersions } = repair;
+    const samePolicy = cursor?.policyVersions === policyVersions &&
+      cursor.connectedAt === args.connectedAt && cursor.activationVersion === args.activationVersion;
+    if (samePolicy && args.through - cursor.lastTick < repairIntervalMs) return null;
 
-    // Use the stable identity index. Status and review state can change
-    // under a payment as provider reads and Billing work are committed.
+    const through = (samePolicy ? cursor.paymentThrough : undefined) ?? args.through;
     const payments = await ctx.db.query("providerPayments")
-      .withIndex("by_tenantId_and_connectionId_and_externalPaymentId", (q) =>
-        q.eq("tenantId", args.tenantId).eq("connectionId", args.connectionId))
-      .paginate({ cursor: args.cursor, numItems: pageSize, maximumBytesRead });
+      .withIndex("by_connectionId_status_paymentRecordId_paidAt", (q) => q
+        .eq("connectionId", args.connectionId).eq("status", "paid").eq("paymentRecordId", undefined)
+        .gte("paidAt", Math.max(connection.autoImportAfter + 1, through - paymentRepairBandMs))
+        .lt("paidAt", through))
+      .paginate({
+        cursor: samePolicy ? cursor.paymentCursor ?? null : null,
+        numItems: pageSize, maximumBytesRead,
+      });
     for (const payment of payments.page) {
-      if (payment._creationTime >= args.through) continue;
-      if (payment.paymentRecordId || (payment.status === "paid" && payment.totalMinor !== 0 &&
-          payment.reviewState !== "historical" && payment.reviewState !== "dismissed")) {
-        await scheduleEvaluation(ctx, payment._id, "sweep");
+      if (payment.totalMinor !== 0 && payment.reviewState !== "historical" && payment.reviewState !== "dismissed") {
+        await schedulePaymentEvaluation(ctx, args.tenantId, payment, "sweep");
       }
     }
-    if (!payments.isDone) await ctx.scheduler.runAfter(0, paymentPage, { ...args, cursor: payments.continueCursor });
+    const checkpoint = {
+      tenantId: args.tenantId, connectionId: args.connectionId,
+      connectedAt: args.connectedAt, activationVersion: args.activationVersion,
+      policyVersions, lastTick: args.through,
+      paymentCursor: payments.isDone ? undefined : payments.continueCursor,
+      paymentThrough: payments.isDone ? undefined : through,
+      decisionLane: samePolicy ? cursor.decisionLane : 0,
+      decisionCursor: samePolicy ? cursor.decisionCursor : undefined,
+      decisionThrough: samePolicy ? cursor.decisionThrough : undefined,
+    };
+    if (cursor) await ctx.db.patch("automationPaymentRepairCursors", cursor._id, checkpoint);
+    else await ctx.db.insert("automationPaymentRepairCursors", checkpoint);
+    const { tenantId, connectionId, connectedAt, activationVersion } = args;
+    await ctx.scheduler.runAfter(0, decisionPage, { tenantId, connectionId, connectedAt, activationVersion, through: args.through });
     return null;
   },
 });
 
+async function loadPaymentRepair(ctx: MutationCtx, args: ObjectType<typeof decisionPageArgs>) {
+  const [tenant, connection] = await Promise.all([
+    ctx.db.get("tenants", args.tenantId), ctx.db.get("tenantPaymentConnections", args.connectionId),
+  ]);
+  const settings = paymentPolicy(tenant);
+  if (settings?.activationVersion !== args.activationVersion ||
+      connection?.tenantId !== args.tenantId || connection.status === "disconnected" ||
+      connection.connectedAt !== args.connectedAt) return null;
+  const cursor = await ctx.db.query("automationPaymentRepairCursors")
+    .withIndex("by_connectionId", (q) => q.eq("connectionId", args.connectionId))
+    .unique();
+  const policyVersions = paymentKinds.map((kind) => settings.kinds[kind].policyVersion).join(":");
+  return { connection, cursor, policyVersions };
+}
+
+// Check outstanding decisions even after their payments leave the paid-date band.
+// Each tick advances one decision page, independently of the payment cursor.
+export const paymentDecisionPage = internalMutation({
+  args: decisionPageArgs,
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const repair = await loadPaymentRepair(ctx, args);
+    const cursor = repair?.cursor;
+    if (!cursor || cursor.lastTick !== args.through || cursor.policyVersions !== repair?.policyVersions) return null;
+
+    const { kind, state } = decisionLanes[cursor.decisionLane];
+    const through = cursor.decisionThrough ?? args.through;
+    const decisions = await ctx.db.query("resultAutomationDecisions")
+      .withIndex("by_tenantId_and_kind_and_state_and_createdAt", (q) => q
+        .eq("tenantId", args.tenantId).eq("kind", kind).eq("state", state).lt("createdAt", through))
+      .paginate({ cursor: cursor.decisionCursor ?? null, numItems: pageSize, maximumBytesRead });
+    const paidAfter = Date.now() - paymentRepairBandMs;
+    for (const decision of decisions.page) {
+      if (!decision.providerPaymentId) continue;
+      const payment = await ctx.db.get("providerPayments", decision.providerPaymentId);
+      if (payment?.tenantId !== args.tenantId || payment.connectionId !== args.connectionId) continue;
+      // The recent page covers normal paid rows. Old rows already gated as
+      // stale have no live proposal unless some other input changed.
+      if (!payment.paymentRecordId && payment.status === "paid" && payment.totalMinor !== 0 &&
+          payment.reviewState !== "historical" && payment.reviewState !== "dismissed" &&
+          (decision.gates.includes("stale_payment") || (payment.paidAt ?? 0) >= paidAfter)) continue;
+      await ctx.scheduler.runAfter(0, evaluatePayment, {
+        providerPaymentId: payment._id, activationVersion: args.activationVersion, cause: "sweep",
+      });
+    }
+    await ctx.db.patch("automationPaymentRepairCursors", cursor._id, {
+      decisionLane: decisions.isDone ? (cursor.decisionLane + 1) % decisionLanes.length : cursor.decisionLane,
+      decisionCursor: decisions.isDone ? undefined : decisions.continueCursor,
+      decisionThrough: decisions.isDone ? undefined : through,
+    });
+    return null;
+  },
+});
 
 const callRepairArgs = {
   tenantId: v.id("tenants"),

@@ -108,7 +108,7 @@ describe("grade capture", () => {
     const args = { kind: "payment_win", sample: "writes" } as const;
     const denied = "Only the designated grader can grade cases.";
     // Queries answer with nothing, so the owner's panel still renders.
-    expect(await f.owner.query(grading.listToGrade, args)).toEqual({ cases: [], capped: false });
+    expect(await f.owner.query(grading.listToGrade, args)).toEqual({ cases: [], capped: false, notGrader: true });
     expect(await f.owner.query(grading.getMyAnswer, { decisionId: formerCase })).toBeNull();
     await expect(f.owner.mutation(grading.commitAnswer, { decisionId, answer })).rejects.toThrow(denied);
     await expect(f.owner.mutation(grading.reveal, { decisionId })).rejects.toThrow(denied);

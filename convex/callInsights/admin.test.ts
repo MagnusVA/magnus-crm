@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import {
+  callEvidenceSettings,
   callInsightsHarness,
   decisionsAnswer,
   gatewayFetch,
@@ -49,6 +50,33 @@ async function rejectedFixture() {
   if (!review) throw new Error("Missing test review");
   return { ...f, review };
 }
+
+it.each(["enable", "shadow", "on"] as const)(
+  "requires the owner to resume Call insights with an automatic call kind via %s",
+  async (entry) => {
+    const f = await callInsightsHarness({ settings: { mode: "off" } });
+    await f.t.run(async (ctx) => {
+      const settings = callEvidenceSettings(f.ownerId, Date.now());
+      await ctx.db.patch("tenants", f.tenantId, {
+        resultAutomation: {
+          ...settings,
+          kinds: { ...settings.kinds, call_back: { ...settings.kinds.call_back!, mode: "automatic" } },
+        },
+      });
+    });
+    const resume = (client: typeof f.admin) => entry === "enable"
+      ? client.mutation(admin.enable, {})
+      : client.mutation(admin.updateSettings, { mode: entry });
+    await expect(resume(f.admin)).rejects.toMatchObject({ data: {
+      code: "call_insights.automatic_resume_owner_required",
+      message: "Only the owner can turn Call insights back on while a call result is recorded automatically.",
+    } });
+    expect((await f.t.run((ctx) => ctx.db.get("tenants", f.tenantId)))?.callInsights?.mode).toBe("off");
+    await resume(f.owner);
+    expect((await f.t.run((ctx) => ctx.db.get("tenants", f.tenantId)))?.callInsights?.mode)
+      .toBe(entry === "enable" ? "shadow" : entry);
+  },
+);
 
 describe("admin authorization", () => {
   it.each([

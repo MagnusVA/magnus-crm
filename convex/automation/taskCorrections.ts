@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, type MutationCtx } from "../_generated/server";
+import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { adminCreateManualReminderCore } from "../admin/meetingActions";
 import { createCallbackTask } from "../closer/followUpMutations";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -114,10 +114,10 @@ export const changeNextStep = mutation({
     if (!Number.isFinite(reminderScheduledAt)) return { ok: false, code: "time_past" };
 
     await expireCallTask(ctx, actor, applied, "next_step_changed", now);
-    await ctx.db.patch("resultAutomationDecisions", decisionId, { state: "corrected", auditOpenDueAt: undefined });
     const { deal, task } = applied;
+    let followUpId: Id<"followUps">;
     if (reminderScheduledAt <= now) {
-      const followUpId = await insertManualReminder(ctx, {
+      followUpId = await insertManualReminder(ctx, {
         opportunity: deal,
         closerId: task.closerId,
         source: actor.role === "closer" ? "closer" : "admin",
@@ -128,17 +128,49 @@ export const changeNextStep = mutation({
         now,
       });
       await noteHumanResult(ctx, deal._id, actor);
-      return { ok: true, alreadyApplied: false, followUpId };
+    } else {
+      const args = { opportunityId: deal._id, contactMethod, reminderScheduledAt };
+      // Each human reminder core records the revision for its own write.
+      const result = actor.role === "closer"
+        ? await createCallbackTask(ctx, actor, args, WEB)
+        : await adminCreateManualReminderCore(ctx, actor, args, WEB);
+      followUpId = result.followUpId;
     }
 
-    const args = { opportunityId: deal._id, contactMethod, reminderScheduledAt };
-    // Each human reminder core records the revision for its own write.
-    const { followUpId } = actor.role === "closer"
-      ? await createCallbackTask(ctx, actor, args, WEB)
-      : await adminCreateManualReminderCore(ctx, actor, args, WEB);
+    await ctx.db.patch("resultAutomationDecisions", decisionId, { state: "corrected", replacementFollowUpId: followUpId });
     return { ok: true, alreadyApplied: false, followUpId };
   },
 });
+
+/** A correction can replace the task while leaving the call's held mark open to withdrawal. */
+export async function correctedNextStepForWithdrawal(
+  ctx: QueryCtx | MutationCtx,
+  decision: Doc<"resultAutomationDecisions">,
+  deal: Doc<"opportunities">,
+) {
+  if (decision.state !== "corrected" || !decision.replacementFollowUpId ||
+      (decision.kind !== "call_back" && decision.kind !== "payment_owed") ||
+      decision.humanResultRevisionAfter === undefined ||
+      (deal.humanResultRevision ?? 0) !== decision.humanResultRevisionAfter + 1 ||
+      deal.stage !== "follow_up" || deal.outcome !== "open") return null;
+  const task = await ctx.db.get("followUps", decision.replacementFollowUpId);
+  return task?.tenantId === deal.tenantId && task.opportunityId === deal._id &&
+    task.closerId === deal.assignedCloserId && task.status === "pending" ? task : null;
+}
+
+async function readCorrectedAttendance(ctx: MutationCtx, actor: CoreActor, decisionId: Id<"resultAutomationDecisions">) {
+  const decision = await ctx.db.get("resultAutomationDecisions", decisionId);
+  if (decision?.tenantId !== actor.tenantId || decision.state !== "corrected" ||
+      !decision.opportunityId || !decision.meetingId || decision.callBefore?.meetingId !== decision.meetingId) return null;
+  const [deal, meeting] = await Promise.all([
+    ctx.db.get("opportunities", decision.opportunityId), ctx.db.get("meetings", decision.meetingId),
+  ]);
+  if (deal?.tenantId !== actor.tenantId || meeting?.tenantId !== actor.tenantId ||
+      meeting.opportunityId !== deal._id || meeting.status !== "held" ||
+      meeting.attendanceSource !== "call_insights" || meeting.attendanceDecisionId !== decisionId ||
+      !await correctedNextStepForWithdrawal(ctx, decision, deal)) return null;
+  return { ok: true as const, decision, deal, meeting };
+}
 
 async function undoTask(
   ctx: MutationCtx,
@@ -151,30 +183,33 @@ async function undoTask(
     return { ok: false, code: "not_yours" };
   }
   const applied = await readAppliedTask(ctx, actor, decisionId);
-  if (!applied.ok) return applied;
-  if (automaticOnly && applied.decision.appliedVia !== "automatic") {
+  const corrected = !applied.ok && !automaticOnly && !callHappened
+    ? await readCorrectedAttendance(ctx, actor, decisionId) : null;
+  const receipt = corrected ?? applied;
+  if (!receipt.ok) return receipt;
+  if (automaticOnly && receipt.decision.appliedVia !== "automatic") {
     return { ok: false, code: "not_ready" };
   }
 
   if (!callHappened) {
     const meetings = await ctx.db.query("meetings")
-      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", applied.deal._id))
+      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", receipt.deal._id))
       .take(51);
-    const resolvedAt = applied.decision.resolvedAt;
+    const resolvedAt = receipt.decision.resolvedAt;
     if (resolvedAt === undefined || meetings.length > 50 || meetings.some((meeting) =>
-      meeting._id !== applied.meeting._id && meeting.status !== "scheduled" && (
-        meeting.scheduledAt > applied.meeting.scheduledAt ||
+      meeting._id !== receipt.meeting._id && meeting.status !== "scheduled" && (
+        meeting.scheduledAt > receipt.meeting.scheduledAt ||
         Math.max(meeting.heldMarkedAt ?? 0, meeting.noShowMarkedAt ?? 0, meeting.canceledAt ?? 0) > resolvedAt
       ))) return { ok: false, code: "needs_review" };
   }
 
   const now = Date.now();
-  await expireCallTask(ctx, actor, applied, "automation_undone", now);
+  if (applied.ok) await expireCallTask(ctx, actor, applied, "automation_undone", now);
   if (!callHappened) {
-    await withdrawAutomatedHeld(ctx, { meetingId: applied.meeting._id, decisionId, actorUserId: actor.userId, now });
+    await withdrawAutomatedHeld(ctx, { meetingId: receipt.meeting._id, decisionId, actorUserId: actor.userId, now });
   }
-  await ctx.db.patch("resultAutomationDecisions", decisionId, { state: "undone", auditOpenDueAt: undefined });
-  await noteHumanResult(ctx, applied.deal._id, actor);
+  await ctx.db.patch("resultAutomationDecisions", decisionId, { state: "undone" });
+  await noteHumanResult(ctx, receipt.deal._id, actor);
   return { ok: true, alreadyApplied: false };
 }
 

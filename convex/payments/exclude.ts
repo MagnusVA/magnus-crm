@@ -720,11 +720,10 @@ export async function excludePaymentCore(
     })),
   });
   if (decision?.state === "applied") {
-    // A receipt leaving `applied` closes its audit: nothing is left to check.
+    // A sampled check stays open: a correction does not replace the check.
     await ctx.db.patch("resultAutomationDecisions", decision._id, {
       state: plan.undo ? "undone" : "corrected",
       correctionId,
-      auditOpenDueAt: undefined,
     });
   }
   if (row.attributedCloserId) {
