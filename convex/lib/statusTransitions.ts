@@ -21,7 +21,9 @@ export const MEETING_VALID_TRANSITIONS: Record<
   scheduled: ["held", "canceled", "no_show"],
   held: [],
   canceled: [],
-  no_show: ["scheduled"], // Webhook reversal (Calendly no-show deletion)
+  // Calendly deleting its no-show, or the closer or an admin undoing one
+  // marked in Magnus (undoNoShow in convex/closer/noShowActions.ts).
+  no_show: ["scheduled"],
 };
 
 export function validateMeetingTransition(

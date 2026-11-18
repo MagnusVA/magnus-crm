@@ -119,11 +119,18 @@ describe("the named exceptions", () => {
       allows: [SYSTEM("no_show")],
       refuses: [SYSTEM("canceled"), BY_PERSON("no_show"), SYSTEM("stale"), BY_PERSON("budget"), {}],
     },
+    {
+      exception: "no_show_undone",
+      from: "lost",
+      to: "booked",
+      allows: [SYSTEM("no_show")],
+      refuses: [SYSTEM("canceled"), BY_PERSON("no_show"), SYSTEM("stale"), BY_PERSON("budget"), {}],
+    },
   ];
 
-  it("has the four in the plan, and no Calendly flip", () => {
+  it("has the four in the plan plus the no-show undo, and no Calendly flip", () => {
     expect(EXCEPTIONS.sort()).toEqual(
-      ["missed_meeting_next_step", "no_show_withdrawn", "payment_voided", "slack_stale_rejoin"].sort(),
+      ["missed_meeting_next_step", "no_show_undone", "no_show_withdrawn", "payment_voided", "slack_stale_rejoin"].sort(),
     );
   });
 
