@@ -40,6 +40,16 @@ import { RescheduleLinkDisplay } from "./reschedule-link-display";
 import { UnfinishedFollowUpBanner } from "./unfinished-follow-up-banner";
 import { LocalTime, useLocalFormat } from "./local-time";
 import {
+  AttendanceOwedCard,
+  isAttendanceOwed,
+  useAttendanceRecordedLine,
+} from "./attendance-question";
+import {
+  MeetingWhopAsk,
+  whopConfirmPrefill,
+  type WhopConfirmPrefill,
+} from "./whop-payment-ask";
+import {
   firstNameOf,
   type MeetingDetail,
   type MeetingDetailMode,
@@ -92,8 +102,12 @@ type OutcomeSectionProps = {
  * - an unfinished follow-up (a link left pending before links moved the
  *   deal at once), which holds the question until it is canceled,
  * - the no-show bar with its reschedule link, on a deal a no-show closed,
- * - a note that the question opens 5 minutes before the call, or
+ * - a note that the question opens 5 minutes before the call,
+ * - on a deal a Whop payment won, the attendance question for the call, or
  * - a one-line summary once the outcome is recorded.
+ *
+ * A Whop payment waiting for the closer's confirmation takes the place of
+ * the suggested result above the question.
  *
  * Eligibility is unchanged from the old action bar: a scheduled meeting on a
  * deal awaiting its outcome, no pending follow-up, and for a closer, the
@@ -144,6 +158,13 @@ export function OutcomeSection({
   );
   // The prefill the open dialog came with, when it opened from the suggestion.
   const [fromCall, setFromCall] = useState<SuggestionPrefill | null>(null);
+  // A Whop payment waiting for confirmation on this call; it replaces the suggestion.
+  const whopAsk = useQuery(
+    api.payments.confirm.getWhopAsk,
+    canRecord ? { target: { kind: "meeting", meetingId: meeting._id } } : "skip",
+  );
+  // The ask as it was when "Record payment · call attended" opened the dialog.
+  const [whopConfirm, setWhopConfirm] = useState<WhopConfirmPrefill | null>(null);
 
   const showDialog = (next: OutcomeDialog) => {
     setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
@@ -151,11 +172,20 @@ export function OutcomeSection({
   };
   const openDialog = (next: OutcomeDialog) => {
     setFromCall(null);
+    setWhopConfirm(null);
     showDialog(next);
   };
   const openFromSuggestion = (prefill: SuggestionPrefill) => {
     setFromCall(prefill);
+    setWhopConfirm(null);
     showDialog(prefill.dialog);
+  };
+  const openWhopConfirm = () => {
+    const prefill = whopAsk ? whopConfirmPrefill(whopAsk) : null;
+    if (!prefill) return;
+    setFromCall(null);
+    setWhopConfirm(prefill);
+    showDialog("payment");
   };
   /** What a dialog gets when it opened from the suggestion; undefined otherwise. */
   const suggestionFor = (key: SuggestionDialog): DialogSuggestion | undefined => {
@@ -223,10 +253,27 @@ export function OutcomeSection({
         }
       />
     );
+  } else if (isAttendanceOwed(detail)) {
+    body = (
+      <AttendanceOwedCard
+        detail={detail}
+        mode={mode}
+        viewerIsCloser={viewerIsCloser}
+        onStatusChanged={onStatusChanged}
+      />
+    );
   } else if (canRecord) {
     body = (
       <>
-        {suggestion ? (
+        {whopAsk ? (
+          <MeetingWhopAsk
+            ask={whopAsk}
+            meetingId={meeting._id}
+            leadName={leadName}
+            onRecordAttended={openWhopConfirm}
+            onRecorded={onStatusChanged}
+          />
+        ) : whopAsk === null && suggestion ? (
           <SuggestionCard
             suggestion={suggestion}
             onUse={openFromSuggestion}
@@ -249,6 +296,7 @@ export function OutcomeSection({
       <OutcomeSummary
         detail={detail}
         firstName={firstName}
+        viewerIsCloser={viewerIsCloser}
         onShowPayments={onShowPayments}
         action={
           adminActions?.scheduleFollowUp ? (
@@ -281,6 +329,7 @@ export function OutcomeSection({
             leadName={leadName}
             defaultProgramId={defaultProgramId}
             suggestion={suggestionFor("payment")}
+            whopConfirm={whopConfirm}
             {...dialogState("payment")}
           />
         ) : null}
@@ -629,16 +678,20 @@ const SYSTEM_LOSS_SUMMARY = {
 function OutcomeSummary({
   detail,
   firstName,
+  viewerIsCloser,
   onShowPayments,
   action,
 }: {
   detail: MeetingDetail;
   firstName: string | null;
+  viewerIsCloser: boolean;
   onShowPayments: () => void;
   action: React.ReactNode;
 }) {
   const { meeting, opportunity, payments, assignedCloser, activeFollowUp } = detail;
   const format = useLocalFormat();
+  // On a deal a Whop payment won: how the call's attendance was recorded.
+  const attendanceLine = useAttendanceRecordedLine(detail, viewerIsCloser);
   const when = (at: number) => format(at, "MMM d, h:mm a");
 
   let headline: React.ReactNode;
@@ -728,6 +781,9 @@ function OutcomeSummary({
         <p className="text-[0.8125rem] text-muted-foreground">{byline}</p>
       ) : null}
       {trailing ? <div className="flex flex-wrap gap-2">{trailing}</div> : null}
+      {attendanceLine ? (
+        <p className="w-full text-[0.8125rem] text-muted-foreground">{attendanceLine}</p>
+      ) : null}
     </section>
   );
 }

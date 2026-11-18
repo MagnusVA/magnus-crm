@@ -6,7 +6,8 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { expectedError } from "../lib/observability/errors";
 import { hasPermission, PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
-import { automationModeValidator, resultAutomationSettingsValidator } from "./schema";
+import { PAYMENT_RULE_VERSION } from "./derive";
+import { automationModeValidator, resultAutomationSettingsValidator, settableModeValidator } from "./schema";
 
 type Settings = NonNullable<Doc<"tenants">["resultAutomation"]>;
 type Kind = keyof Settings["kinds"];
@@ -14,9 +15,28 @@ type Mode = Settings["kinds"]["payment_win"]["mode"];
 type Decision = Doc<"resultAutomationDecisions">;
 export const paymentDecisionKindValidator = v.union(v.literal("payment_win"), v.literal("additional_payment"));
 
+/**
+ * The rule version a kind's certificate must name. The call rule has no
+ * version yet, so no call kind's certificate pointer can be current.
+ */
+function currentRuleVersionOf(kind: Kind): string | null {
+  return kind === "payment_win" || kind === "additional_payment" ? PAYMENT_RULE_VERSION : null;
+}
+
+/**
+ * The level a kind works at now. A stored "automatic" reads as "ask" unless
+ * its certificate pointer names the current rule version and no breaker
+ * holds; only promoteKind writes that pointer.
+ */
 export function effectiveKindMode(tenant: Doc<"tenants">, kind: Kind): Mode {
   if (!tenant.resultAutomation?.enabled) return "off";
-  return tenant.resultAutomation.kinds[kind]?.mode ?? "off";
+  const policy = tenant.resultAutomation.kinds[kind];
+  if (!policy) return "off";
+  if (policy.mode !== "automatic") return policy.mode;
+  const currentRuleVersion = currentRuleVersionOf(kind);
+  const certified = policy.automatic !== undefined && policy.breaker === undefined &&
+    currentRuleVersion !== null && policy.automatic.ruleVersion === currentRuleVersion;
+  return certified ? "automatic" : "ask";
 }
 
 function initialSettings(userId: Id<"users">, now: number): Settings {
@@ -144,13 +164,13 @@ export const setEnabled = mutation({
   },
 });
 
-const modeRank = { off: 0, shadow: 1, ask: 2 };
+const modeRank = { off: 0, shadow: 1, ask: 2, automatic: 3 };
 const refreshTenantPayments = makeFunctionReference<"mutation", {
   tenantId: Id<"tenants">; activationVersion: number;
 }>("automation/sweep:tenantPayments");
 
 export const setKindMode = mutation({
-  args: { kind: paymentDecisionKindValidator, mode: automationModeValidator },
+  args: { kind: paymentDecisionKindValidator, mode: settableModeValidator },
   returns: v.null(),
   handler: async (ctx, { kind, mode }) => {
     const actor = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:lower"]]);

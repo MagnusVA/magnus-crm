@@ -4,6 +4,7 @@ import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import { leadDisplayString } from "../lib/leadDisplay";
 import { isCurrentWhopAsk } from "../payments/confirm";
+import { paymentProposalOf } from "../automation/proposals";
 import { requireTenantUser } from "../requireTenantUser";
 import { resolvePaymentType } from "../lib/paymentTypes";
 import {
@@ -357,12 +358,13 @@ export const getMeetingsNeedingOutcome = query({
         const href = `/workspace/closer/meetings/${meeting._id}`;
         asks.push({ ...row, ...base, href, followUpId: undefined });
         includedMeetingIds.add(meeting._id);
-      } else if (decision.confirmRoute === "reminder" && decision.proposal?.completesFollowUpId) {
-        const task = await ctx.db.get("followUps", decision.proposal.completesFollowUpId);
+      } else if (decision.confirmRoute === "reminder" && paymentProposalOf(decision)?.completesFollowUpId) {
+        const proposal = paymentProposalOf(decision)!;
+        const task = await ctx.db.get("followUps", proposal.completesFollowUpId!);
         if (task?.tenantId !== tenantId || task.opportunityId !== deal._id || task.closerId !== userId ||
             task.type !== "manual_reminder" || task.status !== "pending") continue;
         const [lead, program] = await Promise.all([
-          ctx.db.get("leads", deal.leadId), ctx.db.get("tenantPrograms", decision.proposal.programId),
+          ctx.db.get("leads", deal.leadId), ctx.db.get("tenantPrograms", proposal.programId),
         ]);
         asks.push({
           ...base, meetingId: undefined, followUpId: task._id, href: `/workspace/closer/reminders/${task._id}`,

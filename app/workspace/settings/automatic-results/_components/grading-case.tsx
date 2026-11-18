@@ -357,7 +357,7 @@ function DecisionComparison({
     rows.push({ label: "Expire follow-ups", system: proposal.expiresFollowUpIds.join(", ") });
   }
   if (decision.gates.length) {
-    rows.push({ label: "Reasons to wait", system: decision.gates.map((gate) => GATE_LABELS[gate]).join(" ") });
+    rows.push({ label: "Reasons to wait", system: decision.gates.map((gate) => GATE_LABELS[gate as keyof typeof GATE_LABELS] ?? gate).join(" ") });
   }
 
   return (

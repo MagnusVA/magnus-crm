@@ -14,6 +14,7 @@ import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "../payments/c
 import { FINGERPRINT_TASK_LIMIT } from "../payments/fingerprint";
 import { findPaymentTarget } from "../payments/match";
 import { deriveDecision, PAYMENT_RULE_VERSION, paymentBillingReason, paymentDecisionTarget, type PaymentDecisionInput } from "./derive";
+import { automationKindOf, modeAtLeastAsk, paymentEvidenceOf, type PaymentEvidence } from "./proposals";
 import { APPLIED_RECEIPT_LIMIT, paymentVetoKey } from "./receipts";
 import { stopCodeValidator } from "./schema";
 import { effectiveKindMode } from "./settings";
@@ -28,7 +29,7 @@ export type EvaluateCause = Infer<typeof causeValidator>;
 
 type Decision = Doc<"resultAutomationDecisions">;
 type Payment = Doc<"providerPayments">;
-type Evidence = Decision["evidence"];
+type Evidence = PaymentEvidence;
 type StopCode = NonNullable<Decision["stopCode"]>;
 type Gate = Decision["gates"][number];
 
@@ -262,15 +263,17 @@ async function vetoHistory(
     overflow: rows.length > vetoHistoryLimit,
     standDown: rows.some((row) => {
       if (row.state === "stopped" || (row.state === "superseded" && row.resolvedByUserId)) {
+        const old = paymentEvidenceOf(row);
         return (row.stopCode !== "input_changed" && row.stopCode !== "merged") ||
-          !humanInputsChanged(row.evidence, evidence);
+          !old || !humanInputsChanged(old, evidence);
       }
       // The control's bounded retirement job may still be draining.
       if (row.state !== "ready" && row.state !== "needs_person" && row.state !== "blocked" && row.state !== "shadow") return false;
-      const policy = settings.kinds[row.kind];
+      const kind = automationKindOf(row.kind);
+      const policy = kind ? settings.kinds[kind] : undefined;
       return (settings.pausedAt !== undefined && row.activationVersion < settings.activationVersion) ||
         (policy !== undefined && row.policyVersion < policy.policyVersion &&
-          (policy.mode === "off" || (policy.mode === "shadow" && row.mode === "ask")));
+          (policy.mode === "off" || (policy.mode === "shadow" && modeAtLeastAsk(row.mode))));
     }),
   };
 }

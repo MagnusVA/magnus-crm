@@ -6,11 +6,14 @@ import { listPersonEnrollments } from "../convex/enrollments/read";
 import { derivePersonEnrollments, earliestCountingPayment, paymentCounts, syncPersonEnrollments } from "../convex/lib/enrollments";
 import { transitionOpportunity } from "../convex/lib/opportunityActivity";
 import { refreshSoldProgramCachesForOpportunity } from "../convex/lib/soldProgramCache";
-import { dealPosition, isReservedLossReason } from "../convex/opportunities/stages";
+import { dealPosition } from "../convex/opportunities/stages";
 import { replacePaymentAggregate } from "../convex/reporting/writeHooks";
 import { clearActiveAllocation, setActiveAllocation } from "../convex/payments/allocation";
 import { clearAttendanceOwed, markAttendanceOwed } from "../convex/payments/attendanceDebt";
 import { seedProviderRow } from "./providerRowFixtures";
+
+// I8 and I11 are about losses an exclusion wrote, not every reserved code.
+const isPaymentExcludedLoss = (reason: string | undefined) => reason === "payment_excluded";
 
 // The sixteen payment invariants of the phase 2 build contract (§4). Every
 // phase 2 backend test calls `assertPaymentInvariants` after each step. It
@@ -146,13 +149,21 @@ async function collect(
     }
   }
 
-  // I5: provider provenance, and a person on every row.
+  // I5: provider provenance, and a person on every row except an applied
+  // automatic write's (phase 3 contract §5, A9).
   for (const row of rowsById.values()) {
     if ((row.origin === "provider") !== (row.recordedVia === "provider")) {
       fail("I5", `row ${row._id} has origin ${row.origin} and recordedVia ${row.recordedVia ?? "unset"}`);
     }
     if (row.origin === "provider" && !row.providerPaymentId) fail("I5", `provider row ${row._id} cites no provider payment`);
-    if (!row.recordedByUserId) fail("I5", `row ${row._id} has no recorder`);
+    if (!row.recordedByUserId) {
+      const decision = row.automationDecisionId
+        ? await ctx.db.get("resultAutomationDecisions", row.automationDecisionId) : null;
+      if (row.origin !== "provider" || decision?.tenantId !== row.tenantId || decision.state !== "applied" ||
+          decision.mode !== "automatic") {
+        fail("I5", `row ${row._id} has no recorder`);
+      }
+    }
   }
 
   // Plain values: t.run returns Convex values only.
@@ -231,7 +242,7 @@ async function collect(
       .take(ROW_LIST_LIMIT + 1), ROW_LIST_LIMIT, "corrections on one deal");
 
     // I8: the reserved loss exists only where an exclusion wrote it.
-    if (isReservedLossReason(deal.lostReason)) {
+    if (isPaymentExcludedLoss(deal.lostReason)) {
       const owner = corrections.some((correction) => correction.operation === "exclude" &&
         correction.result === "lost" && correction.after.lostAt === deal.lostAt);
       if (!owner || deal.lostReason !== "payment_excluded") {
@@ -253,7 +264,7 @@ async function collect(
         latestCorrection.after.humanResultRevision === (deal.humanResultRevision ?? 0) && pending.length !== 1) {
       fail("I11", `deal ${deal._id} reopened by correction ${latestCorrection._id} has ${pending.length} pending tasks`);
     }
-    if (position === "lost" && isReservedLossReason(deal.lostReason) && pending.length > 0) {
+    if (position === "lost" && isPaymentExcludedLoss(deal.lostReason) && pending.length > 0) {
       fail("I11", `deal ${deal._id} closed by an exclusion has ${pending.length} pending tasks`);
     }
 

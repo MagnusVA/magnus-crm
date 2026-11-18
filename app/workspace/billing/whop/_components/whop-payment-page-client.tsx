@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, usePreloadedQuery, useQuery, type Preloaded } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
@@ -36,6 +37,10 @@ import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_co
 import { LeadCombobox } from "@/app/workspace/opportunities/new/_components/lead-combobox";
 import { FIGURE, formatPaidAt, PAYMENT_TYPE_LABELS, STATUS_WORD } from "../../_components/billing-format";
 import { PaidAt } from "../../_components/paid-at";
+import { useMemberNames } from "../../_components/billing-member-names";
+import { paymentCommandSentence } from "../../_components/payment-command-words";
+import { TakeOutPanel } from "../../_components/payment-correction-panel";
+import { WhopRecordPaymentCard } from "../../_components/whop-record-payment-card";
 import {
   ADVERSE_STATE_LABELS,
   dealStageLabel,
@@ -169,6 +174,21 @@ export function WhopPaymentPageClient({
                 </div>
               </DetailCard>
             )}
+          </div>
+          {detail && detail.payment.notMySaleAt !== undefined && detail.payment.paymentRecordId ? (
+            <div className="order-2 min-w-0">
+              <Suspense fallback={null}>
+                <NotMySaleCard
+                  key={detail.payment.paymentRecordId}
+                  payment={detail.payment}
+                  paymentRecordId={detail.payment.paymentRecordId}
+                  now={now}
+                />
+              </Suspense>
+            </div>
+          ) : null}
+          <div className="order-3 min-w-0 empty:hidden">
+            {detail ? <WhopRecordPaymentCard key={detail.payment._id} detail={detail} now={now} /> : null}
           </div>
           <div className="order-3 min-w-0">
             {detail ? <LinkCard detail={detail} now={now} /> : null}
@@ -579,6 +599,132 @@ function LinkedPaymentLine({ payment }: { payment: ProviderPayment }) {
         </p>
       ) : null}
     </div>
+  );
+}
+
+// ─── Not their sale ─────────────────────────────────────────────────────
+
+/**
+ * A closer said this Whop payment isn't their sale. Take it off the deal
+ * (the correction on the CRM payment, cause Wrong match), or clear the
+ * flag. `?takeOut=wrong_match` opens the correction at once.
+ */
+function NotMySaleCard({
+  payment,
+  paymentRecordId,
+  now,
+}: {
+  payment: ProviderPayment;
+  paymentRecordId: Id<"paymentRecords">;
+  now: number;
+}) {
+  const { hasPermission } = useRole();
+  const searchParams = useSearchParams();
+  const canCorrect = hasPermission("billing:correct");
+  const canReview = hasPermission("billing:review");
+  const [takingOut, setTakingOut] = useState(() => canCorrect && searchParams.get("takeOut") === "wrong_match");
+  const [requested, setRequested] = useState(false);
+  const names = useMemberNames(canReview || canCorrect);
+  const crmPayment = useQuery(api.billing.queries.getPaymentDetail, takingOut ? { paymentRecordId } : "skip");
+  const clear = useMutation(api.payments.notMySale.clearNotMySale);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const flaggedBy = (payment.notMySaleByUserId && names?.get(payment.notMySaleByUserId)) || null;
+
+  async function itIsTheirSale() {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await clear({ providerPaymentId: payment._id });
+      if (result.ok) toast.success(result.alreadyApplied ? "The flag was already cleared." : "Cleared. The sale stays with the closer.");
+      else setError(paymentCommandSentence(result.code));
+    } catch (caught) {
+      setError(providerErrorMessage(caught, "Couldn't clear the flag. Try again."));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (takingOut && canCorrect) {
+    if (crmPayment === undefined) {
+      return (
+        <DetailCard title="Take this payment out">
+          <p role="status" className="px-4 py-3 text-[13px] text-muted-foreground">Loading the CRM payment…</p>
+        </DetailCard>
+      );
+    }
+    if (crmPayment === null || crmPayment.payment.status === "disputed" || crmPayment.opportunity.outcome !== "won") {
+      return (
+        <DetailCard title="Take this payment out">
+          <div className="flex flex-col gap-2 px-4 py-3">
+            <p role="alert" className="text-[14px]">
+              {crmPayment?.payment.status === "disputed"
+                ? "This CRM payment was already taken out."
+                : "This CRM payment can't be taken out from here. Open it to check the deal."}
+            </p>
+            <Button type="button" variant="outline" className="w-fit" onClick={() => setTakingOut(false)}>
+              Close
+            </Button>
+          </div>
+        </DetailCard>
+      );
+    }
+    return (
+      <TakeOutPanel
+        payment={{
+          id: crmPayment.payment.id,
+          amountMinor: crmPayment.payment.amountMinor,
+          currency: crmPayment.payment.currency,
+          recordedAt: crmPayment.payment.recordedAt,
+          status: crmPayment.payment.status,
+          dealOutcome: crmPayment.opportunity.outcome,
+        }}
+        cause="wrong_match"
+        focusOnMount={requested}
+        now={now}
+        onCancel={() => setTakingOut(false)}
+      />
+    );
+  }
+
+  return (
+    <DetailCard title="Not their sale">
+      <div className="flex flex-col gap-2.5 px-4 py-3">
+        <p className="text-[15px] font-medium">
+          {flaggedBy ? <span translate="no">{flaggedBy}</span> : "The closer"} says this isn&apos;t their sale.
+        </p>
+        {payment.notMySaleAt !== undefined ? (
+          <p className="text-[13px] text-muted-foreground">
+            Flagged{" "}
+            <span className="font-condensed text-[14px] font-semibold tabular-nums">
+              <PaidAt at={payment.notMySaleAt} now={now} />
+            </span>
+            . The CRM payment still counts until someone takes it off the deal.
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {canCorrect ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setRequested(true);
+                setTakingOut(true);
+              }}
+            >
+              Take it off this deal
+            </Button>
+          ) : null}
+          {canReview ? (
+            <Button type="button" variant="outline" disabled={pending} onClick={() => void itIsTheirSale()}>
+              {pending ? <Spinner data-icon="inline-start" /> : null}
+              <TranslatableText>It is their sale</TranslatableText>
+            </Button>
+          ) : null}
+        </div>
+        {error ? <p role="alert" className="text-[13px] text-danger-ink">{error}</p> : null}
+      </div>
+    </DetailCard>
   );
 }
 

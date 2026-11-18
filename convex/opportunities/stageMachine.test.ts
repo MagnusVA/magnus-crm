@@ -3,6 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import { legacyStatus } from "./dealState";
 import {
   DEAL_POSITIONS,
+  RESERVED_LOSS_REASONS,
   SYSTEM_LOSS_REASONS,
   STAGE_TRANSITION_EXCEPTIONS,
   VALID_STAGE_TRANSITIONS,
@@ -155,6 +156,8 @@ describe("the named exceptions", () => {
         BY_PERSON(),
         SYSTEM("payment_excluded"),
         BY_PERSON("payment_excluded"),
+        SYSTEM("call_refusal"),
+        BY_PERSON("call_refusal"),
         {},
       ],
     },
@@ -170,19 +173,55 @@ describe("the named exceptions", () => {
         BY_PERSON("Payment voided: wrong"),
         BY_PERSON("PAYMENT_EXCLUDED"),
         BY_PERSON(" payment_excluded"),
+        SYSTEM("call_refusal"),
+        BY_PERSON(),
+        {},
+      ],
+    },
+    // Phase 3: a refusal recorded from the call (contract §1.4).
+    {
+      exception: "call_refusal_reopened",
+      from: "lost",
+      to: "follow_up",
+      // Confirmed by a person, or written automatically.
+      allows: [BY_PERSON("call_refusal"), SYSTEM("call_refusal")],
+      refuses: [
+        BY_PERSON("budget"),
+        BY_PERSON("Call_Refusal "),
+        SYSTEM("no_show"),
+        SYSTEM("payment_excluded"),
+        BY_PERSON(),
+        {},
+      ],
+    },
+    {
+      exception: "provider_payment_after_call_refusal",
+      from: "lost",
+      to: "won",
+      // Only the automatic refusal: one a person confirmed stays theirs.
+      allows: [SYSTEM("call_refusal")],
+      refuses: [
+        BY_PERSON("call_refusal"),
+        BY_PERSON("budget"),
+        BY_PERSON("Call_Refusal "),
+        SYSTEM("Call_Refusal "),
+        SYSTEM("no_show"),
+        SYSTEM("payment_excluded"),
         BY_PERSON(),
         {},
       ],
     },
   ];
 
-  it("has exactly the nine named exceptions, and no Calendly flip", () => {
+  it("has exactly the eleven named exceptions, and no Calendly flip", () => {
     expect(EXCEPTIONS.sort()).toEqual(
       [
+        "call_refusal_reopened",
         "missed_meeting_next_step",
         "no_show_withdrawn",
         "payment_exclusion_restored",
         "payment_voided",
+        "provider_payment_after_call_refusal",
         "provider_payment_after_system_loss",
         "provider_win_corrected_to_follow_up",
         "provider_win_undone_to_booked",
@@ -198,15 +237,22 @@ describe("the named exceptions", () => {
 
   it("gives each reserved rule a lost deal to reopen", () => {
     const reserved = Object.entries(STAGE_TRANSITION_EXCEPTIONS).flatMap(([name, rule]) =>
-      "reserved" in rule ? [{ name, from: rule.from }] : [],
+      "reserved" in rule ? [{ name, from: rule.from, ...rule.reserved }] : [],
     );
-    expect(reserved).toEqual([{ name: "payment_exclusion_restored", from: "lost" }]);
+    expect(reserved).toEqual([
+      { name: "payment_exclusion_restored", from: "lost", reason: "payment_excluded", actor: "any" },
+      { name: "call_refusal_reopened", from: "lost", reason: "call_refusal", actor: "any" },
+      { name: "provider_payment_after_call_refusal", from: "lost", reason: "call_refusal", actor: "none" },
+    ]);
   });
 
-  it("keeps the system loss codes to exactly three, with the reserved code apart", () => {
+  it("keeps the system loss codes to exactly three, with the reserved codes apart", () => {
     expect(Object.values(SYSTEM_LOSS_REASONS).sort()).toEqual(["canceled", "no_show", "stale"]);
-    expect(isReservedLossReason("payment_excluded")).toBe(true);
-    expect(isSystemLossReason("payment_excluded")).toBe(false);
+    for (const reserved of ["payment_excluded", "call_refusal"]) {
+      expect(isReservedLossReason(reserved)).toBe(true);
+      expect(isSystemLossReason(reserved)).toBe(false);
+    }
+    expect(Object.values(RESERVED_LOSS_REASONS).sort()).toEqual(["call_refusal", "payment_excluded"]);
   });
 
   it("keeps the four earlier rules' meaning", () => {

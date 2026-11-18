@@ -204,6 +204,8 @@ describe("transitionOpportunity", () => {
     ["Closed won to Follow-up", "payment_received", {}, { stage: "follow_up" }],
     ["a no-show to Closed won", "no_show", { lostReason: "no_show" }, { stage: "closed", outcome: "won" }],
     ["an exclusion's loss to Closed won", "lost", { lostReason: "payment_excluded" }, { stage: "closed", outcome: "won" }],
+    ["a call refusal to Follow-up", "lost", { lostReason: "call_refusal" }, { stage: "follow_up" }],
+    ["a call refusal to Closed won", "lost", { lostReason: "call_refusal" }, { stage: "closed", outcome: "won" }],
   ] as const)(
     "rejects %s without a named exception and writes nothing",
     async (_label, from, fields, to) => {
@@ -236,6 +238,8 @@ describe("transitionOpportunity", () => {
     ["canceled", { lostReason: "canceled" }, { stage: "closed", outcome: "won" }, "provider_payment_after_system_loss", "payment_received"],
     ["lost", { lostReason: "stale" }, { stage: "closed", outcome: "won" }, "provider_payment_after_system_loss", "payment_received"],
     ["lost", { lostReason: "payment_excluded" }, { stage: "closed", outcome: "won" }, "payment_exclusion_restored", "payment_received"],
+    ["lost", { lostReason: "call_refusal" }, { stage: "follow_up" }, "call_refusal_reopened", "follow_up_scheduled"],
+    ["lost", { lostReason: "call_refusal" }, { stage: "closed", outcome: "won" }, "provider_payment_after_call_refusal", "payment_received"],
   ] as const)(
     "allows %s -> %j only for the %s exception, to the stage PR 7's %s names",
     async (from, fields, to, exception, status) => {
@@ -307,6 +311,52 @@ describe("transitionOpportunity", () => {
       ).rejects.toThrow('Cannot move deal from "closed lost" to "closed won" with "payment_exclusion_restored"');
     },
   );
+
+  it("reopens a call refusal a person confirmed, clearing the three loss fields", async () => {
+    const harness = await bookingHarness();
+    const closerId = await harness.t.run((ctx) => harnessCloserId(ctx));
+    const { opportunityId } = await slackOpportunity(harness, "lost", {
+      lostReason: "call_refusal",
+      lostAt: 500,
+      lostByUserId: closerId,
+    });
+
+    await harness.t.run(async (ctx) => {
+      await transitionOpportunity(ctx, opportunityId, {
+        to: { stage: "follow_up" },
+        source: "closer",
+        actorUserId: closerId,
+        exception: "call_refusal_reopened",
+      });
+    });
+
+    const { opportunity } = await readState(harness, opportunityId);
+    expect(opportunity).toMatchObject({ stage: "follow_up", outcome: "open" });
+    expect([opportunity?.lostReason, opportunity?.lostAt, opportunity?.lostByUserId]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("refuses a Whop payment after a call refusal a person confirmed", async () => {
+    const harness = await bookingHarness();
+    const closerId = await harness.t.run((ctx) => harnessCloserId(ctx));
+    const { opportunityId } = await slackOpportunity(harness, "lost", {
+      lostReason: "call_refusal",
+      lostAt: 500,
+      lostByUserId: closerId,
+    });
+    await expect(
+      harness.t.run(async (ctx) => {
+        await transitionOpportunity(ctx, opportunityId, {
+          to: { stage: "closed", outcome: "won" },
+          source: "admin",
+          exception: "provider_payment_after_call_refusal",
+        });
+      }),
+    ).rejects.toThrow('Cannot move deal from "closed lost" to "closed won" with "provider_payment_after_call_refusal"');
+  });
 
   it("refuses a Whop payment after a loss a person recorded", async () => {
     const harness = await bookingHarness();

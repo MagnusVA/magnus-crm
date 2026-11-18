@@ -5,6 +5,7 @@ import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { expectedError } from "../lib/observability/errors";
 import { PAYMENT_RULE_VERSION } from "./derive";
+import { automationKindOf, modeAtLeastAsk } from "./proposals";
 import { effectiveKindMode } from "./settings";
 
 const countValidator = v.object({ count: v.number(), capped: v.boolean() });
@@ -88,9 +89,10 @@ async function waitingPayments(ctx: QueryCtx, tenant: Tenant, connections: Doc<"
     .take(limit + 1);
   const closer = new Set<Id<"providerPayments">>();
   for (const row of ready.slice(0, limit)) {
-    if (row.providerPaymentId && row.noticeUserId && row.activationVersion === tenant.resultAutomation?.activationVersion &&
-        row.policyVersion === tenant.resultAutomation?.kinds[row.kind]?.policyVersion &&
-        effectiveKindMode(tenant, row.kind) === "ask") closer.add(row.providerPaymentId);
+    const kind = automationKindOf(row.kind);
+    if (kind && row.providerPaymentId && row.noticeUserId && row.activationVersion === tenant.resultAutomation?.activationVersion &&
+        row.policyVersion === tenant.resultAutomation?.kinds[kind]?.policyVersion &&
+        modeAtLeastAsk(effectiveKindMode(tenant, kind))) closer.add(row.providerPaymentId);
   }
 
   let billingCount = 0;

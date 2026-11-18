@@ -40,6 +40,8 @@ type EnrichedPayment = {
   referenceCode?: string;
   status: "recorded" | "verified" | "disputed";
   recordedAt: number;
+  /** When Whop collected the money, on a payment recorded from Whop. */
+  providerPaidAt?: number;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
@@ -151,6 +153,18 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                     {format(payment.recordedAt, "MMM d, yyyy 'at' h:mm a")}
                   </dd>
                 </div>
+
+                {payment.providerPaidAt !== undefined && (
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Collected by Whop
+                    </dt>
+                    <dd className="flex items-center gap-1.5 text-sm">
+                      <CalendarIcon className="size-3.5 text-muted-foreground" />
+                      {format(payment.providerPaidAt, "MMM d, yyyy 'at' h:mm a")}
+                    </dd>
+                  </div>
+                )}
 
                 {payment.attributedCloserName && (
                   <div>

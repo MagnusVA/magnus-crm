@@ -139,6 +139,9 @@ export const RESERVED_LOSS_REASONS = {
   // A payment was taken out and no other payment on the deal counts
   // (docs/agents/payments.md).
   payment_excluded: "payment_excluded",
+  // A refusal on the call: confirmed by a person (`lostByUserId` set) or
+  // written automatically (none). Not a system loss: it is the closer's.
+  call_refusal: "call_refusal",
 } as const;
 
 export type ReservedLossReason =
@@ -146,6 +149,7 @@ export type ReservedLossReason =
 
 export const RESERVED_LOSS_REASON_LABELS: Record<ReservedLossReason, string> = {
   payment_excluded: "Payment taken out",
+  call_refusal: "Refused on the call",
 };
 
 /** Compares after trimming and lower-casing, so " Payment_Excluded" counts. */
@@ -295,6 +299,22 @@ export const STAGE_TRANSITION_EXCEPTIONS = {
     to: "won",
     loss: null,
     reserved: { reason: RESERVED_LOSS_REASONS.payment_excluded, actor: "any" },
+  },
+  // A refusal recorded from the call, confirmed or automatic, reopens at
+  // Follow-up with one next step.
+  call_refusal_reopened: {
+    from: "lost",
+    to: "follow_up",
+    loss: null,
+    reserved: { reason: RESERVED_LOSS_REASONS.call_refusal, actor: "any" },
+  },
+  // Billing picks a Whop payment for a deal an automatic refusal closed. A
+  // refusal a person confirmed stays theirs.
+  provider_payment_after_call_refusal: {
+    from: "lost",
+    to: "won",
+    loss: null,
+    reserved: { reason: RESERVED_LOSS_REASONS.call_refusal, actor: "none" },
   },
 } as const satisfies Record<string, StageExceptionRule>;
 

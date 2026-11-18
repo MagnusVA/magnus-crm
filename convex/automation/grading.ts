@@ -8,6 +8,7 @@ import { expectedError } from "../lib/observability/errors";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { providerEnvironmentValidator } from "../payments/schema";
 import { PAYMENT_RULE_VERSION } from "./derive";
+import { paymentProposalOf } from "./proposals";
 import { automationGateValidator } from "./schema";
 import { paymentDecisionKindValidator } from "./settings";
 
@@ -20,6 +21,14 @@ const wrongFieldValidator = v.union(
   v.literal("person"), v.literal("deal"), v.literal("amount"), v.literal("currency"), v.literal("type"),
   v.literal("program"), v.literal("credit"), v.literal("should_abstain"), v.literal("should_write"),
 );
+type PaymentWrongField = Infer<typeof wrongFieldValidator>;
+const paymentWrongFields = new Set<string>(wrongFieldValidator.members.map((member) => member.value));
+
+/** A payment decision's grade holds payment fields only; the stored union also has call fields. */
+function paymentWrongFieldsOf(fields: NonNullable<Decision["grade"]>["wrongFields"]): PaymentWrongField[] {
+  return fields.filter((field): field is PaymentWrongField => paymentWrongFields.has(field));
+}
+
 const answerValidator = v.object({
   abstain: v.boolean(),
   leadId: v.optional(v.id("leads")),
@@ -180,8 +189,8 @@ export const getMyAnswer = query({
 });
 
 function revealedDecision(row: Decision, kind: Infer<typeof paymentDecisionKindValidator>) {
-  const { proposal, leadId, opportunityId, wouldWrite, gates } = row;
-  return { proposal, leadId, opportunityId, wouldWrite, gates, kind };
+  const { leadId, opportunityId, wouldWrite, gates } = row;
+  return { proposal: paymentProposalOf(row), leadId, opportunityId, wouldWrite, gates, kind };
 }
 
 async function verifyAnswer(ctx: MutationCtx, tenantId: Id<"tenants">, answer: GradeAnswer) {
@@ -283,7 +292,7 @@ export const listUnsure = query({
         createdAt: row.createdAt,
         gradedAt: grade.gradedAt,
         gradedByName: grader?.tenantId === tenantId ? grader.fullName?.trim() || grader.email : null,
-        wrongFields: grade.wrongFields,
+        wrongFields: paymentWrongFieldsOf(grade.wrongFields),
         evidence,
         proposal: revealedDecision(row, kind),
         answer: row.answer ? submittedAnswer(row.answer) : null,

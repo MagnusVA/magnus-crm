@@ -18,6 +18,7 @@ const taskValidator = v.object({
     "admin_initiated",
     "overran_review_resolution",
     "stale_opportunity_nudge",
+    "call_insights",
   ),
   contactMethod: v.union(literals("call", "text"), v.null()),
   reminderScheduledAt: v.union(v.number(), v.null()),

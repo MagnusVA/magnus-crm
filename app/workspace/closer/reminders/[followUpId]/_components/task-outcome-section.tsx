@@ -4,6 +4,8 @@ import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { useIdle } from "@/hooks/use-idle";
 import {
   ArrowRightIcon,
@@ -24,6 +26,12 @@ import {
   OutcomeHeading,
 } from "@/app/workspace/closer/meetings/_components/outcome-section";
 import { StageChip } from "@/app/workspace/closer/meetings/_components/stage-tone";
+import {
+  REMINDER_SENTENCE,
+  WhopPaymentFoundCard,
+  whopConfirmPrefill,
+  type WhopConfirmPrefill,
+} from "@/app/workspace/closer/meetings/_components/whop-payment-ask";
 import type { NoAnswerStep } from "./reminder-no-answer-dialog";
 import type { TaskDetail, TaskDetailMode } from "./task-detail-types";
 
@@ -64,6 +72,9 @@ type TaskOutcomeSectionProps = {
  * - a quiet line when the deal finished elsewhere (`isReminderDealFinished`),
  * - a one-line summary once an outcome closed the task.
  *
+ * A Whop payment waiting for confirmation on this task's deal shows above
+ * the question, with Record payment (the payment dialog, filled from Whop).
+ *
  * Nothing is written until a step-2 choice is confirmed in its dialog, and
  * the mutations check the task and the deal again.
  */
@@ -87,10 +98,40 @@ export function TaskOutcomeSection({
   const idle = useIdle();
   const shown = (key: OutcomeDialog) => idle || mounted.has(key);
 
-  const openDialog = (next: OutcomeDialog) => {
+  const showDialog = (next: OutcomeDialog) => {
     setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
     setDialog(next);
   };
+  // The ask as it was when Record payment opened the dialog.
+  const [whopConfirm, setWhopConfirm] = useState<WhopConfirmPrefill | null>(null);
+  const openDialog = (next: OutcomeDialog) => {
+    setWhopConfirm(null);
+    showDialog(next);
+  };
+  const open = followUp.status === "pending" &&
+    followUp.reason !== "stale_opportunity_nudge" &&
+    !isReminderDealFinished(opportunity);
+  const whopAsk = useQuery(
+    api.payments.confirm.getWhopAsk,
+    open ? { target: { kind: "reminder", followUpId: followUp._id } } : "skip",
+  );
+  const openWhopConfirm = () => {
+    const prefill = whopAsk ? whopConfirmPrefill(whopAsk) : null;
+    if (!prefill) return;
+    setWhopConfirm(prefill);
+    showDialog("payment");
+  };
+  const askCard = whopAsk ? (
+    <WhopPaymentFoundCard
+      ask={whopAsk}
+      sentence={REMINDER_SENTENCE}
+      actions={
+        <Button type="button" className="font-semibold" onClick={openWhopConfirm}>
+          Record payment
+        </Button>
+      }
+    />
+  ) : null;
   const dialogState = (key: OutcomeDialog) => ({
     open: dialog === key,
     onOpenChange: (open: boolean) => setDialog(open ? key : null),
@@ -137,19 +178,25 @@ export function TaskOutcomeSection({
     );
   } else if (mode === "admin") {
     body = (
-      <AdminPaymentPanel
-        firstName={firstName}
-        closerName={closerName}
-        onPick={() => openDialog("payment")}
-      />
+      <>
+        {askCard}
+        <AdminPaymentPanel
+          firstName={firstName}
+          closerName={closerName}
+          onPick={() => openDialog("payment")}
+        />
+      </>
     );
   } else {
     body = (
-      <TaskOutcomeQuestion
-        firstName={firstName}
-        method={followUp.contactMethod === "text" ? "text" : "call"}
-        onPick={openDialog}
-      />
+      <>
+        {askCard}
+        <TaskOutcomeQuestion
+          firstName={firstName}
+          method={followUp.contactMethod === "text" ? "text" : "call"}
+          onPick={openDialog}
+        />
+      </>
     );
   }
 
@@ -166,6 +213,7 @@ export function TaskOutcomeSection({
             leadName={leadName}
             defaultProgramId={opportunity.firstBookingProgramId ?? null}
             actingFor={mode === "admin" ? closerName : null}
+            whopConfirm={whopConfirm}
             {...dialogState("payment")}
           />
         ) : null}

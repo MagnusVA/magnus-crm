@@ -41,6 +41,11 @@ import {
   WhopCapacityHold,
   WhopPaymentFoundStep,
 } from "@/app/workspace/_components/payments/whop-payment-found-step";
+import {
+  WhopConfirmForm,
+  type WhopConfirmChoice,
+  type WhopConfirmPrefill,
+} from "@/app/workspace/closer/meetings/_components/whop-payment-ask";
 
 // ---------------------------------------------------------------------------
 // Zod schema — single source of truth for form validation.
@@ -91,6 +96,11 @@ type Props = {
   actingFor?: string | null;
   /** Values from a payment link, filled in when the dialog opens. */
   prefill?: PaymentLinkValues;
+  /**
+   * Opened from a Whop payment waiting for confirmation: the form is filled
+   * from Whop, has no proof field, and saves with the confirm intent.
+   */
+  whopConfirm?: WhopConfirmPrefill | null;
 };
 
 /**
@@ -108,6 +118,7 @@ export function ReminderPaymentDialog({
   defaultProgramId,
   actingFor,
   prefill,
+  whopConfirm,
 }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -115,7 +126,7 @@ export function ReminderPaymentDialog({
   const proofRequired = useProofRequired();
   const [confirming, setConfirming] = useConfirmStep<PaymentFormValues>(open);
   // Whop already reporting this person's payment adds a step before the save.
-  const whopCheck = useWhopPaymentCheck(open ? { kind: "reminder", followUpId } : null);
+  const whopCheck = useWhopPaymentCheck(open && !whopConfirm ? { kind: "reminder", followUpId } : null);
   const whop = useWhopStepState<PaymentFormValues>(open);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -271,6 +282,21 @@ export function ReminderPaymentDialog({
   const typedAmount = useWatch({ control: form.control, name: "amount" });
   const proofFile = useWatch({ control: form.control, name: "proofFile" });
   const offer = whopAmountOffer(whopCheck);
+  // The Whop payment, confirmed: it wins the deal and completes the task.
+  const saveWhopConfirm = async (choice: WhopConfirmChoice) => {
+    if (!whopConfirm) return;
+    await logReminderPayment({
+      followUpId,
+      amount: whopConfirm.amountMinor / 100,
+      currency: whopConfirm.currency,
+      programId: choice.programId,
+      paymentType: choice.paymentType,
+      provider: whopConfirm.intent,
+    });
+    toast.success("Payment recorded from Whop. The deal is won.");
+    onOpenChange(false);
+    onSuccess();
+  };
   const offerCurrency = CURRENCIES.find((code) => code === offer?.currency);
   const showOffer = Boolean(offer && offerCurrency) && typedAmount === "" && !form.formState.isDirty;
   const whopValues = whop.shown?.values;
@@ -290,7 +316,21 @@ export function ReminderPaymentDialog({
       }}
     >
       <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
-        {whop.capacityHeld ? (
+        {whopConfirm ? (
+          <WhopConfirmForm
+            prefill={whopConfirm}
+            leadName={leadName}
+            steps={[
+              actingFor
+                ? `Records the Whop payment, credited to ${actingFor}.`
+                : "Records the Whop payment, credited to the deal’s closer.",
+              "Closes the deal as won.",
+              "Completes this task.",
+            ]}
+            save={saveWhopConfirm}
+            onClose={() => onOpenChange(false)}
+          />
+        ) : whop.capacityHeld ? (
           <WhopCapacityHold
             onClose={() => {
               onOpenChange(false);

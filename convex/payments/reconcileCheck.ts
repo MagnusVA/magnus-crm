@@ -2,6 +2,7 @@ import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { noteHumanResult } from "../automation/humanResult";
+import { modeAtLeastAsk, paymentEvidenceOf } from "../automation/proposals";
 import { recordApplyReceipt, type PaymentDecisionKind } from "../automation/receipts";
 import { followMergeChain } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -192,7 +193,7 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
     ctx.db.get("leads", leadId),
   ]);
   if (person?.tenantId !== tenantId || person.status === "merged") return [];
-  const ask = effectiveMode(tenant, writer) === "ask";
+  const ask = modeAtLeastAsk(effectiveMode(tenant, writer));
   const leadIds = await mergedLeadIds(ctx, tenantId, leadId);
   const connectedIds = new Set(connections.filter((connection) => connection.status === "connected")
     .map((connection) => connection._id));
@@ -344,7 +345,7 @@ export async function reconcilePaymentWrite(
   const { tenantId, leadId, _id: opportunityId } = opportunity;
   const conflicts = await checkPaymentReconciliation(ctx, { tenantId, leadId, opportunityId, writer, dealPayments });
   const tenant = intent?.kind === "confirm" ? await ctx.db.get("tenants", tenantId) : null;
-  if (intent?.kind === "confirm" && effectiveMode(tenant, writer) !== "ask") {
+  if (intent?.kind === "confirm" && !modeAtLeastAsk(effectiveMode(tenant, writer))) {
     throw expectedError("payment.kind_off", "Whop confirmation is turned off for this payment.");
   }
   const result = resolveReconciliation(conflicts, intent);
@@ -374,8 +375,8 @@ export async function reconcilePaymentWrite(
           decision.state !== "ready" || decision.humanResultRevision !== (opportunity.humanResultRevision ?? 0) ||
           decision.activationVersion !== settings?.activationVersion ||
           decision.policyVersion !== settings.kinds[decision.kind]?.policyVersion ||
-          decision.evidence.allocationRevision !== payment.allocationRevision ||
-          decision.evidence.sourceUpdatedAt !== payment.sourceUpdatedAt) {
+          paymentEvidenceOf(decision)?.allocationRevision !== payment.allocationRevision ||
+          paymentEvidenceOf(decision)?.sourceUpdatedAt !== payment.sourceUpdatedAt) {
         throw expectedError("payment.stale_preview", "The Whop confirmation changed. Reload before saving.");
       }
     }

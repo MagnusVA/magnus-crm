@@ -1507,6 +1507,10 @@ export default defineSchema({
     canceledAt: v.optional(v.number()),
     // The meeting's end, when attendance is owed on a deal won by a Whop payment.
     attendanceOwedSince: v.optional(v.number()),
+    // Set together when a call decision marked the meeting held, so only
+    // that decision's undo may move it back (`automation_held_undone`).
+    attendanceSource: v.optional(v.literal("call_insights")),
+    attendanceDecisionId: v.optional(v.id("resultAutomationDecisions")),
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
@@ -1988,6 +1992,8 @@ export default defineSchema({
       v.literal("admin_initiated"),
       v.literal("overran_review_resolution"),
       v.literal("stale_opportunity_nudge"),
+      // Every task a call decision writes, asked or automatic.
+      v.literal("call_insights"),
     ),
     status: v.union(
       v.literal("pending"),
@@ -1995,6 +2001,15 @@ export default defineSchema({
       v.literal("completed"),
       v.literal("expired"),
     ),
+    // What the call said the task is for, and what was promised. Set only on
+    // tasks a call decision or its corrections write.
+    purpose: v.optional(v.union(v.literal("call_back"), v.literal("payment_owed"))),
+    expectedAmountMinor: v.optional(v.number()),
+    expectedCurrency: v.optional(v.string()),
+    promisedPaymentAt: v.optional(v.number()),
+    automationDecisionId: v.optional(v.id("resultAutomationDecisions")),
+    // A failed Whop attempt in the call window (providerPayments.declineCode).
+    declineCode: v.optional(v.string()),
     bookedAt: v.optional(v.number()),
     createdAt: v.number(),
     createdByUserId: v.optional(v.id("users")),

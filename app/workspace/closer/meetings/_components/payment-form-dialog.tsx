@@ -53,6 +53,11 @@ import {
   WhopCapacityHold,
   WhopPaymentFoundStep,
 } from "@/app/workspace/_components/payments/whop-payment-found-step";
+import {
+  WhopConfirmForm,
+  type WhopConfirmChoice,
+  type WhopConfirmPrefill,
+} from "./whop-payment-ask";
 
 // ---------------------------------------------------------------------------
 // Zod Schema — single source of truth for form validation
@@ -113,6 +118,11 @@ type PaymentFormDialogProps = {
    * the USD and booked-program defaults, and proof is optional.
    */
   suggestion?: DialogSuggestion;
+  /**
+   * Opened from a Whop payment waiting for confirmation: the form is filled
+   * from Whop, has no proof field, and saves with the confirm intent.
+   */
+  whopConfirm?: WhopConfirmPrefill | null;
 };
 
 /** The form values a suggestion fills: only what it heard, never a proof file. */
@@ -157,6 +167,7 @@ export function PaymentFormDialog({
   defaultProgramId,
   prefill,
   suggestion,
+  whopConfirm,
 }: PaymentFormDialogProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -172,7 +183,7 @@ export function PaymentFormDialog({
   const fromCall = suggestion !== undefined;
   const [confirming, setConfirming] = useConfirmStep<PaymentFormValues>(open);
   // Whop already reporting this person's payment adds a step before the save.
-  const whopCheck = useWhopPaymentCheck(open ? { kind: "meeting", meetingId } : null);
+  const whopCheck = useWhopPaymentCheck(open && !whopConfirm ? { kind: "meeting", meetingId } : null);
   const whop = useWhopStepState<PaymentFormValues>(open);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
@@ -371,6 +382,23 @@ export function PaymentFormDialog({
     }
   };
 
+  // "Record payment · call attended": the Whop payment, confirmed, marks the call held.
+  const saveWhopConfirm = async (choice: WhopConfirmChoice) => {
+    if (!whopConfirm) return;
+    await logPayment({
+      opportunityId,
+      meetingId,
+      amount: whopConfirm.amountMinor / 100,
+      currency: whopConfirm.currency,
+      programId: choice.programId,
+      paymentType: choice.paymentType,
+      provider: whopConfirm.intent,
+    });
+    await onSuccess?.();
+    toast.success("Payment recorded from Whop and the call marked attended. The deal is won.");
+    setOpen(false);
+  };
+
   const isProgramListLoading = programs === undefined;
   const hasPrograms = (programs?.length ?? 0) > 0;
   const isSubmitDisabled = isSubmitting || isProgramListLoading || !hasPrograms;
@@ -421,7 +449,20 @@ export function PaymentFormDialog({
         className={cn(ACTION_DIALOG, fromCall && "ph-no-capture")}
         showCloseButton={!isSubmitting}
       >
-        {whop.capacityHeld ? (
+        {whopConfirm ? (
+          <WhopConfirmForm
+            prefill={whopConfirm}
+            leadName={leadName ?? null}
+            steps={[
+              "Records the Whop payment, credited to the deal’s closer.",
+              "Closes the deal as won.",
+              "Marks the call held.",
+              "Makes the person a customer of the program.",
+            ]}
+            save={saveWhopConfirm}
+            onClose={() => setOpen(false)}
+          />
+        ) : whop.capacityHeld ? (
           <WhopCapacityHold
             onClose={() => {
               setOpen(false);

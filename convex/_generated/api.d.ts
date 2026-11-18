@@ -74,6 +74,7 @@ import type * as automation_derive from "../automation/derive.js";
 import type * as automation_grading from "../automation/grading.js";
 import type * as automation_humanResult from "../automation/humanResult.js";
 import type * as automation_mergeStandDown from "../automation/mergeStandDown.js";
+import type * as automation_proposals from "../automation/proposals.js";
 import type * as automation_receipts from "../automation/receipts.js";
 import type * as automation_scorecard from "../automation/scorecard.js";
 import type * as automation_settings from "../automation/settings.js";
@@ -795,6 +796,7 @@ declare const fullApi: ApiFromModules<{
   "automation/grading": typeof automation_grading;
   "automation/humanResult": typeof automation_humanResult;
   "automation/mergeStandDown": typeof automation_mergeStandDown;
+  "automation/proposals": typeof automation_proposals;
   "automation/receipts": typeof automation_receipts;
   "automation/scorecard": typeof automation_scorecard;
   "automation/settings": typeof automation_settings;

@@ -552,3 +552,195 @@ export async function seedReadablePaymentRecording(
     recordingStartAt: FIXTURE_NOW - 3600_000, recordingEndAt: FIXTURE_NOW - 1800_000, createdAt: FIXTURE_NOW,
   });
 }
+
+// ─── Call decisions and certificate samples (phase 3, package F3) ───────
+// Imports for the helpers below; ES modules hoist them.
+import {
+  CALL_CHECKS_VERSION as f3ChecksVersion,
+  DEFAULT_EXTRACTION_MODEL as f3Model,
+  EVIDENCE_PROMPT_VERSION as f3PromptVersion,
+  THRESHOLDS_VERSION as f3ThresholdsVersion,
+} from "../convex/callInsights/validators";
+import { TAXONOMY_VERSION as f3TaxonomyVersion } from "../lib/callInsights/taxonomy";
+
+export const CALL_RULE_FIXTURE_VERSION = "call-rule@1";
+const CALL_SLOT_ENDED_AT = FIXTURE_NOW - 1800_000;
+let callDecisionFixtureSeq = 0;
+
+/** A published serving run on the recording, with one prospect refusal in its evidence. */
+export async function seedCallRun(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    meetingId: Id<"meetings">;
+    recordingId: Id<"callRecordings">;
+    quote?: string;
+    quotesPurgedAt?: number;
+  },
+) {
+  return await ctx.db.insert("callInsightRuns", {
+    tenantId: args.tenantId,
+    recordingId: args.recordingId,
+    meetingId: args.meetingId,
+    purpose: "serve",
+    generation: 1,
+    inputKey: `fixture-run-${args.meetingId}-${args.recordingId}`,
+    trigger: "recording_matched",
+    kind: "full",
+    status: "answered",
+    attempt: 1,
+    config: {
+      model: f3Model, promptVersion: f3PromptVersion, taxonomyVersion: f3TaxonomyVersion,
+      thresholdsVersion: f3ThresholdsVersion, itemCheck: false, callEvidence: true,
+    },
+    receipts: [],
+    evidence: {
+      recordingScope: "whole",
+      scopeLines: [0],
+      statements: [{ kind: "declines", quote: args.quote ?? "Synthetic refusal line.", lineIndex: 0, atSeconds: 60, speaker: "Prospect" }],
+      prospectStance: "refused",
+      closerStance: "continues",
+      nextStep: "none",
+      dropped: { quoteNotFound: 0, amountNotInQuote: 0, cardNumber: 0, overLimit: 0 },
+    },
+    quotesPurgedAt: args.quotesPurgedAt,
+    createdAt: FIXTURE_NOW,
+  });
+}
+
+/** The evidence a call decision stores: references to its run, never words. */
+export function callEvidenceRef(args: { runId: Id<"callInsightRuns">; recordingId: Id<"callRecordings"> }) {
+  return {
+    type: "call" as const,
+    runId: args.runId,
+    recordingId: args.recordingId,
+    generation: 1,
+    promptVersion: f3PromptVersion,
+    model: f3Model,
+    thresholdsVersion: f3ThresholdsVersion,
+    checksVersion: f3ChecksVersion,
+    readTrigger: "recording_matched" as const,
+    publishedAt: FIXTURE_NOW,
+    slotEndedAt: CALL_SLOT_ENDED_AT,
+  };
+}
+
+type CallDecisionKind = "call_back" | "payment_owed" | "refusal_loss" | "paid_on_call_alert";
+type CallDecisionFixture = {
+  tenantId: Id<"tenants">;
+  kind: CallDecisionKind;
+  opportunityId: Id<"opportunities">;
+  leadId: Id<"leads">;
+  meetingId: Id<"meetings">;
+  closerId: Id<"users">;
+  runId: Id<"callInsightRuns">;
+  recordingId: Id<"callRecordings">;
+} & Partial<Omit<Doc<"resultAutomationDecisions">, "_id" | "_creationTime" | "tenantId" | "kind">>;
+
+/** The proposal each call kind stores, with synthetic values. */
+export function callProposalFixture(kind: CallDecisionKind, closerId: Id<"users">, meetingId: Id<"meetings">) {
+  if (kind === "refusal_loss") return { type: "refusal" as const, closerId, meetingId };
+  if (kind === "paid_on_call_alert") return { type: "alert" as const, closerId, meetingId, graceEndsAt: CALL_SLOT_ENDED_AT + 7200_000 };
+  return {
+    type: "task" as const, purpose: kind, closerId, meetingId, contactMethod: "call" as const,
+    reminderScheduledAt: FIXTURE_NOW + 86_400_000,
+    ...(kind === "payment_owed"
+      ? { expectedAmountMinor: 50_000, expectedCurrency: "USD", promisedPaymentAt: FIXTURE_NOW + 2 * 86_400_000 }
+      : {}),
+  };
+}
+
+/** A call decision row as the call rule will store one: ready at ask unless the fields say otherwise. */
+export async function seedCallDecision(ctx: MutationCtx, args: CallDecisionFixture) {
+  const { kind, closerId, runId, recordingId, ...fields } = args;
+  const family = kind === "refusal_loss" ? "refusal" : kind === "paid_on_call_alert" ? "alert" : "task";
+  callDecisionFixtureSeq += 1;
+  return await ctx.db.insert("resultAutomationDecisions", {
+    kind,
+    mode: "ask",
+    state: "ready",
+    inputKey: await sha256Hex(stableJson(["fixture-call", kind, args.meetingId, callDecisionFixtureSeq])),
+    vetoKey: await sha256Hex(stableJson(["call", recordingId, args.opportunityId, family])),
+    ruleVersion: CALL_RULE_FIXTURE_VERSION,
+    policyVersion: 1,
+    activationVersion: 1,
+    humanResultRevision: 0,
+    wouldWrite: true,
+    gates: [],
+    runId,
+    recordingId,
+    assignedCloserId: closerId,
+    noticeUserId: closerId,
+    confirmRoute: "meeting",
+    proposal: callProposalFixture(kind, closerId, args.meetingId),
+    evidence: callEvidenceRef({ runId, recordingId }),
+    createdAt: FIXTURE_NOW,
+    ...fields,
+  });
+}
+
+/** A certificate sample row. Collecting, for the payment win rule, unless the fields say otherwise. */
+export async function seedAutomationSample(
+  ctx: MutationCtx,
+  args: { tenantId: Id<"tenants"> } & Partial<Omit<Doc<"automationSamples">, "_id" | "_creationTime" | "tenantId">>,
+) {
+  return await ctx.db.insert("automationSamples", {
+    kind: "payment_win",
+    ruleVersion: "payment-rule@1",
+    target: 300,
+    status: "collecting",
+    createdAt: FIXTURE_NOW,
+    ...args,
+  });
+}
+
+/** A kind at automatic as promoteKind will write it, with its certificate pointer. */
+export async function setKindAutomatic(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    adminId: Id<"users">;
+    kind: "payment_win" | "additional_payment";
+    sampleId?: Id<"automationSamples">;
+    ruleVersion?: string;
+    breaker?: boolean;
+  },
+) {
+  await setPaymentFixtureModes(ctx, { tenantId: args.tenantId, adminId: args.adminId });
+  const settings = (await ctx.db.get("tenants", args.tenantId))!.resultAutomation!;
+  const policy = settings.kinds[args.kind];
+  await ctx.db.patch("tenants", args.tenantId, {
+    resultAutomation: {
+      ...settings,
+      kinds: {
+        ...settings.kinds,
+        [args.kind]: {
+          ...policy,
+          mode: "automatic",
+          ...(args.sampleId ? {
+            automatic: {
+              promotedAt: FIXTURE_NOW, promotedByUserId: args.adminId, sampleId: args.sampleId,
+              ruleVersion: args.ruleVersion ?? "payment-rule@1", writes: 0,
+            },
+          } : {}),
+          ...(args.breaker ? { breaker: { trippedAt: FIXTURE_NOW, reason: "wrong_write" as const } } : {}),
+        },
+      },
+    },
+  });
+}
+
+/** A booked deal with a scheduled call, its matched recording and a published run on it. */
+export async function automationCallFixture(options?: Parameters<typeof providerPaymentFixture>[0]) {
+  const fixture = await providerPaymentFixture(options);
+  const { t, tenantId, dealId, closerId, adminId } = fixture;
+  const ids = await t.run(async (ctx) => {
+    const meetingId = await insertProviderMeeting(ctx, {
+      tenantId, opportunityId: dealId!, closerId, scheduledAt: CALL_SLOT_ENDED_AT - 1800_000,
+    });
+    const recordingId = await seedReadablePaymentRecording(ctx, { tenantId, meetingId, closerId, ownerId: adminId });
+    const runId = await seedCallRun(ctx, { tenantId, meetingId, recordingId });
+    return { meetingId, recordingId, runId };
+  });
+  return { ...fixture, opportunityId: dealId!, ...ids };
+}

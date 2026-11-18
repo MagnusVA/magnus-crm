@@ -4,6 +4,31 @@ type EventLabel = {
 };
 
 export const EVENT_LABELS: Record<string, EventLabel> = {
+  "automation.alert_answered": {
+    verb: "answered a payment check",
+    iconHint: "circle-help",
+  },
+  "automation.audit_recorded": {
+    verb: "audited an automatic result",
+    iconHint: "clipboard-check",
+  },
+  // Written by the system, with no actor.
+  "automation.breaker_tripped": {
+    verb: "Automatic results paused a kind",
+    iconHint: "pause",
+  },
+  "automation.kind_promoted": {
+    verb: "switched a kind to automatic",
+    iconHint: "zap",
+  },
+  "automation.notice_acknowledged": {
+    verb: "acknowledged a refusal notice",
+    iconHint: "eye",
+  },
+  "automation.notice_stopped": {
+    verb: "stopped a refusal",
+    iconHint: "circle-stop",
+  },
   "automation.settings_changed": {
     verb: "changed automatic results settings",
     iconHint: "settings",
@@ -73,6 +98,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     iconHint: "git-branch",
   },
   "meeting.recording_matched": { verb: "matched a call recording", iconHint: "video" },
+  "meeting.attendance_withdrawn": {
+    verb: "withdrew a held mark",
+    iconHint: "undo-2",
+  },
   "meeting.canceled": {
     verb: "canceled a meeting",
     iconHint: "calendar-x-2",

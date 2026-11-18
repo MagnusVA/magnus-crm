@@ -45,7 +45,7 @@ type VoidPaymentValues = z.infer<typeof voidPaymentSchema>;
 /** What Void does, in the order the server does it. */
 const STEPS = [
   "Marks the payment disputed, so it leaves revenue reports and the deal’s paid total.",
-  "Closes the side deal as lost, with your reason.",
+  "If another payment on this deal still counts, the deal stays won. If none does, it closes as lost, with your reason.",
   "Removes the enrollment it held. A person left with no payment is no longer a customer.",
 ];
 
@@ -130,7 +130,7 @@ export function VoidPaymentDialog({
         </Button>
       </DialogTrigger>
       <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
-        <ActionDialogHeader title={title} description="Voiding a side deal’s payment can’t be undone." tone="danger" />
+        <ActionDialogHeader title={title} description="Billing can put the payment back from its page later, if nothing on the deal has changed since." tone="danger" />
 
         <form className={ACTION_FORM} onSubmit={form.handleSubmit(onSubmit)} noValidate>
           <SubmitError>{submitError}</SubmitError>

@@ -1,6 +1,8 @@
+import type { Id } from "../_generated/dataModel";
 import {
   isReservedLossReason,
   isSystemLossReason,
+  RESERVED_LOSS_REASONS,
   RESERVED_LOSS_REASON_LABELS,
   SYSTEM_LOSS_REASON_LABELS,
   type ReservedLossReason,
@@ -33,4 +35,42 @@ export function maskReservedLossReason(
 ): string | null {
   if (!reason) return null;
   return isReservedLossReason(reason) ? lossReasonLabel(reason) : reason;
+}
+
+/** Who closed the deal: the person who recorded the loss, if any. */
+export type LossActor = {
+  lostByUserId?: Id<"users"> | null;
+  lostByName?: string | null;
+};
+
+function isCallRefusal(reason: string | undefined | null): boolean {
+  return reason?.trim().toLowerCase() === RESERVED_LOSS_REASONS.call_refusal;
+}
+
+/**
+ * The byline for a call refusal on a screen whose headline already shows the
+ * reason: "confirmed by Dee" when a person recorded it, "recorded
+ * automatically" when nobody did. Null for any other reason. It reads only
+ * the reason and who recorded it.
+ */
+export function refusalByline(
+  reason: string | undefined | null,
+  who: LossActor,
+): string | null {
+  if (!isCallRefusal(reason)) return null;
+  if (!who.lostByUserId) return "recorded automatically";
+  return `confirmed by ${who.lostByName?.trim() || "a team member"}`;
+}
+
+/**
+ * The loss reason with its byline for a call refusal ("Refused on the call ·
+ * confirmed by Dee"); any other reason reads as `lossReasonLabel`.
+ */
+export function lossReasonText(
+  reason: string | undefined | null,
+  who: LossActor,
+): string | null {
+  const label = lossReasonLabel(reason);
+  const byline = refusalByline(reason, who);
+  return label && byline ? `${label} · ${byline}` : label;
 }

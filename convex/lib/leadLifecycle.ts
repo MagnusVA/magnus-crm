@@ -508,11 +508,13 @@ export async function deriveLeadLifecycle(
   return deriveLifecycle((await collectLifecycleEvidence(ctx, lead)).evidence);
 }
 
-export type LifecycleCorrection = "payment_voided";
+export type LifecycleCorrection = "payment_voided" | "attendance_withdrawn";
 
 /**
  * Sets the lead's lifecycle to what its records support now, which can move
- * it back. Only corrections call this, today a voided payment (plan §4.3).
+ * it back. Only corrections call this: a voided payment (plan §4.3), and a
+ * held mark a call decision wrote and its undo withdrew, which takes the
+ * person back from Showed unless another held call keeps them there.
  * A lead whose records support no stage keeps the one it has: every person
  * has a stage.
  */

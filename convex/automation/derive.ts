@@ -4,17 +4,18 @@ import type { DealPosition, SystemLossReason } from "../opportunities/stages";
 import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "../payments/capacity";
 import type { PaymentTarget } from "../payments/match";
 import { MAX_PROVIDER_PAYMENT_AGE_MS } from "../payments/reviewTiming";
+import type { AutomationMode, PaymentProposal } from "./proposals";
 import { paymentVetoTuple, type PaymentDecisionKind } from "./receipts";
 
 export const PAYMENT_RULE_VERSION = "payment-rule@1";
 type Decision = Doc<"resultAutomationDecisions">;
 type Gate = Decision["gates"][number];
-type Proposal = NonNullable<Decision["proposal"]>;
+type Proposal = PaymentProposal;
 type TupleValue = string | number | boolean | null;
 
 export type PaymentDecisionInput = {
   now: number;
-  settings: { mode: "off" | "shadow" | "ask"; policyVersion: number; activationVersion: number };
+  settings: { mode: AutomationMode; policyVersion: number; activationVersion: number };
   payment: Pick<Doc<"providerPayments">, "_id" | "status" | "totalMinor" | "currency" | "paidAt" | "adverseState"
     | "billingReason" | "lineItemCount" | "productId" | "variantId" | "allocationRevision" | "sourceUpdatedAt"
     | "reviewState" | "notMySaleAt"> & {

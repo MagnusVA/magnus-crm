@@ -20,6 +20,7 @@ import { BillingEventHistory } from "./billing-event-history";
 import { BAND_BUTTON_CLASS, PAYMENT_TYPE_LABELS } from "./billing-format";
 import { PaymentFacts, PaymentFigures, paymentTitle } from "./billing-payment-facts";
 import { PaidAt } from "./paid-at";
+import { PaymentCorrectionPanel } from "./payment-correction-panel";
 import { BillingProofPreview } from "./billing-proof-preview";
 import { BillingReviewActions } from "./billing-review-actions";
 import { CopyBillingPayloadButton } from "./copy-billing-payload-button";
@@ -161,7 +162,7 @@ export function BillingReviewPageClient({
         column: facts, comments, history, Slack contributors.
       */}
       <div className="grid min-w-0 items-start gap-x-[18px] gap-y-3.5 @4xl:grid-cols-[minmax(0,1fr)_24rem] short:gap-y-3">
-        <div className="order-1 min-w-0 @4xl:col-start-1 @4xl:row-start-1">
+        <div className="order-1 flex min-w-0 flex-col gap-3.5 @4xl:col-start-1 @4xl:row-start-1 short:gap-3">
           <PaymentFacts
             detail={detail}
             now={now}
@@ -177,6 +178,18 @@ export function BillingReviewPageClient({
                 />
               </>
             }
+          />
+          <PaymentCorrectionPanel
+            payment={{
+              id: payment.id,
+              amountMinor: payment.amountMinor,
+              currency: payment.currency,
+              recordedAt: payment.recordedAt,
+              status: payment.status,
+              dealOutcome: detail.opportunity.outcome,
+            }}
+            events={detail.events}
+            now={now}
           />
         </div>
         <div className="contents @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-3.5 short:@4xl:gap-3">

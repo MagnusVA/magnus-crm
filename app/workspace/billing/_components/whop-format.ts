@@ -1,4 +1,4 @@
-import { formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { DEAL_POSITION_LABELS, type DealOutcome, type DealStage } from "@/convex/opportunities/stages";
 import { getErrorCode, getErrorMessage } from "@/lib/errors";
@@ -132,6 +132,14 @@ export function formatSince(at: number, now: number) {
   if (Math.abs(now - at) < 60_000) return "just now";
   return formatDistanceToNowStrict(at, { addSuffix: true });
 }
+
+/** How long something has waited: "3 hours", "2 days", or "under a minute". */
+export function formatWaitAge(since: number, now: number) {
+  if (now - since < 60_000) return "under a minute";
+  return formatDistanceStrict(since, now);
+}
+
+export const AUTOMATIC_RESULTS_HREF = "/workspace/settings/automatic-results";
 
 const ERROR_SENTENCES: Record<string, string> = {
   "provider_payment.changed": "Someone else changed this payment. Reload to see the current state.",

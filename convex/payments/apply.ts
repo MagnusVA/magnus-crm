@@ -5,6 +5,7 @@ import { supersedePaymentDecisions } from "../automation/decisions";
 import { deriveDecision, paymentBillingReason, type PaymentDecisionInput } from "../automation/derive";
 import { noteHumanResult } from "../automation/humanResult";
 import { recordApplyReceipt } from "../automation/receipts";
+import { modeAtLeastAsk, paymentEvidenceOf, paymentProposalOf } from "../automation/proposals";
 import { effectiveKindMode } from "../automation/settings";
 import { followMergeChain } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -125,7 +126,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   const rawPosition = dealPosition(deal.stage, deal.outcome);
   const kind = rawPosition === "won" ? "additional_payment" : "payment_win";
   const settings = tenant.resultAutomation;
-  if (tenant.status !== "active" || !settings || effectiveKindMode(tenant, kind) !== "ask") return refuse("kind_off");
+  if (tenant.status !== "active" || !settings || !modeAtLeastAsk(effectiveKindMode(tenant, kind))) return refuse("kind_off");
   if (isSideDeal(deal) || rawPosition === "call_held") return refuse("side_deal");
   if (rawPosition === "qualified") return refuse("qualified_only");
   const systemLoss = systemLossReasonOf(deal);
@@ -316,19 +317,22 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
 
   if (decision) {
     const settings = (await ctx.db.get("tenants", tenantId))?.resultAutomation;
-    if (decision.state !== "ready" || decision.mode !== "ask" || decision.kind !== kind || decision.leadId !== deal.leadId ||
+    const recordedEvidence = paymentEvidenceOf(decision);
+    const recordedProposal = paymentProposalOf(decision);
+    if (decision.state !== "ready" || !modeAtLeastAsk(decision.mode) || decision.kind !== kind || decision.leadId !== deal.leadId ||
         decision.humanResultRevision !== (deal.humanResultRevision ?? 0) ||
         decision.activationVersion !== settings?.activationVersion ||
         decision.policyVersion !== settings.kinds[kind].policyVersion ||
-        decision.evidence.allocationRevision !== payment.allocationRevision ||
-        decision.evidence.sourceUpdatedAt !== payment.sourceUpdatedAt ||
-        stableJson(decision.evidence.bindingIds) !== stableJson(bindingRows.map((row) => row._id)) ||
-        stableJson(decision.evidence.bindingVersions) !== stableJson(bindingRows.map((row) => row.version)) ||
+        !recordedEvidence ||
+        recordedEvidence.allocationRevision !== payment.allocationRevision ||
+        recordedEvidence.sourceUpdatedAt !== payment.sourceUpdatedAt ||
+        stableJson(recordedEvidence.bindingIds) !== stableJson(bindingRows.map((row) => row._id)) ||
+        stableJson(recordedEvidence.bindingVersions) !== stableJson(bindingRows.map((row) => row.version)) ||
         !derived.wouldWrite || decision.confirmRoute !== derived.confirmRoute || decision.meetingId !== derived.meetingId ||
-        decision.proposal?.completesFollowUpId !== derived.proposal?.completesFollowUpId ||
+        recordedProposal?.completesFollowUpId !== derived.proposal?.completesFollowUpId ||
         decision.assignedCloserId !== proposal.attributedCloserId ||
-        decision.proposal?.amountMinor !== proposal.amountMinor || decision.proposal.currency !== proposal.currency ||
-        decision.proposal.programId !== proposal.programId || decision.proposal.paymentType !== proposal.paymentType) {
+        recordedProposal?.amountMinor !== proposal.amountMinor || recordedProposal.currency !== proposal.currency ||
+        recordedProposal.programId !== proposal.programId || recordedProposal.paymentType !== proposal.paymentType) {
       return refuse("stale_preview");
     }
   }

@@ -5,21 +5,26 @@ import { Fragment, useState } from "react";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AlertTriangleIcon } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { isWhopSweepFresh, MAX_PROVIDER_PAYMENT_AGE_MS } from "@/convex/payments/reviewTiming";
 import { useRole } from "@/components/auth/role-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
 import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { FIGURE, formatPaidAt } from "./billing-format";
 import { QueueRowsSkeleton } from "./billing-queue-rows";
+import { paymentCommandSentence } from "./payment-command-words";
 import {
   ADVERSE_STATE_LABELS,
   dealStageLabel,
   formatSince,
+  formatWaitAge,
   INTEGRATIONS_HREF,
   MAPPING_REASONS,
   NOT_CASH_NOTE,
@@ -43,6 +48,7 @@ const FILTERS = [
   { state: "linked", label: "Linked", empty: "No Whop payments are linked." },
   { state: "dismissed", label: "Dismissed", empty: "No Whop payments have been dismissed." },
   { state: "historical", label: "History", empty: "No historical Whop payments." },
+  { state: "not_my_sale", label: "Not my sale", empty: "No closer has said a Whop payment isn't their sale." },
 ] as const;
 
 /** "500+" when the count reached the cap. */
@@ -125,6 +131,13 @@ function PaymentQueue({ counts, now }: { counts: Counts; now: number }) {
             onClick={() => setFilter(option)}
           >
             {option.label}
+            {option.state === "not_my_sale" && counts.notMySaleCount > 0 ? (
+              <span className="font-condensed text-[14px] font-semibold tabular-nums">
+                <span aria-hidden="true">{" · "}</span>
+                <span className="sr-only">, </span>
+                {formatExceptionCount({ count: counts.notMySaleCount, capped: counts.notMySaleCapped })}
+              </span>
+            ) : null}
           </Button>
         ))}
       </div>
@@ -134,7 +147,15 @@ function PaymentQueue({ counts, now }: { counts: Counts; now: number }) {
         <SectionEmpty title={filter.empty} />
       ) : (
         <ul aria-label={`${filter.label} Whop payments`}>
-          {rows.map((row) => <ExceptionRowItem key={row.providerPaymentId} row={row} now={now} linked={filter.state === "linked"} />)}
+          {rows.map((row) => (
+            <ExceptionRowItem
+              key={row.providerPaymentId}
+              row={row}
+              now={now}
+              linked={filter.state === "linked"}
+              waiting={filter.state === "needs_person"}
+            />
+          ))}
         </ul>
       )}
       {filter.state === "needs_person" || queue.status === "CanLoadMore" || queue.status === "LoadingMore" ? (
@@ -283,7 +304,66 @@ function decideLine(row: ExceptionRow, now: number) {
   ) : null;
 }
 
-function ExceptionRowItem({ row, now, linked }: { row: ExceptionRow; now: number; linked: boolean }) {
+/** "Waiting on Dee Moreno · 3 hours", or "Waiting on Billing · 2 days". */
+function WaitingLine({ row, now }: { row: ExceptionRow; now: number }) {
+  const who = row.waitsOn === "closer" ? row.closerName ?? "the closer" : "Billing";
+  return (
+    <p className="mt-0.5 text-[13px] text-muted-foreground">
+      Waiting on{" "}
+      <span className="font-medium text-foreground" translate={row.waitsOn === "closer" ? "no" : undefined}>
+        {who}
+      </span>
+      {" · "}
+      <span className="font-condensed text-[14px] font-semibold tabular-nums">{formatWaitAge(row.waitingSince, now)}</span>
+    </p>
+  );
+}
+
+/** A closer said this isn't their sale: take it off the deal, or clear the flag. */
+function NotMySaleLine({ row }: { row: ExceptionRow }) {
+  const { hasPermission } = useRole();
+  const clear = useMutation(api.payments.notMySale.clearNotMySale);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function itIsTheirSale() {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await clear({ providerPaymentId: row.providerPaymentId });
+      if (result.ok) toast.success(result.alreadyApplied ? "The flag was already cleared." : "Cleared. The sale stays with the closer.");
+      else setError(paymentCommandSentence(result.code));
+    } catch (caught) {
+      setError(providerErrorMessage(caught, "Couldn't clear the flag. Try again."));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5">
+      <p className="text-[14px] font-medium text-warning-ink">
+        {row.closerName ? <span translate="no">{row.closerName}</span> : "The closer"} says this isn&apos;t their sale.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {hasPermission("billing:correct") ? (
+          <Button asChild size="sm" variant="outline" className="h-8">
+            <Link href={`/workspace/billing/whop/${row.providerPaymentId}?takeOut=wrong_match`}>Take it off this deal</Link>
+          </Button>
+        ) : null}
+        {hasPermission("billing:review") ? (
+          <Button type="button" size="sm" variant="outline" className="h-8" disabled={pending} onClick={() => void itIsTheirSale()}>
+            {pending ? <Spinner data-icon="inline-start" /> : null}
+            <TranslatableText>It is their sale</TranslatableText>
+          </Button>
+        ) : null}
+      </div>
+      {error ? <p role="alert" className="text-[13px] text-danger-ink">{error}</p> : null}
+    </div>
+  );
+}
+
+function ExceptionRowItem({ row, now, linked, waiting }: { row: ExceptionRow; now: number; linked: boolean; waiting: boolean }) {
   const amount =
     row.totalMinor !== null ? formatAmountMinor(row.totalMinor, row.currency) : `${row.currency.toUpperCase()}, amount not readable`;
   const when = row.paidAt !== null ? `collected ${formatPaidAt(row.paidAt, now)}` : `reported ${formatPaidAt(row.firstSeenAt, now)}`;
@@ -306,7 +386,7 @@ function ExceptionRowItem({ row, now, linked }: { row: ExceptionRow; now: number
           ) : null}
         </p>
         <p className="text-[14px] font-medium">
-          {linked ? "Linked to a CRM payment." : reasonSentence(row.reviewReason)}
+          {linked ? "Linked to a CRM payment." : row.notMySaleAt !== null ? "Counts as a CRM payment." : reasonSentence(row.reviewReason)}
           {row.reviewReason && MAPPING_REASONS.has(row.reviewReason) ? (
             <>
               {" "}
@@ -320,6 +400,8 @@ function ExceptionRowItem({ row, now, linked }: { row: ExceptionRow; now: number
           <p className="mt-0.5 text-[13px] text-muted-foreground">Open this payment to check its latest match.</p>
         ) : null}
         {decide ? <p className="mt-0.5 text-[13px] text-muted-foreground">{decide}</p> : null}
+        {waiting ? <WaitingLine row={row} now={now} /> : null}
+        {row.notMySaleAt !== null ? <NotMySaleLine row={row} /> : null}
       </div>
       <Button asChild size="sm" variant="outline" className="h-8 shrink-0">
         <Link href={`/workspace/billing/whop/${row.providerPaymentId}`}>

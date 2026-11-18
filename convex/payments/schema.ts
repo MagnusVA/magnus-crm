@@ -435,6 +435,10 @@ export const paymentProviderTables = {
     ),
     setByUserId: v.id("users"),
     setAt: v.number(),
+    // An audit found a wrong amount, type or program on an automatic write:
+    // this mapping stays at ask until a new sample covers it.
+    automaticHeldAt: v.optional(v.number()),
+    automaticHeldDecisionId: v.optional(v.id("resultAutomationDecisions")),
   })
     .index("by_tenantId_and_connectionId_and_kind_and_externalId", [
       "tenantId",

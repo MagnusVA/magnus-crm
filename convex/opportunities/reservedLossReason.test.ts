@@ -106,7 +106,10 @@ describe.each(writers)("$name loss reasons", (writer) => {
   it("rejects all reserved spellings without changing the deal, meeting, task or events", async () => {
     const { h, target } = await setup(writer);
     const before = await stateOf(h, target);
-    for (const reason of ["payment_excluded", "PAYMENT_EXCLUDED", " Payment_Excluded "]) {
+    for (const reason of [
+      "payment_excluded", "PAYMENT_EXCLUDED", " Payment_Excluded ",
+      "call_refusal", "CALL_REFUSAL", " Call_Refusal ",
+    ]) {
       await expect(writer.write(h, target, reason)).rejects.toMatchObject({
         data: { code: "deal.reserved_loss_reason" },
       });

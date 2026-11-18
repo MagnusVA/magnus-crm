@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { businessDateForInstant, businessDayRange } from "../../lib/businessDay";
 import type { Doc } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { modeAtLeastAsk, paymentEvidenceOf, paymentProposalOf } from "../automation/proposals";
 import { effectiveKindMode } from "../automation/settings";
 import { requireBillingOpsEnabled, requireBillingPermission } from "../billing/guards";
 import { recordAttendanceOnlyCore } from "../closer/attendanceOnly";
@@ -41,7 +42,7 @@ export function isCurrentWhopAsk(
   const settings = tenant.resultAutomation;
   return tenant.status === "active" && (kind === "payment_win" || kind === "additional_payment") &&
     decision.tenantId === tenant._id && deal.tenantId === tenant._id && payment.tenantId === tenant._id &&
-    decision.state === "ready" && decision.mode === "ask" && effectiveKindMode(tenant, kind) === "ask" &&
+    decision.state === "ready" && modeAtLeastAsk(decision.mode) && modeAtLeastAsk(effectiveKindMode(tenant, kind)) &&
     decision.opportunityId === deal._id && decision.leadId === deal.leadId &&
     decision.providerPaymentId === payment._id && payment.status === "paid" && !payment.paymentRecordId &&
     payment.adverseState === "none" && payment.adverseFencedAt === undefined && payment.refundedMinor === 0 &&
@@ -51,8 +52,8 @@ export function isCurrentWhopAsk(
     decision.activationVersion === settings?.activationVersion &&
     decision.policyVersion === settings?.kinds[kind].policyVersion &&
     decision.humanResultRevision === (deal.humanResultRevision ?? 0) &&
-    decision.evidence.allocationRevision === payment.allocationRevision &&
-    decision.evidence.sourceUpdatedAt === payment.sourceUpdatedAt;
+    paymentEvidenceOf(decision)?.allocationRevision === payment.allocationRevision &&
+    paymentEvidenceOf(decision)?.sourceUpdatedAt === payment.sourceUpdatedAt;
 }
 
 function billingAvailableAt(tenant: Doc<"tenants">, decision: Decision | null) {
@@ -121,16 +122,17 @@ export const getWhopAsk = query({
     for (const decision of decisions) {
       if (!decision.providerPaymentId || decision.confirmRoute !== target.kind ||
           (target.kind === "meeting" && (decision.meetingId !== target.meetingId || item.status !== "scheduled")) ||
-          (target.kind === "reminder" && (decision.proposal?.completesFollowUpId !== target.followUpId || item.status !== "pending"))) continue;
+          (target.kind === "reminder" && (paymentProposalOf(decision)?.completesFollowUpId !== target.followUpId || item.status !== "pending"))) continue;
       const payment = await ctx.db.get("providerPayments", decision.providerPaymentId);
       if (!payment || !isCurrentWhopAsk(tenant, decision, deal, payment)) continue;
       const preview = await previewProviderApply(ctx, {
         tenantId, opportunityId: deal._id, providerPaymentId: payment._id, now,
       });
-      if (!preview.ok || decision.proposal?.programId !== preview.proposal.programId ||
-          decision.proposal?.paymentType !== preview.proposal.paymentType ||
-          decision.proposal?.amountMinor !== preview.proposal.amountMinor ||
-          decision.proposal?.currency !== preview.proposal.currency) return null;
+      const proposal = paymentProposalOf(decision);
+      if (!preview.ok || proposal?.programId !== preview.proposal.programId ||
+          proposal?.paymentType !== preview.proposal.paymentType ||
+          proposal?.amountMinor !== preview.proposal.amountMinor ||
+          proposal?.currency !== preview.proposal.currency) return null;
       return { decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id, createdAt: decision.createdAt, preview };
     }
     return null;
@@ -193,7 +195,7 @@ export const confirmWhopPayment = mutation({
     const ready = await findReadyWhopDecision(ctx, payment);
     const kind = deal.outcome === "won" ? "additional_payment" : "payment_win";
     const availableAt = billingAvailableAt(tenant, ready);
-    if (effectiveKindMode(tenant, kind) === "ask" && availableAt !== undefined && now < availableAt) {
+    if (modeAtLeastAsk(effectiveKindMode(tenant, kind)) && availableAt !== undefined && now < availableAt) {
       return refuse("not_owner");
     }
     const decisionId = args.decisionId ?? (deal.outcome !== "lost" && ready?.opportunityId === args.opportunityId ? ready._id : undefined);
