@@ -70,3 +70,7 @@ next-env.d.ts
 # checksum-verifies the pinned engine into ~/.impeccable/bin on first run.
 .agents/skills/impeccable/scripts/bin/
 .claude/skills/impeccable/scripts/bin/
+
+# Whop measurement outputs hold payment and person ids. Keep them out of the repo.
+/whop-measurement*.md
+/whop-measurement*.json
