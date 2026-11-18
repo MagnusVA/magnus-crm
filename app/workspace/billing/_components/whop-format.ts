@@ -71,7 +71,7 @@ export const UNKNOWN_PAYER_REASONS = new Set<ProviderReviewReason>([
 export const UNKNOWN_PAYER_NOTE =
   "Payer shown separately from the buyer. Picking a person does not add this email to their record.";
 
-export const NOT_CASH_NOTE = "These are not CRM payments yet and are in no cash total.";
+export const NOT_CASH_NOTE = "These are Whop's records, not CRM payments. None is in a cash total.";
 
 export function reasonSentence(reason: ProviderReviewReason | null | undefined) {
   return reason ? PROVIDER_REASON_SENTENCES[reason] : "Waiting for a person to look at it.";

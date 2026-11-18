@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -355,6 +355,14 @@ function StatusTabs({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const views: BillingView[] = [...TABS.map((tab) => tab.status), "whop"];
+
+  // The strip scrolls sideways on a phone. Keep the selected tab in view,
+  // also once its count arrives and makes it wider.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLButtonElement>(`#${tabId(view)}`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [view, whopCount]);
 
   const select = (index: number) => {
     const next = views[(index + views.length) % views.length];

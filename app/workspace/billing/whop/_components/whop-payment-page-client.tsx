@@ -54,7 +54,7 @@ import {
 const BACK = { href: WHOP_VIEW_HREF, label: "From Whop" };
 const PAGE = "@container mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3";
 const MONO = "font-mono text-[12.5px] tracking-[-0.01em]";
-const NOT_A_CRM_PAYMENT = "This is not a CRM payment yet and is in no cash total.";
+const NOT_A_CRM_PAYMENT = "This is Whop's record, not a CRM payment. It is in no cash total.";
 
 type Detail = NonNullable<FunctionReturnType<typeof api.payments.review.getProviderPayment>>;
 type ProviderPayment = Detail["payment"];
@@ -531,7 +531,12 @@ function LinkCard({ detail, now }: { detail: Detail; now: number }) {
         {picking ? (
           <Field>
             <FieldLabel htmlFor={`whop-person-${payment._id}`}>Person</FieldLabel>
-            <LeadCombobox id={`whop-person-${payment._id}`} value={pickedLeadId} onChange={setPickedLeadId} />
+            <LeadCombobox
+              id={`whop-person-${payment._id}`}
+              value={pickedLeadId}
+              onChange={setPickedLeadId}
+              emptyText="Nobody matches. Try an email, a phone number or another spelling."
+            />
             <FieldDescription className="text-[13px]">{UNKNOWN_PAYER_NOTE}</FieldDescription>
             {candidatePerson ? (
               <button
@@ -723,7 +728,7 @@ function ManualPaymentChoice({
               <span className={FIGURE}>{formatAmountMinor(mismatch.amountMinor, mismatch.currency)}</span>.
             </p>
             <p className="text-[13px] text-muted-foreground">
-              Linking keeps the CRM amount. It records that this Whop payment is the proof for that payment.
+              Linking keeps the CRM payment's amount, date and credit, so no cash figure changes. It records that this Whop payment is the proof for that payment.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" disabled={pending} onClick={() => void submit(true)} className="font-semibold">

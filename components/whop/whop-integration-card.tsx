@@ -71,7 +71,7 @@ function WhopSummary({ quiet }: { quiet: boolean }) {
                 •••• {connection.keyLast4}
               </span>
             </Fact>
-            <Fact label="Last payment" tip="When Whop last sent Magnus a payment event.">
+            <Fact label="Last Whop event" tip="When Whop last sent Magnus a payment, refund or dispute event.">
               {connection.lastWebhookAt ? (
                 <span className={FACT_FIGURE}>{dayTimeFormat.format(connection.lastWebhookAt)}</span>
               ) : (
@@ -102,7 +102,7 @@ function WhopSummary({ quiet }: { quiet: boolean }) {
           ) : !connection.hasWebhookSecret ? (
             <div className="border-b border-border px-4 py-2.5">
               <NoteLine tone="warning">
-                Whop payments arrive only after the webhook is set up. Add it in Whop and paste its secret here.
+                Without the webhook, Magnus checks Whop every 15 minutes. Add the webhook in Whop and paste its secret here so payments arrive right away.
               </NoteLine>
             </div>
           ) : null}
@@ -119,7 +119,7 @@ function WhopSummary({ quiet }: { quiet: boolean }) {
         <>
           <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
             <NoteLine>
-              Whop payments appear in Billing as evidence. Nothing is recorded as cash until a person confirms it.
+              Whop payments appear in Billing as evidence for payments your team records. They never count as cash by themselves.
             </NoteLine>
             {connection?.status === "invalid_key" ? (
               <NoteLine tone="danger" role="alert">

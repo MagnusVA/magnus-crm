@@ -74,7 +74,7 @@ export function WhopConnectionCard({ connection }: { connection: WhopConnection 
         ) : null}
         <NoteLine>
           Payments collected before <span className="whitespace-nowrap">{formatDay(connection.autoImportAfter)}</span>{" "}
-          are history: they are shown in Billing and never proposed.
+          are history. They are listed under History in Billing › From Whop and are never proposed.
         </NoteLine>
       </div>
       <ActionRow className="border-t-0">
