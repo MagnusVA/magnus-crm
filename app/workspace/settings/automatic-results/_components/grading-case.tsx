@@ -21,7 +21,8 @@ import { formatAmountMinor } from "@/lib/format-currency";
 import { getErrorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { AnswerForm, usePersonDeals, type GraderAnswer } from "./answer-form";
-import type { KindDefinition } from "./automation-kinds";
+import { WRONG_FIELD_LABELS, kindDefinition, type KindDefinition, type WrongField } from "./automation-kinds";
+import { CallAnswerForm, CallComparison, CallEvidence } from "./call-grading";
 import { SEGMENT, SEGMENT_GROUP } from "./automation-ui";
 import type { ConfirmChange } from "./confirm-change-dialog";
 
@@ -33,29 +34,11 @@ type Decision = FunctionReturnType<typeof api.automation.grading.reveal>;
 type CommittedAnswer = NonNullable<FunctionReturnType<typeof api.automation.grading.getMyAnswer>>;
 type UnsureCase = FunctionReturnType<typeof api.automation.grading.listUnsure>[number];
 type Verdict = "correct" | "wrong" | "unsure";
-type WrongField = UnsureCase["wrongFields"][number];
 
-const WRONG_FIELD_LABELS: Record<WrongField, string> = {
-  person: "Person",
-  deal: "Deal",
-  amount: "Amount",
-  currency: "Currency",
-  type: "Type",
-  program: "Program",
-  credit: "Credit",
-  should_abstain: "Should have left it",
-  should_write: "Should have written",
-  time: "Time",
-  method: "Call or text",
-  purpose: "Kind of task",
-  attendance: "Attendance",
-  false_loss: "Not a refusal",
-};
-
-const WRONG_FIELDS: Record<GradeSample, readonly WrongField[]> = {
-  writes: ["person", "deal", "amount", "currency", "type", "program", "credit", "should_abstain"],
-  abstentions: ["should_write"],
-};
+/** The fields a grader can mark wrong: the kind's own on a write, "should have written" on an abstention. */
+function wrongFieldsFor(definition: KindDefinition, sample: GradeSample): readonly WrongField[] {
+  return sample === "writes" ? definition.wrongFields : ["should_write"];
+}
 
 const GATE_LABELS = {
   ...PROVIDER_REASON_SENTENCES,
@@ -75,6 +58,7 @@ export function GradingCase({
   gradeCase: GradeCase;
 }) {
   const { decisionId, evidence } = gradeCase;
+  const isCall = definition.source === "call";
   const commitAnswer = useMutation(api.automation.grading.commitAnswer);
   const reveal = useMutation(api.automation.grading.reveal);
   const [commitSucceeded, setCommitSucceeded] = useState(false);
@@ -120,13 +104,13 @@ export function GradingCase({
         </p>
       </div>
 
-      <Evidence evidence={evidence} />
+      {isCall ? <CallEvidence call={gradeCase.call} /> : <Evidence evidence={evidence} />}
 
       {committed ? (
         myAnswer ? (
           <CompareAndGrade
             decisionId={decisionId}
-            kindName={definition.shortName}
+            definition={definition}
             sample={sample}
             myAnswer={myAnswer}
             earlyDecision={earlyDecision}
@@ -141,15 +125,19 @@ export function GradingCase({
           {earlyDecision ? (
             <>
               <NoteLine tone="warning" className="px-4 pt-2.5">{EXPOSURE_WARNING}</NoteLine>
-              <DecisionComparison decision={earlyDecision} />
+              <AnyComparison decision={earlyDecision} />
             </>
           ) : null}
-          <AnswerForm
-            defaultCurrency={evidence?.currency ?? "USD"}
-            payerEmail={evidence?.payerEmail}
-            pending={committing}
-            onCommit={(answer) => void commit(answer)}
-          />
+          {isCall ? (
+            <CallAnswerForm pending={committing} onCommit={(answer) => void commit(answer)} />
+          ) : (
+            <AnswerForm
+              defaultCurrency={evidence?.currency ?? "USD"}
+              payerEmail={evidence?.payerEmail}
+              pending={committing}
+              onCommit={(answer) => void commit(answer)}
+            />
+          )}
           {earlyDecision ? null : (
             <div className="border-t border-border px-4 py-2">
               <button
@@ -217,13 +205,13 @@ function Evidence({ evidence }: { evidence: GradeCase["evidence"] }) {
 
 function CompareAndGrade({
   decisionId,
-  kindName,
+  definition,
   sample,
   myAnswer,
   earlyDecision,
 }: {
   decisionId: GradeCase["decisionId"];
-  kindName: string;
+  definition: KindDefinition;
   sample: GradeSample;
   myAnswer: CommittedAnswer;
   earlyDecision?: Decision;
@@ -252,8 +240,8 @@ function CompareAndGrade({
   return (
     <>
       {myAnswer.blind ? null : <NoteLine tone="warning" className="px-4 pt-2.5">{EXPOSURE_WARNING}</NoteLine>}
-      <DecisionComparison decision={decision} answer={myAnswer.answer} answerLabel="You" />
-      <VerdictForm decisionId={decisionId} sample={sample} kindName={kindName} />
+      <AnyComparison decision={decision} answer={myAnswer.answer} answerLabel="You" />
+      <VerdictForm decisionId={decisionId} fields={wrongFieldsFor(definition, sample)} kindName={definition.shortName} />
     </>
   );
 }
@@ -267,6 +255,13 @@ function usePersonAndDeal(leadId?: Id<"leads">, opportunityId?: Id<"opportunitie
       ? deals === undefined ? "Loading…" : deals.find((deal) => deal.id === opportunityId)?.label ?? opportunityId
       : undefined,
   };
+}
+
+/** The call comparison for a call kind, the payment comparison otherwise. */
+function AnyComparison(props: { decision: Decision; answer?: GraderAnswer | null; answerLabel?: string }) {
+  return kindDefinition(props.decision.kind).source === "call"
+    ? <CallComparison {...props} />
+    : <DecisionComparison {...props} />;
 }
 
 function DecisionComparison({
@@ -434,8 +429,10 @@ export function UnsureGradingCase({ entry }: { entry: UnsureCase }) {
       </summary>
       {open ? (
         <>
-          <Evidence evidence={entry.evidence} />
-          <DecisionComparison decision={entry.proposal} answer={entry.answer} answerLabel="Grader" />
+          {kindDefinition(entry.proposal.kind).source === "call"
+            ? <CallEvidence call={entry.call} />
+            : <Evidence evidence={entry.evidence} />}
+          <AnyComparison decision={entry.proposal} answer={entry.answer} answerLabel="Grader" />
           {entry.wrongFields.length ? (
             <NoteLine className="px-4 pt-2.5">
               Marked wrong · {entry.wrongFields.map((field) => WRONG_FIELD_LABELS[field]).join(", ")}
@@ -460,11 +457,11 @@ export function UnsureGradingCase({ entry }: { entry: UnsureCase }) {
 
 function VerdictForm({
   decisionId,
-  sample,
+  fields,
   kindName,
 }: {
   decisionId: Id<"resultAutomationDecisions">;
-  sample: GradeSample;
+  fields: readonly WrongField[];
   kindName: string;
 }) {
   const recordGrade = useMutation(api.automation.grading.recordGrade);
@@ -472,7 +469,6 @@ function VerdictForm({
   const [wrong, setWrong] = useState<WrongField[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fields = WRONG_FIELDS[sample];
   const needsFields = verdict === "wrong" && wrong.length === 0;
 
   const save = async () => {

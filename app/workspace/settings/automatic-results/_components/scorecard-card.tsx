@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useNow } from "@/hooks/use-now";
@@ -9,6 +10,8 @@ import { CARD, CardHead, LABEL } from "@/app/workspace/team/_components/team-ui"
 import { cn } from "@/lib/utils";
 import {
   AUTOMATION_KINDS,
+  BREAKER_WORDS,
+  PAYMENT_KINDS,
   ageWords,
   countWords,
   type AutomationScorecard,
@@ -20,7 +23,9 @@ export const SCORECARD_WINDOWS = [7, 30, 90] as const;
 type WindowDays = (typeof SCORECARD_WINDOWS)[number];
 
 type Count = { count: number; capped: boolean };
-export type ScorecardKindStats = AutomationScorecard["kinds"][keyof AutomationScorecard["kinds"]];
+type ScoredKind = keyof AutomationScorecard["kinds"];
+export type ScorecardKindStats = AutomationScorecard["kinds"][ScoredKind];
+const DAY_MS = 86_400_000;
 
 /** The scorecard's columns, in order. A later kind with other figures adds columns here. */
 export const SCORECARD_COLUMNS: ReadonlyArray<{
@@ -61,11 +66,13 @@ function freshnessWords(freshness: AutomationScorecard["freshness"], now: number
  * the server stopped at read "N+". The table scrolls inside its own frame on
  * a phone; while a new window loads, the old figures stay, dimmed.
  */
-export function ScorecardCard({ kinds = AUTOMATION_KINDS }: { kinds?: readonly KindDefinition[] }) {
+export function ScorecardCard({ kinds = PAYMENT_KINDS }: { kinds?: readonly KindDefinition[] }) {
   const id = useId();
   const now = useNow();
   const [windowDays, setWindowDays] = useState<WindowDays>(30);
   const live = useQuery(api.automation.scorecard.getAutomationScorecard, { windowDays });
+  const to = Math.floor(now / 60_000) * 60_000;
+  const alerts = useQuery(api.automation.alert.getAlertMetrics, { from: to - windowDays * DAY_MS, to });
   const [kept, setKept] = useState<{ windowDays: WindowDays; data: AutomationScorecard } | null>(null);
   if (live !== undefined && (kept?.data !== live || kept.windowDays !== windowDays)) {
     setKept({ windowDays, data: live });
@@ -105,22 +112,32 @@ export function ScorecardCard({ kinds = AUTOMATION_KINDS }: { kinds?: readonly K
           aria-busy={loading || undefined}
           className={cn("transition-opacity duration-200", loading && "opacity-60")}
         >
-          <ScorecardBody data={shown.data} kinds={kinds} now={now} />
+          <ScorecardBody data={shown.data} kinds={kinds} now={now} alerts={alerts} />
         </div>
       )}
     </section>
   );
 }
 
+type AlertMetrics = FunctionReturnType<typeof api.automation.alert.getAlertMetrics>;
+
+/** Only the payment kinds have per-kind figures on the scorecard today. */
+function scored(definition: KindDefinition): definition is KindDefinition & { kind: ScoredKind } {
+  return definition.kind === "payment_win" || definition.kind === "additional_payment";
+}
+
 function ScorecardBody({
   data,
-  kinds,
+  kinds: allKinds,
   now,
+  alerts,
 }: {
   data: AutomationScorecard;
   kinds: readonly KindDefinition[];
   now: number;
+  alerts: AlertMetrics | undefined;
 }) {
+  const kinds = allKinds.filter(scored);
   const waiting = data.paymentsWaiting;
   const ungraded = kinds.reduce(
     (sum, definition) => {
@@ -196,7 +213,7 @@ function ScorecardBody({
               )
             : null}
         </QueueLine>
-        <QueueLine term="Ungraded proposals" figure={countWords(ungraded.count, ungraded.capped)}>
+        <QueueLine term="Ungraded payment proposals" figure={countWords(ungraded.count, ungraded.capped)}>
           {oldest(ungraded.oldestAt)}
         </QueueLine>
         <QueueLine
@@ -204,8 +221,78 @@ function ScorecardBody({
           figure={countWords(data.unansweredNotMySale.count, data.unansweredNotMySale.capped)}
           tone={data.unansweredNotMySale.count > 0 ? "warning" : "muted"}
         />
+        <QueueLine
+          term="Automatic results waiting for a person's check"
+          figure={countWords(data.auditQueue.count, data.auditQueue.capped)}
+          tone={data.auditQueue.count > 0 ? "warning" : "muted"}
+        >
+          {oldest(data.auditQueue.oldestAt)}
+        </QueueLine>
+        <QueueLine
+          term="Kinds back at one tap"
+          figure={String(data.breakers.length)}
+          tone={data.breakers.length > 0 ? "warning" : "muted"}
+        >
+          {data.breakers.length
+            ? data.breakers
+                .map((breaker) => `${AUTOMATION_KINDS.find((row) => row.kind === breaker.kind)?.shortName}: ${BREAKER_WORDS[breaker.reason]}`)
+                .join(" · ")
+            : null}
+        </QueueLine>
+        {alerts ? (
+          <>
+            <QueueLine
+              term="Paid-on-call alerts, false alarms"
+              figure={`${alerts.falseAlarms}${alerts.capped ? "+" : ""}`}
+            >
+              of {alerts.wouldRaise}{alerts.capped ? "+" : ""} it would have raised; a payment arrived within 7 days
+            </QueueLine>
+            <QueueLine
+              term="Paid-on-call alerts still open"
+              figure={`${alerts.open}${alerts.capped ? "+" : ""}`}
+              tone={alerts.over24Hours > 0 ? "warning" : "muted"}
+            >
+              {alerts.over24Hours > 0 ? `${alerts.over24Hours} open for more than 24 hours` : null}
+            </QueueLine>
+          </>
+        ) : null}
       </dl>
+      <AutomaticWritesTable data={data} />
     </>
+  );
+}
+
+/** Results each kind recorded by itself in the window, and whether it is back at one tap. */
+function AutomaticWritesTable({ data }: { data: AutomationScorecard }) {
+  return (
+    <div className="overflow-x-auto border-t border-border">
+      <table className="w-full min-w-[28rem] text-left text-[13px]">
+        <thead>
+          <tr className="border-b border-border">
+            <th scope="col" className={cn(LABEL, "px-4 py-2 font-semibold")}>Kind</th>
+            <th scope="col" className={cn(LABEL, "px-3 py-2 text-right font-semibold")}>Recorded by itself</th>
+            <th scope="col" className={cn(LABEL, "px-4 py-2 font-semibold")}>Now</th>
+          </tr>
+        </thead>
+        <tbody>
+          {AUTOMATION_KINDS.map((definition) => {
+            const writes = data.automaticWrites[definition.kind];
+            const breaker = data.breakers.find((row) => row.kind === definition.kind);
+            return (
+              <tr key={definition.kind} className="h-11 border-b border-border last:border-b-0">
+                <th scope="row" className="px-4 py-2 font-medium">{definition.shortName}</th>
+                <td className="px-3 py-2 text-right">
+                  <span className={INLINE_FIGURE}>{countWords(writes.count, writes.capped)}</span>
+                </td>
+                <td className={cn("px-4 py-2", breaker ? "text-warning-ink" : "text-muted-foreground")}>
+                  {breaker ? "Back at one tap" : "Not stopped"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

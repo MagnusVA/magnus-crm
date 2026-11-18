@@ -98,7 +98,9 @@ export function GradingCard({
         />
       ) : (
         <SectionEmpty title="Nothing to grade here.">
-          New cases arrive while this kind is at Shadow or Ask and Whop reports payments.
+          {definition.source === "call"
+            ? "New cases arrive while this kind is at Shadow or Ask and Call insights reads recorded calls. A call case takes about twelve minutes."
+            : "New cases arrive while this kind is at Shadow or Ask and Whop reports payments. A payment case takes about two minutes."}
         </SectionEmpty>
       )}
 

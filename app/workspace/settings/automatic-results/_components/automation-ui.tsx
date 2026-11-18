@@ -16,7 +16,8 @@ export const SEGMENT_GROUP = "rounded-[7px] border bg-background p-0.5";
  * The level for one kind: Off / Shadow / Ask / Automatic as one segmented
  * toggle. It never changes by itself: a pick calls `onRequest`, and the page
  * confirms before saving. Levels above the current one are disabled without
- * `canRaise`, below it without `canLower`; a locked level shows its lock.
+ * `canRaise`, below it without `canLower`; a level in `locked` shows its lock
+ * and says why in a tip and in its accessible name.
  */
 export function LevelControl({
   value,
@@ -25,15 +26,18 @@ export function LevelControl({
   canLower,
   disabled,
   onRequest,
+  locked = {},
   levels = LEVELS,
 }: {
   value: Level;
-  /** The accessible name of the group, such as "Level for Won, from a payment". */
+  /** The accessible name of the group, such as "Level for Won from a payment". */
   label: string;
   canRaise: boolean;
   canLower: boolean;
   disabled?: boolean;
   onRequest: (next: Level) => void;
+  /** Levels that can't be chosen now, with the reason in words. */
+  locked?: Partial<Record<Level, string>>;
   levels?: readonly LevelDefinition[];
 }) {
   const current = levelRank(value);
@@ -42,28 +46,28 @@ export function LevelControl({
       type="single"
       value={value}
       aria-label={label}
-      className={SEGMENT_GROUP}
+      className={cn(SEGMENT_GROUP, "max-w-full flex-wrap")}
       onValueChange={(next) => {
         if (next && next !== value) onRequest(next as Level);
       }}
     >
       {levels.map((level) => {
         const rank = levelRank(level.value);
-        const blocked =
-          !level.available || (rank > current && !canRaise) || (rank < current && !canLower);
+        const lockedReason = level.value === value ? undefined : locked[level.value];
+        const blocked = lockedReason !== undefined || (rank > current && !canRaise) || (rank < current && !canLower);
         const item = (
           <ToggleGroupItem
             key={level.value}
             value={level.value}
             disabled={disabled || blocked}
-            aria-label={level.available ? level.label : `${level.label}, ${level.lockedReason ?? "not available"}`}
+            aria-label={lockedReason ? `${level.label}, locked: ${lockedReason}` : level.label}
             className={SEGMENT}
           >
-            {level.available ? null : <LockIcon aria-hidden="true" className="size-3" />}
+            {lockedReason ? <LockIcon aria-hidden="true" className="size-3" /> : null}
             {level.label}
           </ToggleGroupItem>
         );
-        if (level.available) return item;
+        if (!lockedReason) return item;
         // A disabled button gets no hover, so the tip sits on a wrapper.
         return (
           <Tooltip key={level.value}>
@@ -72,7 +76,7 @@ export function LevelControl({
                 {item}
               </span>
             </TooltipTrigger>
-            <TooltipContent className="text-[12.5px]">{level.lockedReason}</TooltipContent>
+            <TooltipContent className="max-w-72 text-[12.5px]">{lockedReason}</TooltipContent>
           </Tooltip>
         );
       })}

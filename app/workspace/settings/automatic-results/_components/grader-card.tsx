@@ -46,7 +46,7 @@ export function GraderCard({ view }: { view: AutomationSettingsView }) {
     <section aria-labelledby={`${id}-title`} className={`${CARD} @container`}>
       <CardHead
         title={<span id={`${id}-title`}>Grader</span>}
-        meta="A payment case takes about two minutes."
+        meta="A payment case takes about two minutes, a call about twelve."
       />
       {view.canRaise ? (
         <SettingRow

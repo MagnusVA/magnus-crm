@@ -33,9 +33,9 @@ export function LevelsCard({ levels = LEVELS }: { levels?: readonly LevelDefinit
                 <tr key={level.value} className="border-b border-border last:border-b-0">
                   <th scope="row" className="px-4 py-2 align-top font-semibold">
                     {level.label}
-                    {level.available ? null : (
-                      <span className="block font-normal text-muted-foreground">{level.lockedReason}</span>
-                    )}
+                    {level.value === "automatic" ? (
+                      <span className="block font-normal text-muted-foreground">Earned by a clean sample</span>
+                    ) : null}
                   </th>
                   <td className="px-4 py-2 align-top">{level.does}</td>
                   <td className="px-4 py-2 align-top text-muted-foreground">{level.changes}</td>
