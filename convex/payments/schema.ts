@@ -396,7 +396,7 @@ export const paymentProviderTables = {
       "kind",
       "externalId",
     ])
-    .index("by_tenantId_and_kind_and_enabled_and_binding_anchorPaymentRecordId", [
+    .index("by_tenantId_kind_enabled_anchorPaymentRecordId", [
       "tenantId", "kind", "enabled", "binding.anchorPaymentRecordId",
     ])
     .index("by_tenantId_and_opportunityId_and_kind", [

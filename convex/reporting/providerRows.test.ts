@@ -13,7 +13,7 @@ const window = { startDate: depositAt, endDate: installmentAt + DAY };
 
 describe("provider payment report readers", () => {
   it.each(["confirmed", "automatic"] as const)("counts %s payments at recordedAt", async (entry) => {
-    const f = await providerPaymentFixture({ dealStatus: null });
+    const f = await providerPaymentFixture({ dealPosition: null });
     await f.t.run(async (ctx) => {
       // An unassigned won deal needs payment credit to appear in Lead Conversion.
       const opportunityId = await insertDeal(ctx, { tenantId: f.tenantId, leadId: f.personId });

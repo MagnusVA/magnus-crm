@@ -18,7 +18,7 @@ type BindingAnchor = { tenantId: Id<"tenants">; paymentRecordId: Id<"paymentReco
 
 function anchoredBindings(ctx: MutationCtx, { tenantId, paymentRecordId, through }: BindingAnchor) {
   return ctx.db.query("paymentProviderBindings")
-    .withIndex("by_tenantId_and_kind_and_enabled_and_binding_anchorPaymentRecordId", (q) => {
+    .withIndex("by_tenantId_kind_enabled_anchorPaymentRecordId", (q) => {
       const range = q.eq("tenantId", tenantId).eq("kind", "membership_deal").eq("enabled", true)
         .eq("binding.anchorPaymentRecordId", paymentRecordId);
       return through === undefined ? range : range.lte("_creationTime", through);

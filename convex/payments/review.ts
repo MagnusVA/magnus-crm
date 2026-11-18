@@ -77,7 +77,7 @@ const manualPaymentValidator = v.object({
   programId: v.id("tenantPrograms"),
   programName: v.string(),
   recordedAt: v.number(),
-  recordedByUserId: v.id("users"),
+  recordedByUserId: v.union(v.id("users"), v.null()),
   recordedByName: nullableString,
 });
 
@@ -334,7 +334,9 @@ async function listManualPayments(ctx: QueryCtx, tenantId: Id<"tenants">, leadId
   }
   candidates.sort((a, b) => b.recordedAt - a.recordedAt || a._id.localeCompare(b._id));
   const manualPayments = await Promise.all(candidates.slice(0, MANUAL_PAYMENT_LIMIT).map(async (record) => {
-    const user = await ctx.db.get("users", record.recordedByUserId);
+    const user = record.recordedByUserId
+      ? await ctx.db.get("users", record.recordedByUserId)
+      : null;
     return {
       paymentRecordId: record._id,
       opportunityId: record.opportunityId,
@@ -344,7 +346,7 @@ async function listManualPayments(ctx: QueryCtx, tenantId: Id<"tenants">, leadId
       programId: record.programId,
       programName: record.programName,
       recordedAt: record.recordedAt,
-      recordedByUserId: record.recordedByUserId,
+      recordedByUserId: record.recordedByUserId ?? null,
       recordedByName: user?.tenantId === tenantId ? user.fullName?.trim() || user.email : null,
     };
   }));
