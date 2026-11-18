@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "../_generated/server";
+import { mutation, query } from "../_generated/server";
 import { requireBillingOpsEnabled, requireBillingPermission } from "../billing/guards";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { expectedError } from "../lib/observability/errors";
@@ -31,7 +31,11 @@ export const flagNotMySale = mutation({
     if ((await readActiveAllocation(ctx, payment))?._id !== paymentRecordId) return refuse("reallocated");
     if (payment.notMySaleAt !== undefined) return { ok: true as const, alreadyApplied: true };
     const now = Date.now();
-    await ctx.db.patch("providerPayments", payment._id, { notMySaleAt: now, notMySaleByUserId: userId });
+    await ctx.db.patch("providerPayments", payment._id, {
+      notMySaleAt: now,
+      notMySaleByUserId: userId,
+      notMySaleGeneration: (payment.notMySaleGeneration ?? 0) + 1,
+    });
     await emitDomainEvent(ctx, {
       tenantId, entityType: "payment", entityId: paymentRecordId,
       eventType: "payment.flagged_not_my_sale", source: "closer", actorUserId: userId,
@@ -41,15 +45,44 @@ export const flagNotMySale = mutation({
   },
 });
 
-export const clearNotMySale = mutation({
+const clearPins = {
+  expectedFlagGeneration: v.number(),
+  expectedAllocationRevision: v.number(),
+};
+
+export const getClearNotMySalePin = query({
   args: { providerPaymentId: v.id("providerPayments") },
-  returns: resultValidator,
+  returns: v.union(v.null(), v.object({
+    ...clearPins,
+    flaggedAt: v.number(),
+    paymentRecordId: v.union(v.id("paymentRecords"), v.null()),
+  })),
   handler: async (ctx, { providerPaymentId }) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:review");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const payment = await ctx.db.get("providerPayments", providerPaymentId);
+    if (payment?.tenantId !== tenantId || payment.notMySaleAt === undefined) return null;
+    return {
+      expectedFlagGeneration: payment.notMySaleGeneration ?? 0,
+      expectedAllocationRevision: payment.allocationRevision,
+      flaggedAt: payment.notMySaleAt,
+      paymentRecordId: payment.paymentRecordId ?? null,
+    };
+  },
+});
+
+export const clearNotMySale = mutation({
+  args: { providerPaymentId: v.id("providerPayments"), ...clearPins },
+  returns: resultValidator,
+  handler: async (ctx, { providerPaymentId, expectedFlagGeneration, expectedAllocationRevision }) => {
     const { tenantId, userId } = await requireBillingPermission(ctx, "billing:review");
     await requireBillingOpsEnabled(ctx, tenantId);
     const payment = await ctx.db.get("providerPayments", providerPaymentId);
-    if (payment?.tenantId !== tenantId) return refuse("stale_preview");
+    if (payment?.tenantId !== tenantId || (payment.notMySaleGeneration ?? 0) !== expectedFlagGeneration) {
+      return refuse("stale_preview");
+    }
     if (payment.notMySaleAt === undefined) return { ok: true as const, alreadyApplied: true };
+    if (payment.allocationRevision !== expectedAllocationRevision) return refuse("reallocated");
     const record = (await readActiveAllocation(ctx, payment)) ??
       (await ctx.db.query("paymentRecords").withIndex("by_tenantId_and_providerPaymentId", (q) =>
         q.eq("tenantId", tenantId).eq("providerPaymentId", providerPaymentId)).order("desc").first());

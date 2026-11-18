@@ -13,14 +13,14 @@ import { dealPosition, systemLossReasonOf } from "../opportunities/stages";
 import { ALLOCATION_HISTORY_LIMIT } from "../payments/allocation";
 import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "../payments/capacity";
 import { FINGERPRINT_TASK_LIMIT } from "../payments/fingerprint";
-import { findPaymentTarget } from "../payments/match";
+import { findPaymentTarget, type PaymentTarget } from "../payments/match";
 import { mappingBlockReason, promotedCertificate } from "./breaker";
 import { enrollInSample } from "./certificates";
 import {
   deriveDecision, isAutomaticCallRefusal, PAYMENT_RULE_VERSION, paymentBillingReason, paymentDecisionTarget,
   type PaymentDecisionInput,
 } from "./derive";
-import { stopCallDecisionsOnPayment } from "./paymentHooks";
+import { matchedProviderLead, stopCallDecisionsOnPayment } from "./paymentHooks";
 import { automationKindOf, modeAtLeastAsk, paymentEvidenceOf, type PaymentEvidence } from "./proposals";
 import { APPLIED_RECEIPT_LIMIT, paymentVetoKey, type PaymentDecisionKind } from "./receipts";
 import { stopCodeValidator } from "./schema";
@@ -294,19 +294,21 @@ async function vetoHistory(
   };
 }
 
-/** Evaluate a provider fact in the same transaction as the input-key read and insert. */
 function callPaymentStopsWanted(tenant: Doc<"tenants">) {
   return effectiveKindMode(tenant, "refusal_loss") !== "off" || effectiveAlertMode(tenant) !== "off";
 }
 
 async function stopFromWhop(
-  ctx: MutationCtx, tenant: Doc<"tenants">, payment: Payment, leadId?: Id<"leads">,
+  ctx: MutationCtx, tenant: Doc<"tenants">, payment: Payment, target?: PaymentTarget,
 ) {
-  if (payment.status !== "paid" || payment.totalMinor === 0 || payment.reviewState === "historical" ||
-      payment.reviewState === "dismissed" || !leadId || !callPaymentStopsWanted(tenant)) return;
+  if (!callPaymentStopsWanted(tenant)) return;
+  const paid = payment.status === "paid";
+  if (!paid && effectiveKindMode(tenant, "refusal_loss") === "off") return;
+  const leadId = await matchedProviderLead(ctx, payment, target);
+  if (!leadId) return;
   await stopCallDecisionsOnPayment(ctx, {
-    tenantId: tenant._id, leadId, opportunityId: payment.opportunityId ?? payment.candidateOpportunityId,
-    paidAt: payment.paidAt, refusalOnly: payment.paidAt === undefined,
+    tenantId: tenant._id, leadId, opportunityId: payment.opportunityId,
+    paidAt: payment.paidAt, refusalOnly: !paid || payment.paidAt === undefined,
   });
 }
 
@@ -315,12 +317,11 @@ type Settings = NonNullable<Doc<"tenants">["resultAutomation"]>;
 /** What a payment derives to now, read in the caller's mutation. Reads only. */
 type PaymentSubject =
   | { status: "disconnected" }
-  | { status: "no_deal"; matchedLeadId?: Id<"leads"> }
-  | { status: "kind_off"; matchedLeadId?: Id<"leads">; kind: PaymentDecisionKind }
-  | { status: "underived"; matchedLeadId?: Id<"leads"> }
+  | { status: "no_deal" }
+  | { status: "kind_off"; kind: PaymentDecisionKind }
+  | { status: "underived" }
   | {
     status: "derived";
-    matchedLeadId?: Id<"leads">;
     deal: Doc<"opportunities">;
     dealFacts: NonNullable<PaymentDecisionInput["deal"]>;
     mode: "shadow" | "ask" | "automatic";
@@ -334,22 +335,21 @@ type PaymentSubject =
   };
 
 async function derivePaymentSubject(
-  ctx: MutationCtx, tenant: Doc<"tenants">, settings: Settings, payment: Payment, now: number,
+  ctx: MutationCtx, tenant: Doc<"tenants">, settings: Settings, payment: Payment, now: number, liveTarget?: PaymentTarget,
 ): Promise<PaymentSubject> {
   const tenantId = tenant._id;
   const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
   if (connection?.tenantId !== tenantId || connection.status === "disconnected") return { status: "disconnected" };
-  const target = await findPaymentTarget(ctx, payment, now);
-  const matchedLeadId = target.kind === "needs_person" ? target.candidateLeadId : target.leadId;
+  const target = liveTarget ?? await findPaymentTarget(ctx, payment, now);
   const candidate = paymentDecisionTarget(target);
   const deal = candidate && await ctx.db.get("opportunities", candidate.opportunityId);
   if (!candidate?.leadId || deal?.tenantId !== tenantId || deal.leadId !== candidate.leadId ||
       payment.status !== "paid" || payment.totalMinor === 0) {
-    return { status: "no_deal", matchedLeadId };
+    return { status: "no_deal" };
   }
   const kind = deal.outcome === "won" ? "additional_payment" : "payment_win";
   const mode = effectiveKindMode(tenant, kind);
-  if (mode === "off") return { status: "kind_off", matchedLeadId, kind };
+  if (mode === "off") return { status: "kind_off", kind };
 
   const bindings = await bindingFacts(ctx, payment);
   const membership = await loadMembership(ctx, payment, deal, bindings.membership);
@@ -397,14 +397,14 @@ async function derivePaymentSubject(
     },
     membership, standDown: veto.standDown || paidBeforePause, factGates: gates,
   });
-  if (!derived) return { status: "underived", matchedLeadId };
+  if (!derived) return { status: "underived" };
 
-  const sample = mode === "automatic" && derived.wouldWrite ? await promotedCertificate(ctx, tenant, kind) : null;
+  const sample = mode === "automatic" && derived.automaticEligible ? await promotedCertificate(ctx, tenant, kind) : null;
   const automaticGate = sample ? await mappingBlockReason(ctx, payment, evidence, sample.scopeBindingIds ?? []) : null;
   // An ask for a held/out-of-scope mapping and an automatic proposal have distinct keys.
   const inputKey = await sha256Hex(stableJson(automaticGate ? [...derived.inputTuple, automaticGate] : derived.inputTuple));
   return {
-    status: "derived", matchedLeadId, deal, dealFacts, mode, derived, evidence, vetoKey, policyVersion,
+    status: "derived", deal, dealFacts, mode, derived, evidence, vetoKey, policyVersion,
     automaticGate, automatic: Boolean(sample) && !automaticGate, inputKey,
   };
 }
@@ -446,9 +446,10 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
   ]);
   if (payment?.tenantId !== tenantId || !tenant) return { decisionId: null };
   const settings = tenant.resultAutomation;
-  const knownLeadId = payment.leadId ?? payment.candidateLeadId;
-  await stopFromWhop(ctx, tenant, payment, knownLeadId);
+  if (!settings) return { decisionId: null };
   if (payment.paymentRecordId) {
+    if (!settings.enabled) return { decisionId: null };
+    await stopFromWhop(ctx, tenant, payment);
     const receipts = await ctx.db.query("resultAutomationDecisions")
       .withIndex("by_tenantId_and_providerPaymentId_and_state", (q) =>
         q.eq("tenantId", tenantId).eq("providerPaymentId", providerPaymentId).eq("state", "applied"))
@@ -463,14 +464,15 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
     return { decisionId: null };
   }
   if (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off") {
+    await stopFromWhop(ctx, tenant, payment);
     await retirePaymentDecisions(ctx, { tenantId, providerPaymentId, code: "kind_lowered", superseded: false });
     return { decisionId: null };
   }
 
-  const subject = await derivePaymentSubject(ctx, tenant, settings, payment, now);
-  if (subject.status !== "disconnected" && subject.matchedLeadId !== knownLeadId) {
-    await stopFromWhop(ctx, tenant, payment, subject.matchedLeadId);
-  }
+  const target = callPaymentStopsWanted(tenant) && payment.status === "paid"
+    ? await findPaymentTarget(ctx, payment, now) : undefined;
+  const subject = await derivePaymentSubject(ctx, tenant, settings, payment, now, target);
+  if (subject.status !== "disconnected") await stopFromWhop(ctx, tenant, payment, target);
   if (subject.status === "disconnected" || subject.status === "no_deal") {
     await supersedePaymentDecisions(ctx, payment);
     return { decisionId: null };
@@ -497,7 +499,7 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
     kind, mode: decisionMode, state: mode === "shadow" ? "shadow" : derived.wouldWrite ? "ready" : "needs_person",
     inputKey, vetoKey, ruleVersion: PAYMENT_RULE_VERSION,
     policyVersion, activationVersion: settings.activationVersion, humanResultRevision: dealFacts.humanResultRevision,
-    wouldWrite: derived.wouldWrite && !automaticGate,
+    wouldWrite: derived.wouldWrite && !automaticGate, automaticEligible: derived.automaticEligible,
     gates: automaticGate ? [...derived.gates, automaticGate] : derived.gates, proposal: derived.proposal,
     confirmRoute: derived.confirmRoute, noticeUserId: derived.noticeUserId, assignedCloserId: dealFacts.assignedCloserId,
     meetingId: derived.meetingId, evidence, createdAt: now, dueAt,
@@ -535,19 +537,30 @@ export async function scheduleEvaluation(
   ctx: MutationCtx, providerPaymentId: Id<"providerPayments">, cause: EvaluateCause,
 ): Promise<void> {
   const payment = await ctx.db.get("providerPayments", providerPaymentId);
-  if (!payment) return;
-  if (payment.paymentRecordId) {
-    await supersedePaymentDecisions(ctx, payment);
-    return;
-  }
-  const tenant = await ctx.db.get("tenants", payment.tenantId);
+  if (payment) await schedulePaymentEvaluation(ctx, payment.tenantId, payment, cause);
+}
+
+export async function schedulePaymentEvaluation(
+  ctx: MutationCtx, tenantId: Id<"tenants">, payment: Payment, cause: EvaluateCause,
+): Promise<void> {
+  if (payment.tenantId !== tenantId) return;
+  const tenant = await ctx.db.get("tenants", tenantId);
   const settings = tenant?.resultAutomation;
-  if (!settings?.enabled) return;
-  if (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off") {
-    if (tenant) await stopFromWhop(ctx, tenant, payment, payment.leadId ?? payment.candidateLeadId);
+  if (!tenant || !settings?.enabled) return;
+  if (payment.paymentRecordId) {
+    if (cause === "link") {
+      await stopFromWhop(ctx, tenant, payment);
+      await supersedePaymentDecisions(ctx, payment);
+    }
     return;
   }
-  await ctx.scheduler.runAfter(0, evaluateRef, { providerPaymentId, cause, activationVersion: settings.activationVersion });
+  if (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off") {
+    await stopFromWhop(ctx, tenant, payment);
+    return;
+  }
+  await ctx.scheduler.runAfter(0, evaluateRef, {
+    providerPaymentId: payment._id, cause, activationVersion: settings.activationVersion,
+  });
 }
 
 const leadPageArgs = {

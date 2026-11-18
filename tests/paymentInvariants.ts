@@ -432,6 +432,7 @@ export async function seedProviderWin(
     closerId: Id<"users">;
     approverId: Id<"users">;
     recordedAt: number;
+    restoreExcludedOpportunity?: true;
   },
 ): Promise<Id<"paymentRecords">> {
   const payment = (await ctx.db.get("providerPayments", args.providerPaymentId))!;
@@ -461,6 +462,7 @@ export async function seedProviderWin(
     matchMethod: "person",
     actorUserId: args.approverId,
     now: args.recordedAt,
+    restoreExcludedOpportunity: args.restoreExcludedOpportunity,
   });
   await refreshSoldProgramCachesForOpportunity(ctx, { tenantId: args.tenantId, opportunityId: args.opportunityId });
   await syncPersonEnrollments(ctx, {

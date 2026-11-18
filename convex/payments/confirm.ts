@@ -46,6 +46,7 @@ export function isCurrentWhopAsk(
     decision.state === "ready" && modeAtLeastAsk(decision.mode) && modeAtLeastAsk(effectiveKindMode(tenant, kind)) &&
     decision.opportunityId === deal._id && decision.leadId === deal.leadId &&
     decision.providerPaymentId === payment._id && payment.status === "paid" && !payment.paymentRecordId &&
+    (settings?.pausedAt === undefined || (payment.paidAt !== undefined && payment.paidAt > settings.pausedAt)) &&
     payment.adverseState === "none" && payment.adverseFencedAt === undefined && payment.refundedMinor === 0 &&
     (kind === "additional_payment" ? deal.outcome === "won" : deal.outcome === "open" || deal.outcome === "lost") &&
     decision.assignedCloserId === deal.assignedCloserId &&
@@ -134,12 +135,8 @@ export const getWhopAsk = query({
       if (!payment || !isCurrentWhopAsk(tenant, decision, deal, payment)) continue;
       const preview = await previewProviderApply(ctx, {
         tenantId, opportunityId: deal._id, providerPaymentId: payment._id, now,
-      });
-      const proposal = paymentProposalOf(decision);
-      if (!preview.ok || proposal?.programId !== preview.proposal.programId ||
-          proposal?.paymentType !== preview.proposal.paymentType ||
-          proposal?.amountMinor !== preview.proposal.amountMinor ||
-          proposal?.currency !== preview.proposal.currency) return null;
+      }, decision);
+      if (!preview.ok) return null;
       return {
         decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id, createdAt: decision.createdAt,
         paidAt: payment.paidAt ?? null, productTitle: payment.productTitle ?? null, variantTitle: payment.variantTitle ?? null,

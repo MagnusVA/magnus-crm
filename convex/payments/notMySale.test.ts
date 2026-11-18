@@ -7,6 +7,17 @@ const { flagNotMySale, clearNotMySale } = paymentConfirmationApi.payments.notMyS
 const list = api.payments.review.listProviderExceptions;
 const counts = api.payments.review.getProviderExceptionCounts;
 
+async function clearArgsFor(f: Awaited<ReturnType<typeof paymentConfirmationFixture>>) {
+  const providerPaymentId = f.providerPaymentId;
+  const pin = await f.admin.query(api.payments.notMySale.getClearNotMySalePin, { providerPaymentId });
+  if (!pin) throw new Error("Expected an active flag");
+  return {
+    providerPaymentId,
+    expectedFlagGeneration: pin.expectedFlagGeneration,
+    expectedAllocationRevision: pin.expectedAllocationRevision,
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(FIXTURE_NOW);
@@ -48,7 +59,7 @@ it("accepts the assigned or credited closer, shows the flag in Billing, and flag
   }]);
   expect(await f.admin.query(counts, {})).toMatchObject({ notMySaleCount: 1, notMySaleCapped: false });
 
-  const clearArgs = { providerPaymentId: f.providerPaymentId };
+  const clearArgs = await clearArgsFor(f);
   await expect(assigned.mutation(clearNotMySale, clearArgs)).rejects.toThrow();
   await invariant();
   expect(await f.admin.mutation(clearNotMySale, clearArgs)).toEqual({ ok: true, alreadyApplied: false });
@@ -63,4 +74,26 @@ it("accepts the assigned or credited closer, shows the flag in Billing, and flag
     .withIndex("by_tenantId_and_eventType_and_occurredAt", (q) =>
       q.eq("tenantId", f.tenantId).eq("eventType", "payment.flagged_not_my_sale")).take(4));
   expect(events.map((event) => event.actorUserId)).toEqual([f.closerId, assignedId]);
+});
+
+it("refuses a delayed acknowledgement after the closer flags the same payment again", async () => {
+  const f = await paymentConfirmationFixture();
+  const paymentRecordId = await f.t.run((ctx) => seedProviderWin(ctx, {
+    ...f, opportunityId: f.dealId, recordedAt: FIXTURE_NOW - 60_000, approverId: f.adminId,
+  }));
+  expect(await f.closer.mutation(flagNotMySale, { paymentRecordId })).toMatchObject({ ok: true, alreadyApplied: false });
+  const shown = await clearArgsFor(f);
+  const acknowledge = () => f.admin.mutation(clearNotMySale, shown);
+  expect(await acknowledge()).toEqual({ ok: true, alreadyApplied: false });
+  expect(await acknowledge()).toEqual({ ok: true, alreadyApplied: true });
+  expect(await f.closer.mutation(flagNotMySale, { paymentRecordId })).toMatchObject({ ok: true, alreadyApplied: false });
+  expect(await acknowledge()).toEqual({ ok: false, code: "stale_preview" });
+  const latest = await clearArgsFor(f);
+  expect(latest.expectedFlagGeneration).toBe(shown.expectedFlagGeneration + 1);
+  expect(await f.admin.mutation(clearNotMySale, {
+    ...latest, expectedAllocationRevision: latest.expectedAllocationRevision - 1,
+  })).toEqual({ ok: false, code: "reallocated" });
+  expect(await f.t.run((ctx) => ctx.db.get("providerPayments", f.providerPaymentId)))
+    .toMatchObject({ notMySaleAt: FIXTURE_NOW, notMySaleByUserId: f.closerId });
+  await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
 });

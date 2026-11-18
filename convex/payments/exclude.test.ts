@@ -3,6 +3,7 @@ import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { insertOtherTenant } from "../../tests/dealStateFixtures";
 import { insertProgram } from "../../tests/enrollmentFixtures";
+import { storeProofFile } from "../../tests/proofFixtures";
 import { assertPaymentInvariants, seedProviderWin } from "../../tests/paymentInvariants";
 import {
   FIXTURE_NOW,
@@ -256,6 +257,65 @@ describe("one-tap undo of a Billing confirmation", () => {
 });
 
 describe("the reviewed correction", () => {
+  it("blocks amount changes to Whop-origin cash but allows program and type corrections", async () => {
+    const f = await billingWin();
+    const { paymentRecordId } = f;
+    const original = await readAll(f, paymentRecordId);
+    const programId = await f.t.run((ctx) => insertProgram(ctx, f.tenantId, "Corrected program"));
+    await expect(f.admin.mutation(api.billing.mutations.correctPayment, {
+      paymentRecordId, amount: 150, programId, reason: "Synthetic adjustment",
+    })).rejects.toMatchObject({ data: {
+      code: "payment.provider_amount_locked",
+      message: "This payment came from Whop. Take it out and record the right one instead.",
+    } });
+    expect(await readAll(f, paymentRecordId)).toEqual(original);
+    expect(await f.admin.mutation(api.billing.mutations.correctPayment, {
+      paymentRecordId, amount: 100, programId, paymentType: "split", reason: "Synthetic correction",
+    })).toMatchObject({ changed: true });
+    expect((await readAll(f, paymentRecordId)).row)
+      .toMatchObject({ origin: "provider", amountMinor: 10_000, currency: "USD", programId, paymentType: "split" });
+    await f.invariant();
+  });
+
+  it("allows an amount correction to hand-recorded cash linked to Whop evidence", async () => {
+    const f = await providerPaymentFixture({ source: "side_deal" });
+    const { paymentId } = await f.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      opportunityId: f.dealId!, amount: 100, currency: "USD", paymentType: "pif",
+      programId: f.programId, proofFileId: await storeProofFile(f.t),
+    });
+    await f.admin.mutation(api.payments.review.linkToPaymentRecord, {
+      providerPaymentId: f.providerPaymentId, paymentRecordId: paymentId, expectedAllocationRevision: 0,
+    });
+    expect(await f.admin.mutation(api.billing.mutations.correctPayment, {
+      paymentRecordId: paymentId, amount: 150, reason: "Synthetic correction",
+    })).toMatchObject({ changed: true });
+    expect((await readAll(f, paymentId)).row)
+      .toMatchObject({ origin: "closer_side_deal", amountMinor: 15_000, providerPaymentId: f.providerPaymentId });
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+  });
+
+  it("excludes a payment despite more than 50 unrelated completed reminders", async () => {
+    const f = await billingWin();
+    await f.t.run(async (ctx) => {
+      for (let index = 0; index < 51; index++) {
+        await ctx.db.insert("followUps", {
+          tenantId: f.tenantId, opportunityId: f.opportunityId, leadId: f.personId, closerId: f.closerId,
+          type: "manual_reminder", status: "completed", reason: "closer_initiated",
+          completionOutcome: "no_response_rescheduled", createdAt: WIN_AT - 2000 - index,
+          completedAt: WIN_AT - 1000 - index,
+        });
+      }
+    });
+
+    const shown = await preview(f.admin, f.paymentRecordId);
+    expect(shown.refusal).toBeUndefined();
+    expect(await exclude(f.admin, {
+      paymentRecordId: f.paymentRecordId, cause: "wrong_match", level: "reviewed", disposition: "lost",
+      expectedFingerprint: shown.fingerprint,
+    })).toMatchObject({ ok: true, alreadyApplied: false });
+    await f.invariant();
+  });
+
   it("lands a closer's attended confirmation at Follow-up with one next step, never Booked", async () => {
     const f = await providerPaymentFixture();
     const { paymentRecordId, meetingId } = await confirmAttendedWhopWin(f);

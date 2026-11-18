@@ -196,6 +196,8 @@ function planRestore(state: RestoreState): RestorePlan | PaymentCommandCode {
 
   if (position === "won") return { result: "restored_kept_won", move: "none", first, closeTasks: [] };
 
+  if ((deal.humanResultRevision ?? 0) !== correction.after.humanResultRevision) return "stale_preview";
+
   // The deal re-wins: the exclusion's own next steps must be untouched, and
   // no other next step may have appeared since.
   const closeTasks = state.correctionTasks.filter(({ change }) => change === "created" || change === "reopened");
@@ -324,6 +326,7 @@ export async function restorePaymentCore(
       expectedAllocationRevision: payment.allocationRevision,
       reviewState: correction.before.providerReviewState === "linked" ? "linked" : "recorded",
       matchMethod: "person",
+      restoreExcludedOpportunity: correction.vetoedOpportunityId === deal._id ? true : undefined,
       actorUserId: actor.userId,
       now,
     });

@@ -1,4 +1,5 @@
 import { anyApi, type ApiFromModules } from "convex/server";
+import { PAYMENT_RULE_VERSION } from "../convex/automation/derive";
 import { paymentVetoKey } from "../convex/automation/receipts";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
@@ -156,7 +157,7 @@ async function seedDecision(
     vetoKey: vetoKey ?? (fields.providerPaymentId && fields.opportunityId
       ? await paymentVetoKey(fields.providerPaymentId, fields.opportunityId)
       : await sha256Hex(stableJson(subject))),
-    ruleVersion: "payment-rule@1",
+    ruleVersion: PAYMENT_RULE_VERSION,
     policyVersion: 1,
     activationVersion: 1,
     humanResultRevision,
@@ -318,6 +319,7 @@ export async function automationPaymentFixture(
 
 // ─── Taking a payment out and putting it back (package X) ───────────────
 // Imports for the helpers below; ES modules hoist them.
+import { evaluateSubject as xEvaluateSubject } from "../convex/automation/decisions";
 import { api as xApi } from "../convex/_generated/api";
 import { syncPersonEnrollments as xSyncPersonEnrollments } from "../convex/lib/enrollments";
 import {
@@ -456,7 +458,7 @@ export async function confirmAttendedWhopWin(
   fixture: Awaited<ReturnType<typeof providerPaymentFixture>>,
   options: { paymentType?: Doc<"paymentRecords">["paymentType"] } = {},
 ) {
-  const { t, tenantId, closerId, providerPaymentId, personId } = fixture;
+  const { t, tenantId, closerId, providerPaymentId } = fixture;
   const opportunityId = fixture.dealId!;
   const { meetingId, decisionId } = await t.run(async (ctx) => {
     await setPaymentFixtureModes(ctx, fixture);
@@ -464,9 +466,13 @@ export async function confirmAttendedWhopWin(
     const meetingId = await insertProviderMeeting(ctx, {
       tenantId, opportunityId, closerId, scheduledAt: FIXTURE_NOW - 1_800_000,
     });
-    const decisionId = await seedReadyDecision(ctx, {
-      tenantId, providerPaymentId, opportunityId, meetingId, leadId: personId, confirmRoute: "meeting",
-    });
+    if (options.paymentType) {
+      await ctx.db.patch("paymentProviderBindings", fixture.variantBindingId, {
+        binding: { kind: "variant_type", paymentType: options.paymentType },
+      });
+    }
+    const { decisionId } = await xEvaluateSubject(ctx, { tenantId, providerPaymentId, now: FIXTURE_NOW, cause: "sweep" });
+    if (!decisionId) throw new Error("Expected a ready Whop decision for the fixture");
     return { meetingId, decisionId };
   });
   const payment = (await t.run((ctx) => ctx.db.get("providerPayments", providerPaymentId)))!;
@@ -686,7 +692,7 @@ export async function seedAutomationSample(
 ) {
   return await ctx.db.insert("automationSamples", {
     kind: "payment_win",
-    ruleVersion: "payment-rule@1",
+    ruleVersion: PAYMENT_RULE_VERSION,
     target: 300,
     status: "collecting",
     createdAt: FIXTURE_NOW,
@@ -720,7 +726,7 @@ export async function setKindAutomatic(
           ...(args.sampleId ? {
             automatic: {
               promotedAt: FIXTURE_NOW, promotedByUserId: args.adminId, sampleId: args.sampleId,
-              ruleVersion: args.ruleVersion ?? "payment-rule@1", writes: 0,
+              ruleVersion: args.ruleVersion ?? PAYMENT_RULE_VERSION, writes: 0,
             },
           } : {}),
           ...(args.breaker ? { breaker: { trippedAt: FIXTURE_NOW, reason: "wrong_write" as const } } : {}),

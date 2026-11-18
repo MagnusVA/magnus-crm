@@ -72,15 +72,18 @@ export function readWhopRefusal(error: unknown): WhopRefusal | null {
   if (typeof data !== "object" || data === null) return null;
   const { code, message, conflicts } = data as { code?: unknown; message?: unknown; conflicts?: unknown };
   const text = typeof message === "string" ? message : "";
-  if (code === WHOP_PAYMENT_FOUND && Array.isArray(conflicts)) {
+  if ((code === WHOP_PAYMENT_FOUND || code === "payment.amount_mismatch") && Array.isArray(conflicts)) {
     return { kind: "found", conflicts: conflicts as WhopConflict[], message: text };
   }
   if (code === CAPACITY_HOLD) return { kind: "capacity_hold", message: text };
   return null;
 }
 
-function conflictKey(conflict: WhopConflict) {
-  return `${conflict.providerPaymentId ?? ""}:${conflict.allocationRevision ?? ""}:${conflict.state}`;
+export function conflictKey(conflict: WhopConflict) {
+  return [
+    conflict.providerPaymentId, conflict.allocationRevision, conflict.state,
+    conflict.currency, conflict.state === "read_limit" ? undefined : conflict.totalMinor,
+  ].join(":");
 }
 
 export function sameConflictSet(a: WhopConflict[], b: WhopConflict[]) {

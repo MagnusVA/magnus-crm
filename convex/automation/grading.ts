@@ -74,6 +74,13 @@ function callReference(row: Decision) {
 }
 const pageSize = 50;
 
+async function assertDesignatedGrader(ctx: QueryCtx | MutationCtx, tenantId: Id<"tenants">, userId: Id<"users">) {
+  const grader = (await ctx.db.get("tenants", tenantId))?.resultAutomation?.graderUserId;
+  if (grader && grader !== userId) {
+    throw expectedError("automation.not_designated_grader", "Only the designated grader can grade cases.");
+  }
+}
+
 async function scopedDecisions(ctx: QueryCtx, tenantId: Id<"tenants">, kind: AutomationKind, includeSample = false) {
   const tenant = await ctx.db.get("tenants", tenantId);
   if (!tenant) return { rows: [], capped: false };
@@ -139,6 +146,7 @@ export const listToGrade = query({
   }),
   handler: async (ctx, { kind, sample }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
+    await assertDesignatedGrader(ctx, tenantId, userId);
     const { rows, capped } = await scopedDecisions(ctx, tenantId, kind, sample === "writes");
     const people = await personIds(ctx, tenantId, rows);
     const seen = new Set<Id<"leads">>();
@@ -193,6 +201,7 @@ export const getMyAnswer = query({
   returns: v.union(v.null(), v.object({ answer: answerValidator, blind: v.boolean() })),
   handler: async (ctx, { decisionId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
+    await assertDesignatedGrader(ctx, tenantId, userId);
     const row = await gradeCase(ctx, tenantId, decisionId);
     if (row.answer?.committedByUserId !== userId) return null;
     const blind = row.grade
@@ -232,6 +241,7 @@ export const commitAnswer = mutation({
   returns: v.null(),
   handler: async (ctx, { decisionId, answer }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
+    await assertDesignatedGrader(ctx, tenantId, userId);
     const row = await gradeCase(ctx, tenantId, decisionId);
     if (row.answer?.committedByUserId === userId) return null;
     if (row.grade || row.answer) throw expectedError("automation.answer_committed", "An answer is already committed.");
@@ -248,6 +258,7 @@ export const reveal = mutation({
   returns: revealedDecisionValidator,
   handler: async (ctx, { decisionId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
+    await assertDesignatedGrader(ctx, tenantId, userId);
     const row = await gradeCase(ctx, tenantId, decisionId);
     if (row.answer?.committedByUserId !== userId) {
       const exposed = row.revealedToUserIds ?? [];
@@ -265,6 +276,7 @@ export const recordGrade = mutation({
   returns: v.null(),
   handler: async (ctx, { decisionId, verdict, wrongFields }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
+    await assertDesignatedGrader(ctx, tenantId, userId);
     const row = await gradeCase(ctx, tenantId, decisionId);
     if (row.grade?.gradedByUserId === userId) return null;
     if (row.grade || row.answer?.committedByUserId !== userId) {

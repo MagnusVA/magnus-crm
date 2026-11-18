@@ -15,6 +15,7 @@ import {
 } from "../lib/outcomeCores";
 import { hasPermission, type Permission } from "../lib/permissions";
 import { syncPersonEnrollments } from "../lib/enrollments";
+import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { toAmountMinor } from "../lib/formatMoney";
 import { requireActiveProgram } from "../lib/paymentHelpers";
@@ -280,6 +281,12 @@ async function planCorrection(
   if (args.amount !== undefined) {
     const amountMinor = toAmountMinor(args.amount);
     if (amountMinor !== payment.amountMinor) {
+      if (payment.origin === "provider") {
+        throw expectedError(
+          "payment.provider_amount_locked",
+          "This payment came from Whop. Take it out and record the right one instead.",
+        );
+      }
       patch.amountMinor = amountMinor;
       addChangedKey(changedKeys, "amountMinor");
     }

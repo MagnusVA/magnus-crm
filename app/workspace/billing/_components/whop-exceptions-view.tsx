@@ -423,30 +423,23 @@ function decideLine(row: ExceptionRow, now: number) {
       </>
     );
   }
-  if (row.reviewReason && UNKNOWN_PAYER_REASONS.has(row.reviewReason)) {
-    return (
-      <>
-        {row.payerEmail ? (
-          <>
-            Payer{" "}
-            <span className="font-medium text-foreground" translate="no">
-              {row.payerEmail}
-            </span>
-            .{" "}
-          </>
-        ) : null}
-        {UNKNOWN_PAYER_NOTE}
-      </>
-    );
-  }
-  return row.payerEmail ? (
+  const payer = row.payerEmail ? (
     <>
       Payer{" "}
-      <span className="font-medium text-foreground" translate="no">
+      <span className="ph-no-capture font-medium text-foreground" translate="no">
         {row.payerEmail}
       </span>
     </>
   ) : null;
+  if (row.reviewReason && UNKNOWN_PAYER_REASONS.has(row.reviewReason)) {
+    return (
+      <>
+        {payer ? <>{payer}.{" "}</> : null}
+        {UNKNOWN_PAYER_NOTE}
+      </>
+    );
+  }
+  return payer;
 }
 
 /** "Waiting on Dee Moreno · 3 hours", or "Waiting on Billing · 2 days". */
@@ -467,15 +460,24 @@ function WaitingLine({ row, now }: { row: ExceptionRow; now: number }) {
 /** A closer said this isn't their sale: take it off the deal, or clear the flag. */
 function NotMySaleLine({ row }: { row: ExceptionRow }) {
   const { hasPermission } = useRole();
+  const canReview = hasPermission("billing:review");
   const clear = useMutation(api.payments.notMySale.clearNotMySale);
+  const pin = useQuery(api.payments.notMySale.getClearNotMySalePin,
+    canReview ? { providerPaymentId: row.providerPaymentId } : "skip");
+  const shownPin = pin?.flaggedAt === row.notMySaleAt && pin.paymentRecordId === row.paymentRecordId ? pin : null;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function itIsTheirSale() {
+    if (shownPin === null) return;
     setPending(true);
     setError(null);
     try {
-      const result = await clear({ providerPaymentId: row.providerPaymentId });
+      const result = await clear({
+        providerPaymentId: row.providerPaymentId,
+        expectedFlagGeneration: shownPin.expectedFlagGeneration,
+        expectedAllocationRevision: shownPin.expectedAllocationRevision,
+      });
       if (result.ok) toast.success(result.alreadyApplied ? "The flag was already cleared." : "Cleared. The sale stays with the closer.");
       else setError(paymentCommandSentence(result.code));
     } catch (caught) {
@@ -496,8 +498,8 @@ function NotMySaleLine({ row }: { row: ExceptionRow }) {
             <Link href={`/workspace/billing/${row.paymentRecordId}?takeOut=wrong_match`}>Take it off this deal</Link>
           </Button>
         ) : null}
-        {hasPermission("billing:review") ? (
-          <Button type="button" size="sm" variant="outline" className="h-8" disabled={pending} onClick={() => void itIsTheirSale()}>
+        {canReview ? (
+          <Button type="button" size="sm" variant="outline" className="h-8" disabled={pending || shownPin === null} onClick={() => void itIsTheirSale()}>
             {pending ? <Spinner data-icon="inline-start" /> : null}
             <TranslatableText>It is their sale</TranslatableText>
           </Button>

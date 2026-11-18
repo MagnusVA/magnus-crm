@@ -134,7 +134,7 @@ describe("setActiveAllocation", () => {
     }))).rejects.toThrow("Someone else changed this payment");
   });
 
-  it("takes the deal off the payment's veto list when a person picks it", async () => {
+  it("takes the deal off the payment's veto list only on restore", async () => {
     const h = await providerPaymentFixture({ dealPosition: "booked" });
     const otherDeal = await h.t.run(async (ctx) => {
       const id = await ctx.db.insert("opportunities", {
@@ -144,10 +144,15 @@ describe("setActiveAllocation", () => {
       await ctx.db.patch("providerPayments", h.providerPaymentId, { excludedOpportunityIds: [h.dealId!, id] });
       return id;
     });
-    await h.t.run((ctx) => seedProviderWin(ctx, {
+    const args = {
       tenantId: h.tenantId, opportunityId: h.dealId!, providerPaymentId: h.providerPaymentId, programId: h.programId,
       closerId: h.closerId, approverId: h.adminId, recordedAt: FIXTURE_PAID_AT,
-    }));
+    };
+    await expect(h.t.run((ctx) => seedProviderWin(ctx, args))).rejects.toMatchObject({
+      data: { code: "provider_payment.excluded_wrong_match" },
+    });
+    expect((await read(h)).payment.excludedOpportunityIds).toEqual([h.dealId, otherDeal]);
+    await h.t.run((ctx) => seedProviderWin(ctx, { ...args, restoreExcludedOpportunity: true }));
     expect((await read(h)).payment.excludedOpportunityIds).toEqual([otherDeal]);
   });
 });

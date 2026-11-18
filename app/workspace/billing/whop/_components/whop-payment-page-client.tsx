@@ -187,6 +187,11 @@ export function WhopPaymentPageClient({
               </Suspense>
             </div>
           ) : null}
+          {detail && payment.membershipId && payment.paymentRecordId ? (
+            <div className="order-3 min-w-0 empty:hidden">
+              <MembershipConfirmationCard key={payment._id} payment={payment} />
+            </div>
+          ) : null}
           <div className="order-3 min-w-0 empty:hidden">
             {detail ? <WhopRecordPaymentCard key={detail.payment._id} detail={detail} now={now} /> : null}
           </div>
@@ -304,7 +309,7 @@ function WhopReportsCard({ payment, now }: { payment: ProviderPayment; now: numb
       <Facts>
         <Fact label="Payer email">
           {payment.payerEmail ? (
-            <span className="[overflow-wrap:anywhere]" translate="no">
+            <span className="ph-no-capture [overflow-wrap:anywhere]" translate="no">
               {payment.payerEmail}
             </span>
           ) : payment.payerDetailsClearedAt !== undefined ? (
@@ -320,6 +325,72 @@ function WhopReportsCard({ payment, now }: { payment: ProviderPayment; now: numb
           </span>
         </Fact>
       </Facts>
+    </DetailCard>
+  );
+}
+
+const MEMBERSHIP_CONFIRMATION = "Later payments from this membership belong to this deal";
+
+function MembershipConfirmationCard({ payment }: { payment: ProviderPayment }) {
+  const { hasPermission } = useRole();
+  const canReview = hasPermission("billing:review");
+  const canCorrect = hasPermission("billing:correct");
+  const control = useQuery(api.payments.bindings.getMembershipControl,
+    canReview || canCorrect ? { providerPaymentId: payment._id } : "skip");
+  const confirm = useMutation(api.payments.bindings.confirmMembership);
+  const remove = useMutation(api.payments.bindings.removeMembershipConfirmation);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!control || control.membershipId !== payment.membershipId ||
+      control.paymentRecordId !== payment.paymentRecordId || control.allocationRevision !== payment.allocationRevision) {
+    return null;
+  }
+  const confirmed = control.kind === "confirmed";
+  if (!confirmed && !canReview) return null;
+
+  const submit = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      if (control.kind === "confirmed") {
+        await remove({ bindingId: control.bindingId });
+        toast.success("Membership confirmation removed.");
+      } else {
+        await confirm({
+          providerPaymentId: payment._id,
+          expectedMembershipId: control.membershipId,
+          expectedAllocationRevision: control.allocationRevision,
+          expectedBindingVersion: control.bindingVersion,
+        });
+        toast.success("Membership confirmed.");
+      }
+    } catch (caught) {
+      setError(providerErrorMessage(caught, "Couldn't update the membership. Try again."));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <DetailCard title="Whop membership">
+      <div className="flex flex-col items-start gap-2 px-4 py-3">
+        {confirmed ? <p className="text-[14px]">{MEMBERSHIP_CONFIRMATION}.</p> : null}
+        {!confirmed || canCorrect ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-auto min-h-8 max-w-full text-left whitespace-normal"
+            disabled={pending}
+            onClick={() => void submit()}
+          >
+            {pending ? <Spinner data-icon="inline-start" /> : null}
+            <TranslatableText>{confirmed ? "Remove confirmation" : MEMBERSHIP_CONFIRMATION}</TranslatableText>
+          </Button>
+        ) : null}
+        {error ? <p role="alert" className="text-[13px] text-danger-ink">{error}</p> : null}
+      </div>
     </DetailCard>
   );
 }
@@ -635,7 +706,11 @@ function NotMySaleCard({
     setPending(true);
     setError(null);
     try {
-      const result = await clear({ providerPaymentId: payment._id });
+      const result = await clear({
+        providerPaymentId: payment._id,
+        expectedFlagGeneration: payment.notMySaleGeneration ?? 0,
+        expectedAllocationRevision: payment.allocationRevision,
+      });
       if (result.ok) toast.success(result.alreadyApplied ? "The flag was already cleared." : "Cleared. The sale stays with the closer.");
       else setError(paymentCommandSentence(result.code));
     } catch (caught) {

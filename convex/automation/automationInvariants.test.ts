@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PAYMENT_RULE_VERSION } from "./derive";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { stageOfPosition, type DealPosition } from "../opportunities/stages";
@@ -207,7 +208,7 @@ describe("assertAutomationInvariants", () => {
     async function promoted(withPointer: boolean) {
       const f = await automationCallFixture();
       await f.t.run(async (ctx) => {
-        const sampleId = await certifiedSample(f, ctx, "payment_win", "payment-rule@1");
+        const sampleId = await certifiedSample(f, ctx, "payment_win", PAYMENT_RULE_VERSION);
         await seedReadyDecision(ctx, {
           tenantId: f.tenantId, providerPaymentId: f.providerPaymentId, opportunityId: f.opportunityId,
           leadId: f.personId, sampleId,
@@ -264,7 +265,7 @@ describe("assertAutomationInvariants", () => {
           providerPaymentId: f.providerPaymentId, amountMinor: 10_000, recordedAt: FIXTURE_NOW, recorder: "absent",
         });
         if (withDecision) {
-          const sampleId = await certifiedSample(f, ctx, "payment_win", "payment-rule@1");
+          const sampleId = await certifiedSample(f, ctx, "payment_win", PAYMENT_RULE_VERSION);
           const decisionId = await seedReadyDecision(ctx, {
             tenantId: f.tenantId, providerPaymentId: f.providerPaymentId, opportunityId: f.opportunityId,
             leadId: f.personId, appliedPaymentRecordId: rowId, appliedVia: "automatic", resolvedAt: FIXTURE_NOW,
@@ -390,7 +391,7 @@ describe("assertAutomationInvariants", () => {
       const f = await automationCallFixture();
       await f.t.run(async (ctx) => {
         await ctx.db.patch("paymentProviderBindings", f.productBindingId, { automaticHeldAt: FIXTURE_NOW });
-        const sampleId = await certifiedSample(f, ctx, "payment_win", "payment-rule@1");
+        const sampleId = await certifiedSample(f, ctx, "payment_win", PAYMENT_RULE_VERSION);
         const decisionId = await seedReadyDecision(ctx, {
           tenantId: f.tenantId, providerPaymentId: f.providerPaymentId, opportunityId: f.opportunityId,
           leadId: f.personId, resolvedAt: writtenAt, certificateSampleId: sampleId, appliedVia: "automatic",

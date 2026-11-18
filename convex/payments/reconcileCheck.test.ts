@@ -1,14 +1,14 @@
 import { makeFunctionReference } from "convex/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "../_generated/dataModel";
 import {
   insertProviderDeal,
   insertProviderFact,
   insertProviderIdentifier,
   insertProviderPerson,
-  PAYER_EMAIL,
   providerPaymentFixture,
   setPaymentFixtureModes,
+  FIXTURE_NOW,
   FIXTURE_PAID_AT,
 } from "../../tests/providerPaymentFixtures";
 import { assertPaymentInvariants, seedProviderWin } from "../../tests/paymentInvariants";
@@ -22,6 +22,15 @@ import {
 
 const getPaymentReconciliation = makeFunctionReference<"query">("payments/reconcileCheck:getPaymentReconciliation");
 type Fixture = Awaited<ReturnType<typeof providerPaymentFixture>>;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXTURE_NOW);
+});
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
 
 function check(f: Fixture, writer: ReconcileWriter = "meeting") {
   const opportunityId = f.dealId!;
@@ -74,7 +83,7 @@ describe("Whop payment reconciliation", () => {
     { winMode: "off" as const },
     { winMode: "shadow" as const },
     { enabled: false },
-    { pausedAt: 0 },
+    { pausedAt: FIXTURE_PAID_AT },
   ])("skips unlinked facts when ask is off by %j", async (settings) => {
     const f = await providerPaymentFixture({ fact: { reviewState: "needs_person" } });
     expect(await check(f)).toEqual([]);
@@ -158,7 +167,7 @@ describe("Whop payment reconciliation", () => {
     })).toThrow("Review the Whop payment");
   });
 
-  it("authorizes the same closer as the side-deal writer and returns the configured prefill", async () => {
+  it("authorizes the side-deal closer and leaves held Whop facts in Billing", async () => {
     const f = await providerPaymentFixture({ source: "side_deal", fact: { reviewState: "needs_person" } });
     const other = f.t.withIdentity({ subject: "user_other", org_id: "org_test" });
     await f.t.run(async (ctx) => {
@@ -171,15 +180,7 @@ describe("Whop payment reconciliation", () => {
     await expect(f.t.query(getPaymentReconciliation, args)).rejects.toThrow();
     await expect(other.query(getPaymentReconciliation, args)).rejects.toThrow("not the assigned closer");
     const result = await f.closer.query(getPaymentReconciliation, args);
-    expect(result).toMatchObject({
-      conflicts: [{
-        state: "unlinked",
-        productTitle: "Sales training",
-        variantTitle: "Pay in full",
-      }],
-      prefill: [{ providerPaymentId: f.providerPaymentId, amount: 100, currency: "USD", programId: f.programId, paymentType: "pif" }],
-    });
-    expect(JSON.stringify(result)).not.toContain(PAYER_EMAIL);
+    expect(result).toEqual({ conflicts: [], prefill: [] });
     await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
 

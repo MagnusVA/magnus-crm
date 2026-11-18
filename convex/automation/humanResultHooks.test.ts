@@ -23,6 +23,7 @@ import { reconcilePaymentWrite } from "../payments/reconcileCheck";
 import { repairCommitter } from "../mcp/admin/writes/repairs";
 import { adminCreateFollowUpCore } from "../admin/meetingActions";
 import { insertPaymentAggregate, insertMeetingAggregate } from "../reporting/writeHooks";
+import { evaluateSubject } from "./decisions";
 import { applyCoveragePlanCore, type CoveragePlanArgs } from "../unavailability/coverage";
 
 const HOUR = 3_600_000;
@@ -823,14 +824,18 @@ it("refuses a formerly valid Whop confirmation after the deal's person merges", 
     await setPaymentFixtureModes(ctx, f);
     return await insertProviderPerson(ctx, f.tenantId, { email: undefined });
   });
+  const { decisionId } = await f.t.run((ctx) => evaluateSubject(ctx, {
+    tenantId: f.tenantId, providerPaymentId: f.providerPaymentId, cause: "provider_read", now: FIXTURE_NOW,
+  }));
+  if (!decisionId) throw new Error("Missing Whop proposal");
   const confirm = () => f.t.run(async (ctx) => {
     const deal = (await ctx.db.get("opportunities", f.dealId))!;
     return await reconcilePaymentWrite(ctx, deal, "meeting", [], {
       kind: "confirm", providerPaymentId: f.providerPaymentId,
-      expectedAllocationRevision: 0, decisionId: f.decisionId,
+      expectedAllocationRevision: 0, decisionId,
     });
   });
-  expect(await confirm()).toMatchObject({ action: "insert_from_provider", decisionId: f.decisionId });
+  expect(await confirm()).toMatchObject({ action: "insert_from_provider", decisionId });
   await f.admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: f.personId, targetLeadId });
   await expect(confirm()).rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
 });

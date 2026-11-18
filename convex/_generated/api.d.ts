@@ -555,6 +555,7 @@ import type * as payments_intake from "../payments/intake.js";
 import type * as payments_match from "../payments/match.js";
 import type * as payments_notMySale from "../payments/notMySale.js";
 import type * as payments_payerRetention from "../payments/payerRetention.js";
+import type * as payments_provisionalLookup from "../payments/provisionalLookup.js";
 import type * as payments_reconcile from "../payments/reconcile.js";
 import type * as payments_reconcileCheck from "../payments/reconcileCheck.js";
 import type * as payments_restore from "../payments/restore.js";
@@ -1294,6 +1295,7 @@ declare const fullApi: ApiFromModules<{
   "payments/match": typeof payments_match;
   "payments/notMySale": typeof payments_notMySale;
   "payments/payerRetention": typeof payments_payerRetention;
+  "payments/provisionalLookup": typeof payments_provisionalLookup;
   "payments/reconcile": typeof payments_reconcile;
   "payments/reconcileCheck": typeof payments_reconcileCheck;
   "payments/restore": typeof payments_restore;

@@ -29,6 +29,7 @@ import {
 import { formatPaidAt, formatPaidClock } from "@/app/workspace/billing/_components/billing-format";
 import { ProofFileInput } from "@/app/workspace/closer/meetings/_components/proof-file-input";
 import {
+  conflictKey,
   differentMoneyIntent,
   paymentPins,
   proofNeedFor,
@@ -134,6 +135,14 @@ function sameAnswer(conflict: Recorded, typed: WhopTyped, otherConflicts: Record
       providerPaymentId: conflict.providerPaymentId,
       expectedAllocationRevision: conflict.allocationRevision,
       acknowledgeAmountDifference: !amountsMatch,
+      ...(!amountsMatch && conflict.totalMinor !== undefined && {
+        acknowledgedAmounts: {
+          crmAmountMinor: typed.amountMinor,
+          crmCurrency: typed.currency,
+          providerTotalMinor: conflict.totalMinor,
+          providerCurrency: conflict.currency,
+        },
+      }),
       ...(otherConflicts.length ? { otherPins: paymentPins(otherConflicts) } : {}),
     },
     existing: conflict.state === "recorded_here",
@@ -181,9 +190,7 @@ export function WhopPaymentFoundStep({
   const [confirmingReadLimit, setConfirmingReadLimit] = useState(false);
 
   const view = viewOf(conflicts);
-  const setKey = conflicts
-    .map((conflict) => `${conflict.providerPaymentId ?? ""}:${conflict.allocationRevision ?? ""}:${conflict.state}`)
-    .join("|");
+  const setKey = [typed.amountMinor, typed.currency, ...conflicts.map(conflictKey)].join("|");
 
   // A new set (the server's) starts the questions again; what was typed stays.
   const [shownKey, setShownKey] = useState(setKey);

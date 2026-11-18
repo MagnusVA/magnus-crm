@@ -9,6 +9,7 @@ import {
   readReconciliationDealPayments,
   reconcilePaymentWrite,
   reconciledPaymentFields,
+  reconciledPaymentSelection,
 } from "../payments/reconcileCheck";
 import { mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
@@ -37,10 +38,8 @@ import { requireTenantUser } from "../requireTenantUser";
  * won / terminal). The person is already a customer, so the enrollment sync
  * only adds the payment to their total.
  *
- * Attribution follows the "any closer, self-credit" rule: a closer credits
- * themselves; an admin recording on behalf credits the opportunity's assigned
- * closer. The row flows into the Sales Calls / revenue
- * dashboards and the admin billing review queue automatically.
+ * Ordinary manual payments keep the closer's self-credit. Whop-backed
+ * confirmations credit the closer named in the server's proposal.
  */
 export const recordAdditionalPayment = mutation({
   args: {
@@ -71,8 +70,14 @@ export const recordAdditionalPayment = mutation({
       throw new Error("Opportunity not found.");
     }
 
+    const canReconcile = isAdmin || opportunity.assignedCloserId === userId;
+    if (!canReconcile && args.provider) {
+      throw new Error("You are not the assigned closer for this opportunity.");
+    }
     const dealPayments = await readReconciliationDealPayments(ctx, opportunity._id);
-    const reconciliation = await reconcilePaymentWrite(ctx, opportunity, "additional", dealPayments, args.provider);
+    const reconciliation = canReconcile
+      ? await reconcilePaymentWrite(ctx, opportunity, "additional", dealPayments, args.provider)
+      : { action: "insert" as const, distinctFrom: [] };
     if (reconciliation.action === "attach_existing") {
       const paymentId = reconciliation.paymentRecordId;
       if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {
@@ -110,7 +115,10 @@ export const recordAdditionalPayment = mutation({
       origin = "closer_additional";
     }
 
-    if (reconciliation.action === "insert_from_provider") origin = "provider";
+    if (reconciliation.action === "insert_from_provider") {
+      origin = "provider";
+      attributedCloserId = reconciliation.proposal.attributedCloserId;
+    }
 
     const currency = validateCurrency(args.currency);
     const amountMinor = toAmountMinor(args.amount);
@@ -130,11 +138,12 @@ export const recordAdditionalPayment = mutation({
         "This opportunity has no sold program or payment to take the program from.",
       );
     }
-    const program = await ctx.db.get("tenantPrograms", programId);
+    const selection = reconciledPaymentSelection(reconciliation, { programId, paymentType: args.paymentType });
+    const program = await ctx.db.get("tenantPrograms", selection.programId);
     if (!program || program.tenantId !== tenantId) {
       throw new Error("Sold program for this opportunity was not found.");
     }
-    const paymentType = resolvePaymentType(args.paymentType);
+    const paymentType = resolvePaymentType(selection.paymentType);
 
     // Validate the optional Fathom link the same way the codebase validates
     // other external URLs: parse it and require an http/https protocol.

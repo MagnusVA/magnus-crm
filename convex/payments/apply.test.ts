@@ -11,6 +11,8 @@ import { evaluateSubject } from "../automation/decisions";
 import { billingPaymentsByStatus } from "../billing/aggregates";
 import { opportunityByStage, paymentSums } from "../reporting/aggregates";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
+import { storeProofFile } from "../../tests/proofFixtures";
+import { findPaymentTarget } from "./match";
 
 const confirm = paymentConfirmationApi.payments.confirm;
 type Fixture = Awaited<ReturnType<typeof paymentConfirmationFixture>>;
@@ -32,11 +34,117 @@ beforeEach(() => {
   vi.setSystemTime(FIXTURE_NOW);
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllTimers();
   vi.useRealTimers();
 });
 
 describe("provider apply", () => {
+  it("keeps sandbox cash and evidence out of production while allowing the designated dev deployment", async () => {
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://cautious-donkey-511.convex.cloud");
+    const f = await paymentConfirmationFixture();
+    const meetingId = await f.t.run((ctx) => insertProviderMeeting(ctx, {
+      ...f, opportunityId: f.dealId, scheduledAt: FIXTURE_NOW - 60_000,
+    }));
+    const args = {
+      opportunityId: f.dealId, meetingId, amount: 100, currency: "USD",
+      paymentType: "pif" as const, programId: f.programId,
+    };
+    const approval = await pin(f);
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://synthetic-prod.convex.cloud");
+
+    const visible = await f.admin.query(api.payments.review.listProviderExceptions, {
+      paginationOpts: { cursor: null, numItems: 5 },
+    });
+    expect(visible.page).toMatchObject([{ providerPaymentId: f.providerPaymentId, environment: "sandbox" }]);
+    expect((await f.admin.query(confirm.previewWhopConfirm, target(f))).preview)
+      .toEqual({ ok: false, code: "needs_review" });
+    expect(await f.admin.mutation(confirm.confirmWhopPayment, approval)).toEqual({ ok: false, code: "needs_review" });
+    const intent = { providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 };
+    for (const provider of [
+      { ...intent, kind: "confirm" as const },
+      { ...intent, kind: "same_money" as const, acknowledgeAmountDifference: false },
+    ]) {
+      await expect(f.closer.mutation(api.closer.payments.logPayment, { ...args, provider }))
+        .rejects.toMatchObject({ data: { code: "payment.sandbox_payment" } });
+    }
+    await expect(f.closer.mutation(api.closer.payments.logPayment, args))
+      .rejects.toMatchObject({ data: { code: "payment.proof_required" } });
+    const paymentRecordId = await f.admin.mutation(api.closer.payments.logPayment, args);
+    const link = { ...intent, paymentRecordId };
+    await expect(f.admin.mutation(api.payments.review.linkToPaymentRecord, link))
+      .rejects.toMatchObject({ data: { code: "payment.sandbox_payment" } });
+    await invariant(f);
+
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://cautious-donkey-511.convex.cloud");
+    await expect(f.admin.mutation(api.payments.review.linkToPaymentRecord, link))
+      .resolves.toMatchObject({ allocationRevision: 1, paymentRecordId });
+    await invariant(f);
+  });
+
+  it("refuses a fresh Billing confirmation after the deal was vetoed as a wrong match", async () => {
+    const f = await paymentConfirmationFixture();
+    const first = await f.admin.mutation(confirm.confirmWhopPayment, await pin(f));
+    if (!first.ok) throw new Error(first.code);
+    await f.t.run((ctx) => seedUndoToBooked(ctx, {
+      paymentRecordId: first.paymentRecordId, approverId: f.adminId, now: FIXTURE_NOW, veto: true,
+    }));
+
+    const { preview } = await f.admin.query(confirm.previewWhopConfirm, target(f));
+    const result = await f.admin.mutation(confirm.confirmWhopPayment, {
+      ...target(f), expectedFingerprint: preview.ok ? preview.fingerprint : "vetoed", expectedAllocationRevision: 2,
+    });
+    expect(result).toEqual({ ok: false, code: "binding_invalid" });
+    expect(preview).toEqual(result);
+    expect(await f.t.run((ctx) => ctx.db.get("providerPayments", f.providerPaymentId))).toMatchObject({
+      excludedOpportunityIds: [f.dealId], allocationRevision: 2,
+    });
+    await invariant(f);
+  });
+
+  it("holds a late email-only payment after manual cash won another deal for the person", async () => {
+    const f = await paymentConfirmationFixture({ fact: { reviewState: "not_actionable" } });
+    const sideDealId = await f.t.run((ctx) => insertProviderDeal(ctx, {
+      ...f, leadId: f.personId, assignedCloserId: f.closerId, source: "side_deal",
+    }));
+    const { paymentId: manualId } = await f.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      opportunityId: sideDealId, amount: 100, currency: "USD", programId: f.programId, paymentType: "pif",
+      proofFileId: await storeProofFile(f.t),
+    });
+    await f.t.run((ctx) => ctx.db.patch("providerPayments", f.providerPaymentId, { reviewState: "needs_person" }));
+    const match = () => f.t.run(async (ctx) => findPaymentTarget(
+      ctx, (await ctx.db.get("providerPayments", f.providerPaymentId))!,
+    ));
+    const candidate = await match();
+    const { preview } = await f.admin.query(confirm.previewWhopConfirm, target(f));
+    const result = await f.admin.mutation(confirm.confirmWhopPayment, {
+      ...target(f), expectedFingerprint: preview.ok ? preview.fingerprint : "held", expectedAllocationRevision: 0,
+    });
+    expect({ candidate, result }).toMatchObject({
+      candidate: { kind: "needs_person", reason: "unlinked_manual_payment", candidateOpportunityIds: [f.dealId] },
+      result: { ok: false, code: "unlinked_manual_payment" },
+    });
+    expect(await f.t.run((ctx) => ctx.db.get("opportunities", f.dealId))).toMatchObject({ outcome: "open" });
+    await invariant(f);
+
+    // Cash logged well before Whop collected this charge cannot be it.
+    const { loggedAt, paidAt } = await f.t.run(async (ctx) => ({
+      loggedAt: (await ctx.db.get("paymentRecords", manualId))!.recordedAt,
+      paidAt: (await ctx.db.get("providerPayments", f.providerPaymentId))!.paidAt!,
+    }));
+    await f.t.run((ctx) => ctx.db.patch("paymentRecords", manualId, { recordedAt: paidAt - 2 * 86_400_000 }));
+    expect(await match()).toMatchObject({ kind: "ready", opportunityId: f.dealId });
+    await f.t.run((ctx) => ctx.db.patch("paymentRecords", manualId, { recordedAt: loggedAt }));
+    expect(await match()).toMatchObject({ kind: "needs_person", reason: "unlinked_manual_payment" });
+
+    await f.t.run((ctx) => ctx.db.patch("paymentRecords", manualId, {
+      distinctFromProviderPaymentIds: [f.providerPaymentId],
+    }));
+    expect(await match()).toMatchObject({ kind: "ready", opportunityId: f.dealId });
+    expect(await f.admin.mutation(confirm.confirmWhopPayment, await pin(f))).toMatchObject({ ok: true });
+    await invariant(f);
+  });
+
   it("runs the admin meeting payment's financial hooks and event order while leaving the call scheduled", async () => {
     const run = async (via: "billing" | "meeting") => {
       const f = await paymentConfirmationFixture();

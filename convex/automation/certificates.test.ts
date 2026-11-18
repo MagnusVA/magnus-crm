@@ -4,13 +4,15 @@ import type { Id } from "../_generated/dataModel";
 import { assertAutomationInvariants } from "../../tests/automationInvariants";
 import {
   automationFixtureApi, automationPaymentFixture, FIXTURE_NOW, insertProviderBinding, insertProviderPerson, seedReadyDecision,
-  setPaymentFixtureModes,
+  paymentConfirmationFixture, seedAutomaticCertificate, setPaymentFixtureModes,
 } from "../../tests/providerPaymentFixtures";
 import { initialSettings as initialCallSettings } from "../callInsights/settings";
+import { applyProviderPayment, previewProviderApply } from "../payments/apply";
 import { sha256Hex } from "../lib/stableHash";
 import type { AutomationKind } from "./proposals";
 import { assertAutomaticAllowed } from "./breaker";
 import { CASE_MAX_AGE_MS, CERTIFICATE_TARGET, enrollInSample } from "./certificates";
+import { evaluateSubject } from "./decisions";
 import { currentRuleVersion, effectiveKindMode } from "./settings";
 
 const certificates = (anyApi as unknown as ApiFromModules<{
@@ -114,12 +116,63 @@ it("keeps correct abstentions separate, counts a person once, and excludes aged 
   await assertAutomationInvariants(f.t, f);
 });
 
+it("keeps a system-loss Billing proposal out of payment certification and scheduling", async () => {
+  const checkout = "ch_system_loss_fixture";
+  const f = await paymentConfirmationFixture({
+    dealPosition: "lost", lostReason: "no_show", fact: { checkoutConfigurationId: checkout },
+  });
+  await f.t.run((ctx) => insertProviderBinding(ctx, {
+    ...f, externalId: checkout, binding: { kind: "checkout_deal", leadId: f.personId, opportunityId: f.dealId },
+  }));
+  const subject = {
+    tenantId: f.tenantId, providerPaymentId: f.providerPaymentId, opportunityId: f.dealId, now: FIXTURE_NOW,
+  };
+  const evaluate = () => f.t.run((ctx) => evaluateSubject(ctx, { ...subject, cause: "provider_read" }));
+  const ask = await evaluate();
+  if (!ask.decisionId) throw new Error("Missing Billing proposal");
+  const read = (id: Id<"resultAutomationDecisions">) => f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", id));
+  expect(await read(ask.decisionId)).toMatchObject({ mode: "ask", wouldWrite: true, confirmRoute: "billing" });
+
+  const ruleVersion = await f.t.run(async (ctx) => currentRuleVersion((await ctx.db.get("tenants", f.tenantId))!, "payment_win"));
+  const sampleId = await seedAutomaticCertificate(f.t, {
+    ...f, kind: "payment_win", promotedByUserId: f.ownerId, ruleVersion,
+    scopeBindingIds: [f.productBindingId, f.variantBindingId],
+  });
+  const reevaluated = await evaluate();
+  if (!reevaluated.decisionId) throw new Error("Missing proposal after promotion");
+  const evaluatedRow = (await read(reevaluated.decisionId))!;
+  const preview = await f.t.run((ctx) => previewProviderApply(ctx, subject));
+  if (!preview.ok) throw new Error(preview.code);
+  // Force a ready automatic row so the defensive writer sees the same inputs.
+  await f.t.run((ctx) => ctx.db.patch("resultAutomationDecisions", evaluatedRow._id, { mode: "automatic" }));
+  const applied = await f.t.run((ctx) => applyProviderPayment(ctx, {
+    ...subject, decisionId: evaluatedRow._id, via: "automatic", certificateSampleId: sampleId,
+    expectedFingerprint: preview.fingerprint, expectedAllocationRevision: preview.allocationRevision,
+  }));
+  expect(applied).toEqual({ ok: false, code: "needs_review" });
+  expect(evaluatedRow).toMatchObject({ mode: "ask", wouldWrite: true, confirmRoute: "billing" });
+  expect(evaluatedRow.dueAt).toBeUndefined();
+  expect((await read(ask.decisionId))?.sampleId).toBeUndefined();
+});
+
+it("reports the fixed reason for an aged-out certificate sample", async () => {
+  const f = await fixture();
+  const [caseId] = await seed(f, 1);
+  const sampleId = await f.t.run(async (ctx) => enrollInSample(ctx, (await ctx.db.get("resultAutomationDecisions", caseId))!));
+  vi.setSystemTime(FIXTURE_NOW + CASE_MAX_AGE_MS + 1);
+  const payment = (await f.owner.query(certificates.getCertificates, {})).find(({ kind }) => kind === "payment_win");
+  expect(payment?.sample).toMatchObject({ sampleId, status: "lapsed", lapseReason: "aged_out" });
+});
+
 it("certifies 300 distinct people and lets only the owner put that kind at automatic", async () => {
   const f = await fixture();
   await seed(f, CERTIFICATE_TARGET.payment_win);
   const sampleId = (await f.owner.mutation(certificates.openSample, { kind: "payment_win" }))!;
   expect((await f.admin.query(grading.listToGrade, { kind: "payment_win", sample: "writes" })).cases).toHaveLength(50);
-  await gradeMembers(f, sampleId);
+  const memberId = await gradeMembers(f, sampleId);
+  await f.t.run((ctx) => ctx.db.patch("resultAutomationDecisions", memberId, { automaticEligible: false }));
+  expect(await f.owner.mutation(certificates.certify, { sampleId })).toEqual({ ok: false, code: "not_full" });
+  await f.t.run((ctx) => ctx.db.patch("resultAutomationDecisions", memberId, { automaticEligible: undefined }));
   const promote = { kind: "payment_win", sampleId } as const;
   await expect(f.admin.mutation(certificates.promoteKind, promote)).rejects.toThrow("Insufficient permissions");
   expect(await f.owner.mutation(certificates.promoteKind, promote)).toEqual({ ok: false, code: "certificate_required" });

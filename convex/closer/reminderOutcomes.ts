@@ -55,6 +55,7 @@ import {
   readReconciliationDealPayments,
   reconcilePaymentWrite,
   reconciledPaymentFields,
+  reconciledPaymentSelection,
   type InsertReconciliation,
   type ProviderIntent,
 } from "../payments/reconcileCheck";
@@ -164,13 +165,15 @@ async function checkTaskPayment(
   }
 
   const currency = validateCurrency(args.currency);
-  const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
-  const paymentType = resolvePaymentType(args.paymentType);
+  const selection = reconciledPaymentSelection(reconciliation, args);
+  const program = await resolveProgramForWrite(ctx, tenantId, selection.programId);
+  const paymentType = resolvePaymentType(selection.paymentType);
   const now = Date.now();
   const amountMinor = toAmountMinor(args.amount);
   const meetingId = opportunity.latestMeetingId ?? undefined;
   const attributedCloserId =
-    role === "closer" ? userId : followUp.closerId;
+    reconciliation?.action === "insert_from_provider" ? reconciliation.proposal.attributedCloserId
+      : role === "closer" ? userId : followUp.closerId;
   const origin: PaymentOrigin = reconciliation?.action === "insert_from_provider"
     ? "provider"
     : role === "closer" ? "closer_reminder" : "admin_reminder";
@@ -264,7 +267,9 @@ export async function recordTaskPayment(
   assertCoreRole(actor, TASK_PAYMENT_ROLES);
   const target = await loadReminderPaymentTarget(ctx, actor, args.followUpId);
   const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
-  const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "reminder", dealPayments, args.provider);
+  const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "reminder", dealPayments, args.provider, {
+    kind: "reminder", followUpId: target.followUp._id,
+  });
   if (reconciliation.action === "attach_existing") {
     if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {
       await noteHumanResult(ctx, target.opportunity._id, actor);

@@ -15,6 +15,7 @@ import {
   seedManualPayment,
 } from "../../tests/providerPaymentFixtures";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { moveCallbackCore } from "../mcp/tools/callbacks";
 import type { ExcludeArgs } from "./exclude";
 
 // Restoring an exclusion made in error (build contract §2.6, plan §2.14
@@ -164,6 +165,73 @@ describe("restoring an exclusion made in error", () => {
       expect(state.corrections[1].tasks).toEqual([{ followUpId: reminder._id, change: "expired" }]);
       await invariant();
     }
+  });
+
+  it("refuses old and fresh restore previews after the closer moves the exclusion reminder", async () => {
+    const f = await providerPaymentFixture();
+    const { paymentRecordId } = await confirmAttendedWhopWin(f);
+    const correctionId = await exclude(f.admin, {
+      paymentRecordId, cause: "wrong_match", level: "reviewed", disposition: "follow_up", followUpContactMethod: "call",
+    });
+    const original = await previewRestore(f.admin, correctionId);
+    expect(original.move).toBe("ordinary");
+    const reminder = (await snapshot(f, paymentRecordId)).tasks.find((task) => task.status === "pending")!;
+    const reminderScheduledAt = FIXTURE_NOW + 86_400_000;
+    const rescheduled = await f.t.run((ctx) => moveCallbackCore(
+      ctx, { tenantId: f.tenantId, userId: f.closerId },
+      { followUpId: reminder._id, reminderScheduledAt }, { via: "mcp", agentClient: "unknown" },
+    ));
+    expect(rescheduled.moved).toBe(true);
+    const frozen = await snapshot(f, paymentRecordId);
+    expect(frozen.tasks.find((task) => task._id === reminder._id))
+      .toMatchObject({ status: "pending", reminderScheduledAt });
+
+    expect(await restore(f.admin, correctionId, original.fingerprint)).toEqual({ ok: false, code: "stale_preview" });
+    const fresh = await previewRestore(f.admin, correctionId);
+    expect.soft(fresh.refusal).toBe("stale_preview");
+    expect(await restore(f.admin, correctionId, fresh.fingerprint)).toEqual({ ok: false, code: "stale_preview" });
+    expect(await snapshot(f, paymentRecordId)).toEqual(frozen);
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+  });
+
+  it("does not void a restored side-deal payment when the old void request is retried", async () => {
+    const f = await providerPaymentFixture({ source: "side_deal" });
+    const { paymentId } = await f.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      opportunityId: f.dealId!, amount: 100, currency: "USD", paymentType: "pif",
+      programId: f.programId, proofFileId: await storeProofFile(f.t),
+    });
+    const args = { paymentId, reason: "Synthetic correction" };
+    const version = async () => {
+      const shown = await f.admin.query(api.sideDeals.voidPayment.getVoidStatusVersion, { paymentId });
+      if (shown === null) throw new Error("Expected a voidable payment");
+      return shown;
+    };
+    const originalVersion = await version();
+    const oldRequest = { ...args, expectedStatusVersion: originalVersion };
+    await f.admin.mutation(api.sideDeals.voidPayment.voidPayment, oldRequest);
+    expect(await f.admin.mutation(api.sideDeals.voidPayment.voidPayment, oldRequest)).toBeNull();
+    const excluded = await snapshot(f, paymentId);
+    expect(excluded.row?.status).toBe("disputed");
+    expect(excluded.corrections).toHaveLength(1);
+
+    expect(await restore(f.admin, excluded.corrections[0]._id)).toMatchObject({ ok: true });
+    const restored = await snapshot(f, paymentId);
+    expect(restored.row?.status).toBe("recorded");
+    expect(restored.deal?.outcome).toBe("won");
+
+    expect(await f.admin.mutation(api.sideDeals.voidPayment.voidPayment, oldRequest)).toBeNull();
+    await expect(f.admin.mutation(api.sideDeals.voidPayment.voidPayment, args))
+      .rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    expect(await snapshot(f, paymentId)).toEqual(restored);
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+
+    const restoredVersion = await version();
+    expect(restoredVersion).not.toBe(originalVersion);
+    await expect(f.admin.mutation(api.sideDeals.voidPayment.voidPayment, { ...args, expectedStatusVersion: "old version" }))
+      .rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    await f.admin.mutation(api.sideDeals.voidPayment.voidPayment, { ...args, expectedStatusVersion: restoredVersion });
+    expect((await snapshot(f, paymentId)).row?.status).toBe("disputed");
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
 
   it("moves the first-payment time back when an older payment is restored while a later one survives", async () => {

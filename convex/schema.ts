@@ -730,6 +730,8 @@ export default defineSchema({
     // (convex/lib/contactAgain.ts). While it is ahead, no respark claim picks
     // them. Cleared when they become a customer or do not contact.
     contactAgain: v.optional(contactAgainValidator),
+    // Fences refusal notices when a human settles a booking identity review.
+    identityReviewRevision: v.optional(v.number()),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
@@ -2047,6 +2049,12 @@ export default defineSchema({
       "opportunityId",
       "status",
       "reason",
+    ])
+    .index("by_tenantId_and_completionPaymentId_and_opportunityId_and_status", [
+      "tenantId",
+      "completionPaymentId",
+      "opportunityId",
+      "status",
     ]),
 
   // === v0.5b: Domain Events (Finding 1) ===

@@ -1,6 +1,7 @@
 import { anyApi, type ApiFromModules } from "convex/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assertAutomationInvariants } from "../../tests/automationInvariants";
+import { PAYMENT_RULE_VERSION } from "./derive";
 import { callInsightsHarness, seedCallDecisionReading } from "../../tests/callInsightsHarness";
 import { insertProgram } from "../../tests/enrollmentFixtures";
 import { storeProofFile } from "../../tests/proofFixtures";
@@ -9,6 +10,7 @@ import {
 } from "../../tests/providerPaymentFixtures";
 import { api, internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
+import { headerFor } from "../callInsights/trigger";
 import { sha256Hex } from "../lib/stableHash";
 import { insertMeetingAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
 import { evaluateCallSubject } from "./callDecisions";
@@ -96,7 +98,7 @@ async function seedCountingPayment(
     let automationDecisionId;
     if (automatic) {
       const certificateSampleId = await ctx.db.insert("automationSamples", {
-        tenantId: f.tenantId, kind: "payment_win", ruleVersion: "payment-rule@1",
+        tenantId: f.tenantId, kind: "payment_win", ruleVersion: PAYMENT_RULE_VERSION,
         target: 0, status: "certified", certifiedAt: NOW, createdAt: NOW,
       });
       automationDecisionId = await seedAppliedReceipt(ctx, {
@@ -230,6 +232,28 @@ describe("closer alerts", () => {
     await assertInvariants(f);
   });
 });
+
+it.each(["new run", "new publication of the same run"] as const)(
+  "withdraws an unanswered alert immediately after a %s",
+  async (change) => {
+    const f = await setupAlert();
+    expect(await list(f)).toEqual([expectedRow(f)]);
+    if (change === "new run") {
+      const reading = await seedCallDecisionReading(f, { generation: 2, alert: false });
+      await f.t.mutation(internal.callInsights.run.publish, reading);
+    } else {
+      await f.t.run(async (ctx) => {
+        const header = (await headerFor(ctx, f.recordingId))!;
+        await ctx.db.patch("callInsightFacts", header._id, { publicationRevision: header.publicationRevision + 1 });
+      });
+    }
+    // The publish evaluates decisions in a later job.
+    expect(await row(f)).toMatchObject({ state: "ready" });
+    expect(await list(f)).toEqual([]);
+    expect(await answer(f, "paid_in_whop_by_someone_else")).toEqual({ ok: false, code: "alert_closed" });
+    expect((await row(f))?.alertAnswer).toBeUndefined();
+  },
+);
 
 describe("Billing handoffs", () => {
   it.each(["payment_found", "no_payment_found"] as const)("hands over the deal and resolves it as %s", async (resolution) => {

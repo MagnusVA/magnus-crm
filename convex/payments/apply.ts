@@ -3,7 +3,9 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { scheduleAudit } from "../automation/audit";
 import { supersedePaymentDecisions } from "../automation/decisions";
-import { deriveDecision, isAutomaticCallRefusal, paymentBillingReason, type PaymentDecisionInput } from "../automation/derive";
+import {
+  deriveDecision, isAutomaticCallRefusal, isAutomaticPaymentPosition, paymentBillingReason, type PaymentDecisionInput,
+} from "../automation/derive";
 import { noteHumanResult } from "../automation/humanResult";
 import { stopCallDecisionsOnPayment } from "../automation/paymentHooks";
 import { recordApplyReceipt } from "../automation/receipts";
@@ -22,9 +24,9 @@ import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { stableJson } from "../lib/stableHash";
 import { planProviderWinTasks, settleProviderWinTasks } from "../lib/taskSettlement";
 import { dealPosition, systemLossReasonOf } from "../opportunities/stages";
-import { ALLOCATION_HISTORY_LIMIT, readActiveAllocation, setActiveAllocation } from "./allocation";
+import { ALLOCATION_HISTORY_LIMIT, readActiveAllocation, sandboxAllocationBlocked, setActiveAllocation } from "./allocation";
 import { ATTENDANCE_DEBT_MEETING_LIMIT, markAttendanceOwed } from "./attendanceDebt";
-import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "./capacity";
+import { DEALS_PER_PERSON_HOLD, otherDealCashHold, PAYMENT_ROWS_PER_DEAL_HOLD } from "./capacity";
 import { paymentCommandRefusalValidator, refuse } from "./commandResult";
 import { FINGERPRINT_BINDING_LIMIT, FINGERPRINT_MEETING_LIMIT, FINGERPRINT_TASK_LIMIT, paymentStateFingerprint } from "./fingerprint";
 import { findPaymentTarget, type PaymentTarget } from "./match";
@@ -132,6 +134,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   ]);
   if (!tenant || deal?.tenantId !== tenantId || payment?.tenantId !== tenantId) return refuse("stale_preview");
   if (payment.paymentRecordId) return refuse("reallocated");
+  if (payment.excludedOpportunityIds?.includes(opportunityId)) return refuse("binding_invalid");
   const rawPosition = dealPosition(deal.stage, deal.outcome);
   const kind = rawPosition === "won" ? "additional_payment" : "payment_win";
   const settings = tenant.resultAutomation;
@@ -166,6 +169,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
       q.eq("tenantId", tenantId).eq("leadId", deal.leadId)).take(DEALS_PER_PERSON_HOLD),
   ]);
   if (connection?.tenantId !== tenantId || connection.status !== "connected") return refuse("binding_invalid");
+  if (sandboxAllocationBlocked(connection)) return refuse("needs_review");
   if (lead?.tenantId !== tenantId || lead.status === "merged") return refuse("stale_preview");
   if (closer?.tenantId !== tenantId) return refuse("no_closer");
   if (payments.length >= PAYMENT_ROWS_PER_DEAL_HOLD || personDeals.length >= DEALS_PER_PERSON_HOLD) {
@@ -216,6 +220,12 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   const blockingManualPaymentIds = payments.flatMap((row) =>
     row._id !== membership?.anchor._id && paymentCounts(row) && !row.providerPaymentId ? [row._id] : []);
   if (blockingManualPaymentIds.length) return refuse("unlinked_manual_payment");
+  // The matcher checks other deals on an email match. Billing can choose a
+  // deal when it abstains, so that path needs the same check before a win.
+  if (kind === "payment_win" && !membership && matched.kind !== "ready") {
+    const hold = await otherDealCashHold(ctx, payment, deal, personDeals);
+    if (hold) return refuse(hold === "read_limit" ? "needs_review" : hold);
+  }
   if ((position === "won") !== Boolean(firstPayment)) throw new Error("Deal outcome and counting payments disagree");
 
   const product = productRow?.enabled && productRow.binding.kind === "product_program" ? productRow.binding : undefined;
@@ -295,7 +305,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   } as const satisfies Preview;
   return {
     ...preview, deal, payment, derived, meetings, scheduled, pendingWinTasks, bindingRows, inheritedProgramId, membership,
-    systemLoss, callRefusal,
+    systemLoss, callRefusal, settings,
   };
 }
 
@@ -310,11 +320,56 @@ async function automaticRefusalWrote(ctx: ReadCtx, deal: Deal): Promise<boolean>
 }
 const APPLIED_DEAL_RECEIPT_LIMIT = 50;
 
-export async function previewProviderApply(ctx: ReadCtx, args: PreviewArgs): Promise<Preview> {
+type PreparedApply = Extract<Awaited<ReturnType<typeof prepareApply>>, { ok: true }>;
+
+function decisionMatchesPrepared(prepared: PreparedApply, decision: Decision) {
+  const { deal, payment, kind, settings, bindingRows, derived } = prepared;
+  const proposal = derived.proposal;
+  const recordedEvidence = paymentEvidenceOf(decision);
+  const recordedProposal = paymentProposalOf(decision);
+  return decision.tenantId === deal.tenantId && decision.opportunityId === deal._id &&
+    decision.providerPaymentId === payment._id && decision.state === "ready" && modeAtLeastAsk(decision.mode) &&
+    decision.kind === kind && decision.leadId === deal.leadId &&
+    decision.humanResultRevision === (deal.humanResultRevision ?? 0) &&
+    decision.activationVersion === settings.activationVersion &&
+    decision.policyVersion === settings.kinds[kind].policyVersion &&
+    recordedEvidence?.allocationRevision === payment.allocationRevision &&
+    recordedEvidence.sourceUpdatedAt === payment.sourceUpdatedAt &&
+    stableJson(recordedEvidence.bindingIds) === stableJson(bindingRows.map((row) => row._id)) &&
+    stableJson(recordedEvidence.bindingVersions) === stableJson(bindingRows.map((row) => row.version)) &&
+    derived.wouldWrite && proposal !== undefined && decision.confirmRoute === derived.confirmRoute &&
+    decision.meetingId === derived.meetingId && decision.assignedCloserId === proposal.attributedCloserId &&
+    recordedProposal?.amountMinor === proposal.amountMinor && recordedProposal.currency === proposal.currency &&
+    recordedProposal.programId === proposal.programId && recordedProposal.paymentType === proposal.paymentType &&
+    recordedProposal.attributedCloserId === proposal.attributedCloserId &&
+    recordedProposal.completesFollowUpId === proposal.completesFollowUpId;
+}
+
+export async function previewProviderApply(ctx: ReadCtx, args: PreviewArgs, decision?: Decision): Promise<Preview> {
   const prepared = await prepareApply(ctx, args);
   if (!prepared.ok) return prepared;
+  if (decision && !decisionMatchesPrepared(prepared, decision)) return refuse("stale_preview");
   const { fingerprint, allocationRevision, position, kind, proposal } = prepared;
   return { ok: true, alreadyApplied: false, fingerprint, allocationRevision, position, kind, proposal };
+}
+
+export type ProviderConfirmSubject =
+  | { kind: "meeting"; meetingId: Id<"meetings"> }
+  | { kind: "reminder"; followUpId: Id<"followUps"> };
+
+/** The proposal a closer can record, from the same preflight as Billing. */
+export async function readEligibleProviderProposal(
+  ctx: ReadCtx,
+  args: PreviewArgs,
+  decision?: Decision,
+  subject?: ProviderConfirmSubject,
+) {
+  const prepared = await prepareApply(ctx, args);
+  if (!prepared.ok) return null;
+  if (decision && (!decisionMatchesPrepared(prepared, decision) ||
+      (subject?.kind === "meeting" && decision.meetingId !== subject.meetingId) ||
+      (subject?.kind === "reminder" && paymentProposalOf(decision)?.completesFollowUpId !== subject.followUpId))) return null;
+  return prepared.derived.proposal ?? null;
 }
 
 async function readRetry(ctx: MutationCtx, args: ApplyArgs, payment: Payment, decision: Decision | null): Promise<ApplyResult> {
@@ -351,33 +406,13 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   const prepared = await prepareApply(ctx, args);
   if (!prepared.ok) return prepared;
   const {
-    deal, derived, position, kind, proposal, pendingWinTasks, meetings, scheduled, bindingRows, inheritedProgramId, membership,
+    deal, derived, position, kind, proposal, pendingWinTasks, meetings, scheduled, inheritedProgramId, membership,
     systemLoss, callRefusal,
   } = prepared;
   if (prepared.fingerprint !== args.expectedFingerprint) return refuse("stale_preview");
   if (automatic && (decision?.mode !== "automatic" || decision.state !== "ready")) return refuse("stale_preview");
 
-  if (decision) {
-    const settings = (await ctx.db.get("tenants", tenantId))?.resultAutomation;
-    const recordedEvidence = paymentEvidenceOf(decision);
-    const recordedProposal = paymentProposalOf(decision);
-    if (decision.state !== "ready" || !modeAtLeastAsk(decision.mode) || decision.kind !== kind || decision.leadId !== deal.leadId ||
-        decision.humanResultRevision !== (deal.humanResultRevision ?? 0) ||
-        decision.activationVersion !== settings?.activationVersion ||
-        decision.policyVersion !== settings.kinds[kind].policyVersion ||
-        !recordedEvidence ||
-        recordedEvidence.allocationRevision !== payment.allocationRevision ||
-        recordedEvidence.sourceUpdatedAt !== payment.sourceUpdatedAt ||
-        stableJson(recordedEvidence.bindingIds) !== stableJson(bindingRows.map((row) => row._id)) ||
-        stableJson(recordedEvidence.bindingVersions) !== stableJson(bindingRows.map((row) => row.version)) ||
-        !derived.wouldWrite || decision.confirmRoute !== derived.confirmRoute || decision.meetingId !== derived.meetingId ||
-        recordedProposal?.completesFollowUpId !== derived.proposal?.completesFollowUpId ||
-        decision.assignedCloserId !== proposal.attributedCloserId ||
-        recordedProposal?.amountMinor !== proposal.amountMinor || recordedProposal.currency !== proposal.currency ||
-        recordedProposal.programId !== proposal.programId || recordedProposal.paymentType !== proposal.paymentType) {
-      return refuse("stale_preview");
-    }
-  }
+  if (decision && !decisionMatchesPrepared(prepared, decision)) return refuse("stale_preview");
   if (callRefusal && (via !== "billing" || decision)) return refuse("needs_review");
   if (via === "meeting_no_show") {
     if (!meetingId || position !== "booked" || !derived.wouldWrite || derived.meetingId !== meetingId ||
@@ -385,7 +420,7 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   } else if (meetingId) {
     throw new Error("Billing confirmation cannot attach a meeting");
   }
-  if (automatic && position !== "booked" && position !== "follow_up" && position !== "won") return refuse("needs_review");
+  if (automatic && !isAutomaticPaymentPosition(position)) return refuse("needs_review");
   if (position === "system_loss" && decision) return refuse("needs_review");
   if (position === "won" && decision && !membership) return refuse("binding_invalid");
   if ((!proposal.programId || !proposal.paymentType) && (!args.programId || !args.paymentType)) {
@@ -394,6 +429,9 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   const programId = proposal.programId ?? args.programId;
   const paymentType = proposal.paymentType ?? args.paymentType;
   if (!programId || !paymentType) return refuse("program_required");
+  if (via === "meeting_no_show" && (args.programId !== proposal.programId || args.paymentType !== proposal.paymentType)) {
+    return refuse("stale_preview");
+  }
   if ((args.programId && args.programId !== programId) || (inheritedProgramId && inheritedProgramId !== programId) ||
       (membership && membership.anchor.programId !== programId)) return refuse("binding_invalid");
   if (args.paymentType && args.paymentType !== paymentType) return refuse("binding_invalid");

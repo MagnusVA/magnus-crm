@@ -1,8 +1,10 @@
 import { makeFunctionReference } from "convex/server";
 import { v, type ObjectType } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { log } from "../lib/observability/log";
+import { findPaymentTarget, type PaymentTarget } from "../payments/match";
+import { matchedProvisionalLead } from "../payments/provisionalLookup";
 
 const paymentArgs = {
   tenantId: v.id("tenants"),
@@ -46,6 +48,19 @@ async function stopRows(ctx: MutationCtx, args: PaymentArgs, rows: Doc<"resultAu
       state: "stopped", stopCode: "payment_found", resolvedAt: now,
     });
   }
+}
+
+/** A cached candidate can hold a refusal, but a permanent stop needs a live match. */
+export async function matchedProviderLead(
+  ctx: QueryCtx | MutationCtx, payment: Doc<"providerPayments">, target?: PaymentTarget,
+): Promise<Id<"leads"> | undefined> {
+  if (payment.totalMinor === 0 || payment.reviewState === "historical" || payment.reviewState === "dismissed") return;
+  if (payment.status !== "paid") return matchedProvisionalLead(ctx, payment);
+  const live = target ?? await findPaymentTarget(ctx, payment);
+  if (live.kind !== "needs_person") return live.leadId;
+  if (live.reason === "phone_only" || live.reason === "phone_conflict" || live.reason === "excluded_wrong_match" ||
+      live.reason === "binding_conflict" || live.reason === "read_limit") return;
+  return live.candidateLeadId;
 }
 
 /** A new payment for this person withdraws an outstanding refusal or alert. */

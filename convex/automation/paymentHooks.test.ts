@@ -3,7 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { assertAutomationInvariants } from "../../tests/automationInvariants";
 import { callInsightsHarness, seedCallDecisionReading } from "../../tests/callInsightsHarness";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
-import { insertPaymentFixtureConnection, insertProviderFact, insertProviderPerson } from "../../tests/providerPaymentFixtures";
+import { insertPaymentFixtureConnection, insertProviderFact, insertProviderPerson, seedManualPayment } from "../../tests/providerPaymentFixtures";
+import { insertProgram } from "../../tests/enrollmentFixtures";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { evaluateSubject, scheduleEvaluation } from "./decisions";
@@ -62,9 +63,12 @@ it.each(["intake", "evaluate"] as const)("a Whop payment for the person stops th
   await assertAutomationInvariants(f.t, { tenantId: f.tenantId });
   await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
 
-  const providerPaymentId = await f.t.run((ctx) => insertProviderFact(ctx, f.tenantId, connectionId, {
-    candidateLeadId: f.leadId, reviewState: "needs_person", paidAt: NOW - 5000,
-  }));
+  const providerPaymentId = await f.t.run(async (ctx) => {
+    const person = (await ctx.db.get("leads", f.leadId))!;
+    return insertProviderFact(ctx, f.tenantId, connectionId, {
+      candidateLeadId: f.leadId, payerEmail: person.email, reviewState: "needs_person", paidAt: NOW - 5000,
+    });
+  });
   await evaluate(providerPaymentId);
   expect(await rows()).toMatchObject([
     { kind: "refusal_loss", state: "stopped", stopCode: "payment_found" },
@@ -75,4 +79,21 @@ it.each(["intake", "evaluate"] as const)("a Whop payment for the person stops th
 
   await assertAutomationInvariants(f.t, { tenantId: f.tenantId });
   await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+});
+
+it("an allocated provider read with no automation settings reads no decisions", async () => {
+  const f = await callInsightsHarness();
+  await f.t.run(async (ctx) => {
+    const connectionId = await insertPaymentFixtureConnection(ctx, f.tenantId, f.ownerId);
+    const programId = await insertProgram(ctx, f.tenantId, "Fixture program");
+    const paymentRecordId = await seedManualPayment(ctx, { ...f, personId: f.leadId }, {
+      opportunityId: f.opportunityId, programId, recordedAt: NOW,
+    });
+    const providerPaymentId = await insertProviderFact(ctx, f.tenantId, connectionId, {
+      paymentRecordId, leadId: f.leadId, opportunityId: f.opportunityId, reviewState: "linked",
+    });
+    const query = vi.spyOn(ctx.db, "query");
+    await scheduleEvaluation(ctx, providerPaymentId, "provider_read");
+    expect(query).not.toHaveBeenCalledWith("resultAutomationDecisions");
+  });
 });

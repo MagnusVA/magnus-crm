@@ -7,7 +7,7 @@ import { isSideDeal } from "../lib/sideDeals";
 import { awaitsCallResult, isOpenDeal, isQualifiedDeal, isSideDealAtCallHeld, isWonDeal } from "../opportunities/dealGuards";
 import { dealStageOf, systemLossReasonOf } from "../opportunities/stages";
 import { findEnabledBinding } from "./bindingLookup";
-import { checkPaymentCapacity, PAYMENT_ROWS_PER_DEAL_HOLD } from "./capacity";
+import { checkPaymentCapacity, otherDealCashHold, PAYMENT_ROWS_PER_DEAL_HOLD } from "./capacity";
 import { MAX_PROVIDER_PAYMENT_AGE_MS } from "./reviewTiming";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -426,7 +426,8 @@ export async function findPaymentTarget(
   const positionHold = openDealHold(deal);
   if (positionHold) return needsPerson(positionHold, person._id, deals);
 
-  const hold = await dealPaymentHold(ctx, payment, person, deal, connection.autoImportAfter, now);
+  const hold = await dealPaymentHold(ctx, payment, person, deal, connection.autoImportAfter, now)
+    ?? await otherDealCashHold(ctx, payment, deal);
   if (hold) return needsPerson(hold, person._id, deals);
   return { kind: "ready", leadId: person._id, opportunityId: deal._id, matchMethod: "email_one_open_deal" };
 }

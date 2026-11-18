@@ -156,13 +156,14 @@ export async function findApplyReceipt(ctx: Ctx, row: Payment): Promise<Decision
 
 async function tasksCompletedBy(ctx: Ctx, row: Payment, opportunityId: Id<"opportunities">) {
   const completed = await ctx.db.query("followUps")
-    .withIndex("by_opportunityId_and_status_and_reason", (q) =>
-      q.eq("opportunityId", opportunityId).eq("status", "completed"))
+    .withIndex("by_tenantId_and_completionPaymentId_and_opportunityId_and_status", (q) =>
+      q.eq("tenantId", row.tenantId).eq("completionPaymentId", row._id)
+        .eq("opportunityId", opportunityId).eq("status", "completed"))
     .take(COMPLETED_TASK_LIMIT + 1);
   if (completed.length > COMPLETED_TASK_LIMIT) {
-    throw new Error(`Deal ${opportunityId} has more than ${COMPLETED_TASK_LIMIT} completed tasks`);
+    throw new Error(`Payment ${row._id} completed more than ${COMPLETED_TASK_LIMIT} tasks`);
   }
-  return completed.filter((task) => task.tenantId === row.tenantId && task.completionPaymentId === row._id);
+  return completed;
 }
 
 export async function readPendingTasks(ctx: Ctx, tenantId: Id<"tenants">, opportunityId: Id<"opportunities">) {
@@ -243,15 +244,14 @@ async function exclusionRequestKey(args: ExcludeArgs, fingerprint: string) {
   ]));
 }
 
-/**
- * The side-deal void has no preview to pin: its request is the row in the
- * state the void found it. It never reads the preview fingerprint, which
- * refuses a deal with more membership bindings than a preview shows.
- */
-async function voidRequestKey(args: ExcludeArgs, row: Payment) {
-  return await sha256Hex(stableJson([
-    "exclude", args.paymentRecordId, "side_deal_void", row.status, row.statusChangedAt ?? null, row.recordedAt,
-  ]));
+export async function findExclusionReplay(ctx: Ctx, tenantId: Id<"tenants">, paymentRecordId: Id<"paymentRecords">, requestKey: string) {
+  const receipt = await ctx.db.query("paymentCorrections")
+    .withIndex("by_tenantId_and_requestKey", (q) => q.eq("tenantId", tenantId).eq("requestKey", requestKey))
+    .first();
+  if (receipt && (receipt.operation !== "exclude" || receipt.paymentRecordId !== paymentRecordId)) {
+    throw new Error(`Correction ${receipt._id} has this request key for another subject`);
+  }
+  return receipt;
 }
 
 // ─── Rules ──────────────────────────────────────────────────────────────
@@ -518,32 +518,30 @@ export async function excludePaymentCore(
   ctx: MutationCtx,
   actor: CoreActor,
   args: ExcludeArgs,
-  policy: ExclusionPolicy,
+  request: "billing" | { sideDealRequestKey: string },
 ): Promise<PaymentCommandResult<{ correctionId: Id<"paymentCorrections"> }>> {
   assertCoreRole(actor, ADMIN_ROLES);
-  if (policy === "billing" && args.expectedFingerprint === undefined) {
-    throw expectedError("payment.preview_required", "Preview the change first.");
-  }
   const now = Date.now();
   const { tenantId } = actor;
-  const state = await loadExclusionState(ctx, tenantId, args.paymentRecordId);
-  const requestKey = args.expectedFingerprint === undefined
-    ? await voidRequestKey(args, state.row)
-    : await exclusionRequestKey(args, args.expectedFingerprint);
-  const replay = await ctx.db.query("paymentCorrections")
-    .withIndex("by_tenantId_and_requestKey", (q) => q.eq("tenantId", tenantId).eq("requestKey", requestKey))
-    .first();
-  if (replay) {
-    if (replay.operation !== "exclude" || replay.paymentRecordId !== args.paymentRecordId) {
-      throw new Error(`Correction ${replay._id} has this request key for another subject`);
+  let requestKey: string;
+  if (request === "billing") {
+    if (args.expectedFingerprint === undefined) {
+      throw expectedError("payment.preview_required", "Preview the change first.");
     }
-    return { ok: true, alreadyApplied: true, correctionId: replay._id };
+    requestKey = await exclusionRequestKey(args, args.expectedFingerprint);
+    const replay = await findExclusionReplay(ctx, tenantId, args.paymentRecordId, requestKey);
+    if (replay) return { ok: true, alreadyApplied: true, correctionId: replay._id };
+  } else {
+    requestKey = request.sideDealRequestKey;
   }
-  if (args.expectedFingerprint !== undefined &&
-      args.expectedFingerprint !== await exclusionFingerprint(ctx, state, args.cause)) return refuse("stale_preview");
+  const state = await loadExclusionState(ctx, tenantId, args.paymentRecordId);
+  if (request === "billing" && args.expectedFingerprint !== await exclusionFingerprint(ctx, state, args.cause)) {
+    return refuse("stale_preview");
+  }
   if (!paymentCounts(state.row)) return refuse("stale_preview");
   assertExcludable(state);
 
+  const policy = request === "billing" ? "billing" : "side_deal";
   const plan = planExclusion(state, args, policy, now);
   if (typeof plan === "string") return refuse(plan);
 

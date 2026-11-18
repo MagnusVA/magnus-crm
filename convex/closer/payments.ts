@@ -47,6 +47,7 @@ import {
   readReconciliationDealPayments,
   reconcilePaymentWrite,
   reconciledPaymentFields,
+  reconciledPaymentSelection,
   type InsertReconciliation,
   type ProviderIntent,
 } from "../payments/reconcileCheck";
@@ -128,14 +129,16 @@ async function checkMeetingPayment(
 
   const currency = validateCurrency(args.currency);
   const amountMinor = toAmountMinor(args.amount);
-  const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
-  const paymentType = resolvePaymentType(args.paymentType);
+  const selection = reconciledPaymentSelection(reconciliation, args);
+  const program = await resolveProgramForWrite(ctx, tenantId, selection.programId);
+  const paymentType = resolvePaymentType(selection.paymentType);
 
   if (role !== "closer" && !opportunity.assignedCloserId) {
     throw new Error("Assign a closer before logging a payment");
   }
   const attributedCloserId =
-    role === "closer" ? userId : opportunity.assignedCloserId!;
+    reconciliation?.action === "insert_from_provider" ? reconciliation.proposal.attributedCloserId
+      : role === "closer" ? userId : opportunity.assignedCloserId!;
   const origin: PaymentOrigin = reconciliation?.action === "insert_from_provider"
     ? "provider"
     : role === "closer" ? "closer_meeting" : "admin_meeting";
@@ -243,7 +246,9 @@ export async function recordMeetingPayment(
   assertCoreRole(actor, MEETING_PAYMENT_ROLES);
   const target = await loadMeetingPaymentTarget(ctx, actor, args);
   const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
-  const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "meeting", dealPayments, args.provider);
+  const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "meeting", dealPayments, args.provider, {
+    kind: "meeting", meetingId: target.meeting._id,
+  });
   if (reconciliation.action === "attach_existing") {
     const { meeting, opportunity } = target;
     const now = Date.now();

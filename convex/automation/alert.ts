@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { requireBillingOpsEnabled, requireBillingPermission } from "../billing/guards";
 import { transcriptGone } from "../callInsights/retention";
+import { headerFor } from "../callInsights/trigger";
 import { loadActiveFollowUpDoc } from "../lib/activeFollowUp";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
@@ -10,7 +11,7 @@ import { PERMISSIONS } from "../lib/permissions";
 import { canRecordMeetingOutcome, canTakePayment, loadDealTasks } from "../opportunities/dealGuards";
 import { automationCommandRefusalValidator, refuseAutomation } from "../payments/commandResult";
 import { requireTenantUser } from "../requireTenantUser";
-import { alertProposalOf } from "./proposals";
+import { alertProposalOf, callEvidenceOf } from "./proposals";
 import { effectiveAlertMode } from "./settings";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -157,9 +158,17 @@ function isCurrentAlertPolicy(tenant: Doc<"tenants">, decision: Decision) {
 async function canAnswerSubject(ctx: ReadCtx, decision: Decision, subject: Subject, now: number) {
   if (!decision.noticeUserId || subject.deal.assignedCloserId !== decision.noticeUserId ||
       (subject.deal.humanResultRevision ?? 0) !== decision.humanResultRevision || !decision.recordingId) return false;
-  const recording = await ctx.db.get("callRecordings", decision.recordingId);
+  const evidence = callEvidenceOf(decision);
+  if (evidence?.recordingId !== decision.recordingId || evidence.runId !== decision.runId) return false;
+  const [recording, header] = await Promise.all([
+    ctx.db.get("callRecordings", decision.recordingId),
+    headerFor(ctx, decision.recordingId),
+  ]);
   return recording?.tenantId === decision.tenantId && recording.meetingId === subject.meeting._id &&
-    recording.matchStatus === "matched" && !transcriptGone(recording, now);
+    recording.matchStatus === "matched" && !transcriptGone(recording, now) &&
+    header?.active === true && header.tenantId === decision.tenantId && header.meetingId === subject.meeting._id &&
+    header.publishedRunId === evidence.runId && header.publicationRevision === evidence.publicationRevision &&
+    header.quotesPurgedAt === undefined;
 }
 
 async function liveCloserSubject(ctx: ReadCtx, decision: Decision, tenant: Doc<"tenants">, now: number) {

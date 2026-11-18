@@ -6,7 +6,9 @@ import {
   seedReadyDecision, setPaymentFixtureModes,
 } from "../../tests/providerPaymentFixtures";
 
-const { grading } = automationFixtureApi;
+import { PAYMENT_RULE_VERSION } from "./derive";
+
+const { grading, settings } = automationFixtureApi;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -30,6 +32,7 @@ async function sample(f: Fixture, options: {
 } = {}) {
   return await f.t.run(async (ctx) => {
     const id = await seedReadyDecision(ctx, {
+      ruleVersion: PAYMENT_RULE_VERSION,
       tenantId: f.tenantId, leadId: f.personId, opportunityId: f.dealId, providerPaymentId: f.providerPaymentId,
       noticeUserId: f.closerId,
       proposal: {
@@ -93,6 +96,30 @@ describe("grade capture", () => {
     expect((await getDecision(f, oldest))?.grade).toMatchObject({ gradedBeforeSeeing: true, gradedByUserId: f.adminId });
     expect((await f.admin.query(grading.listToGrade, args)).cases.map((row) => row.decisionId)).toEqual([second]);
     await invariant(f);
+  });
+
+  it("only the designated grader can read, answer, reveal and grade a case", async () => {
+    const f = await gradingFixture();
+    const decisionId = await sample(f);
+    const formerCase = await sample(f, { createdAt: FIXTURE_NOW + 1 });
+    const answer = { abstain: false };
+    await f.owner.mutation(grading.commitAnswer, { decisionId: formerCase, answer });
+    await f.owner.mutation(settings.setGrader, { userId: f.adminId });
+    const args = { kind: "payment_win", sample: "writes" } as const;
+    const denied = "Only the designated grader can grade cases.";
+    await expect(f.owner.query(grading.listToGrade, args)).rejects.toThrow(denied);
+    await expect(f.owner.query(grading.getMyAnswer, { decisionId: formerCase })).rejects.toThrow(denied);
+    await expect(f.owner.mutation(grading.commitAnswer, { decisionId, answer })).rejects.toThrow(denied);
+    await expect(f.owner.mutation(grading.reveal, { decisionId })).rejects.toThrow(denied);
+    await expect(f.owner.mutation(grading.recordGrade, { decisionId: formerCase, verdict: "correct", wrongFields: [] }))
+      .rejects.toThrow(denied);
+    expect((await f.admin.query(grading.listToGrade, args)).cases.map((row) => row.decisionId)).toContain(decisionId);
+    await f.admin.mutation(grading.commitAnswer, { decisionId, answer });
+    expect(await f.admin.query(grading.getMyAnswer, { decisionId })).toEqual({ answer, blind: true });
+    expect(await f.admin.mutation(grading.reveal, { decisionId })).toMatchObject({ kind: "payment_win" });
+    await f.admin.mutation(grading.recordGrade, { decisionId, verdict: "unsure", wrongFields: [] });
+    await f.owner.mutation(grading.resolveUnsure, { decisionId, verdict: "correct" });
+    expect((await getDecision(f, decisionId))?.grade?.secondLook?.verdict).toBe("correct");
   });
 
   it("keeps all proposal and match fields out of the pre-commit JSON with Billing off", async () => {
@@ -204,13 +231,13 @@ describe("grade capture", () => {
             },
           };
           const id = await seedReadyDecision(ctx, {
-            tenantId: f.tenantId, leadId, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW + i,
+            ruleVersion: PAYMENT_RULE_VERSION, tenantId: f.tenantId, leadId, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW + i,
             wouldWrite: i < 10,
           });
           await ctx.db.patch("resultAutomationDecisions", id, patch);
           if (i === 0) {
             const duplicate = await seedReadyDecision(ctx, {
-              tenantId: f.tenantId, leadId, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW + 301,
+              ruleVersion: PAYMENT_RULE_VERSION, tenantId: f.tenantId, leadId, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW + 301,
             });
             await ctx.db.patch("resultAutomationDecisions", duplicate, patch);
           }

@@ -146,6 +146,7 @@ describe("Whop connection", () => {
       webhookUrl: `https://test.convex.site/webhooks/whop?c=${connectionId}`,
       webhookEvents: [
         "payment.created", "payment.succeeded", "payment.failed", "payment.pending",
+        "payment.authorized", "payment.requires_action",
         "payment.canceled", "refund.created", "refund.updated", "dispute.created",
         "dispute.updated", "dispute_alert.created",
       ],

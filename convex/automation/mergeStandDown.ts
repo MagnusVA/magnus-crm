@@ -5,7 +5,7 @@ import { internalMutation, type MutationCtx } from "../_generated/server";
 import { OUTSTANDING_DECISION_STATES } from "./humanResult";
 
 const PAGE_SIZE = 100;
-const outstandingState = v.union(v.literal("ready"), v.literal("needs_person"), v.literal("blocked"));
+const outstandingState = v.union(v.literal("ready"), v.literal("needs_person"), v.literal("blocked"), v.literal("notice"));
 const continueArgs = {
   tenantId: v.id("tenants"),
   leadId: v.id("leads"),
@@ -66,7 +66,12 @@ async function standDownForPeople(
 ) {
   const now = Date.now();
   for (const leadId of new Set(leadIds)) {
-    for (const state of OUTSTANDING_DECISION_STATES) {
+    const person = await ctx.db.get("leads", leadId);
+    if (person?.tenantId !== tenantId) continue;
+    if (stopCode === "human_result") {
+      await ctx.db.patch("leads", leadId, { identityReviewRevision: (person.identityReviewRevision ?? 0) + 1 });
+    }
+    for (const state of [...OUTSTANDING_DECISION_STATES, "notice"] as const) {
       const query = outstandingForPerson(ctx, { tenantId, leadId, state });
       const rows = await query.take(PAGE_SIZE + 1);
       if (rows.length === 0) continue;

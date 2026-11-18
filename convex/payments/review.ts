@@ -1,4 +1,4 @@
-import { scheduleEvaluation, type EvaluateCause } from "../automation/decisions";
+import { schedulePaymentEvaluation, type EvaluateCause } from "../automation/decisions";
 import { noteHumanResult } from "../automation/humanResult";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -545,7 +545,10 @@ async function evaluateAfterBillingResult(
       }
     }
   }
-  if (cause !== "release") await scheduleEvaluation(ctx, payment._id, cause);
+  if (cause !== "release") {
+    const current = await ctx.db.get("providerPayments", payment._id);
+    if (current) await schedulePaymentEvaluation(ctx, actor.tenantId, current, cause);
+  }
   if (!opportunityId) return;
   const deal = await ctx.db.get("opportunities", opportunityId);
   if (deal?.tenantId === actor.tenantId) await noteHumanResult(ctx, deal._id, actor);

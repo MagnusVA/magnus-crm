@@ -2,8 +2,9 @@ import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { noteHumanResult } from "../automation/humanResult";
-import { modeAtLeastAsk, paymentEvidenceOf } from "../automation/proposals";
+import { modeAtLeastAsk, type PaymentProposal } from "../automation/proposals";
 import { recordApplyReceipt, type PaymentDecisionKind } from "../automation/receipts";
+import { effectiveKindMode } from "../automation/settings";
 import { followMergeChain } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { paymentCounts } from "../lib/enrollments";
@@ -18,8 +19,8 @@ import { isSideDeal } from "../lib/sideDeals";
 import { isWonDeal } from "../opportunities/dealGuards";
 import { dealPosition } from "../opportunities/stages";
 import { requireTenantUser } from "../requireTenantUser";
-import { readActiveAllocation, setActiveAllocation } from "./allocation";
-import { findEnabledBinding } from "./bindingLookup";
+import { readActiveAllocation, sandboxAllocationBlocked, sandboxPaymentError, setActiveAllocation } from "./allocation";
+import { readEligibleProviderProposal, type ProviderConfirmSubject } from "./apply";
 import { PAYMENT_ROWS_PER_DEAL_HOLD } from "./capacity";
 import { findConnection } from "./connection";
 import { adverseReviewRequired } from "./intake";
@@ -63,6 +64,13 @@ const conflictValidator = v.union(
 export type ReconcileConflict = Infer<typeof conflictValidator>;
 type PaymentConflict = Infer<typeof paymentConflictValidator>;
 
+const acknowledgedAmountsValidator = v.object({
+  crmAmountMinor: v.number(),
+  crmCurrency: v.string(),
+  providerTotalMinor: v.number(),
+  providerCurrency: v.string(),
+});
+
 export const providerIntentValidator = v.union(
   v.object({
     kind: v.literal("confirm"),
@@ -76,6 +84,7 @@ export const providerIntentValidator = v.union(
     providerPaymentId: v.id("providerPayments"),
     expectedAllocationRevision: v.number(),
     acknowledgeAmountDifference: v.boolean(),
+    acknowledgedAmounts: v.optional(acknowledgedAmountsValidator),
     otherPins: v.optional(v.array(pinValidator)),
   }),
   v.object({
@@ -92,14 +101,6 @@ const MAX_DISTINCT_FROM = 10;
 
 function paymentKind(writer: ReconcileWriter): PaymentDecisionKind {
   return writer === "additional" ? "additional_payment" : "payment_win";
-}
-
-// Must match effectiveKindMode in automation/settings.ts.
-function effectiveMode(tenant: Doc<"tenants"> | null, writer: ReconcileWriter) {
-  const settings = tenant?.resultAutomation;
-  return settings?.enabled && settings.pausedAt === undefined
-    ? (settings.kinds[paymentKind(writer)]?.mode ?? "off")
-    : "off";
 }
 
 export function readReconciliationDealPayments(ctx: ReadCtx, opportunityId: Id<"opportunities">) {
@@ -135,30 +136,11 @@ async function personEmails(
   return emails;
 }
 
-// A payer address may still be present on a stale candidate or more than one
-// person. Require all current owners of an address to resolve to this person.
-async function uniquelyNamesPerson(ctx: ReadCtx, person: Doc<"leads">, email: string) {
-  const { tenantId } = person;
-  const [profiles, identifiers] = await Promise.all([
-    ctx.db.query("leads").withIndex("by_tenantId_and_email", (q) =>
-      q.eq("tenantId", tenantId).eq("email", email)).take(PAYMENT_READ_LIMIT + 1),
-    ctx.db.query("leadIdentifiers").withIndex("by_tenantId_and_type_and_value", (q) =>
-      q.eq("tenantId", tenantId).eq("type", "email").eq("value", email)).take(PAYMENT_READ_LIMIT + 1),
-  ]);
-  if (profiles.length > PAYMENT_READ_LIMIT || identifiers.length > PAYMENT_READ_LIMIT) return null;
-  const owners = new Map(profiles.map((lead) => [lead._id, lead]));
-  for (const identifier of identifiers) {
-    if (identifier.confidence === "suggested" || owners.has(identifier.leadId)) continue;
-    const lead = await ctx.db.get("leads", identifier.leadId);
-    if (lead?.tenantId !== tenantId) return false;
-    owners.set(lead._id, lead);
-  }
-  for (const lead of owners.values()) {
-    if (lead.tenantId !== tenantId || (await followMergeChain(ctx, lead))?._id !== person._id) {
-      return false;
-    }
-  }
-  return owners.size > 0;
+async function matchesDeal(ctx: ReadCtx, payment: Payment, leadId: Id<"leads">, opportunityId: Id<"opportunities">) {
+  if (payment.excludedOpportunityIds?.includes(opportunityId) || payment.notMySaleAt !== undefined ||
+      payment.reviewReason === "covers_several" || payment.reviewReason === "amount_mismatch") return false;
+  const target = await findPaymentTarget(ctx, payment);
+  return target.kind === "ready" && target.leadId === leadId && target.opportunityId === opportunityId;
 }
 
 function readLimit(payment?: Payment): ReconcileConflict[] {
@@ -186,14 +168,15 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
   const connections = (await Promise.all([
     findConnection(ctx, tenantId, "live"),
     findConnection(ctx, tenantId, "sandbox"),
-  ])).filter((connection) => connection !== null);
+  ])).filter((connection) => connection !== null).filter((connection) => !sandboxAllocationBlocked(connection));
   if (!connections.length) return [];
   const [tenant, person] = await Promise.all([
     ctx.db.get("tenants", tenantId),
     ctx.db.get("leads", leadId),
   ]);
   if (person?.tenantId !== tenantId || person.status === "merged") return [];
-  const ask = modeAtLeastAsk(effectiveMode(tenant, writer));
+  const ask = tenant && modeAtLeastAsk(effectiveKindMode(tenant, paymentKind(writer)));
+  const pausedAt = tenant?.resultAutomation?.pausedAt;
   const leadIds = await mergedLeadIds(ctx, tenantId, leadId);
   const connectedIds = new Set(connections.filter((connection) => connection.status === "connected")
     .map((connection) => connection._id));
@@ -226,7 +209,6 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
     }
   }
 
-  const validatedEmails = new Map<string, boolean>();
   const conflicts: ReconcileConflict[] = [];
   for (const payment of candidates.values()) {
     if (distinctFrom.has(payment._id) || payment.reviewState === "linked") continue;
@@ -238,24 +220,9 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
       if (recordedDeal?.tenantId !== tenantId || recordedDeal.leadId !== leadId) continue;
     } else {
       if (!ask || !connectedIds.has(payment.connectionId) || payment.status !== "paid" ||
-          payment.reviewState !== "needs_person") continue;
-      const email = payment.payerEmail;
-      if (email && emails.has(email) && !validatedEmails.has(email)) {
-        const verified = await uniquelyNamesPerson(ctx, person, email);
-        if (verified === null) return readLimit(payment);
-        validatedEmails.set(email, verified);
-      }
-      const identifiedByEmail = email !== undefined && validatedEmails.get(email) === true;
-      const couldHaveOtherEvidence = payment.checkoutConfigurationId || payment.membershipId || payment.payerPhone;
-      if (!identifiedByEmail || couldHaveOtherEvidence) {
-        // A valid binding can outweigh email, and a verified phone can
-        // contradict it. A stored candidate alone never authorizes a write.
-        const hintedLeadId = payment.candidateLeadId ?? payment.leadId;
-        if (!identifiedByEmail && (!hintedLeadId || !leadIds.includes(hintedLeadId))) continue;
-        const target = await findPaymentTarget(ctx, payment, payment.firstSeenAt);
-        const matchedLeadId = target.kind === "needs_person" ? target.candidateLeadId : target.leadId;
-        if (matchedLeadId !== leadId) continue;
-      }
+          payment.reviewState !== "needs_person" ||
+          (pausedAt !== undefined && (payment.paidAt === undefined || payment.paidAt <= pausedAt))) continue;
+      if (!await matchesDeal(ctx, payment, leadId, opportunityId)) continue;
     }
     conflicts.push({
       providerPaymentId: payment._id,
@@ -270,6 +237,10 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
     });
   }
   return conflicts;
+}
+
+function stalePreview() {
+  return expectedError("payment.stale_preview", "The Whop confirmation changed. Reload before saving.");
 }
 
 function refuseConflict(conflicts: ReconcileConflict[]): never {
@@ -332,8 +303,19 @@ export function resolveReconciliation(conflicts: ReconcileConflict[], intent?: P
 type Reconciliation =
   | InsertManual
   | AttachExisting
-  | ({ action: "insert_and_link"; payment: Payment; acknowledgeAmountDifference: boolean } & DistinctFrom)
-  | ({ action: "insert_from_provider"; payment: Payment; decisionId?: Id<"resultAutomationDecisions"> } & DistinctFrom);
+  | ({
+    action: "insert_and_link";
+    payment: Payment;
+    acknowledgeAmountDifference: boolean;
+    acknowledgedAmounts?: Infer<typeof acknowledgedAmountsValidator>;
+    conflicts: ReconcileConflict[];
+  } & DistinctFrom)
+  | ({
+    action: "insert_from_provider";
+    payment: Payment;
+    proposal: PaymentProposal;
+    decisionId?: Id<"resultAutomationDecisions">;
+  } & DistinctFrom);
 
 export async function reconcilePaymentWrite(
   ctx: ReadCtx,
@@ -341,12 +323,34 @@ export async function reconcilePaymentWrite(
   writer: ReconcileWriter,
   dealPayments: Doc<"paymentRecords">[],
   intent?: ProviderIntent,
+  subject?: ProviderConfirmSubject,
 ): Promise<Reconciliation> {
   const { tenantId, leadId, _id: opportunityId } = opportunity;
+  let selected: Payment | null = null;
+  if (intent && intent.kind !== "different_money") {
+    selected = await ctx.db.get("providerPayments", intent.providerPaymentId);
+    const connection = selected?.tenantId === tenantId &&
+      await ctx.db.get("tenantPaymentConnections", selected.connectionId);
+    if (connection && connection.tenantId === tenantId && sandboxAllocationBlocked(connection)) {
+      throw sandboxPaymentError();
+    }
+  }
   const conflicts = await checkPaymentReconciliation(ctx, { tenantId, leadId, opportunityId, writer, dealPayments });
   const tenant = intent?.kind === "confirm" ? await ctx.db.get("tenants", tenantId) : null;
-  if (intent?.kind === "confirm" && !modeAtLeastAsk(effectiveMode(tenant, writer))) {
+  if (intent?.kind === "confirm" && (!tenant || !modeAtLeastAsk(effectiveKindMode(tenant, paymentKind(writer))))) {
     throw expectedError("payment.kind_off", "Whop confirmation is turned off for this payment.");
+  }
+  const decision = intent?.kind === "confirm" && intent.decisionId
+    ? await ctx.db.get("resultAutomationDecisions", intent.decisionId) : null;
+  if (intent?.kind === "confirm" && selected?.tenantId === tenantId &&
+      decision?.tenantId === tenantId && decision.opportunityId === opportunityId &&
+      decision.providerPaymentId === selected._id && (adverseReviewRequired(selected) || selected.refundedMinor > 0)) {
+    throw expectedError("payment.adverse", "Billing must review this Whop payment before it can be confirmed.");
+  }
+  if (selected?.tenantId === tenantId && !selected.paymentRecordId &&
+      !conflicts.some((conflict) => conflict.state === "unlinked" && conflict.providerPaymentId === selected?._id) &&
+      !conflicts.some((conflict) => conflict.state === "read_limit")) {
+    throw stalePreview();
   }
   const result = resolveReconciliation(conflicts, intent);
   if (result.action === "insert") return result;
@@ -361,39 +365,61 @@ export async function reconcilePaymentWrite(
   }
 
   const { distinctFrom, providerPaymentId } = result;
-  const payment = await ctx.db.get("providerPayments", providerPaymentId);
-  if (payment?.tenantId !== tenantId) throw new Error("Whop payment not found after reconciliation");
+  const payment = selected;
+  if (payment?.tenantId !== tenantId || payment._id !== providerPaymentId) {
+    throw new Error("Whop payment not found after reconciliation");
+  }
   if (intent?.kind === "confirm") {
-    if (adverseReviewRequired(payment) || payment.refundedMinor > 0) {
-      throw expectedError("payment.adverse", "Billing must review this Whop payment before it can be confirmed.");
+    if (intent.decisionId && !decision) throw stalePreview();
+    const proposal = await readEligibleProviderProposal(
+      ctx, { tenantId, opportunityId, providerPaymentId, now: Date.now() }, decision ?? undefined, subject,
+    );
+    if (!proposal || paymentKind(writer) !== (isWonDeal(opportunity) ? "additional_payment" : "payment_win")) {
+      throw stalePreview();
     }
-    if (intent.decisionId) {
-      const decision = await ctx.db.get("resultAutomationDecisions", intent.decisionId);
-      const settings = tenant?.resultAutomation;
-      if (decision?.tenantId !== tenantId || decision.opportunityId !== opportunityId ||
-          decision.providerPaymentId !== payment._id || decision.kind !== paymentKind(writer) ||
-          decision.state !== "ready" || decision.humanResultRevision !== (opportunity.humanResultRevision ?? 0) ||
-          decision.activationVersion !== settings?.activationVersion ||
-          decision.policyVersion !== settings.kinds[decision.kind]?.policyVersion ||
-          paymentEvidenceOf(decision)?.allocationRevision !== payment.allocationRevision ||
-          paymentEvidenceOf(decision)?.sourceUpdatedAt !== payment.sourceUpdatedAt) {
-        throw expectedError("payment.stale_preview", "The Whop confirmation changed. Reload before saving.");
-      }
-    }
-    return { action: "insert_from_provider", payment, decisionId: intent.decisionId, distinctFrom };
+    return { action: "insert_from_provider", payment, proposal, decisionId: intent.decisionId, distinctFrom };
   }
   if (intent?.kind !== "same_money") throw new Error("Missing Whop link intent");
-  return { action: "insert_and_link", payment, acknowledgeAmountDifference: intent.acknowledgeAmountDifference, distinctFrom };
+  if (writer === "additional" && !await readEligibleProviderProposal(ctx, {
+    tenantId, opportunityId, providerPaymentId, now: Date.now(),
+  })) throw stalePreview();
+  return {
+    action: "insert_and_link", payment, distinctFrom, conflicts,
+    acknowledgeAmountDifference: intent.acknowledgeAmountDifference, acknowledgedAmounts: intent.acknowledgedAmounts,
+  };
 }
 
 export type InsertReconciliation = Exclude<Reconciliation, { action: "attach_existing" }>;
+
+/** Accept the form only if it still agrees with the server's mapping. */
+export function reconciledPaymentSelection(
+  result: InsertReconciliation | undefined,
+  submitted: Pick<PaymentProposal, "programId" | "paymentType">,
+) {
+  if (result?.action !== "insert_from_provider") return submitted;
+  const { proposal } = result;
+  if (proposal.programId !== submitted.programId || proposal.paymentType !== submitted.paymentType) throw stalePreview();
+  return proposal;
+}
 
 /** Only an equal, selected Whop payment can waive proof on a new row. */
 export function providerWaivesProof(result: InsertReconciliation, amountMinor: number, currency: string) {
   if (result.action === "insert") return false;
   const equal = result.payment.totalMinor === amountMinor && result.payment.currency === currency;
-  if (!equal && (result.action === "insert_from_provider" || !result.acknowledgeAmountDifference)) {
-    throw expectedError("payment.amount_mismatch", "The amount or currency differs from the Whop payment.");
+  if (result.action === "insert_from_provider") {
+    if (!equal) throw expectedError("payment.amount_mismatch", "The amount or currency differs from the Whop payment.");
+  } else {
+    const { acknowledgedAmounts: seen } = result;
+    const requiresConsent = !equal || result.acknowledgeAmountDifference || seen !== undefined;
+    if (requiresConsent && (!result.acknowledgeAmountDifference || !seen ||
+        seen.crmAmountMinor !== amountMinor || seen.crmCurrency !== currency ||
+        seen.providerTotalMinor !== result.payment.totalMinor || seen.providerCurrency !== result.payment.currency)) {
+      throw new ConvexError({
+        code: "payment.amount_mismatch",
+        message: "Confirm both amounts and currencies before linking the payments.",
+        conflicts: result.conflicts,
+      });
+    }
   }
   return equal;
 }
@@ -608,7 +634,7 @@ export const getPaymentReconciliation = query({
       const deal = await ctx.db.get("opportunities", target.opportunityId);
       if (deal?.tenantId !== actor.tenantId) throw new Error("Opportunity not found.");
       writer = isSideDeal(deal) && !isWonDeal(deal) ? "side_deal" : "additional";
-      if (writer === "side_deal" && actor.role === "closer" && deal.assignedCloserId !== actor.userId) {
+      if (actor.role === "closer" && deal.assignedCloserId !== actor.userId) {
         throw new Error("You are not the assigned closer for this opportunity.");
       }
       opportunity = deal;
@@ -621,25 +647,22 @@ export const getPaymentReconciliation = query({
       leadId: opportunity.leadId,
       dealPayments,
     });
-    const prefill = await Promise.all(conflicts.flatMap((conflict) =>
-      conflict.state === "unlinked" ? [readPrefill(ctx, conflict.providerPaymentId)] : []));
+    const unlinked = conflicts.filter((conflict): conflict is PaymentConflict => conflict.state === "unlinked");
+    const prefill = unlinked.length === 1 ? await readPrefill(ctx, opportunity, unlinked[0].providerPaymentId) : [];
     return { conflicts, prefill };
   },
 });
 
-async function readPrefill(ctx: QueryCtx, providerPaymentId: Id<"providerPayments">) {
-  const payment = await ctx.db.get("providerPayments", providerPaymentId);
-  if (!payment) throw new Error("Whop payment missing after reconciliation");
-  const [product, variant] = await Promise.all([
-    findEnabledBinding(ctx, payment, "product_program", payment.productId),
-    findEnabledBinding(ctx, payment, "variant_type", payment.variantId),
-  ]);
-  const program = product && product !== "ambiguous" && await ctx.db.get("tenantPrograms", product.programId);
-  return {
+async function readPrefill(ctx: QueryCtx, deal: Deal, providerPaymentId: Id<"providerPayments">) {
+  const proposal = await readEligibleProviderProposal(ctx, {
+    tenantId: deal.tenantId, opportunityId: deal._id, providerPaymentId, now: Date.now(),
+  });
+  if (!proposal) return [];
+  return [{
     providerPaymentId,
-    amount: payment.totalMinor === undefined ? undefined : payment.totalMinor / 100,
-    currency: payment.currency,
-    programId: program && program.tenantId === payment.tenantId ? program._id : undefined,
-    paymentType: variant && variant !== "ambiguous" ? variant.paymentType : undefined,
-  };
+    amount: proposal.amountMinor / 100,
+    currency: proposal.currency,
+    programId: proposal.programId,
+    paymentType: proposal.paymentType,
+  }];
 }

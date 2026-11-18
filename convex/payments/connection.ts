@@ -40,6 +40,8 @@ const webhookEvents = [
   "payment.succeeded",
   "payment.failed",
   "payment.pending",
+  "payment.authorized",
+  "payment.requires_action",
   "payment.canceled",
   "refund.created",
   "refund.updated",

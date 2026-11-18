@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { businessDayRange } from "../../lib/businessDay";
 import { insertTask } from "../../tests/closerPipelineFixtures";
+import { insertProgram } from "../../tests/enrollmentFixtures";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
-import { FIXTURE_NOW, FIXTURE_PAID_AT, insertProviderMeeting, paymentConfirmationApi, paymentConfirmationFixture, seedReadablePaymentRecording } from "../../tests/providerPaymentFixtures";
+import { FIXTURE_NOW, FIXTURE_PAID_AT, PRODUCT_ID, insertProviderMeeting, paymentConfirmationApi, paymentConfirmationFixture, seedReadablePaymentRecording } from "../../tests/providerPaymentFixtures";
 import { api } from "../_generated/api";
 import { evaluateSubject } from "../automation/decisions";
 
@@ -59,6 +60,89 @@ describe("confirmWhopPayment", () => {
     expect(applied).toMatchObject({ ok: true, alreadyApplied: false, decisionId: decision.decisionId });
     await invariant(f);
     expect(await f.admin.mutation(confirm.confirmWhopPayment, args)).toEqual({ ...applied, alreadyApplied: true });
+    await invariant(f);
+  });
+
+  it("accepts a new attended Whop ask after resuming and leaves the earlier charge stood down", async () => {
+    const f = await paymentConfirmationFixture();
+    const meetingId = await f.t.run((ctx) => insertProviderMeeting(ctx, {
+      ...f, opportunityId: f.dealId, scheduledAt: FIXTURE_NOW - 60_000,
+    }));
+    const target = { kind: "meeting" as const, meetingId };
+    const oldDecision = await evaluate(f);
+    expect(oldDecision.decisionId).toBeTruthy();
+    await f.admin.mutation(api.automation.settings.setEnabled, { enabled: false });
+    await f.owner.mutation(api.automation.settings.setEnabled, { enabled: true });
+    expect(await f.closer.query(confirm.getWhopAsk, { target })).toBeNull();
+    expect(await f.closer.query(api.payments.reconcileCheck.getPaymentReconciliation, { target }))
+      .toEqual({ conflicts: [], prefill: [] });
+
+    vi.setSystemTime(FIXTURE_NOW + 5_000);
+    const providerPaymentId = await f.t.run(async (ctx) => {
+      const { _id, _creationTime, ...fact } = (await ctx.db.get("providerPayments", f.providerPaymentId))!;
+      return ctx.db.insert("providerPayments", {
+        ...fact, externalPaymentId: "pay_post_resume", paidAt: Date.now(), sourceUpdatedAt: Date.now(),
+      });
+    });
+    await evaluate({ ...f, providerPaymentId });
+    const ask = await f.closer.query(confirm.getWhopAsk, { target });
+    expect(ask).toMatchObject({ providerPaymentId, preview: { ok: true } });
+    const args = {
+      opportunityId: f.dealId, meetingId, amount: 100, currency: "USD",
+      paymentType: "pif" as const, programId: f.programId,
+    };
+    const paymentRecordId = await f.closer.mutation(api.closer.payments.logPayment, {
+      ...args, provider: {
+        kind: "confirm", providerPaymentId, decisionId: ask!.decisionId, expectedAllocationRevision: 0,
+      },
+    });
+    expect(await f.t.run((ctx) => ctx.db.get("paymentRecords", paymentRecordId)))
+      .toMatchObject({ providerPaymentId, automationDecisionId: ask!.decisionId });
+    expect((await f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", oldDecision.decisionId!)))?.state)
+      .toBe("stopped");
+    await invariant(f);
+  });
+
+  it.each(["meeting", "reminder"] as const)("refuses a %s ask after the product mapping changes before save", async (route) => {
+    const f = await paymentConfirmationFixture({ dealPosition: route === "meeting" ? "booked" : "follow_up" });
+    const target = await f.t.run(async (ctx) => route === "meeting"
+      ? { kind: route, meetingId: await insertProviderMeeting(ctx, {
+        ...f, opportunityId: f.dealId, scheduledAt: FIXTURE_NOW - 60_000,
+      }) }
+      : { kind: route, followUpId: await insertTask(ctx, {
+        opportunityId: f.dealId, type: "manual_reminder", reason: "closer_initiated",
+        status: "pending", reminderScheduledAt: FIXTURE_NOW,
+      }) });
+    await evaluate(f);
+    const ask = await f.closer.query(confirm.getWhopAsk, { target });
+    expect(ask).toMatchObject({ preview: { ok: true, proposal: { programId: f.programId } } });
+    const programId = await f.t.run((ctx) => insertProgram(ctx, f.tenantId, "Synthetic replacement program"));
+    await f.admin.mutation(api.payments.bindings.setProductProgram, {
+      connectionId: f.connectionId, productId: PRODUCT_ID, programId,
+    });
+    const save = (id: typeof programId, decisionId = ask!.decisionId) => {
+      const args = {
+        programId: id, paymentType: "pif" as const, amount: 100, currency: "USD",
+        provider: {
+          kind: "confirm" as const, providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0, decisionId,
+        },
+      };
+      return target.kind === "meeting"
+        ? f.closer.mutation(api.closer.payments.logPayment, { ...args, opportunityId: f.dealId, meetingId: target.meetingId })
+        : f.closer.mutation(api.closer.reminderOutcomes.logReminderPayment, { ...args, followUpId: target.followUpId });
+    };
+    expect((await f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", ask!.decisionId)))?.state).toBe("ready");
+    // Even a payload whose fields match the new binding can't consume the old ask.
+    await expect(save(programId)).rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    await expect(save(f.programId)).rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    expect(await f.t.run((ctx) => ctx.db.query("paymentRecords").take(1))).toEqual([]);
+    await invariant(f);
+
+    await evaluate(f);
+    const updated = await f.closer.query(confirm.getWhopAsk, { target });
+    expect(updated).toMatchObject({ preview: { ok: true, proposal: { programId } } });
+    const paymentId = await save(programId, updated!.decisionId);
+    expect(await f.t.run((ctx) => ctx.db.get("paymentRecords", paymentId))).toMatchObject({ programId });
     await invariant(f);
   });
 

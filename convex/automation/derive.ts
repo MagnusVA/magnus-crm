@@ -7,7 +7,7 @@ import { MAX_PROVIDER_PAYMENT_AGE_MS } from "../payments/reviewTiming";
 import type { AutomationMode, PaymentProposal } from "./proposals";
 import { paymentVetoTuple, type PaymentDecisionKind } from "./receipts";
 
-export const PAYMENT_RULE_VERSION = "payment-rule@1";
+export const PAYMENT_RULE_VERSION = "payment-rule@2";
 type Decision = Doc<"resultAutomationDecisions">;
 type Gate = Decision["gates"][number];
 type Proposal = PaymentProposal;
@@ -59,6 +59,7 @@ export type PaymentDecisionInput = {
 export type DerivedDecision = null | {
   kind: PaymentDecisionKind;
   wouldWrite: boolean;
+  automaticEligible: boolean;
   gates: Gate[];
   proposal?: Proposal;
   confirmRoute?: Decision["confirmRoute"];
@@ -94,6 +95,15 @@ export function paymentBillingReason(reason: string | undefined) {
     default:
       return "unknown";
   }
+}
+
+export function isAutomaticPaymentPosition(position: DealPosition | "system_loss"): boolean {
+  return position === "booked" || position === "follow_up" || position === "won";
+}
+
+/** Older decisions are fenced by their rule version. Call cases only have the write predicate. */
+export function isAutomaticSampleCase(row: Pick<Decision, "wouldWrite" | "automaticEligible">): boolean {
+  return row.wouldWrite && row.automaticEligible !== false;
 }
 
 export function deriveDecision(input: PaymentDecisionInput): DerivedDecision {
@@ -195,7 +205,8 @@ export function deriveDecision(input: PaymentDecisionInput): DerivedDecision {
     gateList.length, ...gateList,
   ];
   return {
-    kind, wouldWrite, gates: gateList, proposal, confirmRoute, noticeUserId, meetingId: meeting?._id, inputTuple,
+    kind, wouldWrite, automaticEligible: wouldWrite && isAutomaticPaymentPosition(deal.position),
+    gates: gateList, proposal, confirmRoute, noticeUserId, meetingId: meeting?._id, inputTuple,
     vetoTuple: paymentVetoTuple(payment._id, deal._id),
   };
 }

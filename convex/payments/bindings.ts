@@ -13,13 +13,16 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
+import { requireBillingOpsEnabled, requireBillingPermission } from "../billing/guards";
 import { expectedError, rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { PERMISSIONS } from "../lib/permissions";
+import { isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
-import { rejectWhopRequest, requireWhopConnection, whopRequestFailure } from "./connection";
+import { readActiveAllocation, sandboxAllocationBlocked } from "./allocation";
+import { findConnection, rejectWhopRequest, requireWhopConnection, whopRequestFailure } from "./connection";
 import { refreshProviderPaymentReview } from "./match";
 import { reportWhopRequestError, WhopRequestError } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
@@ -72,7 +75,7 @@ function mappingIndex(
   ctx: QueryCtx | MutationCtx,
   tenantId: TenantId,
   connectionId: ConnectionId,
-  kind: MappingKind,
+  kind: MappingKind | "membership_deal",
   externalId: string,
   range: "exact" | "after",
 ) {
@@ -136,7 +139,7 @@ export const listBindings = query({
 
 const refreshArgs = {
   ...connectionArgs,
-  kind: mappingKindValidator,
+  kind: v.union(mappingKindValidator, v.literal("membership_deal")),
   externalId: v.string(),
   cursor: v.union(v.string(), v.null()),
 };
@@ -252,6 +255,144 @@ export const removeBinding = mutation({
   },
 });
 
+const membershipArgs = { providerPaymentId: v.id("providerPayments") };
+const membershipView = {
+  membershipId: v.string(),
+  paymentRecordId: v.id("paymentRecords"),
+  allocationRevision: v.number(),
+};
+
+async function activeBillingConnection(ctx: QueryCtx, tenantId: TenantId, connectionId: ConnectionId) {
+  const live = await findConnection(ctx, tenantId, "live");
+  const current = live?.status === "connected" ? live : await findConnection(ctx, tenantId, "sandbox");
+  return current?._id === connectionId && current.status === "connected" ? current : null;
+}
+
+async function readMembershipAnchor(ctx: QueryCtx, tenantId: TenantId, providerPaymentId: Id<"providerPayments">) {
+  const payment = await ctx.db.get("providerPayments", providerPaymentId);
+  if (payment?.tenantId !== tenantId || !payment.membershipId || !payment.paymentRecordId || payment.status !== "paid") {
+    return null;
+  }
+  const connection = await activeBillingConnection(ctx, tenantId, payment.connectionId);
+  if (!connection || sandboxAllocationBlocked(connection)) return null;
+  const record = await readActiveAllocation(ctx, payment);
+  if (!record?.opportunityId || record.opportunityId !== payment.opportunityId) return null;
+  const deal = await ctx.db.get("opportunities", record.opportunityId);
+  if (deal?.tenantId !== tenantId || deal.leadId !== payment.leadId || !isWonDeal(deal)) return null;
+  const lead = await ctx.db.get("leads", deal.leadId);
+  if (lead?.tenantId !== tenantId || lead.status === "merged") return null;
+  return { payment, record, deal, membershipId: payment.membershipId };
+}
+
+async function latestMembership(ctx: QueryCtx, tenantId: TenantId, connectionId: ConnectionId, membershipId: string) {
+  const [current, previous] = await mappingIndex(ctx, tenantId, connectionId, "membership_deal", membershipId, "exact")
+    .order("desc").take(2);
+  if (previous?.enabled || (current && current.binding.kind !== "membership_deal")) {
+    return "ambiguous" as const;
+  }
+  return current ?? null;
+}
+
+function bindingUsesAnchor(row: Doc<"paymentProviderBindings">, paymentRecordId: Id<"paymentRecords">) {
+  return row.binding.kind === "membership_deal" && row.binding.anchorPaymentRecordId === paymentRecordId;
+}
+
+export const getMembershipControl = query({
+  args: membershipArgs,
+  returns: v.union(
+    v.null(),
+    v.object({ ...membershipView, kind: v.literal("confirm"), bindingVersion: v.number() }),
+    v.object({ ...membershipView, kind: v.literal("confirmed"), bindingId: v.id("paymentProviderBindings") }),
+  ),
+  handler: async (ctx, { providerPaymentId }) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:view");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const anchor = await readMembershipAnchor(ctx, tenantId, providerPaymentId);
+    if (!anchor) return null;
+    const { payment, record, membershipId } = anchor;
+    const current = await latestMembership(ctx, tenantId, payment.connectionId, membershipId);
+    if (current === "ambiguous") return null;
+    const view = { membershipId, paymentRecordId: record._id, allocationRevision: payment.allocationRevision };
+    if (!current?.enabled) return { ...view, kind: "confirm" as const, bindingVersion: current?.version ?? 0 };
+    if (!bindingUsesAnchor(current, record._id)) return null;
+    return { ...view, kind: "confirmed" as const, bindingId: current._id };
+  },
+});
+
+async function refreshMembership(ctx: MutationCtx, connectionId: ConnectionId, membershipId: string) {
+  await ctx.scheduler.runAfter(0, internal.payments.bindings.refreshMappingPayments, {
+    connectionId, kind: "membership_deal", externalId: membershipId, cursor: null,
+  });
+}
+
+export const confirmMembership = mutation({
+  args: {
+    ...membershipArgs,
+    expectedMembershipId: v.string(),
+    expectedAllocationRevision: v.number(),
+    expectedBindingVersion: v.number(),
+  },
+  returns: v.id("paymentProviderBindings"),
+  handler: async (ctx, args) => {
+    const { tenantId, userId } = await requireBillingPermission(ctx, "billing:review");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const anchor = await readMembershipAnchor(ctx, tenantId, args.providerPaymentId);
+    if (!anchor || anchor.membershipId !== args.expectedMembershipId ||
+        anchor.payment.allocationRevision !== args.expectedAllocationRevision) {
+      throw expectedError("whop.membership_anchor_changed", "The linked payment or membership changed. Reload and try again.");
+    }
+    const { payment, record, deal, membershipId } = anchor;
+    const current = await latestMembership(ctx, tenantId, payment.connectionId, membershipId);
+    if (current === "ambiguous") {
+      throw expectedError("whop.membership_conflict", "This membership has conflicting confirmations.");
+    }
+    if (current?.enabled) {
+      if (current.version === args.expectedBindingVersion + 1 && bindingUsesAnchor(current, record._id)) return current._id;
+      throw expectedError("whop.membership_confirmed", "This membership has already been confirmed.");
+    }
+    const version = current?.version ?? 0;
+    if (version !== args.expectedBindingVersion) {
+      throw expectedError("whop.membership_changed", "The membership confirmation changed. Reload and try again.");
+    }
+    const bindingId = await ctx.db.insert("paymentProviderBindings", {
+      tenantId,
+      connectionId: payment.connectionId,
+      externalId: membershipId,
+      kind: "membership_deal",
+      binding: { kind: "membership_deal", opportunityId: deal._id, leadId: deal.leadId, anchorPaymentRecordId: record._id },
+      opportunityId: deal._id,
+      version: version + 1,
+      enabled: true,
+      setByUserId: userId,
+      setAt: Date.now(),
+    });
+    await refreshMembership(ctx, payment.connectionId, membershipId);
+    return bindingId;
+  },
+});
+
+export const removeMembershipConfirmation = mutation({
+  args: { bindingId: v.id("paymentProviderBindings") },
+  returns: v.null(),
+  handler: async (ctx, { bindingId }) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:correct");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const row = await ctx.db.get("paymentProviderBindings", bindingId);
+    if (row?.tenantId !== tenantId || row.kind !== "membership_deal" || row.binding.kind !== "membership_deal") {
+      throw expectedError("whop.binding_not_found", "Whop membership confirmation not found.");
+    }
+    if (!row.enabled) return null;
+    if (!await activeBillingConnection(ctx, tenantId, row.connectionId)) {
+      throw expectedError("provider_payment.connection_unavailable", "The Whop connection is unavailable.");
+    }
+    await ctx.db.patch("paymentProviderBindings", bindingId, {
+      enabled: false, disabledReason: "removed", version: row.version + 1,
+    });
+    await refreshMembership(ctx, row.connectionId, row.externalId);
+    return null;
+  },
+});
+
 export const refreshMappingPayments = internalMutation({
   args: refreshArgs,
   returns: v.null(),
@@ -260,14 +401,16 @@ export const refreshMappingPayments = internalMutation({
     if (!connection || connection.provider !== "whop") return null;
 
     // Mappings affect payments waiting for review. History stays history.
-    const payments = await ctx.db.query("providerPayments")
-      .withIndex("by_connectionId_and_tenantId_and_reviewState_and_firstSeenAt", (q) =>
-        q.eq("connectionId", connection._id).eq("tenantId", connection.tenantId).eq("reviewState", "needs_person"),
-      )
-      .paginate({ cursor: args.cursor, numItems: refreshPageSize, maximumBytesRead: 512 * 1024 });
+    const waiting = args.kind === "membership_deal"
+      ? ctx.db.query("providerPayments").withIndex("by_connectionId_and_status_and_membershipId", (q) =>
+          q.eq("connectionId", connection._id).eq("status", "paid").eq("membershipId", args.externalId))
+      : ctx.db.query("providerPayments").withIndex("by_connectionId_and_tenantId_and_reviewState_and_firstSeenAt", (q) =>
+          q.eq("connectionId", connection._id).eq("tenantId", connection.tenantId).eq("reviewState", "needs_person"));
+    const payments = await waiting.paginate({ cursor: args.cursor, numItems: refreshPageSize, maximumBytesRead: 512 * 1024 });
     for (const payment of payments.page) {
-      const externalId = args.kind === "product_program" ? payment.productId : payment.variantId;
-      if (payment.tenantId === connection.tenantId && externalId === args.externalId) {
+      const externalId = args.kind === "membership_deal" ? payment.membershipId
+        : args.kind === "product_program" ? payment.productId : payment.variantId;
+      if (payment.tenantId === connection.tenantId && payment.reviewState === "needs_person" && externalId === args.externalId) {
         await refreshProviderPaymentReview(ctx, payment._id);
         await scheduleEvaluation(ctx, payment._id, "mapping");
       }

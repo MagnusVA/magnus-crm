@@ -15,12 +15,13 @@ import { isSideDeal } from "../lib/sideDeals";
 import { sha256Hex, stableJson } from "../lib/stableHash";
 import { userTeamMemberName } from "../lib/teamMembers";
 import { dealPosition } from "../opportunities/stages";
+import { possibleProvisionalPayment } from "../payments/provisionalLookup";
 import { requireTenantUser } from "../requireTenantUser";
 import { isOtherProspectsCall } from "../secondOpinion/trigger";
 import { enrollInSample } from "./certificates";
 import { callRuleVersion, deriveCallDecisions, type CallDecisionInput, type DerivedCallDecision } from "./callRule";
 import { captureRefusalNoticeBefore } from "./notice";
-import { isCallKind, type DecisionKind } from "./proposals";
+import { callEvidenceOf, isCallKind, type DecisionKind } from "./proposals";
 import { automationTables, decisionStateValidator } from "./schema";
 import { currentRuleVersion, DEFAULT_ALERT_GRACE_MINUTES, effectiveAlertMode, effectiveKindMode } from "./settings";
 
@@ -156,13 +157,14 @@ async function hasCountingPayment(ctx: ReadCtx, deal: Deal, since?: number) {
   return false;
 }
 
-async function providerFacts(ctx: ReadCtx, deal: Deal, meeting: Meeting, recording: CallRecording) {
+async function providerFacts(ctx: ReadCtx, deal: Deal, meeting: Meeting, recording: CallRecording, refusalOn: boolean) {
   const { tenantId, leadId } = deal;
-  const [resolved, candidates] = await Promise.all([
+  const [resolved, candidates, person] = await Promise.all([
     ctx.db.query("providerPayments").withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", leadId)).take(BATCH + 1),
     ctx.db.query("providerPayments").withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
       q.eq("tenantId", tenantId).eq("candidateLeadId", leadId)).take(BATCH + 1),
+    refusalOn ? ctx.db.get("leads", leadId) : null,
   ]);
   // When a person's history exceeds this budget, abstain on missing-money decisions.
   if (resolved.length > BATCH || candidates.length > BATCH) {
@@ -178,14 +180,15 @@ async function providerFacts(ctx: ReadCtx, deal: Deal, meeting: Meeting, recordi
     unresolvedProviderPayment: rows.some((row) => row.totalMinor !== 0 &&
       (row.status === "paid" || row.status === "unresolved" || row.status === "authorized" || row.status === "pending") &&
       (!row.paymentRecordId || row.status === "paid") && row.reviewState !== "historical" &&
-      row.reviewState !== "dismissed"),
+      row.reviewState !== "dismissed") || (refusalOn &&
+        (person?.tenantId !== tenantId || await possibleProvisionalPayment(ctx, person) !== null)),
     paidForAlert: rows.some((row) => row.status === "paid" && row.totalMinor !== 0 &&
       (row.paidAt ?? -Infinity) >= meeting.scheduledAt - HOUR),
     declineCode: attempt?.declineCode,
   };
 }
 
-async function dealFacts(ctx: ReadCtx, deal: Deal, meeting: Meeting, recording: CallRecording, alertOn: boolean) {
+async function dealFacts(ctx: ReadCtx, deal: Deal, meeting: Meeting, recording: CallRecording, alertOn: boolean, refusalOn: boolean) {
   const { tenantId } = deal;
   const [pendingTasks, personDeals, closer, provider, assignmentNotice] = await Promise.all([
     ctx.db.query("followUps")
@@ -194,7 +197,7 @@ async function dealFacts(ctx: ReadCtx, deal: Deal, meeting: Meeting, recording: 
     ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", deal.leadId)).take(BATCH + 1),
     deal.assignedCloserId && ctx.db.get("users", deal.assignedCloserId),
-    providerFacts(ctx, deal, meeting, recording),
+    providerFacts(ctx, deal, meeting, recording, refusalOn),
     latestAssignmentRefusal(ctx, deal, meeting, recording._id),
   ]);
   const overflow = personDeals.length > BATCH;
@@ -243,7 +246,7 @@ async function loadSubject(ctx: ReadCtx, tenant: Tenant, meeting: Meeting, now: 
   const deal = storedDeal?.tenantId === tenant._id ? storedDeal : null;
   const [otherProspect, loaded, taskVetoKey, refusalVetoKey] = await Promise.all([
     isOtherProspectsCall(ctx, meeting, recording),
-    deal && dealFacts(ctx, deal, meeting, recording, alert.mode !== "off"),
+    deal && dealFacts(ctx, deal, meeting, recording, alert.mode !== "off", modes.refusal_loss.mode !== "off"),
     vetoKey(recording._id, deal?._id, "task"),
     vetoKey(recording._id, deal?._id, "refusal"),
   ]);
@@ -323,6 +326,13 @@ async function evaluateLoaded(ctx: MutationCtx, tenant: Tenant, meeting: Meeting
       .withIndex("by_tenantId_and_inputKey", (q) => q.eq("tenantId", args.tenantId).eq("inputKey", inputKey))
       .unique();
     if (previous) {
+      const evidence = callEvidenceOf(previous);
+      // A legacy alert can inherit the revision only when its full input key still matches.
+      if (kind === "paid_on_call_alert" && evidence && evidence.publicationRevision === undefined) {
+        await ctx.db.patch("resultAutomationDecisions", previous._id, {
+          evidence: { ...evidence, publicationRevision: run.publicationRevision },
+        });
+      }
       replacements.set(kind, previous._id);
       continue;
     }
@@ -351,6 +361,7 @@ async function evaluateLoaded(ctx: MutationCtx, tenant: Tenant, meeting: Meeting
       callBefore: state === "notice" && deal ? await captureRefusalNoticeBefore(ctx, deal._id, meeting) : undefined,
       evidence: {
         type: "call", runId: run._id, recordingId: input.recording._id, generation: run.generation,
+        publicationRevision: run.publicationRevision,
         promptVersion: run.config.promptVersion, model: run.config.model, thresholdsVersion: run.config.thresholdsVersion,
         checksVersion, readTrigger: run.trigger, publishedAt: run.publishedAt, slotEndedAt: input.meeting.slotEndedAt,
         finalStatementLine: derived.finalStatementLine,

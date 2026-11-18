@@ -222,6 +222,7 @@ export const callEvidenceRefValidator = v.object({
   runId: v.id("callInsightRuns"),
   recordingId: v.id("callRecordings"),
   generation: v.number(),
+  publicationRevision: v.optional(v.number()),
   promptVersion: v.string(),
   model: v.string(),
   thresholdsVersion: v.string(),
@@ -240,6 +241,7 @@ const callBeforeValidator = v.object({
   meetingId: v.id("meetings"),
   meetingStatus: v.literal("scheduled"),
   latestActivityAt: v.number(),
+  identityReviewRevision: v.optional(v.number()),
   followUpId: v.optional(v.id("followUps")), // The task this write created (task kinds).
 });
 
@@ -386,6 +388,7 @@ export const automationTables = {
     activationVersion: v.number(),
     humanResultRevision: v.number(), // The deal's revision when derived. Zero with no deal.
     wouldWrite: v.boolean(),
+    automaticEligible: v.optional(v.boolean()), // A Billing proposal can be outside the automatic payment rule.
     gates: v.array(automationGateValidator),
     providerPaymentId: v.optional(v.id("providerPayments")),
     leadId: v.optional(v.id("leads")),

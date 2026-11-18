@@ -54,6 +54,7 @@ type Env = {
   readonly SLACK_SIGNING_SECRET_PREVIOUS: string | undefined;
   readonly SLACK_STATE_SIGNING_SECRET: string | undefined;
   readonly SYSTEM_ADMIN_ORG_ID: string;
+  readonly WHOP_SANDBOX_RECORDING: string | undefined;
   readonly WORKOS_API_KEY: string;
   readonly WORKOS_CLIENT_ID: string;
 };

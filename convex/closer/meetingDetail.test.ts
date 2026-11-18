@@ -111,7 +111,11 @@ it("shows the active Whop payment's not-my-sale flag and reflects its clearance"
   const flag = await f.t.run((ctx) => ctx.db.get("providerPayments", f.providerPaymentId));
   expect(flag?.notMySaleAt).toBeTypeOf("number");
   expect((await detail()).payments).toMatchObject([{ _id: paymentRecordId, notMySaleAt: flag?.notMySaleAt }]);
-  await expect(f.admin.mutation(api.payments.notMySale.clearNotMySale, { providerPaymentId: f.providerPaymentId }))
+  await expect(f.admin.mutation(api.payments.notMySale.clearNotMySale, {
+    providerPaymentId: f.providerPaymentId,
+    expectedFlagGeneration: flag!.notMySaleGeneration ?? 0,
+    expectedAllocationRevision: flag!.allocationRevision,
+  }))
     .resolves.toMatchObject({ ok: true });
   expect((await detail()).payments).toMatchObject([{ _id: paymentRecordId, notMySaleAt: null }]);
 });

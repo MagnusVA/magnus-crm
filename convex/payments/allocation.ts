@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { env, internalMutation, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { expectedError } from "../lib/observability/errors";
 import { adverseReviewRequired } from "./intake";
 import { baseProviderReviewState, refreshProviderPaymentReview } from "./match";
@@ -11,6 +11,20 @@ import { payerDetailsDeadline } from "./payerRetention";
 export const ALLOCATION_HISTORY_LIMIT = 40;
 /** Deals a person took one provider payment off as a wrong match. */
 export const EXCLUDED_OPPORTUNITY_LIMIT = 20;
+
+// The platform supplies this URL per deployment, including in Convex mutations.
+const DEV_DEPLOYMENT_URL = "https://cautious-donkey-511.convex.cloud";
+
+/** Sandbox money never becomes cash, except on the development deployment or
+ * a throwaway one that sets WHOP_SANDBOX_RECORDING=allow (never production). */
+export function sandboxAllocationBlocked(connection: Pick<Doc<"tenantPaymentConnections">, "environment">) {
+  return connection.environment === "sandbox" && env.CONVEX_CLOUD_URL !== DEV_DEPLOYMENT_URL &&
+    env.WHOP_SANDBOX_RECORDING !== "allow";
+}
+
+export function sandboxPaymentError() {
+  return expectedError("payment.sandbox_payment", "Sandbox payments can only be recorded on the development deployment.");
+}
 
 export function allocationChanged() {
   return expectedError("provider_payment.changed", "Someone else changed this payment. Reload to see the current state.");
@@ -93,7 +107,7 @@ export async function readActiveAllocation(
  * Point `payment` at `record` and `record` back at it, in this mutation: the
  * payment's pointer, `allocationRevision + 1`, person, deal, match method,
  * review state and resolution (with the adverse review and payer-detail
- * deadline a Billing link sets), the deal taken off `excludedOpportunityIds`;
+ * deadline a Billing link sets). Only a restore can clear the deal’s veto.
  * the row's `providerPaymentId` and `providerPaidAt`. Re-reads both rows and
  * every row citing the payment. Throws `provider_payment.changed` when the
  * revision moved. Emits no event and touches no aggregate: the row's cash,
@@ -109,6 +123,7 @@ export async function setActiveAllocation(
     matchMethod: "membership_binding" | "email_one_open_deal" | "person";
     actorUserId: Id<"users">;
     now: number;
+    restoreExcludedOpportunity?: true;
   },
 ): Promise<void> {
   const payment = await ctx.db.get("providerPayments", args.payment._id);
@@ -117,6 +132,11 @@ export async function setActiveAllocation(
   if (!record || record.tenantId !== payment.tenantId) {
     throw expectedError("provider_payment.record_not_found", "CRM payment not found.");
   }
+  const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
+  if (connection?.tenantId !== payment.tenantId) {
+    throw expectedError("provider_payment.invalid_source", "The payment source is unavailable.");
+  }
+  if (sandboxAllocationBlocked(connection)) throw sandboxPaymentError();
   if (payment.allocationRevision !== args.expectedAllocationRevision) throw allocationChanged();
   if (payment.paymentRecordId !== undefined || payment.reviewState === "linked" || payment.reviewState === "recorded") {
     throw expectedError("provider_payment.already_allocated", "This provider payment has an active allocation.");
@@ -147,12 +167,17 @@ export async function setActiveAllocation(
     throw expectedError("provider_payment.invalid_record_target", "The CRM payment needs a deal with a current person.");
   }
 
+  const vetoed = payment.excludedOpportunityIds?.includes(deal._id);
+  if (vetoed && !args.restoreExcludedOpportunity) {
+    throw expectedError("provider_payment.excluded_wrong_match", "Restore the correction to return this payment to the deal.");
+  }
+  const remainingVetoes = vetoed ? payment.excludedOpportunityIds?.filter((id) => id !== deal._id) : undefined;
+
   await ctx.db.patch("paymentRecords", record._id, {
     providerPaymentId: payment._id,
     providerPaidAt: payment.paidAt,
   });
   const reviewAdverse = adverseReviewRequired(payment);
-  const excluded = payment.excludedOpportunityIds?.filter((id) => id !== deal._id);
   await ctx.db.patch("providerPayments", payment._id, {
     paymentRecordId: record._id,
     allocationRevision: payment.allocationRevision + 1,
@@ -166,9 +191,7 @@ export async function setActiveAllocation(
     resolvedAt: args.now,
     payerDetailsExpireAt: payerDetailsDeadline(payment, "needs_person", args.now),
     resolvedByUserId: args.actorUserId,
-    ...(payment.excludedOpportunityIds === undefined
-      ? {}
-      : { excludedOpportunityIds: excluded?.length ? excluded : undefined }),
+    ...(vetoed && { excludedOpportunityIds: remainingVetoes?.length ? remainingVetoes : undefined }),
   });
 }
 

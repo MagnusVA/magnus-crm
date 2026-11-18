@@ -17,7 +17,9 @@ runner rejects that substring in the requested, resolved and proof upload URLs.
    `lively-jay-123`.
 3. On that deployment, set the required variables from
    [convex/convex.config.ts](../convex/convex.config.ts) to synthetic values.
-   Set `POSTHOG_PROJECT_TOKEN` to `disabled`. Use the test identity flags
+   Set `POSTHOG_PROJECT_TOKEN` to `disabled` and `WHOP_SANDBOX_RECORDING` to
+   `allow`: the runner's fake connection is a Sandbox one, and Sandbox
+   payments are refused as cash everywhere else. Use the test identity flags
    supplied by the runner. Leave external integrations disconnected.
 4. Load this checkout's functions and schema with
    `npx convex dev --once --deployment <name>`. Check the target in the

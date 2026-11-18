@@ -1,12 +1,13 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FIXTURE_NOW, PRODUCT_ID, providerPaymentFixture } from "../../tests/providerPaymentFixtures";
+import { assertPaymentInvariants } from "../../tests/paymentInvariants";
+import { FIXTURE_NOW, PRODUCT_ID, insertProviderFact, providerPaymentFixture, seedBillingWin } from "../../tests/providerPaymentFixtures";
 import { api } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
-import { refreshProviderPaymentReview } from "./match";
+import { findPaymentTarget, refreshProviderPaymentReview } from "./match";
 import { WHOP_API_VERSION_DATE } from "./whop/client";
 
 const bindings = api.payments.bindings;
@@ -97,6 +98,77 @@ async function fixture() {
     foreignAdmin: t.withIdentity({ subject: "user_other", org_id: "org_other" }),
   };
 }
+
+it("confirms the counting membership anchor so later Whop payments match the deal", async () => {
+  vi.setSystemTime(FIXTURE_NOW);
+  const membershipId = "mem_fixture";
+  const f = await providerPaymentFixture({ fact: { membershipId, reviewState: "needs_person" } });
+  const { t, admin, tenantId, connectionId, providerPaymentId, personId, dealId } = f;
+  const control = () => admin.query(bindings.getMembershipControl, { providerPaymentId });
+  expect(await control()).toBeNull();
+  const { paymentRecordId, laterId } = await t.run(async (ctx) => {
+    await ctx.db.patch("tenantPaymentConnections", connectionId, { environment: "live" });
+    const { paymentRecordId } = await seedBillingWin(ctx, {
+      ...f, opportunityId: dealId!, approverId: f.adminId, recordedAt: FIXTURE_NOW - 1000,
+    });
+    const laterId = await insertProviderFact(ctx, tenantId, connectionId, {
+      membershipId, externalPaymentId: "pay_cycle_fixture", billingReason: "subscription_cycle",
+      payerEmail: undefined, paidAt: FIXTURE_NOW, reviewState: "needs_person",
+    });
+    return { paymentRecordId, laterId };
+  });
+  const match = () => t.run(async (ctx) =>
+    findPaymentTarget(ctx, (await ctx.db.get("providerPayments", laterId))!));
+  expect(await match()).toMatchObject({ kind: "needs_person" });
+  const args = {
+    providerPaymentId, expectedMembershipId: membershipId,
+    expectedAllocationRevision: 1, expectedBindingVersion: 0,
+  };
+  expect(await control()).toEqual({
+    kind: "confirm", membershipId, paymentRecordId, allocationRevision: 1, bindingVersion: 0,
+  });
+  await expect(f.closer.mutation(bindings.confirmMembership, args)).rejects.toThrow();
+  await expect(admin.mutation(bindings.confirmMembership, { ...args, expectedAllocationRevision: 0 }))
+    .rejects.toMatchObject({ data: { code: "whop.membership_anchor_changed" } });
+
+  const bindingId = await admin.mutation(bindings.confirmMembership, args);
+  expect(await admin.mutation(bindings.confirmMembership, args)).toBe(bindingId);
+  expect(await control()).toEqual({ kind: "confirmed", bindingId, membershipId, paymentRecordId, allocationRevision: 1 });
+  expect(await t.run((ctx) => ctx.db.get("paymentProviderBindings", bindingId))).toMatchObject({
+    tenantId, connectionId, externalId: membershipId, kind: "membership_deal", opportunityId: dealId,
+    binding: { kind: "membership_deal", opportunityId: dealId, leadId: personId, anchorPaymentRecordId: paymentRecordId },
+    version: 1, enabled: true,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await t.run((ctx) => ctx.db.get("providerPayments", laterId)))
+    .toMatchObject({ reviewReason: "ready", candidateOpportunityId: dealId });
+  expect(await match()).toMatchObject({ kind: "ready", opportunityId: dealId, matchMethod: "membership_binding" });
+  await assertPaymentInvariants(t, { tenantId });
+
+  await expect(f.closer.mutation(bindings.removeMembershipConfirmation, { bindingId })).rejects.toThrow();
+  await admin.mutation(bindings.removeMembershipConfirmation, { bindingId });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await control()).toMatchObject({ kind: "confirm", bindingVersion: 2 });
+  expect(await match()).toMatchObject({ kind: "needs_person" });
+  await expect(admin.mutation(bindings.confirmMembership, args))
+    .rejects.toMatchObject({ data: { code: "whop.membership_changed" } });
+  await assertPaymentInvariants(t, { tenantId });
+});
+
+it("refuses to confirm a sandbox membership on a deployment where the payment cannot count", async () => {
+  const f = await providerPaymentFixture({ fact: { membershipId: "mem_fixture", reviewState: "needs_person" } });
+  const { t, admin, connectionId, providerPaymentId } = f;
+  await t.run(async (ctx) => {
+    await ctx.db.patch("tenantPaymentConnections", connectionId, { environment: "live" });
+    await seedBillingWin(ctx, { ...f, opportunityId: f.dealId!, approverId: f.adminId, recordedAt: FIXTURE_NOW - 1000 });
+    await ctx.db.patch("tenantPaymentConnections", connectionId, { environment: "sandbox" });
+  });
+  vi.stubEnv("CONVEX_CLOUD_URL", "https://production-fixture.example.com");
+  expect(await admin.query(bindings.getMembershipControl, { providerPaymentId })).toBeNull();
+  await expect(admin.mutation(bindings.confirmMembership, {
+    providerPaymentId, expectedMembershipId: "mem_fixture", expectedAllocationRevision: 1, expectedBindingVersion: 0,
+  })).rejects.toMatchObject({ data: { code: "whop.membership_anchor_changed" } });
+});
 
 describe("Whop mapping versions", () => {
   it("replaces mappings atomically, keeps removed versions, and starts after the newest version", async () => {

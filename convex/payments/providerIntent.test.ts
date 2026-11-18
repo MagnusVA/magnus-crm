@@ -1,17 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import { insertCloserMeeting, insertTask } from "../../tests/closerPipelineFixtures";
 import { insertProgram } from "../../tests/enrollmentFixtures";
 import { insertProgram as insertMcpProgram } from "../../tests/closerPipelineDeskFixtures";
-import { assertPaymentInvariants } from "../../tests/paymentInvariants";
+import { assertPaymentInvariants, seedProviderWin } from "../../tests/paymentInvariants";
 import {
   FIXTURE_NOW,
   FIXTURE_PAID_AT,
   insertPaymentFixtureConnection,
+  insertProviderBinding,
+  insertProviderDeal,
   insertProviderFact,
   PAYER_EMAIL,
   providerPaymentFixture,
-  seedReadyDecision,
+  PRODUCT_ID,
+  VARIANT_ID,
   setPaymentFixtureModes,
 } from "../../tests/providerPaymentFixtures";
 import { storeProofFile } from "../../tests/proofFixtures";
@@ -19,6 +23,8 @@ import { secondOpinionHarness } from "../../tests/secondOpinionHarness";
 import { callTool, testCaller } from "../../tests/mcpHarness";
 import { mcpToolsFixture } from "../../tests/mcpToolsFixtures";
 import { insertMeetingAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
+import { evaluateSubject } from "../automation/decisions";
+import { noteHumanResult } from "../automation/humanResult";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -42,9 +48,11 @@ async function meetingFixture() {
     const otherMeetingId = await meeting(FIXTURE_NOW + 86_400_000);
     await insertMeetingAggregate(ctx, meetingId);
     await insertMeetingAggregate(ctx, otherMeetingId);
-    const decisionId = await seedReadyDecision(ctx, {
-      tenantId, providerPaymentId, opportunityId, meetingId, leadId: f.personId, confirmRoute: "meeting",
+    await ctx.db.patch("paymentProviderBindings", f.variantBindingId, {
+      binding: { kind: "variant_type", paymentType: "deposit" },
     });
+    const { decisionId } = await evaluateSubject(ctx, { tenantId, providerPaymentId, now: FIXTURE_NOW, cause: "sweep" });
+    if (!decisionId) throw new Error("Expected a ready Whop decision for the fixture");
     return { meetingId, otherMeetingId, decisionId };
   });
   const args = {
@@ -59,6 +67,37 @@ async function meetingFixture() {
 }
 
 describe("confirming a Whop payment", () => {
+  it.each(["several open deals", "an excluded deal"] as const)(
+    "keeps a Whop payment with %s in Billing and requires proof for a manual save",
+    async (reason) => {
+      const f = await meetingFixture();
+      await f.t.run(async (ctx) => {
+        if (reason === "several open deals") {
+          await insertProviderDeal(ctx, { ...f, leadId: f.personId, assignedCloserId: f.closerId });
+        } else {
+          await ctx.db.patch("providerPayments", f.providerPaymentId, { excludedOpportunityIds: [f.opportunityId] });
+        }
+      });
+      for (const provider of [{ ...f.confirm, decisionId: undefined }, f.sameMoney]) {
+        await expect(f.closer.mutation(api.closer.payments.logPayment, { ...f.args, provider }))
+          .rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+      }
+      const target = { kind: "meeting" as const, meetingId: f.meetingId };
+      expect(await f.closer.query(api.payments.reconcileCheck.getPaymentReconciliation, { target }))
+        .toEqual({ conflicts: [], prefill: [] });
+      await expect(f.closer.mutation(api.closer.payments.logPayment, f.args))
+        .rejects.toMatchObject({ data: { code: "payment.proof_required" } });
+      const proofFileId = await storeProofFile(f.t);
+      const id = await f.closer.mutation(api.closer.payments.logPayment, { ...f.args, proofFileId });
+      expect(await f.t.run((ctx) => ctx.db.get("paymentRecords", id)))
+        .toMatchObject({ origin: "closer_meeting", proofFileId });
+      const fact = await f.t.run((ctx) => ctx.db.get("providerPayments", f.providerPaymentId));
+      expect(fact?.paymentRecordId).toBeUndefined();
+      expect(fact?.excludedOpportunityIds).toEqual(reason === "an excluded deal" ? [f.opportunityId] : undefined);
+      await f.invariant();
+    },
+  );
+
   it("creates provider cash with the confirmer, consumes one decision and leaves other attendance owed", async () => {
     const f = await meetingFixture();
     await f.invariant();
@@ -184,25 +223,100 @@ describe("confirming a Whop payment", () => {
     await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
 
-  it("supports confirmation through the side-deal writer", async () => {
+  it("keeps a side deal manual when the matcher abstains", async () => {
     const f = await providerPaymentFixture({ source: "side_deal", fact: { reviewState: "needs_person" } });
     await f.t.run((ctx) => setPaymentFixtureModes(ctx, f));
-    const { paymentId } = await f.closer.mutation(api.sideDeals.logPayment.logPayment, {
-      opportunityId: f.dealId!, amount: 100, currency: "USD", programId: f.programId, paymentType: "pif",
-      provider: { kind: "confirm", providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 },
-    });
+    const args = {
+      opportunityId: f.dealId!, amount: 100, currency: "USD", programId: f.programId, paymentType: "pif" as const,
+    };
+    await expect(f.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      ...args, provider: { kind: "confirm", providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 },
+    })).rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    const proofFileId = await storeProofFile(f.t);
+    const { paymentId } = await f.closer.mutation(api.sideDeals.logPayment.logPayment, { ...args, proofFileId });
     const payment = await f.t.run((ctx) => ctx.db.get("paymentRecords", paymentId));
-    expect(payment).toMatchObject({ origin: "provider", recordedVia: "provider", recordedByUserId: f.closerId });
+    expect(payment).toMatchObject({ origin: "closer_side_deal", recordedVia: "web", recordedByUserId: f.closerId, proofFileId });
+    expect(payment?.providerPaymentId).toBeUndefined();
     await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+  });
+
+  it("protects another closer's Whop instalment while preserving manual self-credit", async () => {
+    const f = await meetingFixture();
+    const membershipId = "mem_instalment_owner";
+    const { otherId, instalmentId, bindingId } = await f.t.run(async (ctx) => {
+      const otherId = await ctx.db.insert("users", {
+        tenantId: f.tenantId, workosUserId: "user_other", email: "other@example.test", role: "closer", isActive: true,
+      });
+      await ctx.db.patch("providerPayments", f.providerPaymentId, { membershipId });
+      const anchorPaymentRecordId = await seedProviderWin(ctx, {
+        ...f, approverId: f.adminId, recordedAt: FIXTURE_PAID_AT,
+      });
+      const bindingId = await insertProviderBinding(ctx, {
+        ...f, externalId: membershipId,
+        binding: { kind: "membership_deal", opportunityId: f.opportunityId, leadId: f.personId, anchorPaymentRecordId },
+      });
+      const instalmentId = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: "pay_instalment_owner", membershipId, billingReason: "subscription_cycle", reviewState: "needs_person",
+      });
+      return { otherId, instalmentId, bindingId };
+    });
+    const other = f.t.withIdentity({ subject: "user_other", org_id: "org_test" });
+    const args = { opportunityId: f.opportunityId, amount: 100, currency: "USD", paymentType: "deposit" as const };
+    const target = { kind: "deal" as const, opportunityId: f.opportunityId };
+    const provider = {
+      kind: "confirm" as const, providerPaymentId: instalmentId, expectedAllocationRevision: 0,
+      otherPins: [{ providerPaymentId: f.providerPaymentId, allocationRevision: 1 }],
+    };
+    await expect(other.query(api.payments.reconcileCheck.getPaymentReconciliation, { target }))
+      .rejects.toThrow("not the assigned closer");
+    await expect(other.mutation(api.closer.additionalPayment.recordAdditionalPayment, { ...args, provider }))
+      .rejects.toThrow("not the assigned closer");
+
+    await f.t.run((ctx) => ctx.db.patch("paymentProviderBindings", bindingId, { enabled: false }));
+    await expect(f.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, { ...args, provider }))
+      .rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    await f.t.run((ctx) => ctx.db.patch("paymentProviderBindings", bindingId, { enabled: true }));
+    const instalment = await f.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, { ...args, provider });
+    const manual = await other.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      ...args, proofFileId: await storeProofFile(f.t),
+    });
+    expect(await f.t.run((ctx) => Promise.all([
+      ctx.db.get("paymentRecords", instalment.paymentId),
+      ctx.db.get("paymentRecords", manual.paymentId),
+    ]))).toMatchObject([
+      { attributedCloserId: f.closerId, origin: "provider", providerPaymentId: instalmentId },
+      { attributedCloserId: otherId, origin: "closer_additional" },
+    ]);
+    await f.invariant();
   });
 
   it("uses additional-payment mode and inherits the won deal's sold program", async () => {
     const f = await meetingFixture();
-    await f.t.run((ctx) => setPaymentFixtureModes(ctx, { ...f, winMode: "off" }));
-    await f.admin.mutation(api.closer.payments.logPayment, f.args);
+    const membershipId = "mem_inherit";
+    const anchorId = await f.t.run((ctx) => insertProviderFact(ctx, f.tenantId, f.connectionId, {
+      externalPaymentId: "pay_inherit_anchor", membershipId,
+    }));
+    await f.t.run(async (ctx) => {
+      await setPaymentFixtureModes(ctx, { ...f, winMode: "off" });
+      const anchorPaymentRecordId = await seedProviderWin(ctx, {
+        ...f, providerPaymentId: anchorId, approverId: f.adminId, recordedAt: FIXTURE_PAID_AT,
+      });
+      await noteHumanResult(ctx, f.opportunityId, { tenantId: f.tenantId, userId: f.adminId });
+      await insertProviderBinding(ctx, {
+        ...f, externalId: membershipId,
+        binding: { kind: "membership_deal", opportunityId: f.opportunityId, leadId: f.personId, anchorPaymentRecordId },
+      });
+      await ctx.db.patch("providerPayments", f.providerPaymentId, { membershipId, billingReason: "subscription_cycle" });
+      await ctx.db.patch("paymentProviderBindings", f.variantBindingId, {
+        binding: { kind: "variant_type", paymentType: "pif", laterPaymentType: "split" },
+      });
+    });
     const { paymentId } = await f.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
       opportunityId: f.opportunityId, amount: 100, currency: "USD", paymentType: "split",
-      provider: { kind: "confirm", providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 },
+      provider: {
+        kind: "confirm", providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0,
+        otherPins: [{ providerPaymentId: anchorId, allocationRevision: 1 }],
+      },
     });
     const state = await f.t.run(async (ctx) => ({
       payment: await ctx.db.get("paymentRecords", paymentId),
@@ -234,12 +348,53 @@ describe("linking a manual save to a Whop payment", () => {
     await f.invariant();
   });
 
+  it("asks again when either acknowledged amount or currency changes before saving", async () => {
+    const f = await meetingFixture();
+    const proofFileId = await storeProofFile(f.t);
+    const acknowledgedAmounts = {
+      crmAmountMinor: 11000, crmCurrency: "USD", providerTotalMinor: 10000, providerCurrency: "USD",
+    };
+    const legacyApproval = { ...f.sameMoney, acknowledgeAmountDifference: true };
+    const provider = { ...legacyApproval, acknowledgedAmounts };
+    const args = { ...f.args, amount: 110, proofFileId };
+    const save = (values = args, intent = provider) =>
+      f.closer.mutation(api.closer.payments.logPayment, { ...values, provider: intent });
+    await expect(f.closer.mutation(api.closer.payments.logPayment, { ...args, provider: legacyApproval }))
+      .rejects.toMatchObject({ data: { code: "payment.amount_mismatch" } });
+    await expect(save({ ...args, amount: 120 })).rejects.toMatchObject({ data: { code: "payment.amount_mismatch" } });
+    await expect(save({ ...args, currency: "CAD" })).rejects.toMatchObject({ data: { code: "payment.amount_mismatch" } });
+
+    await f.t.run((ctx) => ctx.db.patch("providerPayments", f.providerPaymentId, {
+      totalMinor: 100000, sourceUpdatedAt: FIXTURE_NOW,
+    }));
+    await expect(save()).rejects.toMatchObject({ data: {
+      code: "payment.amount_mismatch", conflicts: [{ totalMinor: 100000, currency: "USD" }],
+    } });
+    await f.t.run((ctx) => ctx.db.patch("providerPayments", f.providerPaymentId, { currency: "EUR" }));
+    await expect(save(args, { ...provider, acknowledgedAmounts: { ...acknowledgedAmounts, providerTotalMinor: 100000 } }))
+      .rejects.toMatchObject({ data: { code: "payment.amount_mismatch", conflicts: [{ totalMinor: 100000, currency: "EUR" }] } });
+
+    const id = await save(args, { ...provider, acknowledgedAmounts: {
+      ...acknowledgedAmounts, providerTotalMinor: 100000, providerCurrency: "EUR",
+    } });
+    expect(await f.t.run((ctx) => ctx.db.get("paymentRecords", id)))
+      .toMatchObject({ amountMinor: 11000, currency: "USD", providerPaymentId: f.providerPaymentId, proofFileId });
+    await f.invariant();
+  });
+
   it.each([{ amount: 125 }, { currency: "CAD" }])("requires acknowledgement and usual proof when the entries differ %j", async (typed) => {
     const f = await meetingFixture();
     const args = { ...f.args, ...typed, provider: f.sameMoney };
     await expect(f.closer.mutation(api.closer.payments.logPayment, args))
       .rejects.toMatchObject({ data: { code: "payment.amount_mismatch" } });
-    const provider = { ...f.sameMoney, acknowledgeAmountDifference: true };
+    const provider = {
+      ...f.sameMoney,
+      acknowledgeAmountDifference: true,
+      acknowledgedAmounts: {
+        crmAmountMinor: args.amount * 100, crmCurrency: args.currency,
+        providerTotalMinor: 10000, providerCurrency: "USD",
+      },
+    };
     await expect(f.closer.mutation(api.closer.payments.logPayment, { ...args, provider }))
       .rejects.toMatchObject({ data: { code: "payment.proof_required" } });
     await f.invariant();
@@ -252,6 +407,21 @@ describe("linking a manual save to a Whop payment", () => {
   });
 });
 
+async function mapPayment(
+  ctx: Parameters<typeof insertProviderBinding>[0],
+  fields: Omit<Parameters<typeof insertProviderBinding>[1], "externalId" | "binding"> & {
+    programId: Id<"tenantPrograms">;
+  },
+) {
+  const { programId, ...connection } = fields;
+  await insertProviderBinding(ctx, {
+    ...connection, externalId: PRODUCT_ID, binding: { kind: "product_program", programId },
+  });
+  await insertProviderBinding(ctx, {
+    ...connection, externalId: VARIANT_ID, binding: { kind: "variant_type", paymentType: "pif" },
+  });
+}
+
 it("keeps the meeting writer's Second opinion queue on a Whop confirmation", async () => {
   const f = await secondOpinionHarness("on", "scheduled");
   const { tenantId, ownerId: adminId, opportunityId, meetingId } = f;
@@ -260,12 +430,12 @@ it("keeps the meeting writer's Second opinion queue on a Whop confirmation", asy
     await insertMeetingAggregate(ctx, meetingId);
     await setPaymentFixtureModes(ctx, { tenantId, adminId });
     const connectionId = await insertPaymentFixtureConnection(ctx, tenantId, adminId);
-    return {
-      programId: await insertProgram(ctx, tenantId, "Synthetic program"),
-      providerPaymentId: await insertProviderFact(ctx, tenantId, connectionId, {
-        payerEmail: "grace@example.com", reviewState: "needs_person",
-      }),
-    };
+    const programId = await insertProgram(ctx, tenantId, "Synthetic program");
+    await mapPayment(ctx, { tenantId, connectionId, adminId, programId });
+    const providerPaymentId = await insertProviderFact(ctx, tenantId, connectionId, {
+      payerEmail: "grace@example.com", reviewState: "needs_person", paidAt: FIXTURE_NOW,
+    });
+    return { programId, providerPaymentId };
   });
   const paymentId = await f.closer.mutation(api.closer.payments.logPayment, {
     opportunityId, meetingId, programId, amount: 100, currency: "USD", paymentType: "pif",
@@ -285,15 +455,15 @@ it("returns a readable MCP refusal with the web link and rolls back a provisione
   const { programId, connectionId } = await t.run(async (ctx) => {
     await setPaymentFixtureModes(ctx, { tenantId, adminId });
     await ctx.db.patch("leads", leadId, { email: PAYER_EMAIL });
-    return {
-      programId: await insertMcpProgram(ctx, tenantId, adminId, "Synthetic program"),
-      connectionId: await insertPaymentFixtureConnection(ctx, tenantId, adminId),
-    };
+    const programId = await insertMcpProgram(ctx, tenantId, adminId, "Synthetic program");
+    const connectionId = await insertPaymentFixtureConnection(ctx, tenantId, adminId);
+    await mapPayment(ctx, { tenantId, connectionId, adminId, programId });
+    return { programId, connectionId };
   });
   const args = { meetingId, programId, amount: 100, currency: "USD", paymentType: "pif" as const };
   const caller = testCaller(f.orgId, "chatgpt");
   const preview = await t.mutation(internal.mcp.tools.payments.previewPayment, { ...args, caller, proofKind: "file" });
-  await t.run((ctx) => insertProviderFact(ctx, tenantId, connectionId, { reviewState: "needs_person" }));
+  await t.run((ctx) => insertProviderFact(ctx, tenantId, connectionId, { reviewState: "needs_person", paidAt: FIXTURE_NOW }));
 
   const storageId = await storeProofFile(t);
   await expect(t.mutation(internal.mcp.tools.payments.commitPayment, {

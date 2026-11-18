@@ -368,6 +368,8 @@ export const paymentProviderTables = {
     // A closer's "This isn't my sale" flag, until Billing resolves it.
     notMySaleAt: v.optional(v.number()),
     notMySaleByUserId: v.optional(v.id("users")),
+    // Kept after clearance so a new flag has a different generation.
+    notMySaleGeneration: v.optional(v.number()),
   })
     .index("by_tenantId_and_connectionId_and_externalPaymentId", [
       "tenantId",
@@ -397,6 +399,18 @@ export const paymentProviderTables = {
       "tenantId",
       "payerEmail",
       "paidAt",
+    ])
+    .index("by_tenantId_and_status_and_payerEmail_and_payerPhone", [
+      "tenantId", "status", "payerEmail", "payerPhone",
+    ])
+    .index("by_tenantId_and_status_and_payerPhone", [
+      "tenantId", "status", "payerPhone",
+    ])
+    .index("by_connectionId_and_status_and_checkoutConfigurationId", [
+      "connectionId", "status", "checkoutConfigurationId",
+    ])
+    .index("by_connectionId_and_status_and_membershipId", [
+      "connectionId", "status", "membershipId",
     ])
     .index("by_connectionId_and_leadId_and_paidAt", ["connectionId", "leadId", "paidAt"])
     .index("by_connectionId_and_candidateLeadId_and_paidAt", ["connectionId", "candidateLeadId", "paidAt"])
@@ -448,6 +462,9 @@ export const paymentProviderTables = {
     ])
     .index("by_tenantId_kind_enabled_anchorPaymentRecordId", [
       "tenantId", "kind", "enabled", "binding.anchorPaymentRecordId",
+    ])
+    .index("by_tenantId_and_enabled_and_binding_leadId", [
+      "tenantId", "enabled", "binding.leadId",
     ])
     .index("by_tenantId_and_opportunityId_and_kind", [
       "tenantId",

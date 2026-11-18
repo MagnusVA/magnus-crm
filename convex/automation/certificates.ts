@@ -9,6 +9,7 @@ import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { automationCommandRefusalValidator, refuseAutomation } from "../payments/commandResult";
 import { assertAutomaticAllowed, breakerCauseOpen, type AutomaticAllowance } from "./breaker";
+import { isAutomaticSampleCase } from "./derive";
 import { automationKindOf, isPaymentKind, paymentEvidenceOf, type AutomationKind } from "./proposals";
 import { automationKindValidator } from "./schema";
 import { currentRuleVersion, setKindModeCore } from "./settings";
@@ -41,9 +42,13 @@ const standingValidator = v.object({
   policyVersion: v.optional(v.number()), status: sampleStatus,
 });
 export type SampleStanding = typeof standingValidator.type;
+const lapseReasonValidator = v.union(
+  v.literal("rule_changed"), v.literal("aged_out"), v.literal("breaker"), v.literal("policy_changed"),
+);
 const progressValidator = v.object({
   ...standingValidator.fields, sampleId: v.id("automationSamples"), kind: automationKindValidator,
   ruleVersion: v.string(), scopeBindingIds: v.array(v.id("paymentProviderBindings")),
+  lapseReason: v.optional(lapseReasonValidator),
 });
 type CertificateCheck =
   | { ok: true; sample: Sample; oldestCaseAt: number }
@@ -74,7 +79,7 @@ export function readSampleMembers(ctx: ReadCtx, sample: Sample): Promise<Decisio
 
 function matchesSample(row: Decision, sample: Sample) {
   return row.tenantId === sample.tenantId && row.kind === sample.kind && row.ruleVersion === sample.ruleVersion &&
-    row.wouldWrite && !!row.leadId && (row.mode === "shadow" || row.mode === "ask");
+    isAutomaticSampleCase(row) && !!row.leadId && (row.mode === "shadow" || row.mode === "ask");
 }
 
 function verdictOf(row: Decision) {
@@ -228,7 +233,7 @@ async function appendCases(ctx: MutationCtx, sample: Sample, candidates: Decisio
 /** Enroll a new eligible decision in its own inserting mutation, before a grader can see it. */
 export async function enrollInSample(ctx: MutationCtx, decision: Decision): Promise<Id<"automationSamples"> | null> {
   const kind = automationKindOf(decision.kind);
-  if (!kind || !decision.wouldWrite || !decision.leadId || decision.mode === "automatic" || decision.grade) return null;
+  if (!kind || !isAutomaticSampleCase(decision) || !decision.leadId || decision.mode === "automatic" || decision.grade) return null;
   if (decision.sampleId) return decision.sampleId;
   const tenant = await ctx.db.get("tenants", decision.tenantId);
   const now = Date.now();
@@ -305,11 +310,13 @@ export const openSample = mutation({
 function progress(sample: Sample, standing: SampleStanding, tenant: Tenant, now: number): typeof progressValidator.type {
   const promoted = tenant.resultAutomation?.kinds[sample.kind]?.automatic;
   const hasCurrentPromotion = promoted?.sampleId === sample._id && !agedOut(sample, promoted.promotedAt);
-  const lapsed = sample.ruleVersion !== currentRuleVersion(tenant, sample.kind) ||
-    (agedOut(sample, now) && !hasCurrentPromotion);
+  let lapseReason: typeof lapseReasonValidator.type | undefined;
+  if (sample.ruleVersion !== currentRuleVersion(tenant, sample.kind)) lapseReason = "rule_changed";
+  else if (agedOut(sample, now) && !hasCurrentPromotion) lapseReason = "aged_out";
+  else if (sample.status === "lapsed") lapseReason = sample.lapseReason ?? "policy_changed";
   return {
     ...standing, sampleId: sample._id, kind: sample.kind, ruleVersion: sample.ruleVersion,
-    scopeBindingIds: sample.scopeBindingIds ?? [], status: lapsed ? "lapsed" : standing.status,
+    scopeBindingIds: sample.scopeBindingIds ?? [], status: lapseReason ? "lapsed" : standing.status, lapseReason,
   };
 }
 
@@ -482,7 +489,7 @@ export const getCertificates = query({
         .order("desc").take(101);
       const people = new Set<LeadId>();
       for (const row of recent.slice(0, 100)) {
-        if (!row.leadId || !row.wouldWrite) continue;
+        if (!row.leadId || !isAutomaticSampleCase(row)) continue;
         const person = await resolve(row.leadId);
         if (person) people.add(person);
       }

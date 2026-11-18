@@ -10,6 +10,7 @@ import {
   readReconciliationDealPayments,
   reconcilePaymentWrite,
   reconciledPaymentFields,
+  reconciledPaymentSelection,
 } from "../payments/reconcileCheck";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -86,15 +87,18 @@ export const logPayment = mutation({
 
     const currency = validateCurrency(args.currency);
     const amountMinor = toAmountMinor(args.amount);
-    const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
-    const paymentType = resolvePaymentType(args.paymentType);
+    const selection = reconciledPaymentSelection(reconciliation, args);
+    const program = await resolveProgramForWrite(ctx, tenantId, selection.programId);
+    const paymentType = resolvePaymentType(selection.paymentType);
+    const attributedCloserId = reconciliation.action === "insert_from_provider"
+      ? reconciliation.proposal.attributedCloserId : opportunity.assignedCloserId;
     const origin: PaymentOrigin = reconciliation.action === "insert_from_provider"
       ? "provider"
       : isAdmin ? "admin_side_deal" : "closer_side_deal";
 
     assertPaymentRow({
       tenantId,
-      attributedCloserId: opportunity.assignedCloserId,
+      attributedCloserId,
       recordedByUserId: userId,
       origin,
       opportunityId: args.opportunityId,
@@ -111,7 +115,7 @@ export const logPayment = mutation({
       tenantId,
       opportunityId: args.opportunityId,
       meetingId: undefined,
-      attributedCloserId: opportunity.assignedCloserId,
+      attributedCloserId,
       recordedByUserId: userId,
       amountMinor,
       currency,

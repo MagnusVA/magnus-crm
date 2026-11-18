@@ -4,8 +4,9 @@ import { assertAutomationInvariants } from "../../tests/automationInvariants";
 import { callInsightsHarness, seedCallDecisionReading } from "../../tests/callInsightsHarness";
 import { insertProgram } from "../../tests/enrollmentFixtures";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
+import { ACCOUNT_ID, PAYMENT_ID, paymentFixture } from "../../tests/whopFixtures";
 import {
-  callEvidenceRef, FIXTURE_NOW, insertPaymentFixtureConnection, insertProviderDeal, insertProviderFact,
+  callEvidenceRef, FIXTURE_NOW, insertPaymentFixtureConnection, insertProviderBinding, insertProviderDeal, insertProviderFact, insertProviderIdentifier,
   insertProviderMeeting, insertProviderPerson, seedAutomationSample, seedManualPayment, seedReadyDecision,
 } from "../../tests/providerPaymentFixtures";
 import { api, internal } from "../_generated/api";
@@ -16,6 +17,7 @@ import { insertManualReminder } from "../lib/reminderInsert";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { missedMeetingLoss, patchOpportunityLifecycle, transitionOpportunity } from "../lib/opportunityActivity";
 import { sha256Hex } from "../lib/stableHash";
+import { normalizePayment, paymentSchema } from "../payments/whop/normalize";
 import { insertMeetingAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
 import { evaluateCallSubject, rederiveCall, type CallEvaluateCause } from "./callDecisions";
 import { CERTIFICATE_TARGET } from "./certificates";
@@ -443,11 +445,167 @@ it.each(["resolved", "unresolved"] as const)("13: a %s Whop payment for the pers
   const f = await dueFixture();
   await f.t.run(async (ctx) => {
     const connectionId = await insertPaymentFixtureConnection(ctx, f.tenantId, f.ownerId);
-    await insertProviderFact(ctx, f.tenantId, connectionId, match === "resolved"
-      ? { leadId: f.leadId, status: "paid" }
-      : { candidateLeadId: f.leadId, status: "unresolved", paidAt: undefined });
+    const person = (await ctx.db.get("leads", f.leadId))!;
+    await insertProviderFact(ctx, f.tenantId, connectionId, {
+      payerEmail: person.email,
+      ...(match === "resolved" ? { leadId: f.leadId, status: "paid" } as const
+        : { candidateLeadId: f.leadId, status: "unresolved", paidAt: undefined } as const),
+    });
   });
   await expectWithdrawal(f, "payment_found");
+});
+
+async function readWhop(f: Fixture, status: "pending" | "authorized" | "paid", conflictPhone?: string) {
+  const { identity, email } = await f.t.run(async (ctx) => {
+    const connectionId = await insertPaymentFixtureConnection(ctx, f.tenantId, f.ownerId);
+    const connectedAt = FIXTURE_NOW - HOUR_MS;
+    await ctx.db.patch("tenantPaymentConnections", connectionId, {
+      accountId: ACCOUNT_ID, connectedAt, lastSuccessfulSweepAt: Date.now(),
+    });
+    const person = (await ctx.db.get("leads", f.leadId))!;
+    return { identity: { connectionId, connectedAt, accountId: ACCOUNT_ID, externalPaymentId: PAYMENT_ID }, email: person.email };
+  });
+  const generation = (await f.t.mutation(internal.payments.intake.beginPaymentRead, identity))!;
+  const payment = {
+    ...normalizePayment(paymentSchema.parse(paymentFixture())),
+    status, paidAt: status === "paid" ? Date.now() : undefined,
+    sourceCreatedAt: FIXTURE_NOW, sourceUpdatedAt: Date.now(), payerEmail: email, payerPhone: conflictPhone,
+  };
+  await expect(f.t.mutation(internal.payments.intake.storePaymentRead, { ...identity, generation, payment }))
+    .resolves.toBe("stored");
+  return identity;
+}
+
+it("13: a canonical pending read stops the prospect's notice without a paid match", async () => {
+  const f = await fixture();
+  await acknowledge(f);
+  vi.setSystemTime(FIXTURE_NOW + HOUR_MS);
+  const identity = await readWhop(f, "pending");
+  const payment = await f.t.run((ctx) => ctx.db.query("providerPayments")
+    .withIndex("by_tenantId_and_connectionId_and_externalPaymentId", (q) =>
+      q.eq("tenantId", f.tenantId).eq("connectionId", identity.connectionId).eq("externalPaymentId", PAYMENT_ID))
+    .unique());
+  expect(payment).toMatchObject({ status: "pending" });
+  expect(payment?.candidateLeadId).toBeUndefined();
+  expect((await state(f)).row).toMatchObject({ state: "stopped", stopCode: "payment_found" });
+});
+
+it("13: a pre-existing authorization with no candidate blocks re-derivation and the deadline", async () => {
+  const f = await dueFixture();
+  await f.t.run(async (ctx) => {
+    const connectionId = await insertPaymentFixtureConnection(ctx, f.tenantId, f.ownerId);
+    await ctx.db.patch("tenantPaymentConnections", connectionId, { lastSuccessfulSweepAt: DUE });
+    const person = (await ctx.db.get("leads", f.leadId))!;
+    await insertProviderFact(ctx, f.tenantId, connectionId, {
+      status: "authorized", paidAt: undefined, payerEmail: person.email,
+    });
+  });
+  const current = await f.t.run(async (ctx) => {
+    const decision = (await ctx.db.get("resultAutomationDecisions", f.args.decisionId))!;
+    return rederiveCall(ctx, decision, Date.now());
+  });
+  expect(current.derived?.wouldWrite).toBe(false);
+  await expectWithdrawal(f, "payment_found");
+});
+
+it("13: a checkout-bound authorization with a different payer holds the refusal", async () => {
+  const f = await dueFixture();
+  await f.t.run(async (ctx) => {
+    const connectionId = await insertPaymentFixtureConnection(ctx, f.tenantId, f.ownerId);
+    await ctx.db.patch("tenantPaymentConnections", connectionId, { lastSuccessfulSweepAt: DUE });
+    const checkout = "ch_authorized_fixture";
+    await insertProviderBinding(ctx, {
+      tenantId: f.tenantId, connectionId, adminId: f.adminId, externalId: checkout,
+      binding: { kind: "checkout_deal", leadId: f.leadId, opportunityId: f.opportunityId },
+    });
+    await insertProviderFact(ctx, f.tenantId, connectionId, {
+      status: "authorized", paidAt: undefined, payerEmail: "different-payer@example.com",
+      checkoutConfigurationId: checkout,
+    });
+  });
+  await expectWithdrawal(f, "input_changed");
+});
+
+it.each(["intake", "evaluate"] as const)("a conflicting Whop payer leaves the acknowledged notice intact during %s", async (path) => {
+  const f = await fixture();
+  await acknowledge(f);
+  vi.setSystemTime(FIXTURE_NOW + HOUR_MS);
+  const phone = "+12025550101";
+  await f.t.run(async (ctx) => {
+    const other = await insertProviderPerson(ctx, f.tenantId, { email: "other-payer@example.com" });
+    await insertProviderIdentifier(ctx, f.tenantId, other, "phone", phone);
+  });
+  if (path === "evaluate") {
+    await f.owner.mutation(api.automation.settings.setKindMode, { kind: "payment_win", mode: "shadow" });
+  }
+  const identity = await readWhop(f, "paid", phone);
+  const payment = await f.t.run((ctx) => ctx.db.query("providerPayments")
+    .withIndex("by_tenantId_and_connectionId_and_externalPaymentId", (q) =>
+      q.eq("tenantId", f.tenantId).eq("connectionId", identity.connectionId).eq("externalPaymentId", PAYMENT_ID))
+    .unique());
+  expect(payment).toMatchObject({ reviewReason: "phone_conflict", candidateLeadId: f.leadId });
+  if (path === "evaluate") {
+    await f.t.mutation(internal.automation.decisions.evaluateProviderPayment, {
+      providerPaymentId: payment!._id, cause: "provider_read",
+    });
+  }
+  expect((await state(f)).row).toMatchObject({ state: "notice", acknowledgedAt: FIXTURE_NOW, dueAt: DUE });
+  vi.setSystemTime(DUE);
+  await expectWithdrawal(f, "input_changed");
+});
+
+it.each([0, 100])("an unlinked identity decision fences a notice behind %s older notices", async (olderNotices) => {
+  const f = await fixture();
+  await acknowledge(f);
+  vi.setSystemTime(DUE);
+  const { decisionId, reviewId } = await f.t.run(async (ctx) => {
+    let decisionId = f.args.decisionId;
+    if (olderNotices > 0) {
+      const notice = (await ctx.db.get("resultAutomationDecisions", decisionId))!;
+      const { _id, _creationTime, ...fields } = notice;
+      await ctx.db.delete("resultAutomationDecisions", _id);
+      for (let i = 0; i < olderNotices; i++) {
+        await ctx.db.insert("resultAutomationDecisions", { ...fields, inputKey: await sha256Hex(`older notice ${i}`), vetoKey: await sha256Hex(`older veto ${i}`) });
+      }
+      decisionId = await ctx.db.insert("resultAutomationDecisions", fields);
+      await ctx.db.insert("resultAutomationDecisions", { ...fields, inputKey: await sha256Hex("continuation notice"), vetoKey: await sha256Hex("continuation veto") });
+    }
+    const rawEventId = await ctx.db.insert("rawWebhookEvents", {
+      tenantId: f.tenantId, calendlyEventUri: "identity-fixture", eventType: "invitee.created", payload: "{}",
+      processed: true, receivedAt: FIXTURE_NOW,
+    });
+    const deliveryId = await ctx.db.insert("webhookDeliveries", {
+      tenantId: f.tenantId, key: "identity-fixture", eventType: "invitee.created", inviteeUri: "identity-fixture",
+      rawEventId, occurredAt: FIXTURE_NOW, receivedAt: FIXTURE_NOW, generation: 1, status: "blocked",
+      reason: "phone_match_new_email",
+    });
+    const reviewId = await ctx.db.insert("bookingReviews", {
+      tenantId: f.tenantId, deliveryId, kind: "identity_check", status: "open", reason: "phone_match_new_email",
+      conflicts: [{ leadId: f.leadId, via: "phone" }], booking: { email: "booking-fixture@example.com" },
+      createdAt: FIXTURE_NOW, updatedAt: FIXTURE_NOW,
+    });
+    return { decisionId, reviewId };
+  });
+  await f.admin.mutation(api.pipeline.identityDecisions.decideIdentityCheck, {
+    reviewId, decision: "different_person",
+  });
+  const before = await state(f, decisionId);
+  expect(before.deal?.humanResultRevision).toBeUndefined();
+  if (olderNotices === 0) {
+    expect(before.row).toMatchObject({ state: "stopped", stopCode: "human_result" });
+    return;
+  }
+  expect(before.row?.state).toBe("notice");
+  await expect(finalize(f, { decisionId })).resolves.toEqual({ status: "withdrawn", code: "human_result" });
+  const job = await f.t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").take(50))
+    .find((row) => row.name === "automation/mergeStandDown:continueDecisionStandDown"));
+  expect(job).toBeDefined();
+  await f.t.mutation(internal.automation.mergeStandDown.continueDecisionStandDown, job!.args[0]);
+  const remaining = await f.t.run((ctx) => ctx.db.query("resultAutomationDecisions")
+    .withIndex("by_tenantId_and_leadId_and_state", (q) =>
+      q.eq("tenantId", f.tenantId).eq("leadId", f.leadId).eq("state", "notice")).first());
+  expect(remaining).toBeNull();
+  expect((await state(f, decisionId)).deal?.outcome).toBe("open");
 });
 
 it("13: Whop payment resolution stops the notice while the clock is running", async () => {

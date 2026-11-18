@@ -1,4 +1,4 @@
-import { scheduleEvaluation } from "../automation/decisions";
+import { schedulePaymentEvaluation } from "../automation/decisions";
 import { internal } from "../_generated/api";
 import { vOnCompleteArgs } from "@convex-dev/workpool";
 import { v } from "convex/values";
@@ -136,7 +136,7 @@ async function fenceForReceipt(
       }, receivedAt, seen === null),
       refreshGeneration: existing.refreshGeneration + 1,
     });
-    await scheduleEvaluation(ctx, existing._id, "fence");
+    await schedulePaymentEvaluation(ctx, connection.tenantId, existing, "fence");
   } else {
     await insertProvisionalPayment(ctx, connection, externalPaymentId, { fencedAt, kind });
   }
@@ -520,7 +520,8 @@ export const storePaymentRead = internalMutation({
       }),
     });
     await refreshProviderPaymentReview(ctx, row._id);
-    await scheduleEvaluation(ctx, row._id, "provider_read");
+    const stored = row.paymentRecordId ? row : await ctx.db.get("providerPayments", row._id);
+    if (stored) await schedulePaymentEvaluation(ctx, connection.tenantId, stored, "provider_read");
     return adverseFencedAt === undefined ? "stored" : "fenced";
   },
 });
@@ -692,7 +693,8 @@ export async function releasePaymentFence(ctx: MutationCtx, payment: Doc<"provid
   }
   await providerPool.enqueueAction(ctx, internal.payments.intake.refreshReleasedPayment, { connectionId, externalPaymentId });
   await refreshProviderPaymentReview(ctx, payment._id);
-  await scheduleEvaluation(ctx, payment._id, "release");
+  const released = await ctx.db.get("providerPayments", payment._id);
+  if (released) await schedulePaymentEvaluation(ctx, payment.tenantId, released, "release");
 }
 
 export const refreshReleasedPayment = internalAction({

@@ -329,6 +329,7 @@ async function collect(ctx: QueryCtx, scope: AutomationInvariantScope): Promise<
         fail("A8", `sample ${sample._id} member ${member._id} has person ${member.leadId ?? "none"}, already in it or missing`);
       }
       if (member.leadId) people.add(member.leadId);
+      if (member.automaticEligible === false) fail("A8", `sample ${sample._id} includes ineligible decision ${member._id}`);
       if (!member.wouldWrite || member.kind !== sample.kind || member.ruleVersion !== sample.ruleVersion ||
           (member.mode !== "shadow" && member.mode !== "ask")) {
         fail("A8", `sample ${sample._id} member ${member._id} is ${member.kind} at ${member.ruleVersion}, ${member.mode}, wouldWrite ${member.wouldWrite}`);

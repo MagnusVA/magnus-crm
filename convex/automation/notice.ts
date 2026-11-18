@@ -21,6 +21,7 @@ import { insertManualReminder } from "../lib/reminderInsert";
 import { sha256Hex, stableJson } from "../lib/stableHash";
 import { loadDealOpenTasks } from "../opportunities/dealGuards";
 import { dealPosition, RESERVED_LOSS_REASONS } from "../opportunities/stages";
+import { isProvisionalPayment, possibleProvisionalPayment } from "../payments/provisionalLookup";
 import { automationCommandRefusalValidator, refuseAutomation, type AutomationCommandResult } from "../payments/commandResult";
 import { requireTenantUser } from "../requireTenantUser";
 import { isOtherProspectsCall } from "../secondOpinion/trigger";
@@ -29,6 +30,7 @@ import { assertAutomaticAllowed, whopIsFresh } from "./breaker";
 import { rederiveCall, scheduleCallEvaluation } from "./callDecisions";
 import { recordCallReceipt } from "./callReceipts";
 import { noteHumanResult } from "./humanResult";
+import { matchedProviderLead } from "./paymentHooks";
 import { callEvidenceOf } from "./proposals";
 import { stopCodeValidator, taskProposalValidator } from "./schema";
 import { effectiveKindMode } from "./settings";
@@ -342,8 +344,11 @@ export async function captureRefusalNoticeBefore(
       meeting.status !== "scheduled") return undefined;
   const position = dealPosition(deal.stage, deal.outcome);
   if (position !== "booked" && position !== "follow_up") return undefined;
+  const person = await ctx.db.get("leads", deal.leadId);
+  if (person?.tenantId !== deal.tenantId || person.status === "merged") return undefined;
   return {
     position, meetingId: meeting._id, meetingStatus: meeting.status,
+    identityReviewRevision: person.identityReviewRevision,
     latestActivityAt: deal.latestActivityAt ?? computeLatestActivityAt(deal),
   };
 }
@@ -466,30 +471,36 @@ async function whopConnections(ctx: MutationCtx, tenantId: Tenant["_id"]) {
   return rows.filter((row) => row !== null);
 }
 
-async function hasPayment(ctx: MutationCtx, deal: Deal, personDeals: Deal[], connections: Connection[]) {
+async function paymentHold(
+  ctx: MutationCtx, person: Doc<"leads">, personDeals: Deal[], connections: Connection[],
+): Promise<"payment_found" | "input_changed" | null> {
   for (const personDeal of personDeals) {
     for (const status of ["recorded", "verified"] as const) {
       const row = await ctx.db.query("paymentRecords")
         .withIndex("by_opportunityId_and_status_and_recordedAt", (q) =>
           q.eq("opportunityId", personDeal._id).eq("status", status))
         .first();
-      if (row?.tenantId === deal.tenantId) return true;
+      if (row?.tenantId === person.tenantId) return "payment_found";
     }
   }
-  const { tenantId, leadId } = deal;
+  const { tenantId, _id: leadId } = person;
   const [resolved, candidates] = await Promise.all([
     ctx.db.query("providerPayments").withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", leadId)).take(PERSON_LIMIT + 1),
     ctx.db.query("providerPayments").withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
       q.eq("tenantId", tenantId).eq("candidateLeadId", leadId)).take(PERSON_LIMIT + 1),
   ]);
-  if (resolved.length > PERSON_LIMIT || candidates.length > PERSON_LIMIT) return true;
-  return [...resolved, ...candidates.filter((row) => row.leadId === undefined)].some((row) => {
+  if (resolved.length > PERSON_LIMIT || candidates.length > PERSON_LIMIT) return "input_changed";
+  const possible = [...resolved, ...candidates.filter((row) => row.leadId === undefined)].find((row) => {
     const connection = connections.find(({ _id }) => _id === row.connectionId);
     const paymentAt = row.paidAt ?? row.sourceCreatedAt;
     return paymentAt >= (connection?.autoImportAfter ?? -Infinity) &&
-      (row.status === "paid" || row.status === "unresolved" || row.status === "pending" || row.status === "authorized");
-  });
+      ((row.status === "paid" && row.totalMinor !== 0 && row.reviewState !== "historical" &&
+        row.reviewState !== "dismissed") || isProvisionalPayment(row));
+  }) ?? await possibleProvisionalPayment(ctx, person);
+  if (!possible) return null;
+  if (possible !== "unknown" && await matchedProviderLead(ctx, possible) === leadId) return "payment_found";
+  return "input_changed";
 }
 
 async function applyLoss(
@@ -542,6 +553,11 @@ export const finalizeRefusal = internalMutation({
         noticeHours === undefined || !Number.isFinite(noticeHours) || noticeHours < 24 || dueAt === undefined || dueAt !== acknowledgedAt + noticeHours * HOUR_MS || now < dueAt) {
       return { status: "noop" };
     }
+    const person = decision.leadId && await ctx.db.get("leads", decision.leadId);
+    if (person?.tenantId === decision.tenantId &&
+        (person.identityReviewRevision ?? 0) !== (decision.callBefore?.identityReviewRevision ?? 0)) {
+      return withdraw(ctx, decision, "human_result", now);
+    }
     if (now - dueAt > LATE_WAKEUP_MS) return restart(ctx, decision, "late_wakeup", now);
 
     // 3–5. Tenant switch, serving rule and certificate, and both policy fences.
@@ -564,9 +580,9 @@ export const finalizeRefusal = internalMutation({
         evidence?.recordingId !== recordingId || evidence.runId !== runId) {
       return withdraw(ctx, decision, "recording_moved", now);
     }
-    const [recording, run, header, meeting, deal, person] = await Promise.all([
+    const [recording, run, header, meeting, deal] = await Promise.all([
       ctx.db.get("callRecordings", recordingId), ctx.db.get("callInsightRuns", runId), headerFor(ctx, recordingId),
-      ctx.db.get("meetings", meetingId), ctx.db.get("opportunities", opportunityId), ctx.db.get("leads", leadId),
+      ctx.db.get("meetings", meetingId), ctx.db.get("opportunities", opportunityId),
     ]);
     if (recording?.tenantId !== tenant._id || recording.matchStatus !== "matched" || recording.meetingId !== meetingId ||
         !header?.active || header.tenantId !== tenant._id || header.meetingId !== meetingId ||
@@ -603,7 +619,8 @@ export const finalizeRefusal = internalMutation({
       return withdraw(ctx, decision, "newer_meeting", now);
     }
     const connections = await whopConnections(ctx, tenant._id);
-    if (await hasPayment(ctx, deal, personDeals, connections)) return withdraw(ctx, decision, "payment_found", now);
+    const paymentStop = await paymentHold(ctx, person, personDeals, connections);
+    if (paymentStop) return withdraw(ctx, decision, paymentStop, now);
     const stale = connections.filter((connection) => connection.status !== "disconnected" &&
       (!whopIsFresh(connection, now) || (connection.lastSuccessfulSweepAt ?? -Infinity) < now - WHOP_FRESH_FOR_REFUSAL_MS));
     if (stale.length > 0) {
