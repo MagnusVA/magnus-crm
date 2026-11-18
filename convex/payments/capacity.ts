@@ -55,16 +55,17 @@ export async function otherDealCashHold(
     .take(DEALS_PER_PERSON_HOLD);
   if (deals.length >= DEALS_PER_PERSON_HOLD) return "read_limit";
 
+  // The cutoff is part of the index range, so old history costs no reads.
+  const since = payment.paidAt === undefined ? -Infinity : payment.paidAt - LOGGED_BEFORE_COLLECTED_MS;
   let remaining = OTHER_DEAL_PAYMENT_READ_LIMIT;
   for (const other of deals) {
     if (other._id === deal._id) continue;
     const limit = Math.min(remaining, PAYMENT_ROWS_PER_DEAL_HOLD);
     const rows = await ctx.db.query("paymentRecords")
-      .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", other._id))
+      .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", other._id).gte("recordedAt", since))
       .take(limit + 1);
     if (rows.length > limit || rows.some((row) => row.tenantId !== payment.tenantId)) return "read_limit";
     if (rows.some((row) => paymentCounts(row) && !row.providerPaymentId &&
-        (payment.paidAt === undefined || row.recordedAt >= payment.paidAt - LOGGED_BEFORE_COLLECTED_MS) &&
         !row.distinctFromProviderPaymentIds?.includes(payment._id))) return "unlinked_manual_payment";
     remaining -= rows.length;
   }
