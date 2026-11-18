@@ -728,7 +728,7 @@ function ManualPaymentChoice({
               <span className={FIGURE}>{formatAmountMinor(mismatch.amountMinor, mismatch.currency)}</span>.
             </p>
             <p className="text-[13px] text-muted-foreground">
-              Linking keeps the CRM payment's amount, date and credit, so no cash figure changes. It records that this Whop payment is the proof for that payment.
+              Linking keeps the amount, date and credit of the CRM payment, so no cash figure changes. It records that this Whop payment is the proof for that payment.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" disabled={pending} onClick={() => void submit(true)} className="font-semibold">
