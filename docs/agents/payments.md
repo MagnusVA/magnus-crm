@@ -13,7 +13,7 @@ These tables live in `convex/payments/schema.ts`.
   Each environment stays tied to the account first saved there. Within an environment, a tenant keeps its claim on the account until it disconnects.
   Only internal functions read the key and secrets. `connection.getConnection` returns a masked view.
 - `providerPayments`: one row per Whop payment, as last read. Keyed on tenant, connection and Whop's payment id.
-- `paymentProviderBindings`: a Whop product mapped to a program, a Whop variant (price) mapped to a payment type, and later a membership or checkout mapped to a deal. A change inserts a new version and disables the old row.
+- `paymentProviderBindings`: a Whop product mapped to a program, a Whop variant (price) mapped to a payment type, a membership a person confirmed mapped to a deal, and later a checkout mapped to a deal. A change inserts a new version and disables the old row.
 - `paymentWebhookReceipts` holds a permanent receipt per delivery. The same write saves the capped raw body on the receipt. Retention clears the body after 7 days. Separate pending receipts track separate refund and dispute resources.
 
 `paymentRecords` gains two optional fields: `providerPaymentId` and `providerPaidAt`.
@@ -72,6 +72,11 @@ All requests share a per-connection clock (`connectionState.reserveRequest`) and
 - **A row created from Whop** has `origin` and `recordedVia` of `provider`, whoever confirmed it. A row a person typed and later linked keeps its own origin, so Team Performance still counts it as theirs.
 - **`payments/apply.ts` `applyProviderPayment`** is the writer for Billing's confirm, the "they didn't attend" button and automatic writes. It repeats the manual writer's side effects in the same order and never touches attendance, proof or Second opinion.
 - **Times.** `recordedAt` and the deal's `paymentReceivedAt` are the commit time, as for any late entry. Nothing is backdated.
+- **A closer confirms only a live match.** A closer's confirmation, proof waiver or same-money link needs the matcher's current answer to name that exact deal, re-derived in the write. When it abstains (several open deals, a conflict, an excluded deal), the closer records a manual payment with proof and the Whop payment stays with Billing. Program, payment type and credit of a provider row come from the server's proposal.
+- **A wrong-match veto holds.** A deal in `excludedOpportunityIds` takes that payment back only through restore. `setActiveAllocation` refuses every other caller.
+- **Sandbox is never cash.** `allocation.ts` `sandboxAllocationBlocked` refuses to record, link or waive proof for a Sandbox fact, except on the development deployment or one that sets `WHOP_SANDBOX_RECORDING=allow` (the throwaway race-test deployment). Sandbox facts stay visible in Billing.
+- **Memberships.** `bindings.ts` lets Billing confirm that a membership belongs to the deal its first payment counts for. Later charges on it then match as additional payments. Clearing that allocation disables the confirmation.
+- **Whop-backed amounts aren't edited.** `billing/mutations.ts` `correctPayment` refuses an amount change on a row with `origin: "provider"`. Take it out and record the right one.
 
 ## Taking a payment out and putting it back
 
@@ -94,13 +99,13 @@ A won deal is never left with no counting payment, and every move off won clears
 | `not_actionable` | Not paid, or paid zero |
 | `needs_person` | Paid, and no CRM payment counts for it yet. `reviewReason` says why |
 | `linked` | A person tied it to a payment recorded by hand |
-| `recorded` | The CRM payment that counts was created from it (a later phase) |
+| `recorded` | The CRM payment that counts was created from it |
 | `dismissed` | A person said it isn't money for a deal here. `dismissReason` says why |
 | `historical` | Collected before the connection's `autoImportAfter` |
 
-`match.ts` decides the reason in this order: an active allocation; a deal binding; else the payer's email must name exactly one surviving person, who must have exactly one open deal, counting every open deal, at Booked or Follow-up. Then the evidence checks: the deal existed when the money was collected, the payment is under 7 days old, it is one mapped line item, it isn't financed or a renewal, the deal has no unlinked manual payment, and there is no refund or dispute. A read that hits its cap counts as ambiguous, never as "none".
+`match.ts` decides the reason in this order: an active allocation; a deal binding; else the payer's email must name exactly one surviving person, who must have exactly one open deal, counting every open deal, at Booked or Follow-up. Then the evidence checks: the deal existed when the money was collected, the payment is under 7 days old, it is one mapped line item, it isn't financed or a renewal, the deal has no unlinked manual payment, no other deal of the person has unlinked cash logged since the day before Whop collected the money (`capacity.ts` `otherDealCashHold`), and there is no refund or dispute. A read that hits its cap counts as ambiguous, never as "none".
 
-`reviewReason: "ready"` means the rule found one person with one open deal. It still needs a person in this phase.
+`reviewReason: "ready"` means the rule found one person with one open deal. Whether a person confirms it or it is recorded automatically depends on the kind's level (`docs/agents/automatic-results.md`).
 
 Billing shows the connected environment and badges sandbox facts. Waiting uses a live match for each of its 25 rows and flags rows whose classification was deferred when the read budget ran low. Linked, Dismissed and History are available as filters. Historical payments never appear as suggestions. Refunds and disputes on linked or recorded payments have a separate review list. Linking an adverse or fenced fact opens an item. Changes to the adverse state, an increased refund or a newly observed refund or dispute id advance the review revision. Seen checks that revision and the linked CRM record before clearing the item and recording an IDs-only Activity event.
 

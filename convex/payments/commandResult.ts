@@ -28,14 +28,15 @@ export type PaymentCommandCode =
   | "not_owner"
   | "attendance_not_owed"
   | "meeting_not_started"
-  | "enrollment_status_changed";
+  | "enrollment_status_changed"
+  | "sandbox_payment"; // a Sandbox fact, outside the development deployment
 
 export const PAYMENT_COMMAND_CODES = [
   "stale_preview", "kind_off", "needs_review", "disposition_required", "disposition_not_allowed",
   "reallocated", "closed_by_other_exclusion", "adverse", "capacity_hold", "amount_mismatch",
   "no_closer", "credit_conflict", "task_closer_conflict", "unlinked_manual_payment", "side_deal",
   "qualified_only", "lost_by_person", "not_paid", "binding_invalid", "program_required", "not_owner",
-  "attendance_not_owed", "meeting_not_started", "enrollment_status_changed",
+  "attendance_not_owed", "meeting_not_started", "enrollment_status_changed", "sandbox_payment",
 ] as const satisfies readonly PaymentCommandCode[];
 
 export type PaymentCommandRefusal = { ok: false; code: PaymentCommandCode };
@@ -69,6 +70,7 @@ export const paymentCommandCodeValidator = v.union(
   v.literal("attendance_not_owed"),
   v.literal("meeting_not_started"),
   v.literal("enrollment_status_changed"),
+  v.literal("sandbox_payment"),
 );
 
 export const paymentCommandRefusalValidator = v.object({

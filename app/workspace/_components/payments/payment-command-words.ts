@@ -30,6 +30,7 @@ export const PAYMENT_COMMAND_WORDS: Record<PaymentCommandCode, string> = {
   attendance_not_owed: "This call's attendance is already recorded or no longer needed.",
   meeting_not_started: "The call hasn't started yet. Record its attendance once it has.",
   enrollment_status_changed: "The person's program changed since the page loaded. Check it and try again.",
+  sandbox_payment: "Sandbox payments can only be recorded on the development deployment.",
 };
 
 const OTHER_PAYMENT_ERRORS: Record<string, string> = {

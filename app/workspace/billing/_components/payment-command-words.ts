@@ -29,6 +29,7 @@ export const PAYMENT_COMMAND_SENTENCES: Record<PaymentCommandCode, string> = {
   attendance_not_owed: "No attendance is owed on this call.",
   meeting_not_started: "The call has not started yet.",
   enrollment_status_changed: "The enrollment this payment held has changed since it was taken out.",
+  sandbox_payment: "Sandbox payments can only be recorded on the development deployment.",
 };
 
 /** Restore's reasons, in the words the restore panel uses. */

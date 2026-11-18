@@ -169,7 +169,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
       q.eq("tenantId", tenantId).eq("leadId", deal.leadId)).take(DEALS_PER_PERSON_HOLD),
   ]);
   if (connection?.tenantId !== tenantId || connection.status !== "connected") return refuse("binding_invalid");
-  if (sandboxAllocationBlocked(connection)) return refuse("needs_review");
+  if (sandboxAllocationBlocked(connection)) return refuse("sandbox_payment");
   if (lead?.tenantId !== tenantId || lead.status === "merged") return refuse("stale_preview");
   if (closer?.tenantId !== tenantId) return refuse("no_closer");
   if (payments.length >= PAYMENT_ROWS_PER_DEAL_HOLD || personDeals.length >= DEALS_PER_PERSON_HOLD) {
@@ -423,9 +423,7 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   if (automatic && !isAutomaticPaymentPosition(position)) return refuse("needs_review");
   if (position === "system_loss" && decision) return refuse("needs_review");
   if (position === "won" && decision && !membership) return refuse("binding_invalid");
-  if ((!proposal.programId || !proposal.paymentType) && (!args.programId || !args.paymentType)) {
-    return refuse("program_required");
-  }
+  // A person supplies only what the mapping lacks.
   const programId = proposal.programId ?? args.programId;
   const paymentType = proposal.paymentType ?? args.paymentType;
   if (!programId || !paymentType) return refuse("program_required");

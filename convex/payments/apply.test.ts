@@ -58,8 +58,8 @@ describe("provider apply", () => {
     });
     expect(visible.page).toMatchObject([{ providerPaymentId: f.providerPaymentId, environment: "sandbox" }]);
     expect((await f.admin.query(confirm.previewWhopConfirm, target(f))).preview)
-      .toEqual({ ok: false, code: "needs_review" });
-    expect(await f.admin.mutation(confirm.confirmWhopPayment, approval)).toEqual({ ok: false, code: "needs_review" });
+      .toEqual({ ok: false, code: "sandbox_payment" });
+    expect(await f.admin.mutation(confirm.confirmWhopPayment, approval)).toEqual({ ok: false, code: "sandbox_payment" });
     const intent = { providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 };
     for (const provider of [
       { ...intent, kind: "confirm" as const },
@@ -353,6 +353,15 @@ describe("provider apply", () => {
     await invariant(f);
     await f.t.run((ctx) => setPaymentFixtureModes(ctx, f));
     expect(await f.admin.mutation(confirm.confirmWhopPayment, { ...await pin(f), ...choices })).toMatchObject({ ok: true });
+    await invariant(f);
+  });
+
+  it("asks only for the payment type when the product is mapped and the price is not", async () => {
+    const f = await paymentConfirmationFixture({ fact: { variantId: "unknown", payerEmail: "buyer@example.com" } });
+    await invariant(f);
+    expect(await f.admin.mutation(confirm.confirmWhopPayment, await pin(f))).toEqual({ ok: false, code: "program_required" });
+    expect(await f.admin.mutation(confirm.confirmWhopPayment, { ...await pin(f), paymentType: "pif" }))
+      .toMatchObject({ ok: true });
     await invariant(f);
   });
 
