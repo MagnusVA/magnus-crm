@@ -1,3 +1,4 @@
+import { RESERVED_LOSS_REASONS } from "../opportunities/stages";
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import { noteHumanResult } from "../automation/humanResult";
@@ -6,12 +7,16 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import { transitionOpportunity } from "../lib/opportunityActivity";
+import { computeLatestActivityAt, transitionOpportunity } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
-import { canMarkLost, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
+import { canMarkLost, describeDealState, loadDealOpenTasks, loadDealTasks } from "../opportunities/dealGuards";
 import { log } from "../lib/observability/log";
 import {
   assertCoreRole,
+  callAttendancePatch,
+  guardActorForOutcome,
+  liveOutcomeSuggestion,
+  type AutomationCoreOptions,
   provenanceMetadata,
   toCheckResult,
   WEB,
@@ -86,6 +91,7 @@ async function checkMeetingLoss(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: MeetingLossArgs,
+  automation?: AutomationCoreOptions,
 ) {
   assertCoreRole(actor, ["closer"]);
   const { userId, tenantId, role } = actor;
@@ -124,7 +130,7 @@ async function checkMeetingLoss(
   if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunityId))) {
     throw new Error(`Cannot mark as lost: the deal is "${describeDealState(opportunity)}"`);
   }
-  assertTypedLossReason(args.reason);
+  if (!automation?.refusal) assertTypedLossReason(args.reason);
   return { userId, opportunity, meeting, now };
 }
 
@@ -161,16 +167,36 @@ export async function checkMeetingLossAllowed(
  */
 export async function recordMeetingLoss(
   ctx: MutationCtx,
-  actor: CoreActor,
+  actor: CoreActor | null,
   args: MeetingLossArgs,
   provenance: Provenance,
+  automation?: AutomationCoreOptions,
 ): Promise<void> {
-  const { opportunityId, reason } = args;
-  const { userId, opportunity, meeting, now } = await checkMeetingLoss(ctx, actor, args);
+  const { opportunityId } = args;
+  const guardedActor = await guardActorForOutcome(ctx, actor, args, automation, "closer");
+  const { userId, opportunity, meeting, now } = await checkMeetingLoss(ctx, guardedActor, args, automation);
+  const reason = automation?.refusal ? RESERVED_LOSS_REASONS.call_refusal : args.reason;
 
-  const suggestion = args.fromSuggestion && meeting
+  if (automation && (await loadDealOpenTasks(ctx, opportunity._id)).hasOpenTask) {
+    throw new Error("The deal already has a pending task");
+  }
+  const markHeld = async () => {
+    if (!meeting) return;
+    await completeMeetingForOutcome(ctx, {
+      meetingId: meeting._id,
+      opportunityId: opportunity._id,
+      toMeetingStatus: "held",
+      recordedAt: now,
+      extraMeetingPatch: callAttendancePatch(automation),
+    });
+  };
+  if (automation?.system) await markHeld();
+
+  const suggestion = automation && meeting
+    ? actor && await liveOutcomeSuggestion(ctx, meeting, now).catch(() => null)
+    : args.fromSuggestion && meeting
     ? await resolveSuggestionRef(ctx, {
-        tenantId: actor.tenantId,
+        tenantId: guardedActor.tenantId,
         meetingId: meeting._id,
         ref: args.fromSuggestion,
       }).catch(() => null)
@@ -182,33 +208,36 @@ export async function recordMeetingLoss(
     fields: {
       updatedAt: now,
       lostAt: now,
-      lostByUserId: userId,
+      lostByUserId: automation?.system ? undefined : userId,
+      ...(automation?.system && {
+        latestActivityAt: opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity),
+      }),
       ...(normalizedReason ? { lostReason: normalizedReason } : {}),
     },
-    source: "closer",
-    actorUserId: userId,
+    source: automation?.system ? "system" : "closer",
+    actorUserId: automation?.system ? undefined : userId,
     reason: normalizedReason,
-    metadata: provenanceMetadata(provenance),
+    metadata: {
+      ...provenanceMetadata(provenance),
+      ...(automation && { decisionId: automation.decisionId }),
+    },
     occurredAt: now,
   });
   if (meeting) {
-    await completeMeetingForOutcome(ctx, {
-      meetingId: meeting._id,
-      opportunityId: opportunity._id,
-      toMeetingStatus: "held",
-      recordedAt: now,
-    });
+    if (!automation?.system) await markHeld();
     if (suggestion) {
       await markSuggestionUsed(ctx, {
         state: suggestion,
         userId,
-        changedFields: args.fromSuggestion?.changedFields,
+        changedFields: automation ? undefined : args.fromSuggestion?.changedFields,
       }).catch(() => undefined);
     }
     // A recorded result plus a matched recording starts Jev's check (§6.9).
-    await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+    if (!automation?.system) {
+      await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+    }
   }
-  await noteHumanResult(ctx, opportunityId, actor);
+  if (actor && !automation) await noteHumanResult(ctx, opportunityId, actor);
 }
 
 export const saveFathomLink = mutation({

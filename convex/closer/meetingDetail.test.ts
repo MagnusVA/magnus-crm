@@ -6,6 +6,8 @@
 import { describe, expect, it } from "vitest";
 import { api } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
+import { seedProviderWin } from "../../tests/paymentInvariants";
+import { FIXTURE_NOW, insertProviderMeeting, paymentConfirmationFixture } from "../../tests/providerPaymentFixtures";
 import {
   seedCreditedDeal,
   seedScenario,
@@ -90,4 +92,26 @@ describe("meeting detail credit", () => {
     expect(detail.dmCloser?._id).toBe(seeded.dana.dmCloserId);
     expect(detail.dealAttribution.credits).toHaveLength(8);
   });
+});
+
+it("shows the active Whop payment's not-my-sale flag and reflects its clearance", async () => {
+  const f = await paymentConfirmationFixture();
+  const { meetingId, paymentRecordId } = await f.t.run(async (ctx) => {
+    const meetingId = await insertProviderMeeting(ctx, {
+      ...f, opportunityId: f.dealId, scheduledAt: FIXTURE_NOW - 60_000,
+    });
+    const paymentRecordId = await seedProviderWin(ctx, {
+      ...f, opportunityId: f.dealId, approverId: f.adminId, recordedAt: FIXTURE_NOW,
+    });
+    return { meetingId, paymentRecordId };
+  });
+  const detail = () => f.closer.query(api.closer.meetingDetail.getMeetingDetail, { meetingId });
+  expect((await detail()).payments).toMatchObject([{ _id: paymentRecordId, notMySaleAt: null }]);
+  await expect(f.closer.mutation(api.payments.notMySale.flagNotMySale, { paymentRecordId })).resolves.toMatchObject({ ok: true });
+  const flag = await f.t.run((ctx) => ctx.db.get("providerPayments", f.providerPaymentId));
+  expect(flag?.notMySaleAt).toBeTypeOf("number");
+  expect((await detail()).payments).toMatchObject([{ _id: paymentRecordId, notMySaleAt: flag?.notMySaleAt }]);
+  await expect(f.admin.mutation(api.payments.notMySale.clearNotMySale, { providerPaymentId: f.providerPaymentId }))
+    .resolves.toMatchObject({ ok: true });
+  expect((await detail()).payments).toMatchObject([{ _id: paymentRecordId, notMySaleAt: null }]);
 });

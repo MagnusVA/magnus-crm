@@ -56,7 +56,7 @@ const ALLOWED_STRINGS = [
 ];
 
 type Violation = { id: InvariantId; detail: string };
-type Attendance = { status: Doc<"meetings">["status"]; heldMarkedAt?: number; noShowMarkedAt?: number };
+type Attendance = Pick<Doc<"meetings">, "status" | "heldMarkedAt" | "noShowMarkedAt" | "attendanceDecisionId">;
 
 // I6 compares each held or no-show meeting with how the previous call saw it.
 const attendanceSeen = new WeakMap<object, Map<string, Attendance>>();
@@ -89,7 +89,7 @@ async function collect(
   ctx: QueryCtx,
   scope: InvariantScope,
   seen: Map<string, Attendance>,
-): Promise<{ violations: Violation[]; attendance: Array<[string, string, number | null, number | null]> }> {
+): Promise<{ violations: Violation[]; attendance: Array<[Id<"meetings">, Attendance]> }> {
   const { tenantId } = scope;
   const violations: Violation[] = [];
   const fail = (id: InvariantId, detail: string) => violations.push({ id, detail });
@@ -167,7 +167,7 @@ async function collect(
   }
 
   // Plain values: t.run returns Convex values only.
-  const attendance: Array<[string, string, number | null, number | null]> = [];
+  const attendance: Array<[Id<"meetings">, Attendance]> = [];
   const leadIds = new Set<Id<"leads">>();
   for (const deal of deals) {
     leadIds.add(deal.leadId);
@@ -205,15 +205,28 @@ async function collect(
       .withIndex("by_opportunityId", (q) => q.eq("opportunityId", deal._id))
       .take(MEETINGS_PER_DEAL_LIMIT + 1), MEETINGS_PER_DEAL_LIMIT, "meetings on one deal");
 
-    // I6: attendance is never undone by a correction.
+    // I6: payment corrections leave attendance alone. Only a call receipt
+    // that actually wrote a held mark may withdraw its own attendance.
     for (const meeting of meetings) {
       const before = seen.get(meeting._id);
       if (before && (before.status !== meeting.status || before.heldMarkedAt !== meeting.heldMarkedAt ||
           before.noShowMarkedAt !== meeting.noShowMarkedAt)) {
-        fail("I6", `meeting ${meeting._id} was ${before.status} and is now ${meeting.status}, or its marked time moved`);
+        const receipt = before.status === "held" && meeting.status === "scheduled" && before.attendanceDecisionId &&
+          !meeting.attendanceDecisionId && !meeting.attendanceSource && meeting.heldMarkedAt === undefined
+          ? await ctx.db.get("resultAutomationDecisions", before.attendanceDecisionId)
+          : null;
+        if (receipt?.state === "undone" && receipt.tenantId === tenantId &&
+            receipt.meetingId === meeting._id && receipt.opportunityId === deal._id &&
+            receipt.callBefore?.meetingId === meeting._id &&
+            (receipt.kind === "call_back" || receipt.kind === "payment_owed")) {
+          attendance.push([meeting._id, { status: "scheduled" }]);
+        } else {
+          fail("I6", `meeting ${meeting._id} was ${before.status} and is now ${meeting.status}, or its marked time moved`);
+        }
       }
       if (meeting.status === "held" || meeting.status === "no_show") {
-        attendance.push([meeting._id, meeting.status, meeting.heldMarkedAt ?? null, meeting.noShowMarkedAt ?? null]);
+        const { status, heldMarkedAt, noShowMarkedAt, attendanceDecisionId } = meeting;
+        attendance.push([meeting._id, { status, heldMarkedAt, noShowMarkedAt, attendanceDecisionId }]);
       }
     }
 
@@ -330,13 +343,17 @@ async function collect(
         fail("I14", `${decision.state} decision ${decision._id} has revision ${decision.humanResultRevision}, deal ${deal._id} has ${deal.humanResultRevision ?? 0}`);
       }
     }
-    if (decision.state === "applied") {
+    const paymentDecision = decision.kind === "payment_win" || decision.kind === "additional_payment";
+    if (paymentDecision && decision.state === "applied") {
       const row = decision.appliedPaymentRecordId && await ctx.db.get("paymentRecords", decision.appliedPaymentRecordId);
       if (!row || !decision.providerPaymentId || row.providerPaymentId !== decision.providerPaymentId) {
         fail("I14", `applied decision ${decision._id} names row ${decision.appliedPaymentRecordId ?? "none"}, which doesn't cite ${decision.providerPaymentId ?? "a payment"}`);
       }
     }
-    for (const [path, text] of freeText(decision)) fail("I16", `decision ${decision._id}${path} holds "${text}"`);
+    // Call receipts use prompt and model versions checked by automation invariant A12.
+    if (paymentDecision) {
+      for (const [path, text] of freeText(decision)) fail("I16", `decision ${decision._id}${path} holds "${text}"`);
+    }
   }
   for (const [paymentId, count] of readyByPayment) {
     if (count > 1) fail("I14", `provider payment ${paymentId} has ${count} ready decisions`);
@@ -382,12 +399,9 @@ export async function assertPaymentInvariants(
   const seen = attendanceSeen.get(t) ?? new Map<string, Attendance>();
   const { violations, attendance } = await t.run(async (ctx) => await collect(ctx, scope, seen));
   // The next call compares against what this one saw, skipped or not.
-  for (const [meetingId, status, heldMarkedAt, noShowMarkedAt] of attendance) {
-    seen.set(meetingId, {
-      status: status as Attendance["status"],
-      heldMarkedAt: heldMarkedAt ?? undefined,
-      noShowMarkedAt: noShowMarkedAt ?? undefined,
-    });
+  for (const [meetingId, mark] of attendance) {
+    if (mark.status === "scheduled") seen.delete(meetingId);
+    else seen.set(meetingId, mark);
   }
   attendanceSeen.set(t, seen);
   const skip = new Set<InvariantId>(options.skip ?? []);

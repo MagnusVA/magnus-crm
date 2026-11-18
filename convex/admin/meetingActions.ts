@@ -1,3 +1,5 @@
+import { RESERVED_LOSS_REASONS } from "../opportunities/stages";
+import { insertManualReminder } from "../lib/reminderInsert";
 import { noteHumanResult } from "../automation/humanResult";
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v, type Infer } from "convex/values";
@@ -11,10 +13,15 @@ import {
   canMarkLost,
   canSendRescheduleLink,
   describeDealState,
+  loadDealOpenTasks,
   loadDealTasks,
 } from "../opportunities/dealGuards";
 import {
   assertCoreRole,
+  callAttendancePatch,
+  guardActorForOutcome,
+  liveOutcomeSuggestion,
+  type AutomationCoreOptions,
   provenanceMetadata,
   toCheckResult,
   WEB,
@@ -27,7 +34,7 @@ import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
 import { landFollowUp, resolveFollowUpStart } from "../lib/followUpStart";
-import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
+import { computeLatestActivityAt, missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
 import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
 import {
   markSuggestionUsed,
@@ -89,6 +96,7 @@ async function checkAdminMarkLost(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: AdminMarkLostArgs,
+  automation?: AutomationCoreOptions,
 ) {
   assertCoreRole(actor, ADMIN_ROLES);
   const { tenantId, userId, role } = actor;
@@ -110,7 +118,7 @@ async function checkAdminMarkLost(
       `Cannot mark as lost: the deal is "${describeDealState(opportunity)}"`,
     );
   }
-  assertTypedLossReason(args.reason);
+  if (!automation?.refusal) assertTypedLossReason(args.reason);
   return { opportunity, meeting, now };
 }
 
@@ -144,17 +152,36 @@ export async function checkAdminMarkLostAllowed(
  */
 export async function adminMarkLostCore(
   ctx: MutationCtx,
-  actor: CoreActor,
+  actor: CoreActor | null,
   args: AdminMarkLostArgs,
   provenance: Provenance,
+  automation?: AutomationCoreOptions,
 ): Promise<void> {
-  const { userId } = actor;
-  const { opportunity, meeting, now } = await checkAdminMarkLost(ctx, actor, args);
-  const reason = args.reason?.trim() || undefined;
+  const guardedActor = await guardActorForOutcome(ctx, actor, args, automation, "tenant_admin");
+  const { userId } = guardedActor;
+  const { opportunity, meeting, now } = await checkAdminMarkLost(ctx, guardedActor, args, automation);
+  const reason = automation?.refusal ? RESERVED_LOSS_REASONS.call_refusal : args.reason?.trim() || undefined;
 
-  const suggestion = args.fromSuggestion && meeting
+  if (automation && (await loadDealOpenTasks(ctx, opportunity._id)).hasOpenTask) {
+    throw new Error("The deal already has a pending task");
+  }
+  const markHeld = async () => {
+    if (!meeting) return;
+    await completeMeetingForOutcome(ctx, {
+      meetingId: meeting._id,
+      opportunityId: opportunity._id,
+      toMeetingStatus: "held",
+      recordedAt: now,
+      extraMeetingPatch: callAttendancePatch(automation),
+    });
+  };
+  if (automation?.system) await markHeld();
+
+  const suggestion = automation && meeting
+    ? actor && await liveOutcomeSuggestion(ctx, meeting, now).catch(() => null)
+    : args.fromSuggestion && meeting
     ? await resolveSuggestionRef(ctx, {
-        tenantId: actor.tenantId,
+        tenantId: guardedActor.tenantId,
         meetingId: meeting._id,
         ref: args.fromSuggestion,
       }).catch(() => null)
@@ -166,30 +193,31 @@ export async function adminMarkLostCore(
     fields: {
       updatedAt: now,
       lostAt: now,
-      lostByUserId: userId,
+      lostByUserId: automation?.system ? undefined : userId,
+      ...(automation?.system && {
+        latestActivityAt: opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity),
+      }),
       lostReason: reason,
     },
-    source: "admin",
-    actorUserId: userId,
+    source: automation?.system ? "system" : "admin",
+    actorUserId: automation?.system ? undefined : userId,
     reason,
-    metadata: provenanceMetadata(provenance),
+    metadata: {
+      ...provenanceMetadata(provenance),
+      ...(automation && { decisionId: automation.decisionId }),
+    },
   });
   if (meeting) {
-    await completeMeetingForOutcome(ctx, {
-      meetingId: meeting._id,
-      opportunityId: opportunity._id,
-      toMeetingStatus: "held",
-      recordedAt: now,
-    });
+    if (!automation?.system) await markHeld();
   }
   if (suggestion) {
     await markSuggestionUsed(ctx, {
       state: suggestion,
       userId,
-      changedFields: args.fromSuggestion?.changedFields,
+      changedFields: automation ? undefined : args.fromSuggestion?.changedFields,
     }).catch(() => undefined);
   }
-  await noteHumanResult(ctx, args.opportunityId, actor);
+  if (actor && !automation) await noteHumanResult(ctx, args.opportunityId, actor);
 }
 
 export const adminMarkAsLost = mutation({
@@ -547,6 +575,7 @@ async function checkAdminManualReminder(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: AdminManualReminderArgs,
+  allowDueNow?: true,
 ) {
   assertCoreRole(actor, ADMIN_ROLES);
   const { tenantId, userId, role } = actor;
@@ -555,7 +584,7 @@ async function checkAdminManualReminder(
   const start = await resolveFollowUpStart(ctx, opportunity, meeting, "Cannot create reminder");
 
   const now = Date.now();
-  if (args.reminderScheduledAt <= now) {
+  if (args.reminderScheduledAt <= now && !allowDueNow) {
     throw new Error("Reminder must be scheduled in the future");
   }
   if (meeting) {
@@ -607,57 +636,87 @@ export async function checkAdminManualReminderAllowed(
  */
 export async function adminCreateManualReminderCore(
   ctx: MutationCtx,
-  actor: CoreActor,
+  actor: CoreActor | null,
   args: AdminManualReminderArgs,
   provenance: Provenance,
+  automation?: AutomationCoreOptions,
 ): Promise<{ followUpId: Id<"followUps"> }> {
-  const { tenantId, userId } = actor;
+  const guardedActor = await guardActorForOutcome(ctx, actor, args, automation, "tenant_admin");
+  const { tenantId, userId } = guardedActor;
   const { opportunity, meeting, start, now, closerId } = await checkAdminManualReminder(
     ctx,
-    actor,
+    guardedActor,
     args,
+    automation?.allowDueNow,
   );
 
-  const suggestion = args.fromSuggestion && meeting
+  if (automation && (await loadDealOpenTasks(ctx, opportunity._id)).hasOpenTask) {
+    throw new Error("The deal already has a pending task");
+  }
+  const suggestion = automation && meeting
+    ? actor && await liveOutcomeSuggestion(ctx, meeting, now).catch(() => null)
+    : args.fromSuggestion && meeting
     ? await resolveSuggestionRef(ctx, {
-        tenantId: actor.tenantId,
+        tenantId: guardedActor.tenantId,
         meetingId: meeting._id,
         ref: args.fromSuggestion,
       }).catch(() => null)
     : null;
 
-  const followUpId = await ctx.db.insert("followUps", {
-    tenantId,
-    opportunityId: args.opportunityId,
-    leadId: opportunity.leadId,
-    closerId,
-    type: "manual_reminder",
-    reason: "admin_initiated",
-    status: "pending",
-    contactMethod: args.contactMethod,
-    reminderScheduledAt: args.reminderScheduledAt,
-    reminderNote: args.reminderNote,
-    ...(meeting ? { sourceMeetingId: meeting._id } : {}),
-    createdAt: now,
-    createdByUserId: userId,
-    createdSource: "admin",
-  });
+  const writer = automation?.system
+    ? { source: "system" as const, latestActivityAt: opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity) }
+    : { source: "admin" as const, actorUserId: userId };
+  const followUpId = automation
+    ? await insertManualReminder(ctx, {
+        ...writer,
+        opportunity,
+        closerId,
+        contactMethod: args.contactMethod,
+        reminderScheduledAt: args.reminderScheduledAt,
+        sourceMeetingId: meeting?._id,
+        reason: "call_insights",
+        task: automation.task ?? { purpose: "call_back" },
+        automationDecisionId: automation.decisionId,
+        metadata: provenanceMetadata(provenance),
+        now,
+      })
+    : await ctx.db.insert("followUps", {
+        tenantId,
+        opportunityId: args.opportunityId,
+        leadId: opportunity.leadId,
+        closerId,
+        type: "manual_reminder",
+        reason: "admin_initiated",
+        status: "pending",
+        contactMethod: args.contactMethod,
+        reminderScheduledAt: args.reminderScheduledAt,
+        reminderNote: args.reminderNote,
+        ...(meeting ? { sourceMeetingId: meeting._id } : {}),
+        createdAt: now,
+        createdByUserId: userId,
+        createdSource: "admin",
+      });
 
-  await landFollowUp(ctx, args.opportunityId, start, {
-    source: "admin",
-    actorUserId: userId,
+  const landTask = () => landFollowUp(ctx, args.opportunityId, start, {
+    ...writer,
     occurredAt: now,
+    decisionId: automation?.decisionId,
   });
+  if (!automation?.system) await landTask();
   if (meeting) {
     await completeMeetingForOutcome(ctx, {
       meetingId: meeting._id,
       opportunityId: opportunity._id,
       toMeetingStatus: "held",
       recordedAt: now,
+      extraMeetingPatch: callAttendancePatch(automation),
     });
   }
 
-  await emitDomainEvent(ctx, {
+  // Marking held updates the deal's meeting refs and can recompute its activity time.
+  if (automation?.system) await landTask();
+
+  if (!automation) await emitDomainEvent(ctx, {
     tenantId,
     entityType: "followUp",
     entityId: followUpId,
@@ -676,11 +735,11 @@ export async function adminCreateManualReminderCore(
     await markSuggestionUsed(ctx, {
       state: suggestion,
       userId,
-      changedFields: args.fromSuggestion?.changedFields,
+      changedFields: automation ? undefined : args.fromSuggestion?.changedFields,
     }).catch(() => undefined);
   }
 
-  await noteHumanResult(ctx, args.opportunityId, actor);
+  if (actor && !automation) await noteHumanResult(ctx, args.opportunityId, actor);
   return { followUpId };
 }
 

@@ -37,6 +37,7 @@ type ExclusionPreview = FunctionReturnType<typeof api.payments.exclude.previewEx
 type RestorePreview = FunctionReturnType<typeof api.payments.restore.previewRestore>;
 type UndoResult = NonNullable<ExclusionPreview["undo"]["result"]>;
 type DealChoice = "undo" | "lost" | "follow_up";
+type PaymentCorrection = FunctionReturnType<typeof api.billing.queries.getPaymentCorrections>["corrections"][number];
 
 const CAUSES: ReadonlyArray<{ value: ExclusionCause; label: string }> = [
   { value: "wrong_match", label: "Wrong person or deal" },
@@ -70,48 +71,61 @@ export type CorrectablePayment = {
   dealOutcome: DealOutcome | null;
 };
 
-type PaymentEvent = { eventType: string; metadata: string | null };
-
-/**
- * The correction that took this payment out, from its newest void or
- * restore event: the void's `correctionId` when the void is the newer one.
- */
-export function latestExclusionCorrectionId(events: ReadonlyArray<PaymentEvent>): Id<"paymentCorrections"> | null {
-  // Events arrive newest first.
-  const latest = events.find((event) => event.eventType === "payment.voided" || event.eventType === "payment.restored");
-  if (!latest || latest.eventType !== "payment.voided" || !latest.metadata) return null;
-  try {
-    const parsed: unknown = JSON.parse(latest.metadata);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const correctionId = (parsed as { correctionId?: unknown }).correctionId;
-    return typeof correctionId === "string" ? (correctionId as Id<"paymentCorrections">) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The payment detail's correction panel: "Take this payment out" while it
- * counts on a won deal, "Put this payment back" once a correction took it
- * out. Owners and admins with `billing:correct` only.
- */
 export function PaymentCorrectionPanel({
   payment,
-  events,
   now,
+  takeOut,
+  onCloseTakeOut,
 }: {
   payment: CorrectablePayment;
-  events: ReadonlyArray<PaymentEvent>;
   now: number;
+  takeOut: boolean;
+  onCloseTakeOut: () => void;
 }) {
   const { hasPermission } = useRole();
-  if (!hasPermission("billing:correct")) return null;
-  if (payment.status === "disputed") {
-    const correctionId = latestExclusionCorrectionId(events);
-    return correctionId ? <RestorePanel key={correctionId} correctionId={correctionId} payment={payment} now={now} /> : null;
-  }
-  if (payment.dealOutcome !== "won") return null;
-  return <TakeOutPanel key={payment.id} payment={payment} now={now} />;
+  const history = useQuery(api.billing.queries.getPaymentCorrections, { paymentRecordId: payment.id });
+  const canCorrect = hasPermission("billing:correct");
+  const correctionId = history?.restorable;
+  return (
+    <>
+      {canCorrect && payment.status === "disputed" && correctionId ? (
+        <RestorePanel key={correctionId} correctionId={correctionId} payment={payment} now={now} />
+      ) : null}
+      {canCorrect && payment.status !== "disputed" && (payment.dealOutcome === "won" || takeOut) ? (
+        <TakeOutPanel
+          key={`${payment.id}:${takeOut}`}
+          payment={payment}
+          now={now}
+          cause={takeOut ? "wrong_match" : undefined}
+          focusOnMount={takeOut}
+          onCancel={takeOut ? onCloseTakeOut : undefined}
+          onExcluded={takeOut ? onCloseTakeOut : undefined}
+        />
+      ) : null}
+      {history && history.corrections.length > 0 ? <CorrectionHistory corrections={history.corrections} now={now} /> : null}
+    </>
+  );
+}
+
+function CorrectionHistory({ corrections, now }: { corrections: PaymentCorrection[]; now: number }) {
+  return (
+    <DetailCard title="Payment corrections">
+      <ul className="flex flex-col gap-1.5 px-4 py-3 text-[13px] text-muted-foreground">
+        {corrections.map((correction) => {
+          const action = correction.operation === "restore" ? "Put back" : "Taken out";
+          const cause = correction.cause === "voided"
+            ? "voided"
+            : CAUSES.find((option) => option.value === correction.cause)?.label.toLowerCase();
+          return (
+            <li key={correction.correctionId}>
+              {action} by <span translate="no">{correction.actorName ?? "a Billing user"}</span> on{" "}
+              {formatPaidDate(correction.createdAt, now)}{cause ? `: ${cause}` : ""}.
+            </li>
+          );
+        })}
+      </ul>
+    </DetailCard>
+  );
 }
 
 /** Moves focus to the panel's heading when it opens, or on mount with `onMount`. */
@@ -198,6 +212,7 @@ export function TakeOutPanel({
   defaultOpen = false,
   focusOnMount = false,
   onCancel,
+  onExcluded,
 }: {
   payment: CorrectablePayment;
   now: number;
@@ -206,6 +221,7 @@ export function TakeOutPanel({
   /** Focus the heading when the panel mounts open, after a person asked for it. */
   focusOnMount?: boolean;
   onCancel?: () => void;
+  onExcluded?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen || fixedCause !== undefined);
   const [cause, setCause] = useState<ExclusionCause | "">(fixedCause ?? "");
@@ -228,9 +244,11 @@ export function TakeOutPanel({
       ) : (
         <>
           <div className="flex flex-col gap-3 px-4 py-3">
-            <p className="text-[14px]">
-              The <span className={FIGURE}>{amount}</span> payment recorded on {formatPaidDate(payment.recordedAt, now)} stops counting.
-            </p>
+            {payment.dealOutcome === "won" ? (
+              <p className="text-[14px]">
+                The <span className={FIGURE}>{amount}</span> payment recorded on {formatPaidDate(payment.recordedAt, now)} stops counting.
+              </p>
+            ) : null}
             {fixedCause ? (
               <p className="text-[13px] text-muted-foreground">
                 Reason: {CAUSES.find((option) => option.value === fixedCause)?.label}
@@ -261,6 +279,7 @@ export function TakeOutPanel({
                 payment={payment}
                 cause={cause}
                 now={now}
+                onExcluded={onExcluded}
                 onCancel={() => {
                   if (onCancel) onCancel();
                   else {
@@ -295,11 +314,13 @@ function ExclusionPreviewBody({
   payment,
   cause,
   now,
+  onExcluded,
   onCancel,
 }: {
   payment: CorrectablePayment;
   cause: ExclusionCause;
   now: number;
+  onExcluded?: () => void;
   onCancel: () => void;
 }) {
   const live = useQuery(api.payments.exclude.previewExclusion, { paymentRecordId: payment.id, cause });
@@ -327,7 +348,9 @@ function ExclusionPreviewBody({
     return (
       <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
         <p role="alert" className="mr-auto text-[14px]">
-          {preview.refusal === "stale_preview"
+          {preview.refusal === "deal_not_won"
+            ? "A payment can only be taken out of a won deal."
+            : preview.refusal === "stale_preview"
             ? "This payment no longer counts, so there is nothing to take out."
             : paymentCommandSentence(preview.refusal)}
         </p>
@@ -394,6 +417,7 @@ function ExclusionPreviewBody({
       });
       if (result.ok) {
         toast.success(result.alreadyApplied ? "This payment was already taken out." : "Payment taken out.");
+        onExcluded?.();
       } else if (result.code === "stale_preview") {
         setChanged(true);
       } else {

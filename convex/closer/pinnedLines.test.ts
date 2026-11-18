@@ -22,7 +22,9 @@ it("lists the closer's newest 20 lines and dismisses only their own line", async
   const otherClient = f.t.withIdentity({ subject: "user_other", org_id: "org_test" });
   const invariant = () => assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   await invariant();
-  expect((await f.closer.query(listMyPinnedLines, {})).map((line) => line._id)).toEqual(own.slice(1).reverse());
+  const lines = await f.closer.query(listMyPinnedLines, {});
+  expect(lines.map((line) => line._id)).toEqual(own.slice(1).reverse());
+  expect(lines[0]).toMatchObject({ leadId: f.personId, personName: "River Patel" });
   expect((await otherClient.query(listMyPinnedLines, {})).map((line) => line._id)).toEqual([other]);
   expect(await f.closer.mutation(dismissPinnedLine, { lineId: other })).toEqual({ ok: false, code: "not_owner" });
   await invariant();

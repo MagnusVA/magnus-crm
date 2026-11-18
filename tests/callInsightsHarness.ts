@@ -255,3 +255,74 @@ export async function callInsightsHarness(
   });
   return f;
 }
+
+/** A finished extraction ready for the real publishing mutation, with no model or gateway involved. */
+export async function seedCallDecisionReading(
+  f: Awaited<ReturnType<typeof callInsightsHarness>>,
+  options: {
+    kind?: "call_back" | "payment_owed" | "refusal_loss";
+    trigger?: Doc<"callInsightRuns">["trigger"];
+    generation?: number;
+    alert?: boolean;
+  } = {},
+) {
+  const kind = options.kind ?? "call_back";
+  const generation = options.generation ?? 1;
+  const now = Date.now();
+  const resultKind = kind === "call_back" ? "call_back" : kind === "payment_owed" ? "promised" : "lost";
+  const statementKind = kind === "call_back" ? "asks_call_back" : kind === "payment_owed" ? "promises_payment" : "declines";
+  const ending = { choice: resultKind === "promised" ? "paid" : resultKind, confidence: 0.98 };
+  const claimToken = "fixture-claim";
+  const runId = await f.t.run(async (ctx) => {
+    const meeting = (await ctx.db.get("meetings", f.meetingId))!;
+    const header = await ctx.db.query("callInsightFacts")
+      .withIndex("by_recordingId_and_kind", (q) => q.eq("recordingId", f.recordingId).eq("kind", "call"))
+      .first();
+    if (!header) {
+      await ctx.db.insert("callInsightFacts", {
+        kind: "call", tenantId: f.tenantId, meetingId: f.meetingId, recordingId: f.recordingId,
+        active: true, publicationRevision: 0, latestStatus: "checking", expectedItemCount: 0,
+        scheduledAt: meeting.scheduledAt, createdAt: now, updatedAt: now,
+      });
+    }
+    const quote = {
+      quote: "Private statement from Grace, kept only on the reading.",
+      speaker: "Prospect" as const, lineIndex: 2, atSeconds: 9,
+    };
+    const evidence: NonNullable<Doc<"callInsightRuns">["evidence"]> = {
+      recordingScope: "whole", scopeLines: [1, 5], closerStance: "continues",
+      prospectStance: kind === "refusal_loss" ? "refused" : "yes",
+      nextStep: kind === "refusal_loss" ? "none" : kind,
+      nextStepAt: now + 48 * 3_600_000,
+      nextStepMethod: "call", quotedAmountMinor: 25000, quotedCurrency: "USD",
+      statements: [{ ...quote, kind: statementKind, amountMinor: 25000, currency: "USD" }],
+      dropped: { quoteNotFound: 0, amountNotInQuote: 0, cardNumber: 0, overLimit: 0 },
+    };
+    if (options.alert) {
+      evidence.statements.push({
+        kind: "payment_seen", quote: "Kim confirms this private payment.",
+        speaker: "Closer", lineIndex: 4, atSeconds: 10,
+      });
+    }
+    return await ctx.db.insert("callInsightRuns", {
+      tenantId: f.tenantId, recordingId: f.recordingId, meetingId: f.meetingId,
+      purpose: "serve", generation, trigger: options.trigger ?? "recording_matched", kind: "full",
+      status: "checking", attempt: 1, claimToken, inputKey: `c1-test-${generation}`,
+      config: {
+        model: "anthropic/claude-sonnet-5.5", promptVersion: "p2", thresholdsVersion: "t1",
+        taxonomyVersion: "t1", callEvidence: true, itemCheck: true,
+      },
+      result: { kind: resultKind, codeChecksPassed: true, failedChecks: [], values: {}, quotes: [] },
+      evidence, receipts: [], createdAt: now,
+    });
+  });
+  return {
+    runId, claimToken, items: [],
+    earlyReading: { incomplete: false, ending: { withSummary: ending, withoutSummary: ending } },
+    callChecks: {
+      version: "cc1", wholeCall: 0.98, refused: kind === "refusal_loss" ? 0.98 : 0.01,
+      disqualified: 0.01, nextStep: 0.98, incomplete: false,
+    },
+    jevCost: { costUsd: 0 },
+  };
+}

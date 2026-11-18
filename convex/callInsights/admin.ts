@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { stopCallDecisionsForDisabledInsights } from "../automation/settings";
 import { requireTenantUser } from "../requireTenantUser";
 import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
@@ -120,6 +121,9 @@ export const updateSettings = mutation({
         "Choose a wait of 5, 7 or 10 minutes.",
       );
     await ctx.db.patch("tenants", tenant._id, { callInsights: next });
+    if (next.mode === "off" && tenant.callInsights.mode !== "off") {
+      await stopCallDecisionsForDisabledInsights(ctx, tenant, next.changedAt);
+    }
     log.info("call_insights.settings_changed", {
       tenantId: tenant._id,
       actorUserId: actor.userId,

@@ -10,7 +10,6 @@ import { patchOpportunityLifecycle, transitionOpportunity } from "../lib/opportu
 import { assertCoreRole, type CoreActor } from "../lib/outcomeCores";
 import { expectedError } from "../lib/observability/errors";
 import { addPinnedLine } from "../lib/pinnedLines";
-import { insertManualReminder } from "../lib/reminderInsert";
 import { isSideDeal } from "../lib/sideDeals";
 import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
 import { sha256Hex, stableJson } from "../lib/stableHash";
@@ -33,6 +32,7 @@ import {
 } from "./commandResult";
 import { paymentStateFingerprint } from "./fingerprint";
 import { exclusionCauseValidator } from "./schema";
+import { settleExcludedPaymentTasks } from "../lib/taskSettlement";
 
 // Taking a payment out (build contract §2.6, plan §2.10 and §12). One core
 // excludes a payment row for every cause: a wrong match, a full refund, a
@@ -74,7 +74,6 @@ type Ctx = QueryCtx | MutationCtx;
 type Payment = Doc<"paymentRecords">;
 type Task = Doc<"followUps">;
 type Decision = Doc<"resultAutomationDecisions">;
-type TaskChange = Doc<"paymentCorrections">["tasks"][number];
 
 const ADMIN_ROLES = ["tenant_master", "tenant_admin"] as const;
 const MEETING_LIMIT = 50;
@@ -103,7 +102,7 @@ export const exclusionPreviewValidator = v.object({
   dispositionRequired: v.boolean(),
   allowedDispositions: v.array(exclusionDispositionValidator),
   cashDeltaByCurrency: v.array(v.object({ currency: v.string(), amountMinor: v.number() })),
-  refusal: v.optional(paymentCommandCodeValidator),
+  refusal: v.optional(v.union(paymentCommandCodeValidator, v.literal("deal_not_won"))),
 });
 export type ExclusionPreview = Infer<typeof exclusionPreviewValidator>;
 
@@ -469,8 +468,19 @@ export async function previewExclusionCore(
   const now = Date.now();
   const state = await loadExclusionState(ctx, actor.tenantId, args.paymentRecordId);
   const fingerprint = await exclusionFingerprint(ctx, state, args.cause);
-  const survivors = survivorsOf(state);
   const counts = paymentCounts(state.row);
+  if (counts && !isWonDeal(state.deal)) {
+    return {
+      fingerprint,
+      survivors: [],
+      undo: { allowed: false },
+      dispositionRequired: false,
+      allowedDispositions: [],
+      cashDeltaByCurrency: [],
+      refusal: "deal_not_won",
+    };
+  }
+  const survivors = survivorsOf(state);
   if (counts) assertExcludable(state);
   const sideDeal = isSideDealExclusion(state, policy);
   const undo = counts && survivors.length === 0 && !sideDeal ? planUndo(state, now) : null;
@@ -639,47 +649,17 @@ export async function excludePaymentCore(
   }
 
   // Tasks (plan §12): decided from the payments that count afterwards.
-  const tasks: TaskChange[] = [];
-  const reopen = async (task: Task, fields: Partial<Task> = {}) => {
-    await ctx.db.patch("followUps", task._id, {
-      status: "pending",
-      completedAt: undefined,
-      completionOutcome: undefined,
-      completionPaymentId: undefined,
-      ...fields,
-    });
-    tasks.push({ followUpId: task._id, change: "reopened" });
-  };
-  if (result === "kept_won") {
-    // The task stays completed, now by the earliest payment that still counts.
-    for (const task of state.completedTasks) {
-      await ctx.db.patch("followUps", task._id, { completionPaymentId: plan.newFirst!._id });
-      tasks.push({ followUpId: task._id, change: "repointed" });
-    }
-  } else if (plan.undo) {
-    for (const task of plan.undo.restoreTasks) await reopen(task);
-  } else if (plan.followUp) {
-    const followUp = plan.followUp;
-    if (followUp.kind === "reopen") {
-      await reopen(followUp.task, {
-        reminderScheduledAt: now,
-        ...(args.followUpContactMethod ? { contactMethod: args.followUpContactMethod } : {}),
-      });
-    } else if (followUp.kind === "create") {
-      const followUpId = await insertManualReminder(ctx, {
-        source: "admin",
-        actorUserId: actor.userId,
-        opportunity: deal,
-        closerId: followUp.closerId,
-        contactMethod: followUp.contactMethod,
-        reminderScheduledAt: now,
-        reason: "admin_initiated",
-        now,
-        metadata: { correctionId },
-      });
-      tasks.push({ followUpId, change: "created" });
-    }
-  }
+  const tasks = await settleExcludedPaymentTasks(ctx, {
+    opportunity: deal,
+    completedTasks: state.completedTasks,
+    survivors: plan.survivors,
+    restoreTasks: plan.undo?.restoreTasks,
+    followUp: plan.followUp,
+    followUpContactMethod: args.followUpContactMethod,
+    correctionId,
+    actorUserId: actor.userId,
+    now,
+  });
 
   if (leavesWon) {
     await clearAttendanceOwed(ctx, deal._id);

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
 import { formatDistanceStrict } from "date-fns";
 import { SecondOpinionHint } from "@/components/second-opinion/needs-outcome-hint";
 import { UnmatchedRecordings } from "@/components/fathom/unmatched-recordings";
@@ -14,13 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { TranslatableText } from "@/components/translatable-text";
+import { PAYMENT_TYPE_LABELS } from "@/app/workspace/_components/payment-dialog-form";
 import {
   NoShowReasonPicker,
   useRecordAttendance,
 } from "@/app/workspace/closer/meetings/_components/attendance-question";
 import { StageChip } from "@/app/workspace/closer/meetings/_components/stage-tone";
 import { firstNameOf } from "@/app/workspace/closer/meetings/_components/meeting-detail-types";
-import { readyPreview } from "@/app/workspace/closer/meetings/_components/whop-payment-ask";
 import { SectionEmpty } from "./section-state";
 import { ScrollMoreHint } from "./scroll-more-hint";
 import { useExpandInPlace } from "./use-expand-in-place";
@@ -183,6 +182,8 @@ function dayTime(at: number, now: number, timeZone: string) {
 function AttendanceRow({ row, now, timeZone }: { row: AttendanceRowData; now: number; timeZone: string }) {
   const { record, pending } = useRecordAttendance(row.meetingId, firstNameOf(row.leadName));
   const [askingReason, setAskingReason] = useState(false);
+  const amount = row.amountMinor !== null && row.currency ? formatAmountMinor(row.amountMinor, row.currency) : null;
+  const paymentType = row.paymentType ? PAYMENT_TYPE_LABELS[row.paymentType].toLowerCase() : null;
   return (
     <li className={`flex flex-col gap-2 ${ROW}`}>
       <div className="min-w-0">
@@ -193,7 +194,9 @@ function AttendanceRow({ row, now, timeZone }: { row: AttendanceRowData; now: nu
           >
             {row.leadName}
           </Link>
-          <span className="min-w-0 truncate text-muted-foreground">· won from Whop</span>
+          <span className="min-w-0 truncate text-muted-foreground">
+            · won from Whop{amount ? `, ${amount}${paymentType ? ` ${paymentType}` : ""}` : ""}
+          </span>
           <StageChip position="won" />
         </p>
         <p className="text-[13px] text-muted-foreground">
@@ -244,16 +247,7 @@ function collectedAgo(at: number, now: number) {
 
 /** A Whop payment waiting for the closer: Review opens its meeting or task. */
 function AskRow({ row, now }: { row: AskRowData; now: number }) {
-  const ask = useQuery(
-    api.payments.confirm.getWhopAsk,
-    row.meetingId
-      ? { target: { kind: "meeting", meetingId: row.meetingId } }
-      : row.followUpId
-        ? { target: { kind: "reminder", followUpId: row.followUpId } }
-        : "skip",
-  );
-  const preview = readyPreview(ask);
-  const amount = preview ? formatAmountMinor(preview.proposal.amountMinor, preview.proposal.currency) : null;
+  const amount = row.amountMinor !== null && row.currency ? formatAmountMinor(row.amountMinor, row.currency) : null;
   return (
     <li className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 ${ROW}`}>
       <div className="min-w-0">
@@ -265,8 +259,8 @@ function AskRow({ row, now }: { row: AskRowData; now: number }) {
           <span className={OWED_CHIP}>Confirm</span>
         </p>
         <p className="text-[13px] text-muted-foreground">
-          Collected {collectedAgo(row.scheduledAt, now)}. After a business day an admin can confirm it from
-          Billing.
+          {row.paidAt !== null ? `Collected ${collectedAgo(row.paidAt, now)}. ` : ""}
+          After a business day an admin can confirm it from Billing.
         </p>
       </div>
       <Button asChild className="h-8 px-3 font-semibold">

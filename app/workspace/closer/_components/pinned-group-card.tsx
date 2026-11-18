@@ -96,7 +96,8 @@ export function PinnedGroupCard() {
 function PinnedLineRow({ line }: { line: PinnedLine }) {
   const dismiss = useMutation(api.closer.pinnedLines.dismissPinnedLine);
   const [pending, setPending] = useState(false);
-  const text = headline(line) ?? "";
+  const change = headline(line) ?? "";
+  const text = line.personName ? `${line.personName} · ${change}` : change;
   const after = positionAfter(line);
 
   const gotIt = async (lineId: Id<"closerPinnedLines">) => {

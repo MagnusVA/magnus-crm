@@ -61,6 +61,7 @@ const ALLOWED_STRINGS = [
   /^\d+[A-Za-z]+$/, // ids in convex-test (a counter, then the table)
   /^[0-9a-z]{31,37}$/, // ids on a deployment
   /^call-rule@\d+$/,
+  /^call-rule@\d+\|p\d+\|[a-z0-9_-]+\/[a-z0-9._-]+\|t\d+\|cc\d+$/,
   /^p\d+$/,
   /^[a-z0-9_-]+\/[a-z0-9._-]+$/, // model id, such as anthropic/claude-sonnet-5.5
   /^t\d+$/,
@@ -171,7 +172,7 @@ async function collect(ctx: QueryCtx, scope: AutomationInvariantScope): Promise<
   const countingRows = (dealId: string) => (rowsByDeal.get(dealId) ?? [])
     .filter((row) => row.tenantId === tenantId && paymentCounts(row));
 
-  // A1: a held mark from Call insights names its applied call decision.
+  // A1: a held mark names the call receipt that wrote it, including task-only corrections.
   for (const meeting of meetings) {
     const fromCall = meeting.attendanceSource === "call_insights";
     if (fromCall !== (meeting.attendanceDecisionId !== undefined)) {
@@ -179,7 +180,10 @@ async function collect(ctx: QueryCtx, scope: AutomationInvariantScope): Promise<
     }
     if (!meeting.attendanceDecisionId) continue;
     const decision = await ctx.db.get("resultAutomationDecisions", meeting.attendanceDecisionId);
-    if (!decision || decision.tenantId !== meeting.tenantId || decision.state !== "applied" ||
+    const retainsHeldMark = decision && (decision.state === "corrected" || decision.state === "undone") &&
+      (decision.kind === "call_back" || decision.kind === "payment_owed") &&
+      decision.writtenFollowUpId !== undefined && decision.callBefore?.meetingId === meeting._id;
+    if (!decision || decision.tenantId !== meeting.tenantId || (decision.state !== "applied" && !retainsHeldMark) ||
         !isCallKind(decision.kind) || decision.meetingId !== meeting._id) {
       fail("A1", `meeting ${meeting._id} names decision ${meeting.attendanceDecisionId}, which is not an applied call decision on it`);
     }

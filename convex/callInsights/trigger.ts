@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { stopCallDecisionsForRecording } from "../automation/callDecisions";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalMutation,
@@ -264,6 +265,7 @@ async function detachHeader(ctx: MutationCtx, header: CallHeader, now: number) {
   for (const row of suggestions)
     if (row.usedAt === undefined)
       await ctx.db.delete("resultSuggestionStates", row._id);
+  await stopCallDecisionsForRecording(ctx, header.recordingId, "recording_moved", header.tenantId);
 }
 
 /**

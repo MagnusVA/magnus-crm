@@ -39,6 +39,7 @@ type EnrichedPayment = Omit<
   attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
   providerByline: string | null;
+  notMySaleAt?: number | null;
   recordedBy: MemberAvatarIdentity | null;
 };
 
@@ -274,6 +275,12 @@ export async function buildMeetingDetail(
           const recordedByName = recordedByUserId
             ? (paymentUserNameById.get(recordedByUserId) ?? null)
             : null;
+          const providerPayment = payment.providerPaymentId
+            ? await ctx.db.get("providerPayments", payment.providerPaymentId)
+            : null;
+          const notMySaleAt = providerPayment?.tenantId === tenantId && providerPayment.paymentRecordId === payment._id
+            ? providerPayment.notMySaleAt ?? null
+            : null;
 
           if (payment.proofFileId) {
             const [url, fileMeta] = await Promise.all([
@@ -304,6 +311,7 @@ export async function buildMeetingDetail(
                 : null,
             recordedByName,
             providerByline: providerPaymentByline(payment, recordedByName),
+            notMySaleAt: payment.providerPaymentId || payment.origin === "provider" ? notMySaleAt : undefined,
             recordedBy: recordedByUserId
               ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
               : null,

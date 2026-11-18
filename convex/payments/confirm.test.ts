@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { businessDayRange } from "../../lib/businessDay";
 import { insertTask } from "../../tests/closerPipelineFixtures";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
-import { FIXTURE_NOW, insertProviderMeeting, paymentConfirmationApi, paymentConfirmationFixture, seedReadablePaymentRecording } from "../../tests/providerPaymentFixtures";
+import { FIXTURE_NOW, FIXTURE_PAID_AT, insertProviderMeeting, paymentConfirmationApi, paymentConfirmationFixture, seedReadablePaymentRecording } from "../../tests/providerPaymentFixtures";
 import { api } from "../_generated/api";
 import { evaluateSubject } from "../automation/decisions";
 
@@ -29,15 +29,17 @@ describe("confirmWhopPayment", () => {
   it("lets Billing take over an ask after the length of the tenant's business day, even if the caller omits the decision id", async () => {
     const f = await paymentConfirmationFixture();
     const setting = { timeZone: "America/Tegucigalpa", dayStartHour: 8 };
-    await f.t.run(async (ctx) => {
+    const meetingId = await f.t.run(async (ctx) => {
       await ctx.db.patch("tenants", f.tenantId, { businessDay: setting });
-      await insertProviderMeeting(ctx, { ...f, opportunityId: f.dealId, scheduledAt: FIXTURE_NOW - 60_000 });
+      return await insertProviderMeeting(ctx, { ...f, opportunityId: f.dealId, scheduledAt: FIXTURE_NOW - 60_000 });
     });
     await invariant(f);
     const decision = await evaluate(f);
     expect(decision.decisionId).toBeTruthy();
     await invariant(f);
     const result = await preview(f);
+    expect(result.attendanceOwedMeetingIds).toEqual([meetingId]);
+    expect(result.attendanceOwedMeetings).toEqual([{ meetingId, scheduledAt: FIXTURE_NOW - 60_000 }]);
     const { start, end } = businessDayRange("2026-11-17", setting);
     const deadline = FIXTURE_NOW + (end - start);
     expect(result.waiting).toMatchObject({ waitsOn: "closer", closerId: f.closerId, billingAvailableAt: deadline, ageMs: 0 });
@@ -70,7 +72,10 @@ describe("confirmWhopPayment", () => {
     const { decisionId } = await evaluate(f);
     await invariant(f);
     const ask = await f.closer.query(confirm.getWhopAsk, { target: { kind: "reminder", followUpId } });
-    expect(ask).toMatchObject({ decisionId, providerPaymentId: f.providerPaymentId });
+    expect(ask).toMatchObject({
+      decisionId, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW, paidAt: FIXTURE_PAID_AT,
+      productTitle: "Sales training", variantTitle: "Pay in full",
+    });
     if (!ask?.preview.ok) throw new Error("Expected a reminder preview");
     const args = {
       providerPaymentId: f.providerPaymentId, opportunityId: f.dealId, decisionId: ask.decisionId,

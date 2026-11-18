@@ -7,8 +7,8 @@ import { noteHumanResult } from "../automation/humanResult";
 import { insertManualReminder } from "../lib/reminderInsert";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { transitionOpportunity } from "../lib/opportunityActivity";
-import { canStartFollowUp, describeDealState } from "../opportunities/dealGuards";
+import { computeLatestActivityAt, transitionOpportunity } from "../lib/opportunityActivity";
+import { canStartFollowUp, describeDealState, loadDealOpenTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
@@ -19,6 +19,10 @@ import {
 } from "../lib/followUpStart";
 import {
   assertCoreRole,
+  callAttendancePatch,
+  guardActorForOutcome,
+  liveOutcomeSuggestion,
+  type AutomationCoreOptions,
   personalCalendarMissing,
   provenanceMetadata,
   toCheckResult,
@@ -432,14 +436,21 @@ export async function checkCallbackTaskAllowed(
  */
 export async function createCallbackTask(
   ctx: MutationCtx,
-  actor: CoreActor,
+  actor: CoreActor | null,
   args: CallbackTaskArgs,
   provenance: Provenance,
+  automation?: AutomationCoreOptions,
 ): Promise<{ followUpId: Id<"followUps"> }> {
+  const guardedActor = await guardActorForOutcome(ctx, actor, args, automation, "closer");
   const { userId, tenantId, opportunity, meeting, start, now } =
-    await checkCallbackTask(ctx, actor, args);
+    await checkCallbackTask(ctx, guardedActor, args);
 
-  const suggestion = args.fromSuggestion && meeting
+  if (automation && (await loadDealOpenTasks(ctx, opportunity._id)).hasOpenTask) {
+    throw new Error("The deal already has a pending task");
+  }
+  const suggestion = automation && meeting
+    ? actor && await liveOutcomeSuggestion(ctx, meeting, now).catch(() => null)
+    : args.fromSuggestion && meeting
     ? await resolveSuggestionRef(ctx, {
         tenantId,
         meetingId: meeting._id,
@@ -447,6 +458,9 @@ export async function createCallbackTask(
       }).catch(() => null)
     : null;
 
+  const writer = automation?.system
+    ? { source: "system" as const, latestActivityAt: opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity) }
+    : { source: "closer" as const, actorUserId: userId };
   const followUpId = await insertManualReminder(ctx, {
     opportunity,
     closerId: userId,
@@ -454,37 +468,45 @@ export async function createCallbackTask(
     reminderScheduledAt: args.reminderScheduledAt,
     reminderNote: args.reminderNote,
     sourceMeetingId: meeting?._id,
-    reason: "closer_initiated",
+    reason: automation ? "call_insights" : "closer_initiated",
+    task: automation ? automation.task ?? { purpose: "call_back" } : undefined,
+    automationDecisionId: automation?.decisionId,
     now,
-    source: "closer",
-    actorUserId: userId,
+    ...writer,
     metadata: provenanceMetadata(provenance),
   });
 
-  await landFollowUp(ctx, args.opportunityId, start, {
-    source: "closer",
-    actorUserId: userId,
+  const landTask = () => landFollowUp(ctx, args.opportunityId, start, {
+    ...writer,
     occurredAt: now,
+    decisionId: automation?.decisionId,
   });
+  if (!automation?.system) await landTask();
   if (meeting) {
     await completeMeetingForOutcome(ctx, {
       meetingId: meeting._id,
       opportunityId: opportunity._id,
       toMeetingStatus: "held",
       recordedAt: now,
+      extraMeetingPatch: callAttendancePatch(automation),
     });
     if (suggestion) {
       await markSuggestionUsed(ctx, {
         state: suggestion,
         userId,
-        changedFields: args.fromSuggestion?.changedFields,
+        changedFields: automation ? undefined : args.fromSuggestion?.changedFields,
       }).catch(() => undefined);
     }
     // A recorded result plus a matched recording starts Jev's check (§6.9).
-    await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+    if (!automation?.system) {
+      await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+    }
   }
 
-  await noteHumanResult(ctx, opportunity._id, actor);
+  // Marking held updates the deal's meeting refs and can recompute its activity time.
+  if (automation?.system) await landTask();
+
+  if (actor && !automation) await noteHumanResult(ctx, opportunity._id, actor);
   return { followUpId };
 }
 

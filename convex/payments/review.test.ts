@@ -594,6 +594,29 @@ it("classifies the page live after the CRM changes and uses the same clock as de
     .toMatchObject({ reason: "stale_payment" });
 });
 
+it("names the closer who flagged the payment and returns its active CRM allocation", async () => {
+  const f = await providerPaymentFixture();
+  const paymentRecordId = await manualRecord(f);
+  const listFlagged = () => f.admin.query(review.listProviderExceptions, {
+    state: "not_my_sale", paginationOpts: { numItems: 10, cursor: null },
+  });
+  await f.admin.mutation(review.linkToPaymentRecord, {
+    providerPaymentId: f.providerPaymentId, paymentRecordId, expectedAllocationRevision: 0,
+  });
+  await f.t.run((ctx) => ctx.db.patch("users", f.closerId, { fullName: "Casey Closer" }));
+  await expect(f.closer.mutation(api.payments.notMySale.flagNotMySale, { paymentRecordId })).resolves.toMatchObject({ ok: true });
+  expect((await listFlagged()).page).toMatchObject([{
+    providerPaymentId: f.providerPaymentId, paymentRecordId, flaggedByName: "Casey Closer", closerName: null,
+  }]);
+
+  await f.admin.mutation(review.unlinkPaymentRecord, {
+    providerPaymentId: f.providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1,
+  });
+  expect((await listFlagged()).page).toMatchObject([{
+    providerPaymentId: f.providerPaymentId, paymentRecordId: null, flaggedByName: "Casey Closer",
+  }]);
+});
+
 it("falls back to flagged stored classifications at the page read budget", async () => {
   const fixture = await providerPaymentFixture({ dealPosition: "lost" });
   const { t, tenantId, connectionId, admin, dealId } = fixture;

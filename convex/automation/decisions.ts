@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { followMergeChain } from "../leads/identityResolution";
 import { earliestCountingPayment, paymentCounts } from "../lib/enrollments";
+import { addPinnedLine } from "../lib/pinnedLines";
 import { isPlaceholderEmail, normalizeEmail } from "../lib/normalization";
 import { resolveLegacyCompatibleAttributedCloserId } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
@@ -14,10 +15,11 @@ import { DEALS_PER_PERSON_HOLD, PAYMENT_ROWS_PER_DEAL_HOLD } from "../payments/c
 import { FINGERPRINT_TASK_LIMIT } from "../payments/fingerprint";
 import { findPaymentTarget } from "../payments/match";
 import { deriveDecision, PAYMENT_RULE_VERSION, paymentBillingReason, paymentDecisionTarget, type PaymentDecisionInput } from "./derive";
+import { stopCallDecisionsOnPayment } from "./paymentHooks";
 import { automationKindOf, modeAtLeastAsk, paymentEvidenceOf, type PaymentEvidence } from "./proposals";
 import { APPLIED_RECEIPT_LIMIT, paymentVetoKey } from "./receipts";
 import { stopCodeValidator } from "./schema";
-import { effectiveKindMode } from "./settings";
+import { effectiveAlertMode, effectiveKindMode } from "./settings";
 
 const causeValidator = v.union(
   v.literal("provider_read"), v.literal("fence"), v.literal("mapping"), v.literal("binding"),
@@ -113,13 +115,21 @@ export async function stopDecision(
   if (actor && (await ctx.db.get("users", actor.userId))?.tenantId !== decision.tenantId) return;
   const superseded = code === "input_changed" || code === "merged";
   if (decision.state === "ready" || decision.state === "needs_person" ||
-      decision.state === "blocked" || decision.state === "shadow") {
+      decision.state === "blocked" || decision.state === "shadow" || decision.state === "notice") {
+    const now = Date.now();
     await ctx.db.patch("resultAutomationDecisions", decisionId, {
       state: superseded ? "superseded" : "stopped",
       stopCode: code,
-      resolvedAt: Date.now(),
+      resolvedAt: now,
       resolvedByUserId: actor?.userId,
     });
+    if (decision.state === "notice" && decision.noticeUserId && decision.opportunityId &&
+        (code === "paused" || code === "kind_lowered" || code === "breaker" || code === "certificate_lapsed")) {
+      await addPinnedLine(ctx, {
+        tenantId: decision.tenantId, userId: decision.noticeUserId, kind: "refusal_notice_withdrawn",
+        opportunityId: decision.opportunityId, meetingId: decision.meetingId, decisionId, createdAt: now,
+      });
+    }
   } else if (decision.state !== "applied" && decision.state !== "superseded") {
     return;
   }
@@ -279,6 +289,21 @@ async function vetoHistory(
 }
 
 /** Evaluate a provider fact in the same transaction as the input-key read and insert. */
+function callPaymentStopsWanted(tenant: Doc<"tenants">) {
+  return effectiveKindMode(tenant, "refusal_loss") !== "off" || effectiveAlertMode(tenant) !== "off";
+}
+
+async function stopFromWhop(
+  ctx: MutationCtx, tenant: Doc<"tenants">, payment: Payment, leadId?: Id<"leads">,
+) {
+  if (payment.status !== "paid" || payment.totalMinor === 0 || payment.reviewState === "historical" ||
+      payment.reviewState === "dismissed" || !leadId || !callPaymentStopsWanted(tenant)) return;
+  await stopCallDecisionsOnPayment(ctx, {
+    tenantId: tenant._id, leadId, opportunityId: payment.opportunityId ?? payment.candidateOpportunityId,
+    paidAt: payment.paidAt, refusalOnly: payment.paidAt === undefined,
+  });
+}
+
 export async function evaluateSubject(ctx: MutationCtx, args: {
   tenantId: Id<"tenants">; providerPaymentId: Id<"providerPayments">; cause: EvaluateCause; now: number;
 }): Promise<{ decisionId: Id<"resultAutomationDecisions"> | null }> {
@@ -288,6 +313,8 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
   ]);
   if (payment?.tenantId !== tenantId || !tenant) return { decisionId: null };
   const settings = tenant.resultAutomation;
+  const knownLeadId = payment.leadId ?? payment.candidateLeadId;
+  await stopFromWhop(ctx, tenant, payment, knownLeadId);
   if (payment.paymentRecordId) {
     const receipts = await ctx.db.query("resultAutomationDecisions")
       .withIndex("by_tenantId_and_providerPaymentId_and_state", (q) =>
@@ -313,6 +340,8 @@ export async function evaluateSubject(ctx: MutationCtx, args: {
     return { decisionId: null };
   }
   const target = await findPaymentTarget(ctx, payment, now);
+  const matchedLeadId = target.kind === "needs_person" ? target.candidateLeadId : target.leadId;
+  if (matchedLeadId !== knownLeadId) await stopFromWhop(ctx, tenant, payment, matchedLeadId);
   const candidate = paymentDecisionTarget(target);
   const deal = candidate && await ctx.db.get("opportunities", candidate.opportunityId);
   if (!candidate?.leadId || deal?.tenantId !== tenantId || deal.leadId !== candidate.leadId ||
@@ -426,8 +455,13 @@ export async function scheduleEvaluation(
     await supersedePaymentDecisions(ctx, payment);
     return;
   }
-  const settings = (await ctx.db.get("tenants", payment.tenantId))?.resultAutomation;
-  if (!settings?.enabled || (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off")) return;
+  const tenant = await ctx.db.get("tenants", payment.tenantId);
+  const settings = tenant?.resultAutomation;
+  if (!settings?.enabled) return;
+  if (settings.kinds.payment_win.mode === "off" && settings.kinds.additional_payment.mode === "off") {
+    if (tenant) await stopFromWhop(ctx, tenant, payment, payment.leadId ?? payment.candidateLeadId);
+    return;
+  }
   await ctx.scheduler.runAfter(0, evaluateRef, { providerPaymentId, cause, activationVersion: settings.activationVersion });
 }
 

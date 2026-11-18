@@ -12,7 +12,7 @@ import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { dealOutcomeValidator, dealStageValidator } from "../opportunities/stages";
-import { allocationChanged, clearActiveAllocation, setActiveAllocation } from "./allocation";
+import { allocationChanged, clearActiveAllocation, readActiveAllocation, setActiveAllocation } from "./allocation";
 import { describeWhopWait, findReadyWhopDecision, isCurrentWhopAsk } from "./confirm";
 import { findConnection } from "./connection";
 import { releasePaymentFence } from "./intake";
@@ -197,6 +197,7 @@ export const listProviderExceptions = query({
   returns: v.object({
     page: v.array(v.object({
       providerPaymentId: providerPaymentIdValidator,
+      paymentRecordId: v.union(paymentRecordIdValidator, v.null()),
       totalMinor: nullableNumber,
       currency: v.string(),
       paidAt: nullableNumber,
@@ -216,6 +217,7 @@ export const listProviderExceptions = query({
       closerName: nullableString,
       billingAvailableAt: v.optional(v.number()),
       notMySaleAt: nullableNumber,
+      flaggedByName: nullableString,
       lastSuccessfulSweepAt: nullableNumber,
     })),
     isDone: v.boolean(),
@@ -255,9 +257,15 @@ export const listProviderExceptions = query({
         : null;
       const wait = describeWhopWait(tenant, payment,
         ready && waitingDeal && isCurrentWhopAsk(tenant, ready, waitingDeal, payment) ? ready : null, asOf);
-      const closer = wait.closerId && await ctx.db.get("users", wait.closerId);
+      const flaggedById = payment.notMySaleAt === undefined ? undefined : payment.notMySaleByUserId;
+      const [closer, flaggedBy, activeRecord] = await Promise.all([
+        wait.closerId ? ctx.db.get("users", wait.closerId) : null,
+        flaggedById ? ctx.db.get("users", flaggedById) : null,
+        payment.paymentRecordId ? readActiveAllocation(ctx, payment) : null,
+      ]);
       rows.push({
         providerPaymentId: payment._id,
+        paymentRecordId: activeRecord?._id ?? null,
         totalMinor: payment.totalMinor ?? null,
         currency: payment.currency,
         paidAt: payment.paidAt ?? null,
@@ -275,6 +283,7 @@ export const listProviderExceptions = query({
         ...wait,
         closerName: closer && closer.tenantId === tenantId ? closer.fullName ?? closer.calendlyMemberName ?? null : null,
         notMySaleAt: payment.notMySaleAt ?? null,
+        flaggedByName: flaggedBy?.tenantId === tenantId ? flaggedBy.fullName ?? flaggedBy.calendlyMemberName ?? null : null,
       });
     }
     return { ...page, page: rows };

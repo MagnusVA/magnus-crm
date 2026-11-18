@@ -1361,10 +1361,21 @@ describe("opt-in call evidence", () => {
         resultAutomation: { enabled: false, paidOnCallAlert: { mode: "on" } },
       }),
     ).toBe(false);
+    // `pausedAt` is the time of the last pause and stays after a resume: a
+    // tenant that is running again wants evidence.
     expect(
       callEvidenceWanted({
         resultAutomation: {
           enabled: true,
+          pausedAt: 0,
+          paidOnCallAlert: { mode: "on" },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      callEvidenceWanted({
+        resultAutomation: {
+          enabled: false,
           pausedAt: 0,
           paidOnCallAlert: { mode: "on" },
         },

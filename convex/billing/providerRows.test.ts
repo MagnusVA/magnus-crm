@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { bookingHarness } from "../../tests/bookingHarness";
+import { insertOtherTenant } from "../../tests/dealStateFixtures";
 import {
   fixtureUsers,
   insertPayment,
@@ -155,4 +156,64 @@ it("puts disputed Whop and manual payments in the disputed queue and keeps both 
     expect(await paymentSums.count(ctx, { namespace: tenantId })).toBe(3);
     expect(await paymentSums.sum(ctx, { namespace: tenantId })).toBe(10_000);
   });
+});
+
+it("returns the latest ten correction receipts and the latest exclusion awaiting restore", async () => {
+  const { t, admin, closer, tenantId, opportunityId, recorderId, existingPaymentId, programId } = await billingFixture();
+  const { newest, lastRestored, latestRestore, otherPaymentId } = await t.run(async (ctx) => {
+    const deal = (await ctx.db.get("opportunities", opportunityId))!;
+    const common = {
+      tenantId, opportunityId, leadId: deal.leadId, paymentRecordId: existingPaymentId,
+      actorUserId: recorderId, tasks: [], removedEnrollments: [],
+      before: { paymentStatus: "recorded" as const, dealPosition: "won" as const },
+      after: { dealPosition: "won" as const, humanResultRevision: 1 },
+    };
+    const addExclusion = (createdAt: number) => ctx.db.insert("paymentCorrections", {
+      ...common, operation: "exclude", result: "kept_won", cause: "wrong_match", level: "reviewed",
+      createdAt, requestKey: `exclude-${createdAt}`,
+    });
+    let lastRestored;
+    let latestRestore;
+    for (let i = 0; i < 5; i++) {
+      const createdAt = T0 + i * 2;
+      lastRestored = await addExclusion(createdAt);
+      latestRestore = await ctx.db.insert("paymentCorrections", {
+        ...common, operation: "restore", result: "restored_kept_won", restoresCorrectionId: lastRestored,
+        createdAt: createdAt + 1, requestKey: `restore-${createdAt}`,
+      });
+      await ctx.db.patch("paymentCorrections", lastRestored, { restoredByCorrectionId: latestRestore });
+    }
+    const newest = await addExclusion(T0 + 10);
+    const otherTenantId = await insertOtherTenant(ctx);
+    const otherPaymentId = await insertPayment(ctx, {
+      tenantId: otherTenantId, opportunityId, programId, recordedAt: T0, recordedByUserId: recorderId,
+    });
+    await ctx.db.insert("paymentCorrections", {
+      ...common, tenantId: otherTenantId, paymentRecordId: otherPaymentId,
+      operation: "exclude", result: "kept_won", cause: "refund", level: "undo", createdAt: T0, requestKey: "other-tenant",
+    });
+    return { newest, lastRestored, latestRestore, otherPaymentId };
+  });
+
+  const args = { paymentRecordId: existingPaymentId };
+  const history = await admin.query(api.billing.queries.getPaymentCorrections, args);
+  expect(history.restorable).toBe(newest);
+  expect(history.corrections.map((row) => row.createdAt)).toEqual(Array.from({ length: 10 }, (_, i) => T0 + 10 - i));
+  expect(history.corrections.slice(0, 3)).toEqual([
+    {
+      correctionId: newest, operation: "exclude", result: "kept_won", cause: "wrong_match", level: "reviewed",
+      actorName: "Billie Reviewer", createdAt: T0 + 10,
+    },
+    {
+      correctionId: latestRestore, operation: "restore", result: "restored_kept_won",
+      actorName: "Billie Reviewer", createdAt: T0 + 9,
+    },
+    {
+      correctionId: lastRestored, operation: "exclude", result: "kept_won", cause: "wrong_match", level: "reviewed",
+      actorName: "Billie Reviewer", createdAt: T0 + 8, restoredByCorrectionId: latestRestore,
+    },
+  ]);
+  await expect(closer.query(api.billing.queries.getPaymentCorrections, args)).rejects.toThrow();
+  expect(await admin.query(api.billing.queries.getPaymentCorrections, { paymentRecordId: otherPaymentId }))
+    .toEqual({ corrections: [], restorable: null });
 });

@@ -1,3 +1,4 @@
+import { settleReminderPaymentTask } from "../lib/taskSettlement";
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -342,13 +343,6 @@ export async function recordTaskPayment(
     });
   }
 
-  await ctx.db.patch("followUps", args.followUpId, {
-    status: "completed",
-    completedAt: now,
-    completionOutcome: "payment_received",
-    completionPaymentId: paymentId,
-  });
-
   await emitDomainEvent(ctx, {
     tenantId,
     entityType: "payment",
@@ -373,22 +367,15 @@ export async function recordTaskPayment(
     },
     occurredAt: now,
   });
-  await emitDomainEvent(ctx, {
-    tenantId,
-    entityType: "followUp",
-    entityId: args.followUpId,
-    eventType: "followUp.completed",
+  await settleReminderPaymentTask(ctx, {
+    opportunityId: opportunity._id,
+    paymentRecordId: paymentId,
+    amountMinor,
+    currency,
+    now,
     source: role === "closer" ? "closer" : "admin",
     actorUserId: userId,
-    fromStatus: "pending",
-    toStatus: "completed",
-    metadata: {
-      outcome: "payment_received",
-      origin,
-      ...provenanceMetadata(provenance),
-    },
-    occurredAt: now,
-  });
+  }, followUp, { origin, ...provenanceMetadata(provenance) });
 
   // The person's enrollments follow their payments, and their first one
   // makes them a customer (docs/plans/phase-4-customers.md §4.1, §4.2).

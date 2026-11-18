@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { stopCallDecisionsForRecording } from "../automation/callDecisions";
 import type { Doc } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -322,6 +323,8 @@ export const purgeRecording = internalMutation({
       );
       return null;
     }
+
+    await stopCallDecisionsForRecording(ctx, args.recordingId, "transcript_gone");
 
     // One suggestion per meeting the recording was ever matched to: a handful.
     const suggestions = await ctx.db

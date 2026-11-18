@@ -18,6 +18,7 @@ import type { CrmRole } from "../lib/roleMapping";
 import { isSideDeal } from "../lib/sideDeals";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { stableJson } from "../lib/stableHash";
+import { planProviderWinTasks, settleProviderWinTasks } from "../lib/taskSettlement";
 import { dealPosition, systemLossReasonOf } from "../opportunities/stages";
 import { ALLOCATION_HISTORY_LIMIT, readActiveAllocation, setActiveAllocation } from "./allocation";
 import { ATTENDANCE_DEBT_MEETING_LIMIT, markAttendanceOwed } from "./attendanceDebt";
@@ -66,6 +67,7 @@ export const providerApplyPreviewValidator = v.union(
       paymentType: v.optional(paymentTypeValidator),
       programId: v.optional(v.id("tenantPrograms")),
       attributedCloserId: v.id("users"),
+      completesFollowUpId: v.optional(v.id("followUps")),
       expiresFollowUpIds: v.array(v.id("followUps")),
     }),
   }),
@@ -252,7 +254,8 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   } satisfies PaymentDecisionInput);
   if (!derived || derived.kind !== kind) return refuse("stale_preview");
 
-  const expires = kind === "payment_win" ? tasks : [];
+  const pendingWinTasks = kind === "payment_win" ? tasks : [];
+  const { completing, expiring } = planProviderWinTasks(pendingWinTasks, payment.currency);
   const fingerprint = await paymentStateFingerprint(ctx, {
     tenantId, providerPaymentId, opportunityId,
     extra: [
@@ -262,7 +265,10 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
       paymentType ?? null, inheritedProgramId ?? null,
       stableJson(bindingRows.map((row) => [row._id, row.version, row.enabled])),
       stableJson(meetings.map((row) => [row._id, row.scheduledAt, row.durationMinutes])),
-      stableJson(tasks.map((row) => [row._id, row.type, row.reason, row.closerId])),
+      stableJson(tasks.map((row) => [
+        row._id, row.type, row.reason, row.closerId,
+        ...(row.purpose === "payment_owed" ? [row.purpose, row.expectedCurrency, row.expectedAmountMinor] : []),
+      ])),
       stableJson(payment.excludedOpportunityIds ?? []),
     ],
   });
@@ -272,10 +278,11 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
     proposal: {
       amountMinor: payment.totalMinor, currency: payment.currency, paymentType,
       programId: mappedProgram?._id, attributedCloserId,
-      expiresFollowUpIds: expires.map((task) => task._id),
+      ...(completing[0] && { completesFollowUpId: completing[0]._id }),
+      expiresFollowUpIds: expiring.map((task) => task._id),
     },
   } as const satisfies Preview;
-  return { ...preview, deal, payment, derived, meetings, scheduled, expires, bindingRows, inheritedProgramId, membership, systemLoss };
+  return { ...preview, deal, payment, derived, meetings, scheduled, pendingWinTasks, bindingRows, inheritedProgramId, membership, systemLoss };
 }
 
 export async function previewProviderApply(ctx: ReadCtx, args: PreviewArgs): Promise<Preview> {
@@ -312,7 +319,7 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
   if (payment.allocationRevision !== args.expectedAllocationRevision) return refuse("stale_preview");
   const prepared = await prepareApply(ctx, args);
   if (!prepared.ok) return prepared;
-  const { deal, derived, position, kind, proposal, expires, meetings, scheduled, bindingRows, inheritedProgramId, membership, systemLoss } = prepared;
+  const { deal, derived, position, kind, proposal, pendingWinTasks, meetings, scheduled, bindingRows, inheritedProgramId, membership, systemLoss } = prepared;
   if (prepared.fingerprint !== args.expectedFingerprint) return refuse("stale_preview");
 
   if (decision) {
@@ -365,7 +372,7 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
       ? [...scheduled, ...meetings.filter((meeting) => meeting.status !== "scheduled")]
         .slice(0, ATTENDANCE_DEBT_MEETING_LIMIT).map((meeting) => ({ meetingId: meeting._id, status: meeting.status }))
       : [],
-    tasks: expires.map((task) => ({ followUpId: task._id, status: task.status })),
+    tasks: pendingWinTasks.map((task) => ({ followUpId: task._id, status: task.status })),
   };
   const eventActor = { tenantId, source: approver.source, actorUserId: approver.userId };
   const { amountMinor, currency, attributedCloserId } = proposal;
@@ -392,14 +399,16 @@ export async function applyProviderPayment(ctx: MutationCtx, args: ApplyArgs): P
       exception,
       metadata: { paymentId: paymentRecordId, providerPaymentId, decisionId: decision?._id, exception },
     });
-    for (const task of expires) {
-      await ctx.db.patch("followUps", task._id, { status: "expired" });
-      await emitDomainEvent(ctx, {
-        ...eventActor, entityType: "followUp", entityId: task._id, eventType: "followUp.expired",
-        fromStatus: "pending", toStatus: "expired", occurredAt: now,
-        metadata: { code: "deal_paid", opportunityId, paymentId: paymentRecordId, decisionId: decision?._id, type: task.type },
-      });
-    }
+    await settleProviderWinTasks(ctx, {
+      opportunityId,
+      paymentRecordId,
+      amountMinor,
+      currency,
+      now,
+      source: approver.source,
+      actorUserId: approver.userId,
+      decisionId: decision?._id,
+    }, pendingWinTasks);
   } else {
     await patchOpportunityLifecycle(ctx, opportunityId, {
       updatedAt: deal.updatedAt, latestActivityAt: Math.max(latestActivityAt, now),

@@ -343,12 +343,12 @@ function NotMySaleLine({ row }: { row: ExceptionRow }) {
   return (
     <div className="mt-1.5 flex flex-col gap-1.5">
       <p className="text-[14px] font-medium text-warning-ink">
-        {row.closerName ? <span translate="no">{row.closerName}</span> : "The closer"} says this isn&apos;t their sale.
+        {row.flaggedByName ? <span translate="no">{row.flaggedByName}</span> : "The closer"} says this isn&apos;t their sale.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        {hasPermission("billing:correct") ? (
+        {hasPermission("billing:correct") && row.paymentRecordId ? (
           <Button asChild size="sm" variant="outline" className="h-8">
-            <Link href={`/workspace/billing/whop/${row.providerPaymentId}?takeOut=wrong_match`}>Take it off this deal</Link>
+            <Link href={`/workspace/billing/${row.paymentRecordId}?takeOut=wrong_match`}>Take it off this deal</Link>
           </Button>
         ) : null}
         {hasPermission("billing:review") ? (

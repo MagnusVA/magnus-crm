@@ -11,6 +11,7 @@ import { expectedError } from "../lib/observability/errors";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { applyProviderPayment, previewProviderApply, providerApplyPreviewValidator, providerApplyResultValidator } from "./apply";
+import { ATTENDANCE_DEBT_MEETING_LIMIT } from "./attendanceDebt";
 import { refuse } from "./commandResult";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -101,6 +102,9 @@ export const getWhopAsk = query({
     providerPaymentId: v.id("providerPayments"),
     opportunityId: v.id("opportunities"),
     createdAt: v.number(),
+    paidAt: v.union(v.number(), v.null()),
+    productTitle: v.union(v.string(), v.null()),
+    variantTitle: v.union(v.string(), v.null()),
     preview: providerApplyPreviewValidator,
   })),
   handler: async (ctx, { target }) => {
@@ -133,7 +137,11 @@ export const getWhopAsk = query({
           proposal?.paymentType !== preview.proposal.paymentType ||
           proposal?.amountMinor !== preview.proposal.amountMinor ||
           proposal?.currency !== preview.proposal.currency) return null;
-      return { decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id, createdAt: decision.createdAt, preview };
+      return {
+        decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id, createdAt: decision.createdAt,
+        paidAt: payment.paidAt ?? null, productTitle: payment.productTitle ?? null, variantTitle: payment.variantTitle ?? null,
+        preview,
+      };
     }
     return null;
   },
@@ -146,6 +154,7 @@ export const previewWhopConfirm = query({
     waiting: v.union(waitingValidator, v.null()),
     decisionId: v.optional(v.id("resultAutomationDecisions")),
     attendanceOwedMeetingIds: v.array(v.id("meetings")),
+    attendanceOwedMeetings: v.array(v.object({ meetingId: v.id("meetings"), scheduledAt: v.number() })),
   }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:review");
@@ -155,20 +164,26 @@ export const previewWhopConfirm = query({
     const [payment, tenant] = await Promise.all([
       ctx.db.get("providerPayments", args.providerPaymentId), ctx.db.get("tenants", tenantId),
     ]);
-    if (payment?.tenantId !== tenantId || !tenant) return { preview, waiting: null, attendanceOwedMeetingIds: [] };
+    if (payment?.tenantId !== tenantId || !tenant) {
+      return { preview, waiting: null, attendanceOwedMeetingIds: [], attendanceOwedMeetings: [] };
+    }
     const [decision, meetings] = await Promise.all([
       findReadyWhopDecision(ctx, payment),
       preview.ok && preview.kind === "payment_win"
         ? ctx.db.query("meetings").withIndex("by_opportunityId_and_status_and_scheduledAt", (q) =>
-          q.eq("opportunityId", args.opportunityId).eq("status", "scheduled")).take(20)
+          q.eq("opportunityId", args.opportunityId).eq("status", "scheduled")).take(ATTENDANCE_DEBT_MEETING_LIMIT)
         : [],
     ]);
+    const attendanceOwedMeetings = meetings.flatMap((meeting) => meeting.tenantId === tenantId
+      ? [{ meetingId: meeting._id, scheduledAt: meeting.scheduledAt }]
+      : []);
     return {
       preview,
       waiting: describeWhopWait(tenant, payment, decision, now),
       decisionId: decision?.opportunityId === args.opportunityId &&
         !(preview.ok && preview.position === "system_loss") ? decision._id : undefined,
-      attendanceOwedMeetingIds: meetings.map((meeting) => meeting._id),
+      attendanceOwedMeetingIds: attendanceOwedMeetings.map(({ meetingId }) => meetingId),
+      attendanceOwedMeetings,
     };
   },
 });

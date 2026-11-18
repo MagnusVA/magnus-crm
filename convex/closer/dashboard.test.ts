@@ -3,7 +3,7 @@ import { getConvexSize } from "convex/values";
 import { api } from "../_generated/api";
 import { meetingAttendanceDisplay } from "../../lib/status-config";
 import { assertPaymentInvariants, seedProviderWin } from "../../tests/paymentInvariants";
-import { FIXTURE_NOW, insertProviderFact, insertProviderMeeting, paymentConfirmationFixture } from "../../tests/providerPaymentFixtures";
+import { FIXTURE_NOW, FIXTURE_PAID_AT, insertProviderFact, insertProviderMeeting, paymentConfirmationFixture } from "../../tests/providerPaymentFixtures";
 import { evaluateSubject } from "../automation/decisions";
 import { readCloserMeetingDeals } from "./dashboard";
 import { closerBoundedReadFixture } from "../../tests/closerBoundedReadFixtures";
@@ -284,9 +284,12 @@ describe("getMeetingsNeedingOutcome", () => {
     await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
     const attendanceFixture = await f.t.run(async (ctx) => {
       const opportunityId = await insertCloserDeal(ctx, { ...f, status: "scheduled", createdAt: FIXTURE_NOW - 20 * DAY });
+      const deal = (await ctx.db.get("opportunities", opportunityId))!;
+      await ctx.db.patch("leads", deal.leadId, { fullName: "Casey Example" });
       const meetingId = await insertProviderMeeting(ctx, { ...f, opportunityId, scheduledAt: FIXTURE_NOW - 10 * DAY });
+      await ctx.db.patch("meetings", meetingId, { leadName: undefined });
       const paymentId = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
-        externalPaymentId: "pay_attendance_fixture", reviewState: "needs_person",
+        externalPaymentId: "pay_attendance_fixture", reviewState: "needs_person", totalMinor: 20_000,
       });
       await seedProviderWin(ctx, {
         ...f, opportunityId, providerPaymentId: paymentId, approverId: f.adminId, recordedAt: FIXTURE_NOW - 10 * DAY,
@@ -307,8 +310,14 @@ describe("getMeetingsNeedingOutcome", () => {
     await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
     const result = await f.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before: FIXTURE_NOW + HOUR });
     expect(result.meetings.slice(0, 2)).toMatchObject([
-      { rowKind: "attendance", meetingId: attendanceFixture },
-      { rowKind: "whop_ask", decisionId, followUpId, href: `/workspace/closer/reminders/${followUpId}` },
+      {
+        rowKind: "attendance", meetingId: attendanceFixture, leadName: "Casey Example",
+        amountMinor: 20_000, currency: "USD", paymentType: "pif",
+      },
+      {
+        rowKind: "whop_ask", decisionId, followUpId, href: `/workspace/closer/reminders/${followUpId}`,
+        amountMinor: 10_000, currency: "USD", paidAt: FIXTURE_PAID_AT, scheduledAt: FIXTURE_NOW,
+      },
     ]);
     expect(result.meetings.slice(2).map((row) => row.meetingId)).toEqual(ordinary.slice(0, 30));
     expect(result.meetings.filter((row) => meetingAttendanceDisplay({ ...row, status: "scheduled" }, FIXTURE_NOW) === "not_recorded"))

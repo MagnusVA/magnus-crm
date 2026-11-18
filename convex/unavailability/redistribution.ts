@@ -313,7 +313,7 @@ export const autoDistributeMeetings = mutation({
     }
 
     for (const opportunityId of changedDeals) {
-      await noteHumanResult(ctx, opportunityId, { tenantId, userId });
+      await noteHumanResult(ctx, opportunityId, { tenantId, userId }, { cause: "assignment" });
     }
 
     // Each reassigned deal has its `opportunity.reassigned` event; this line
@@ -455,7 +455,7 @@ export const manuallyResolveMeeting = mutation({
         occurredAt: now,
       });
 
-      await noteHumanResult(ctx, opportunity._id, { tenantId, userId });
+      await noteHumanResult(ctx, opportunity._id, { tenantId, userId }, { cause: "assignment" });
       log.info("unavailability.redistribution.manual_assigned", {
         tenantId,
         unavailabilityId: args.unavailabilityId,

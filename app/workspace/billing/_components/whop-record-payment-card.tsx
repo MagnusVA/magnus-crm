@@ -30,7 +30,7 @@ import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-
 import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { LeadCombobox } from "@/app/workspace/opportunities/new/_components/lead-combobox";
 import { ChoiceGroup } from "./billing-choice-group";
-import { FIGURE, formatPaidAt, formatPaidDate, PAYMENT_TYPE_LABELS, plural } from "./billing-format";
+import { FIGURE, formatPaidAt, formatPaidClock, formatPaidDate, PAYMENT_TYPE_LABELS, plural } from "./billing-format";
 import { useMemberNames } from "./billing-member-names";
 import { paymentCommandSentence } from "./payment-command-words";
 import { AUTOMATIC_RESULTS_HREF, dealStageLabel, UNKNOWN_PAYER_NOTE } from "./whop-format";
@@ -52,6 +52,8 @@ type DealOption = {
 };
 
 const CHANGED = "Something changed. Check the new preview.";
+const meetingWeekday = new Intl.DateTimeFormat("en-US", { weekday: "short" });
+const meetingTimeList = new Intl.ListFormat("en-US");
 
 function dealLabel(deal: DealOption) {
   return `${dealStageLabel(deal.stage, deal.outcome)}${deal.programName ? ` · ${deal.programName}` : ""}`;
@@ -353,7 +355,10 @@ function ConfirmPreviewBody({
   const waitingOnCloser =
     waiting?.waitsOn === "closer" && waiting.billingAvailableAt !== undefined && waiting.billingAvailableAt > now;
   const label = dealLabel(deal);
-  const owed = shown.attendanceOwedMeetingIds.length;
+  const owed = shown.attendanceOwedMeetings.length;
+  const meetingTimes = shown.attendanceOwedMeetings.slice(0, 3).map(({ scheduledAt }) =>
+    `${meetingWeekday.format(scheduledAt)} ${formatPaidClock(scheduledAt)}`);
+  if (owed > 3) meetingTimes.push(`${owed - 3} more`);
   const ready = !waitingOnCloser && (!needsProgram || programId !== "") && (!needsType || paymentType !== "");
 
   async function submit() {
@@ -413,14 +418,9 @@ function ConfirmPreviewBody({
         {preview.proposal.expiresFollowUpIds.length > 0 ? (
           <li>Expires {plural(preview.proposal.expiresFollowUpIds.length, "open task")} on the deal.</li>
         ) : null}
-        {owed === 1 && deal.latestMeetingAt !== null ? (
+        {owed > 0 ? (
           <li>
-            The call on {formatPaidDate(deal.latestMeetingAt, now)} will need its attendance from{" "}
-            <span translate="no">{creditName}</span>.
-          </li>
-        ) : owed > 0 ? (
-          <li>
-            {owed === 1 ? "The scheduled call on this deal" : `${plural(owed, "scheduled call")} on this deal`} will need{" "}
+            {owed === 1 ? "The call" : "The calls"} on {meetingTimeList.format(meetingTimes)} will need{" "}
             {owed === 1 ? "its" : "their"} attendance from <span translate="no">{creditName}</span>.
           </li>
         ) : null}

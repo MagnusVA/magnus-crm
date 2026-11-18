@@ -169,9 +169,9 @@ export function NoShowReasonPicker({
 
 type Payment = MeetingDetail["payments"][number];
 
-/** The payment that won the deal: the oldest, as payments arrive newest first. */
+/** The oldest counting payment, as payments arrive newest first. */
 export function winningPayment(detail: MeetingDetail): Payment | undefined {
-  return detail.payments.at(-1);
+  return detail.payments.findLast((payment) => payment.status !== "disputed");
 }
 
 /** A won deal's call whose attendance is owed after a Whop payment won it. */
@@ -218,12 +218,13 @@ export function AttendanceOwedCard({
   const dayTime = useDayTime();
   const { record, pending } = useRecordAttendance(meeting._id, firstName);
   const [askingReason, setAskingReason] = useState(false);
-  const [notMine, setNotMine] = useState<"closed" | "asking" | "sending" | "sent">("closed");
+  const [notMine, setNotMine] = useState<"closed" | "asking" | "sending">("closed");
   const flagNotMySale = useMutation(api.payments.notMySale.flagNotMySale);
 
   if (!payment) return null;
   const typeLabel = PAYMENT_TYPE_LABELS[payment.paymentType as PaymentTypeValue];
-  const canFlag = viewerIsCloser && mode === "closer" && payment.providerPaymentId !== undefined;
+  const isFlagged = payment.notMySaleAt != null;
+  const canFlag = viewerIsCloser && mode === "closer" && payment.providerPaymentId !== undefined && !isFlagged;
 
   const done = async (ok: boolean) => {
     if (ok) await onStatusChanged?.();
@@ -239,7 +240,7 @@ export function AttendanceOwedCard({
         return;
       }
       toast.success("Sent to Billing. Nothing changes until they decide.");
-      setNotMine("sent");
+      setNotMine("closed");
     } catch (error) {
       reportClientError(error, { flow: "flag_not_my_sale" });
       toast.error(paymentErrorSentence(error, "That wasn't sent. Please try again."));
@@ -307,7 +308,7 @@ export function AttendanceOwedCard({
             <Button type="button" variant="outline" disabled={pending !== null} onClick={() => setAskingReason(true)}>
               Didn&rsquo;t show
             </Button>
-            {canFlag && notMine !== "sent" ? (
+            {canFlag ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -319,9 +320,9 @@ export function AttendanceOwedCard({
             ) : null}
           </div>
         )}
-        {notMine === "sent" ? (
+        {viewerIsCloser && mode === "closer" && isFlagged ? (
           <p role="status" className="text-[0.8125rem] text-muted-foreground">
-            You told Billing this isn&rsquo;t your sale. Nothing changes until they decide.
+            You told Billing this isn&rsquo;t your sale.
           </p>
         ) : null}
       </div>

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { schedulePublishedCallEvaluation } from "../automation/callDecisions";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { ITEM_KINDS } from "../../lib/callInsights/taxonomy";
@@ -270,9 +271,8 @@ export const reproject = internalMutation({
       });
     }
     await projectRun(ctx, { header, run: shown, meeting, now });
-    const settings = effectiveSettings(
-      await ctx.db.get("tenants", run.tenantId),
-    );
+    const tenant = await ctx.db.get("tenants", run.tenantId);
+    const settings = effectiveSettings(tenant);
     if (settings)
       await storeSuggestion(ctx, {
         header,
@@ -281,6 +281,7 @@ export const reproject = internalMutation({
         settings,
         now,
       });
+    await schedulePublishedCallEvaluation(ctx, tenant, meeting, "reprojected", now);
     log.info("call_insights.reprojected", {
       tenantId: recording.tenantId,
       recordingId: recording._id,

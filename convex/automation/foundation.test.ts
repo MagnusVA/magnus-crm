@@ -155,7 +155,9 @@ describe("the automatic level", () => {
     const withCallKind = {
       ...tenant, resultAutomation: { ...tenant.resultAutomation!, kinds: { ...tenant.resultAutomation!.kinds, call_back: callBack } },
     };
-    expect(effectiveKindMode(withCallKind, "call_back")).toBe("ask");
+    // A call kind reads as off while Call insights is not switched on for the
+    // tenant, whatever is stored (this fixture has no Call insights settings).
+    expect(effectiveKindMode(withCallKind, "call_back")).toBe("off");
   });
 
   it("lowers a hand-stored automatic kind like any other level", async () => {

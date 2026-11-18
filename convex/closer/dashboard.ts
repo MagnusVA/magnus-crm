@@ -2,11 +2,12 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
-import { leadDisplayString } from "../lib/leadDisplay";
+import { ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT, paymentCounts } from "../lib/enrollments";
+import { leadDisplayFromShape, leadDisplayString } from "../lib/leadDisplay";
 import { isCurrentWhopAsk } from "../payments/confirm";
 import { paymentProposalOf } from "../automation/proposals";
 import { requireTenantUser } from "../requireTenantUser";
-import { resolvePaymentType } from "../lib/paymentTypes";
+import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import {
   DEAL_POSITIONS,
   dealPosition,
@@ -272,6 +273,10 @@ const outcomeRowFields = {
   leadName: v.string(),
   programName: v.union(v.string(), v.null()),
 };
+const whopAmountFields = {
+  amountMinor: v.union(v.number(), v.null()),
+  currency: v.union(v.string(), v.null()),
+};
 
 async function meetingOutcomeRow(ctx: QueryCtx, meeting: Doc<"meetings">, opportunity: Doc<"opportunities">) {
   const eventTypeConfig =
@@ -299,9 +304,17 @@ export const getMeetingsNeedingOutcome = query({
   returns: v.object({
     meetings: v.array(v.union(
       v.object({ ...outcomeRowFields, meetingId: v.id("meetings"), rowKind: v.literal("outcome") }),
-      v.object({ ...outcomeRowFields, meetingId: v.id("meetings"), rowKind: v.literal("attendance") }),
       v.object({
         ...outcomeRowFields,
+        ...whopAmountFields,
+        meetingId: v.id("meetings"),
+        rowKind: v.literal("attendance"),
+        paymentType: v.union(paymentTypeValidator, v.null()),
+      }),
+      v.object({
+        ...outcomeRowFields,
+        ...whopAmountFields,
+        paidAt: v.union(v.number(), v.null()),
         rowKind: v.literal("whop_ask"),
         meetingId: v.optional(v.id("meetings")),
         followUpId: v.optional(v.id("followUps")),
@@ -332,11 +345,36 @@ export const getMeetingsNeedingOutcome = query({
 
     const attendance = [];
     const includedMeetingIds = new Set<Id<"meetings">>();
+    const paymentsByDeal = new Map<Id<"opportunities">, Doc<"paymentRecords"> | undefined>();
+    const paymentReadState = createLiveReadState();
     for (const meeting of attendanceCandidates) {
       if (attendance.length === ATTENDANCE_LIMIT) break;
       const deal = await ctx.db.get("opportunities", meeting.opportunityId);
       if (deal?.tenantId !== tenantId || deal.assignedCloserId !== userId || deal.outcome !== "won") continue;
-      attendance.push({ ...await meetingOutcomeRow(ctx, meeting, deal), rowKind: "attendance" as const });
+      if (!paymentsByDeal.has(deal._id) && !paymentReadState.capped) {
+        const { rows } = await readLiveQueryRows(
+          ctx.db.query("paymentRecords").withIndex("by_opportunityId_and_recordedAt", (q) =>
+            q.eq("opportunityId", deal._id)),
+          ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT,
+          paymentReadState,
+        );
+        paymentsByDeal.set(deal._id, rows.find((row) =>
+          row.tenantId === tenantId && row.origin === "provider" && paymentCounts(row)));
+      }
+      const payment = paymentsByDeal.get(deal._id);
+      const [row, lead] = await Promise.all([
+        meetingOutcomeRow(ctx, meeting, deal),
+        meeting.leadName?.trim() ? null : ctx.db.get("leads", deal.leadId),
+      ]);
+      attendance.push({
+        ...row,
+        rowKind: "attendance" as const,
+        leadName: (meeting.leadName?.trim() ? row.leadName : null) ??
+          (lead?.tenantId === tenantId ? leadDisplayFromShape({ fullName: lead.fullName, leadId: lead._id }) : "Unknown"),
+        amountMinor: payment?.amountMinor ?? null,
+        currency: payment?.currency ?? null,
+        paymentType: payment?.paymentType ?? null,
+      });
       includedMeetingIds.add(meeting._id);
     }
 
@@ -350,6 +388,7 @@ export const getMeetingsNeedingOutcome = query({
       const base = {
         rowKind: "whop_ask" as const, decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id,
         scheduledAt: decision.createdAt, durationMinutes: 0,
+        amountMinor: payment.totalMinor ?? null, currency: payment.currency, paidAt: payment.paidAt ?? null,
       };
       if (decision.confirmRoute === "meeting" && decision.meetingId) {
         const meeting = await ctx.db.get("meetings", decision.meetingId);

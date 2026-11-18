@@ -71,7 +71,7 @@ export type WhopConfirmPrefill = {
   currency: string;
   programId?: Id<"tenantPrograms">;
   paymentType?: PaymentTypeValue;
-  collectedAt: number;
+  collectedAt: number | null;
 };
 
 /** The ask's preview, when it is one that can be recorded. */
@@ -94,7 +94,7 @@ export function whopConfirmPrefill(ask: WhopAsk): WhopConfirmPrefill | null {
     currency: preview.proposal.currency,
     programId: preview.proposal.programId,
     paymentType: preview.proposal.paymentType,
-    collectedAt: ask.createdAt,
+    collectedAt: ask.paidAt,
   };
 }
 
@@ -131,6 +131,7 @@ export function WhopPaymentFoundCard({
   const mappedTo = useMappedTo(preview?.proposal.programId, preview?.proposal.paymentType);
   if (!preview) return null;
   const { amountMinor, currency } = preview.proposal;
+  const product = [ask.productTitle, ask.variantTitle].filter(Boolean).join(" · ");
 
   return (
     <section
@@ -145,6 +146,7 @@ export function WhopPaymentFoundCard({
           Ask
         </span>
       </div>
+      {product ? <p className="text-[0.8125rem] text-muted-foreground" translate="no">{product}</p> : null}
       <dl className="grid gap-x-4 gap-y-2.5 @md:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-0.5">
           <dt className={LABEL}>Amount</dt>
@@ -154,7 +156,9 @@ export function WhopPaymentFoundCard({
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
           <dt className={LABEL}>Collected</dt>
-          <dd className="text-sm tabular-nums">{dayTime(ask.createdAt)}, by Whop</dd>
+          <dd className="text-sm tabular-nums">
+            {ask.paidAt !== null ? `${dayTime(ask.paidAt)}, by Whop` : "Collection time unavailable"}
+          </dd>
         </div>
         <div className="flex min-w-0 flex-col gap-0.5">
           <dt className={LABEL}>Mapped to</dt>
@@ -304,7 +308,9 @@ export function WhopConfirmForm({
               {prefill.currency}
             </span>
           </RecordFact>
-          <RecordFact label="Collected">{dayTime(prefill.collectedAt)}, by Whop</RecordFact>
+          <RecordFact label="Collected">
+            {prefill.collectedAt !== null ? `${dayTime(prefill.collectedAt)}, by Whop` : "Collection time unavailable"}
+          </RecordFact>
           <RecordFact label="Proof">The Whop payment</RecordFact>
         </RecordFacts>
         <FormRows>
@@ -507,7 +513,9 @@ function WhopNoShowForm({
               {prefill.currency}
             </span>
           </RecordFact>
-          <RecordFact label="Collected">{dayTime(prefill.collectedAt)}, by Whop</RecordFact>
+          <RecordFact label="Collected">
+            {prefill.collectedAt !== null ? `${dayTime(prefill.collectedAt)}, by Whop` : "Collection time unavailable"}
+          </RecordFact>
         </RecordFacts>
         <FormRows>
           <Controller

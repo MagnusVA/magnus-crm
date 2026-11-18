@@ -507,7 +507,7 @@ export async function applyCoveragePlanCore(
   }
 
   for (const opportunityId of new Set(args.deals.map((deal) => deal.opportunityId))) {
-    await noteHumanResult(ctx, opportunityId, actor);
+    await noteHumanResult(ctx, opportunityId, actor, { cause: "assignment" });
   }
 
   log.info("unavailability.coverage_plan.applied", {

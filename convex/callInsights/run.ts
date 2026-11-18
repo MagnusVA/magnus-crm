@@ -8,6 +8,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { schedulePublishedCallEvaluation } from "../automation/callDecisions";
 import {
   businessDateForInstant,
   DEFAULT_BUSINESS_DAY,
@@ -961,6 +962,7 @@ export const publish = internalMutation({
           settings,
           now,
         });
+        await schedulePublishedCallEvaluation(ctx, tenant, meeting, "published", now);
       }
     }
     await noteJobItem(ctx, run, "done");

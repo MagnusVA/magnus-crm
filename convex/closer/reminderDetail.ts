@@ -1,3 +1,4 @@
+import { completedByPayment } from "../lib/taskSettlement";
 import { paymentRecorderId, providerPaymentByline } from "./meetingDetail";
 import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import { v } from "convex/values";
@@ -214,6 +215,10 @@ export const getReminderDetail = query({
 
     return {
       followUp: reminderWithLossLabel(followUp),
+      completedByPayment: completedByPayment(
+        followUp,
+        followUp.completionPaymentId ? await ctx.db.get("paymentRecords", followUp.completionPaymentId) : null,
+      ),
       // The deal badge and the page's analytics read the stage and outcome
       // (docs/plans/phase-5-deal-status.md §6.1).
       opportunity: {

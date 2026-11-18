@@ -60,8 +60,9 @@ export function callEvidenceWanted(
   tenant: EvidenceTenant | null | undefined,
 ): boolean {
   const settings = tenant?.resultAutomation;
-  if (settings?.enabled !== true || settings.pausedAt !== undefined)
-    return false;
+  // `pausedAt` records the last pause and stays after a resume, so `enabled`
+  // alone says whether automation is running.
+  if (settings?.enabled !== true) return false;
   const alert = settings.paidOnCallAlert?.mode;
   return (
     alert === "shadow" ||

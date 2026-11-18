@@ -31,6 +31,7 @@ import {
 } from "./commandResult";
 import { readDealCorrections, readPendingTasks } from "./exclude";
 import { paymentStateFingerprint } from "./fingerprint";
+import { settleRestoredPaymentTasks } from "../lib/taskSettlement";
 
 // Restoring an exclusion made in error (build contract §2.6, plan §2.10).
 // The row goes back to the status it had, the Whop payment points at it
@@ -355,48 +356,14 @@ export async function restorePaymentCore(
   }
 
   // The next steps the exclusion opened close again (plan §12).
-  const tasks: TaskChange[] = [];
-  for (const { task } of plan.closeTasks) {
-    const completes = !state.winExpiredTaskIds.has(task._id) && task.type === "manual_reminder" &&
-      state.correctionTasks.some((entry) => entry.task._id === task._id && entry.change === "reopened");
-    if (completes) {
-      // The reminder this payment had completed before it was taken out.
-      await ctx.db.patch("followUps", task._id, {
-        status: "completed",
-        completedAt: now,
-        completionOutcome: "payment_received",
-        completionPaymentId: row._id,
-      });
-      await emitDomainEvent(ctx, {
-        tenantId,
-        entityType: "followUp",
-        entityId: task._id,
-        eventType: "followUp.completed",
-        source: "admin",
-        actorUserId: actor.userId,
-        fromStatus: "pending",
-        toStatus: "completed",
-        occurredAt: now,
-        metadata: { outcome: "payment_received", paymentId: row._id, correctionId: restoreId },
-      });
-      tasks.push({ followUpId: task._id, change: "completed" });
-    } else {
-      await ctx.db.patch("followUps", task._id, { status: "expired" });
-      await emitDomainEvent(ctx, {
-        tenantId,
-        entityType: "followUp",
-        entityId: task._id,
-        eventType: "followUp.expired",
-        source: "admin",
-        actorUserId: actor.userId,
-        fromStatus: "pending",
-        toStatus: "expired",
-        occurredAt: now,
-        metadata: { code: "deal_paid", paymentId: row._id, correctionId: restoreId },
-      });
-      tasks.push({ followUpId: task._id, change: "expired" });
-    }
-  }
+  const tasks = await settleRestoredPaymentTasks(ctx, {
+    payment: { ...row, status: restoredStatus },
+    closeTasks: plan.closeTasks,
+    winExpiredTaskIds: state.winExpiredTaskIds,
+    restoreId,
+    actorUserId: actor.userId,
+    now,
+  });
 
   if (plan.first.origin === "provider") {
     // The deal's first payment is a Whop payment again: scheduled calls owe attendance.

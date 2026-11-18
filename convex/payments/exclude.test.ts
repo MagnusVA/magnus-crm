@@ -75,6 +75,18 @@ async function preview(caller: Caller, paymentRecordId: Id<"paymentRecords">, ca
   return await caller.query(api.payments.exclude.previewExclusion, { paymentRecordId, cause });
 }
 
+it("returns a refusal when the payment is on a deal that is not won", async () => {
+  const f = await providerPaymentFixture({ dealPosition: "booked" });
+  const paymentRecordId = await f.t.run((ctx) => seedManualPayment(ctx, f, {
+    opportunityId: f.dealId!, programId: f.programId, recordedAt: WIN_AT,
+  }));
+  const result = await preview(f.admin, paymentRecordId);
+  expect(result).toMatchObject({
+    refusal: "deal_not_won", undo: { allowed: false }, dispositionRequired: false,
+    allowedDispositions: [], cashDeltaByCurrency: [],
+  });
+});
+
 async function exclude(
   caller: Caller,
   args: Omit<ExcludeArgs, "expectedFingerprint" | "voidReason"> & { expectedFingerprint?: string },

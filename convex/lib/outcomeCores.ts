@@ -1,4 +1,6 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
+import { liveSuggestionForMeeting } from "../callInsights/suggest/state";
 import type { Provenance } from "../mcp/guard";
 import { isExpectedError, rejectRequest } from "./observability/errors";
 import type { CrmRole } from "./roleMapping";
@@ -16,6 +18,64 @@ export type CoreActor = {
   tenantId: Id<"tenants">;
   role: CrmRole;
 };
+
+/**
+ * Server-only input. The confirmation caller writes its receipt and calls
+ * noteHumanResult once, with consumeDecisionId, in the same mutation.
+ */
+export type AutomationCoreOptions = {
+  decisionId: Id<"resultAutomationDecisions">;
+  task?: {
+    purpose: "call_back" | "payment_owed";
+    expectedAmountMinor?: number;
+    expectedCurrency?: string;
+    promisedPaymentAt?: number;
+    declineCode?: string;
+  };
+  refusal?: true;
+  allowDueNow?: true;
+  system?: boolean;
+};
+
+/** Validate the server decision and resolve an identity for the existing guards. */
+export async function guardActorForOutcome(
+  ctx: MutationCtx,
+  actor: CoreActor | null,
+  args: { opportunityId: Id<"opportunities">; meetingId?: Id<"meetings"> },
+  automation: AutomationCoreOptions | undefined,
+  role: "closer" | "tenant_admin",
+): Promise<CoreActor> {
+  if (actor && !automation) return actor;
+  if (!automation || Boolean(actor) === Boolean(automation.system)) {
+    throw new Error("Invalid outcome actor");
+  }
+  const decision = await ctx.db.get("resultAutomationDecisions", automation.decisionId);
+  const deal = await ctx.db.get("opportunities", args.opportunityId);
+  if (!deal || !decision || decision.tenantId !== deal.tenantId ||
+      decision.opportunityId !== deal._id || decision.meetingId !== args.meetingId ||
+      (automation.refusal && decision.kind !== "refusal_loss")) {
+    throw new Error("Call decision does not belong to this outcome");
+  }
+  if (actor) return actor;
+  if (!deal.assignedCloserId) throw new Error("No closer assigned to this opportunity");
+  return { tenantId: deal.tenantId, userId: deal.assignedCloserId, role };
+}
+
+export function callAttendancePatch(automation: AutomationCoreOptions | undefined) {
+  return automation ? {
+    attendanceSource: "call_insights" as const,
+    attendanceDecisionId: automation.decisionId,
+  } : undefined;
+}
+
+export async function liveOutcomeSuggestion(
+  ctx: MutationCtx,
+  meeting: Doc<"meetings">,
+  now: number,
+) {
+  const tenant = await ctx.db.get("tenants", meeting.tenantId);
+  return tenant ? await liveSuggestionForMeeting(ctx, { tenant, meeting, now }) : null;
+}
 
 /** The web's provenance, for the public mutations. */
 export const WEB: Provenance = { via: "web" };
