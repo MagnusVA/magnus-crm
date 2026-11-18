@@ -89,7 +89,7 @@ describe("Whop payment reconciliation", () => {
     expect(await check(f, "additional")).toEqual([]);
   });
 
-  it("reduces an overflowing payer range to one unresolvable conflict", async () => {
+  it("requires acknowledgement before accepting an overflowing payer range", async () => {
     const f = await providerPaymentFixture({ fact: { reviewState: "needs_person" } });
     await f.t.run(async (ctx) => {
       for (let i = 0; i < 20; i++) {
@@ -104,6 +104,38 @@ describe("Whop payment reconciliation", () => {
     expect(conflicts).toMatchObject([{ state: "read_limit" }]);
     expect(() => resolveReconciliation(conflicts, { kind: "different_money", pins: [] }))
       .toThrow("couldn't check all Whop payments");
+    expect(resolveReconciliation(conflicts, { kind: "different_money", pins: [], acknowledgeReadLimit: true }))
+      .toEqual({ action: "insert", distinctFrom: [] });
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+  });
+
+  it("requires all known pins even when a read limit is acknowledged", async () => {
+    const f = await providerPaymentFixture();
+    const overflowId = await f.t.run((ctx) => insertProviderFact(ctx, f.tenantId, f.connectionId, {
+      externalPaymentId: "pay_overflow",
+    }));
+    const pin = { providerPaymentId: f.providerPaymentId, allocationRevision: 0 };
+    const overflowPin = { providerPaymentId: overflowId, allocationRevision: 0 };
+    const conflicts: ReconcileConflict[] = [
+      { ...pin, state: "unlinked", currency: "USD" },
+      { ...overflowPin, state: "read_limit" },
+    ];
+    for (const pins of [[], [{ ...pin, allocationRevision: 1 }], [pin, overflowPin]]) {
+      expect(() => resolveReconciliation(conflicts, { kind: "different_money", pins, acknowledgeReadLimit: true }))
+        .toThrow("couldn't check all Whop payments");
+    }
+    expect(() => resolveReconciliation(conflicts, { kind: "different_money", pins: [pin], acknowledgeReadLimit: false }))
+      .toThrow("couldn't check all Whop payments");
+    expect(resolveReconciliation(conflicts, { kind: "different_money", pins: [pin], acknowledgeReadLimit: true }))
+      .toEqual({ action: "insert", distinctFrom: [f.providerPaymentId] });
+
+    const selected = { providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 };
+    expect(() => resolveReconciliation(conflicts, {
+      kind: "same_money", ...selected, acknowledgeAmountDifference: false,
+    })).toThrow("couldn't check all Whop payments");
+    expect(() => resolveReconciliation(conflicts, { kind: "confirm", ...selected }))
+      .toThrow("couldn't check all Whop payments");
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
 
   it("still surfaces provider cash on another deal when ask is off", async () => {
@@ -140,10 +172,15 @@ describe("Whop payment reconciliation", () => {
     await expect(other.query(getPaymentReconciliation, args)).rejects.toThrow("not the assigned closer");
     const result = await f.closer.query(getPaymentReconciliation, args);
     expect(result).toMatchObject({
-      conflicts: [expect.objectContaining({ state: "unlinked" })],
+      conflicts: [{
+        state: "unlinked",
+        productTitle: "Sales training",
+        variantTitle: "Pay in full",
+      }],
       prefill: [{ providerPaymentId: f.providerPaymentId, amount: 100, currency: "USD", programId: f.programId, paymentType: "pif" }],
     });
     expect(JSON.stringify(result)).not.toContain(PAYER_EMAIL);
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
 
   it("requires exact pins once per conflict, independent of order", async () => {
@@ -163,6 +200,32 @@ describe("Whop payment reconciliation", () => {
     expect(() => resolveReconciliation(conflicts, {
       kind: "different_money", pins: [pins[0], pins[0]],
     })).toThrow("Review the Whop payment");
+  });
+
+  it("counts the selected payment toward the ten-pin limit", async () => {
+    const f = await providerPaymentFixture();
+    const otherPins = await f.t.run(async (ctx) => {
+      const pins = [];
+      for (let index = 0; index < 10; index++) {
+        const providerPaymentId = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+          externalPaymentId: `pay_other_${index}`,
+        });
+        pins.push({ providerPaymentId, allocationRevision: 0 });
+      }
+      return pins;
+    });
+    const conflicts: ReconcileConflict[] = [
+      { providerPaymentId: f.providerPaymentId, allocationRevision: 0 },
+      ...otherPins,
+    ].map((pin) => ({ ...pin, state: "unlinked", currency: "USD" }));
+    const selected = {
+      kind: "same_money" as const, providerPaymentId: f.providerPaymentId,
+      expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+    };
+    expect(resolveReconciliation(conflicts.slice(0, 10), { ...selected, otherPins: otherPins.slice(0, 9) }))
+      .toMatchObject({ action: "insert_and_link", distinctFrom: otherPins.slice(0, 9).map((pin) => pin.providerPaymentId) });
+    expect(() => resolveReconciliation(conflicts, { ...selected, otherPins })).toThrow("Review the Whop payment");
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
   });
 
   it("ignores a different-money pin when its row is disputed", async () => {

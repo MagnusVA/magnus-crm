@@ -33,7 +33,14 @@ const pinValidator = v.object({
   providerPaymentId: v.id("providerPayments"),
   allocationRevision: v.number(),
 });
+type Pin = Infer<typeof pinValidator>;
+
+const productTitleFields = {
+  productTitle: v.optional(v.string()),
+  variantTitle: v.optional(v.string()),
+};
 const paymentConflictValidator = v.object({
+  ...productTitleFields,
   ...pinValidator.fields,
   state: v.union(v.literal("unlinked"), v.literal("recorded_here"), v.literal("recorded_elsewhere")),
   totalMinor: v.optional(v.number()),
@@ -45,6 +52,7 @@ const conflictValidator = v.union(
   paymentConflictValidator,
   v.object({
     state: v.literal("read_limit"),
+    ...productTitleFields,
     // An identity range can overflow before a provider payment is known.
     providerPaymentId: v.optional(v.id("providerPayments")),
     allocationRevision: v.optional(v.number()),
@@ -52,6 +60,7 @@ const conflictValidator = v.union(
   }),
 );
 export type ReconcileConflict = Infer<typeof conflictValidator>;
+type PaymentConflict = Infer<typeof paymentConflictValidator>;
 
 export const providerIntentValidator = v.union(
   v.object({
@@ -59,14 +68,20 @@ export const providerIntentValidator = v.union(
     providerPaymentId: v.id("providerPayments"),
     expectedAllocationRevision: v.number(),
     decisionId: v.optional(v.id("resultAutomationDecisions")),
+    otherPins: v.optional(v.array(pinValidator)),
   }),
   v.object({
     kind: v.literal("same_money"),
     providerPaymentId: v.id("providerPayments"),
     expectedAllocationRevision: v.number(),
     acknowledgeAmountDifference: v.boolean(),
+    otherPins: v.optional(v.array(pinValidator)),
   }),
-  v.object({ kind: v.literal("different_money"), pins: v.array(pinValidator) }),
+  v.object({
+    kind: v.literal("different_money"),
+    pins: v.array(pinValidator),
+    acknowledgeReadLimit: v.optional(v.boolean()),
+  }),
 );
 export type ProviderIntent = Infer<typeof providerIntentValidator>;
 export const WHOP_PAYMENT_FOUND = "payment.whop_payment_found";
@@ -152,6 +167,8 @@ function readLimit(payment?: Payment): ReconcileConflict[] {
       providerPaymentId: payment._id,
       allocationRevision: payment.allocationRevision,
       currency: payment.currency,
+      productTitle: payment.productTitle,
+      variantTitle: payment.variantTitle,
     }),
   }];
 }
@@ -246,6 +263,8 @@ export async function checkPaymentReconciliation(ctx: ReadCtx, args: {
       totalMinor: payment.totalMinor,
       currency: payment.currency,
       paidAt: payment.paidAt,
+      productTitle: payment.productTitle,
+      variantTitle: payment.variantTitle,
       recordedPaymentRecordId: record?._id,
     });
   }
@@ -262,45 +281,58 @@ function refuseConflict(conflicts: ReconcileConflict[]): never {
   });
 }
 
+function pinsMatch(conflicts: PaymentConflict[], pins: Pin[]) {
+  if (pins.length !== conflicts.length) return false;
+  const revisions = new Map(pins.map((pin) => [pin.providerPaymentId, pin.allocationRevision]));
+  return revisions.size === pins.length && conflicts.every((conflict) =>
+    revisions.get(conflict.providerPaymentId) === conflict.allocationRevision);
+}
+
+type DistinctFrom = { distinctFrom: Id<"providerPayments">[] };
+type InsertManual = { action: "insert" } & DistinctFrom;
+type AttachExisting = { action: "attach_existing"; paymentRecordId: Id<"paymentRecords"> } & DistinctFrom;
+
 export function resolveReconciliation(conflicts: ReconcileConflict[], intent?: ProviderIntent):
-  | { action: "insert"; distinctFrom: Id<"providerPayments">[] }
-  | { action: "insert_and_link"; providerPaymentId: Id<"providerPayments"> }
-  | { action: "insert_from_provider"; providerPaymentId: Id<"providerPayments"> }
-  | { action: "attach_existing"; paymentRecordId: Id<"paymentRecords"> } {
+  | InsertManual
+  | ({ action: "insert_and_link" | "insert_from_provider"; providerPaymentId: Id<"providerPayments"> } & DistinctFrom)
+  | AttachExisting {
   if (!intent && !conflicts.length) return { action: "insert", distinctFrom: [] };
-  if (!intent || conflicts.some((conflict) => conflict.state === "read_limit")) {
-    refuseConflict(conflicts);
-  }
+  const paymentConflicts = conflicts.filter((conflict) => conflict.state !== "read_limit");
+  const hitReadLimit = paymentConflicts.length !== conflicts.length;
+  if (!intent || !conflicts.length || paymentConflicts.length > MAX_DISTINCT_FROM) refuseConflict(conflicts);
+
   if (intent.kind === "different_money") {
-    const { pins } = intent;
-    const revisions = new Map(pins.map((pin) => [pin.providerPaymentId, pin.allocationRevision]));
-    if (!pins.length || pins.length > MAX_DISTINCT_FROM || pins.length !== conflicts.length ||
-        revisions.size !== pins.length || !conflicts.every((conflict) =>
-          conflict.state !== "read_limit" && revisions.get(conflict.providerPaymentId) === conflict.allocationRevision)) {
+    if ((hitReadLimit && intent.acknowledgeReadLimit !== true) || !pinsMatch(paymentConflicts, intent.pins)) {
       refuseConflict(conflicts);
     }
-    return { action: "insert", distinctFrom: pins.map((pin) => pin.providerPaymentId) };
+    return { action: "insert", distinctFrom: intent.pins.map((pin) => pin.providerPaymentId) };
   }
 
-  const [conflict] = conflicts;
-  if (conflicts.length !== 1 || conflict.state === "read_limit" ||
-      conflict.providerPaymentId !== intent.providerPaymentId ||
-      conflict.allocationRevision !== intent.expectedAllocationRevision) refuseConflict(conflicts);
+  if (hitReadLimit) refuseConflict(conflicts);
+  const conflict = paymentConflicts.find((conflict) => conflict.providerPaymentId === intent.providerPaymentId);
+  if (!conflict || conflict.allocationRevision !== intent.expectedAllocationRevision) refuseConflict(conflicts);
+  const otherConflicts = paymentConflicts.filter((other) => other !== conflict);
+  const otherPins = intent.otherPins ?? [];
+  if (!pinsMatch(otherConflicts, otherPins)) refuseConflict(conflicts);
+  const distinctFrom = otherPins.map((pin) => pin.providerPaymentId);
   if (conflict.state === "unlinked") {
-    return { action: intent.kind === "confirm" ? "insert_from_provider" : "insert_and_link",
-      providerPaymentId: conflict.providerPaymentId };
+    return {
+      action: intent.kind === "confirm" ? "insert_from_provider" : "insert_and_link",
+      providerPaymentId: conflict.providerPaymentId,
+      distinctFrom,
+    };
   }
   if (intent.kind === "same_money" && conflict.state === "recorded_here" && conflict.recordedPaymentRecordId) {
-    return { action: "attach_existing", paymentRecordId: conflict.recordedPaymentRecordId };
+    return { action: "attach_existing", paymentRecordId: conflict.recordedPaymentRecordId, distinctFrom };
   }
   refuseConflict(conflicts);
 }
 
 type Reconciliation =
-  | { action: "insert"; distinctFrom: Id<"providerPayments">[] }
-  | { action: "attach_existing"; paymentRecordId: Id<"paymentRecords"> }
-  | { action: "insert_and_link"; payment: Payment; acknowledgeAmountDifference: boolean }
-  | { action: "insert_from_provider"; payment: Payment; decisionId?: Id<"resultAutomationDecisions"> };
+  | InsertManual
+  | AttachExisting
+  | ({ action: "insert_and_link"; payment: Payment; acknowledgeAmountDifference: boolean } & DistinctFrom)
+  | ({ action: "insert_from_provider"; payment: Payment; decisionId?: Id<"resultAutomationDecisions"> } & DistinctFrom);
 
 export async function reconcilePaymentWrite(
   ctx: ReadCtx,
@@ -316,9 +348,19 @@ export async function reconcilePaymentWrite(
     throw expectedError("payment.kind_off", "Whop confirmation is turned off for this payment.");
   }
   const result = resolveReconciliation(conflicts, intent);
-  if (result.action === "insert" || result.action === "attach_existing") return result;
+  if (result.action === "insert") return result;
+  if (result.action === "attach_existing") {
+    if (!result.distinctFrom.length) return result;
+    const record = await ctx.db.get("paymentRecords", result.paymentRecordId);
+    if (record?.tenantId !== tenantId) throw new Error("Whop payment record missing");
+    const previous = record.distinctFromProviderPaymentIds ?? [];
+    const distinctFrom = [...new Set([...previous, ...result.distinctFrom])];
+    if (distinctFrom.length > MAX_DISTINCT_FROM) refuseConflict(conflicts);
+    return { ...result, distinctFrom };
+  }
 
-  const payment = await ctx.db.get("providerPayments", result.providerPaymentId);
+  const { distinctFrom, providerPaymentId } = result;
+  const payment = await ctx.db.get("providerPayments", providerPaymentId);
   if (payment?.tenantId !== tenantId) throw new Error("Whop payment not found after reconciliation");
   if (intent?.kind === "confirm") {
     if (adverseReviewRequired(payment) || payment.refundedMinor > 0) {
@@ -337,10 +379,10 @@ export async function reconcilePaymentWrite(
         throw expectedError("payment.stale_preview", "The Whop confirmation changed. Reload before saving.");
       }
     }
-    return { action: "insert_from_provider", payment, decisionId: intent.decisionId };
+    return { action: "insert_from_provider", payment, decisionId: intent.decisionId, distinctFrom };
   }
   if (intent?.kind !== "same_money") throw new Error("Missing Whop link intent");
-  return { action: "insert_and_link", payment, acknowledgeAmountDifference: intent.acknowledgeAmountDifference };
+  return { action: "insert_and_link", payment, acknowledgeAmountDifference: intent.acknowledgeAmountDifference, distinctFrom };
 }
 
 export type InsertReconciliation = Exclude<Reconciliation, { action: "attach_existing" }>;
@@ -356,13 +398,16 @@ export function providerWaivesProof(result: InsertReconciliation, amountMinor: n
 }
 
 export function reconciledPaymentFields(result: InsertReconciliation) {
+  const distinctFields = result.distinctFrom.length ? { distinctFromProviderPaymentIds: result.distinctFrom } : {};
   if (result.action === "insert_from_provider") {
-    return { recordedVia: "provider" as const, providerPaymentId: result.payment._id, providerPaidAt: result.payment.paidAt };
+    return {
+      ...distinctFields,
+      recordedVia: "provider" as const,
+      providerPaymentId: result.payment._id,
+      providerPaidAt: result.payment.paidAt,
+    };
   }
-  if (result.action === "insert" && result.distinctFrom.length) {
-    return { distinctFromProviderPaymentIds: result.distinctFrom };
-  }
-  return {};
+  return distinctFields;
 }
 
 export async function allocateReconciledPayment(
@@ -398,22 +443,28 @@ export async function allocateReconciledPayment(
   }
 }
 
-export async function attachReconciledPaymentProof(
+export async function attachReconciledPayment(
   ctx: MutationCtx,
-  paymentId: Id<"paymentRecords">,
+  { paymentRecordId: paymentId, distinctFrom }: AttachExisting,
   actor: CoreActor,
   proofFileId?: Id<"_storage">,
 ) {
-  if (!proofFileId) return false;
+  const distinctFields = distinctFrom.length ? { distinctFromProviderPaymentIds: distinctFrom } : null;
+  if (!proofFileId && !distinctFields) return false;
   const payment = await ctx.db.get("paymentRecords", paymentId);
   if (payment?.tenantId !== actor.tenantId) throw new Error("Whop payment record missing");
-  if (payment.proofFileId === proofFileId) return false;
+  if (!proofFileId || payment.proofFileId === proofFileId) {
+    if (!distinctFields) return false;
+    await ctx.db.patch("paymentRecords", paymentId, distinctFields);
+    return true;
+  }
   if (payment.proofFileId) {
     throw expectedError("payment.has_proof", "This payment already has proof. Billing can replace it.");
   }
   const proof = await checkPaymentProof(ctx, { role: actor.role, userId: actor.userId, proofFileId });
   const fields = await newPaymentFields(ctx, actor.tenantId, proof, { via: "web" });
   await ctx.db.patch("paymentRecords", paymentId, {
+    ...distinctFields,
     proofFileId,
     proofSha256: fields.proofSha256,
     proofReused: fields.proofReused,

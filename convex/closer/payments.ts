@@ -39,7 +39,7 @@ import { noteHumanResult } from "../automation/humanResult";
 import { markAttendanceOwed } from "../payments/attendanceDebt";
 import {
   allocateReconciledPayment,
-  attachReconciledPaymentProof,
+  attachReconciledPayment,
   finishReconciledPayment,
   loadMeetingPaymentTarget,
   providerIntentValidator,
@@ -262,7 +262,7 @@ export async function recordMeetingPayment(
         extraMeetingPatch: { attendanceOwedSince: undefined },
       });
     }
-    const attached = await attachReconciledPaymentProof(ctx, reconciliation.paymentRecordId, actor, args.proofFileId);
+    const attached = await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId);
     if (attached || meeting.status === "scheduled") await noteHumanResult(ctx, opportunity._id, actor);
     return reconciliation.paymentRecordId;
   }

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { noteHumanResult } from "../automation/humanResult";
 import {
   allocateReconciledPayment,
-  attachReconciledPaymentProof,
+  attachReconciledPayment,
   finishReconciledPayment,
   providerIntentValidator,
   providerWaivesProof,
@@ -75,7 +75,7 @@ export const recordAdditionalPayment = mutation({
     const reconciliation = await reconcilePaymentWrite(ctx, opportunity, "additional", dealPayments, args.provider);
     if (reconciliation.action === "attach_existing") {
       const paymentId = reconciliation.paymentRecordId;
-      if (await attachReconciledPaymentProof(ctx, paymentId, actor, args.proofFileId)) {
+      if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {
         await noteHumanResult(ctx, opportunity._id, actor);
       }
       return { paymentId };

@@ -38,6 +38,21 @@ import {
   type DialogSuggestion,
   type SuggestionPrefill,
 } from "@/components/call-insights/suggestion-context";
+import { formatAmountMinor } from "@/lib/format-currency";
+import {
+  useWhopPaymentCheck,
+  useWhopStepState,
+  whopAmountOffer,
+  whopConfirmLine,
+  whopSuccessMessage,
+  type WhopAnswer,
+} from "@/app/workspace/_components/payments/whop-payment-check";
+import {
+  WhopAmountOffer,
+  WhopAnswerFact,
+  WhopCapacityHold,
+  WhopPaymentFoundStep,
+} from "@/app/workspace/_components/payments/whop-payment-found-step";
 
 // ---------------------------------------------------------------------------
 // Zod Schema — single source of truth for form validation
@@ -156,6 +171,9 @@ export function PaymentFormDialog({
   const roleNeedsProof = useProofRequired();
   const fromCall = suggestion !== undefined;
   const [confirming, setConfirming] = useConfirmStep<PaymentFormValues>(open);
+  // Whop already reporting this person's payment adds a step before the save.
+  const whopCheck = useWhopPaymentCheck(open ? { kind: "meeting", meetingId } : null);
+  const whop = useWhopStepState<PaymentFormValues>(open);
 
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
     includeArchived: false,
@@ -181,6 +199,7 @@ export function PaymentFormDialog({
   });
 
   const resetForm = () => {
+    whop.reset();
     form.reset({
       amount: "",
       currency: bookedCurrency ?? "USD",
@@ -229,6 +248,7 @@ export function PaymentFormDialog({
   };
   const reading = useSuggestionRef(suggestion, (next) => {
     setConfirming(null);
+    whop.reset();
     applySuggestion(next);
   });
   // From a live suggestion proof is optional for everyone; the server checks
@@ -249,7 +269,7 @@ export function PaymentFormDialog({
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.closer.payments.logPayment);
 
-  const onSubmit = async (values: PaymentFormValues) => {
+  const onSubmit = async (values: PaymentFormValues, answer: WhopAnswer | null = null) => {
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -307,9 +327,19 @@ export function PaymentFormDialog({
         paymentType: values.paymentType,
         proofFileId,
         ...(fromSuggestion ? { fromSuggestion } : {}),
+        ...(answer ? { provider: answer.intent } : {}),
       });
 
       await onSuccess?.();
+      const attached = answer
+        ? whopSuccessMessage(answer, { marksAttendance: true, proofAttached: Boolean(proofFileId) })
+        : null;
+      if (attached) {
+        toast.success(attached);
+        setOpen(false);
+        resetForm();
+        return;
+      }
       posthog.capture("payment_logged", {
         opportunity_id: opportunityId,
         meeting_id: meetingId,
@@ -320,11 +350,17 @@ export function PaymentFormDialog({
         payment_type: values.paymentType,
         has_proof_file: Boolean(proofFileId),
         ...(fromSuggestion ? { from_suggestion: true } : {}),
+        ...(answer ? { whop_answer: answer.kind } : {}),
       });
       toast.success("Payment logged. The deal is won.");
       setOpen(false);
       resetForm();
     } catch (err: unknown) {
+      // Whop reports a payment the step must ask about, or the deal is full.
+      if (whop.refused(err, values)) {
+        setConfirming(null);
+        return;
+      }
       reportClientError(err, { flow: "meeting_payment_log", httpStatus: uploadHttpStatus });
       const message =
         getErrorMessage(err, "Failed to log payment. Please try again.");
@@ -340,6 +376,12 @@ export function PaymentFormDialog({
   const isSubmitDisabled = isSubmitting || isProgramListLoading || !hasPrograms;
 
   const chosenProgramId = useWatch({ control: form.control, name: "programId" });
+  const typedAmount = useWatch({ control: form.control, name: "amount" });
+  const proofFile = useWatch({ control: form.control, name: "proofFile" });
+  const offer = whopAmountOffer(whopCheck);
+  const offerCurrency = CURRENCIES.find((code) => code === offer?.currency);
+  const showOffer = Boolean(offer && offerCurrency) && typedAmount === "" && !form.formState.isDirty;
+  const whopValues = whop.shown?.values;
   const firstName = leadName?.trim().split(/\s+/)[0] || "the lead";
   const programName = confirming
     ? (programs?.find((program) => program._id === confirming.programId)?.name ?? null)
@@ -379,7 +421,47 @@ export function PaymentFormDialog({
         className={cn(ACTION_DIALOG, fromCall && "ph-no-capture")}
         showCloseButton={!isSubmitting}
       >
-        {confirming ? (
+        {whop.capacityHeld ? (
+          <WhopCapacityHold
+            onClose={() => {
+              setOpen(false);
+              resetForm();
+              setSubmitError(null);
+            }}
+          />
+        ) : whop.shown && whopValues ? (
+          <WhopPaymentFoundStep
+            conflicts={whop.shown.conflicts}
+            typed={{
+              amountMinor: Math.round(parseFloat(whopValues.amount) * 100),
+              currency: whopValues.currency,
+              paymentType: whopValues.paymentType,
+              programName: programs?.find((program) => program._id === whopValues.programId)?.name ?? null,
+            }}
+            personName={leadName}
+            marksAttendance
+            proofRules={{ newMoney: proofRequired, roleNeedsProof }}
+            proof={{ file: proofFile, onChange: (file) => form.setValue("proofFile", file) }}
+            notice={whop.shown.notice}
+            error={whop.shown.error ?? submitError}
+            pending={isSubmitting}
+            onBack={() => {
+              setSubmitError(null);
+              whop.back();
+            }}
+            onAnswer={(answer) => {
+              setSubmitError(null);
+              const values = { ...whopValues, proofFile: form.getValues("proofFile") };
+              // Already recorded here: nothing new to confirm, the step saves.
+              if (answer.kind === "same_money" && answer.existing) {
+                void onSubmit(values, answer);
+                return;
+              }
+              whop.choose(answer);
+              setConfirming(values);
+            }}
+          />
+        ) : confirming ? (
           <>
             <ActionDialogHeader
               title={withFromCall(
@@ -395,8 +477,10 @@ export function PaymentFormDialog({
               programName={programName}
               paymentType={confirming.paymentType}
               proofFile={confirming.proofFile}
+              extraFacts={<WhopAnswerFact answer={whop.answer} hasProofFile={Boolean(confirming.proofFile)} />}
               steps={[
                 "Adds the payment to Billing’s Needs review, credited to the deal’s closer.",
+                ...(whop.answer ? [whopConfirmLine(whop.answer)] : []),
                 "Closes the deal as won.",
                 "Marks the call held.",
                 programName ? `Makes ${firstName} a customer of ${programName}.` : `Makes ${firstName} a customer.`,
@@ -405,9 +489,10 @@ export function PaymentFormDialog({
               pending={isSubmitting}
               onBack={() => {
                 setSubmitError(null);
+                whop.backFromConfirm(confirming);
                 setConfirming(null);
               }}
-              onConfirm={() => void onSubmit(confirming)}
+              onConfirm={() => void onSubmit(confirming, whop.answer)}
             />
           </>
         ) : (
@@ -420,9 +505,25 @@ export function PaymentFormDialog({
               description="Recording it closes the deal as won and marks the call held."
             />
             {readingNotice}
+            {showOffer && offer && offerCurrency ? (
+              <WhopAmountOffer
+                amountLabel={formatAmountMinor(Math.round(offer.amount * 100), offerCurrency)}
+                onUse={() => {
+                  form.setValue("amount", String(offer.amount));
+                  form.setValue("currency", offerCurrency);
+                  form.setFocus("amount");
+                }}
+              />
+            ) : null}
             <FormProvider {...form}>
               <PaymentFormStep
                 onSubmit={form.handleSubmit((values) => {
+                  // The step asks for proof once it knows whether Whop's payment stands in for it.
+                  if (whopCheck.status === "found") {
+                    setSubmitError(null);
+                    whop.show(values, whopCheck.conflicts);
+                    return;
+                  }
                   if (proofRequired && !values.proofFile) {
                     form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
                     return;

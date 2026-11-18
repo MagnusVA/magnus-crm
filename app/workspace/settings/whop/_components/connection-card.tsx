@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { CARD, CardHead } from "@/app/workspace/team/_components/team-ui";
 import {
   ActionRow,
@@ -77,6 +78,12 @@ export function WhopConnectionCard({ connection }: { connection: WhopConnection 
             {connection.unreadablePayments} Whop {connection.unreadablePayments === 1 ? "payment" : "payments"} could not be read.
           </NoteLine>
         ) : null}
+        <NoteLine>
+          The CRM can record results from these payments, kind by kind:{" "}
+          <Link href="/workspace/settings/automatic-results" className="font-medium text-foreground underline underline-offset-[3px] decoration-foreground/40 hover:decoration-foreground">
+            Automatic results
+          </Link>
+        </NoteLine>
         <NoteLine>
           Payments collected before <span className="whitespace-nowrap">{formatDay(connection.autoImportAfter)}</span>{" "}
           are history. They are listed under History in Billing › From Whop and are never proposed.

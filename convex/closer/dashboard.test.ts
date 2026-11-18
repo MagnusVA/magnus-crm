@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { getConvexSize } from "convex/values";
 import { api } from "../_generated/api";
+import { meetingAttendanceDisplay } from "../../lib/status-config";
+import { assertPaymentInvariants, seedProviderWin } from "../../tests/paymentInvariants";
+import { FIXTURE_NOW, insertProviderFact, insertProviderMeeting, paymentConfirmationFixture } from "../../tests/providerPaymentFixtures";
+import { evaluateSubject } from "../automation/decisions";
 import { readCloserMeetingDeals } from "./dashboard";
 import { closerBoundedReadFixture } from "../../tests/closerBoundedReadFixtures";
 import {
@@ -9,6 +13,7 @@ import {
   HOUR,
   insertCloserDeal,
   insertCloserMeeting,
+  insertTask,
   MEETING_RANGE,
   seededCloserPipeline,
   T0,
@@ -264,6 +269,87 @@ describe("getMeetingsNeedingOutcome", () => {
     });
     const byBooking = await harness.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before: Date.now() });
     expect(byBooking.meetings).toMatchObject([{ programName: "Elite Mentorship" }]);
+  });
+
+  it("lists older attendance before a reminder ask and ordinary calls, and counts the ask as ended", async () => {
+    const f = await paymentConfirmationFixture({ dealPosition: "follow_up" });
+    const followUpId = await f.t.run((ctx) => insertTask(ctx, {
+      opportunityId: f.dealId, type: "manual_reminder", reason: "closer_initiated",
+      status: "pending", reminderScheduledAt: FIXTURE_NOW + DAY,
+    }));
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+    const { decisionId } = await f.t.run((ctx) => evaluateSubject(ctx, {
+      tenantId: f.tenantId, providerPaymentId: f.providerPaymentId, now: FIXTURE_NOW, cause: "sweep",
+    }));
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+    const attendanceFixture = await f.t.run(async (ctx) => {
+      const opportunityId = await insertCloserDeal(ctx, { ...f, status: "scheduled", createdAt: FIXTURE_NOW - 20 * DAY });
+      const meetingId = await insertProviderMeeting(ctx, { ...f, opportunityId, scheduledAt: FIXTURE_NOW - 10 * DAY });
+      const paymentId = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: "pay_attendance_fixture", reviewState: "needs_person",
+      });
+      await seedProviderWin(ctx, {
+        ...f, opportunityId, providerPaymentId: paymentId, approverId: f.adminId, recordedAt: FIXTURE_NOW - 10 * DAY,
+      });
+      return meetingId;
+    });
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+    const ordinary = await f.t.run(async (ctx) => {
+      const meetings = [];
+      for (let i = 1; i <= 50; i++) {
+        const opportunityId = await insertCloserDeal(ctx, { ...f, status: "scheduled", createdAt: FIXTURE_NOW - 20 * DAY });
+        meetings.push(await insertCloserMeeting(ctx, {
+          ...f, opportunityId, status: "scheduled", scheduledAt: FIXTURE_NOW - HOUR - i * 1000,
+        }));
+      }
+      return meetings;
+    });
+    await assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+    const result = await f.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before: FIXTURE_NOW + HOUR });
+    expect(result.meetings.slice(0, 2)).toMatchObject([
+      { rowKind: "attendance", meetingId: attendanceFixture },
+      { rowKind: "whop_ask", decisionId, followUpId, href: `/workspace/closer/reminders/${followUpId}` },
+    ]);
+    expect(result.meetings.slice(2).map((row) => row.meetingId)).toEqual(ordinary.slice(0, 30));
+    expect(result.meetings.filter((row) => meetingAttendanceDisplay({ ...row, status: "scheduled" }, FIXTURE_NOW) === "not_recorded"))
+      .toHaveLength(32);
+    expect(result).toMatchObject({ isPartial: true, attendancePartial: false });
+  });
+
+  it("probes the separate attendance cap and hides a stale marker on an open deal", async () => {
+    const f = await paymentConfirmationFixture();
+    const invariant = () => assertPaymentInvariants(f.t, { tenantId: f.tenantId });
+    const before = FIXTURE_NOW;
+    const { ids, secondDeal, secondPayment } = await f.t.run(async (ctx) => {
+      const secondDeal = await insertCloserDeal(ctx, { ...f, status: "scheduled", createdAt: before - 2 * DAY });
+      const secondPayment = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: "pay_second_debt", reviewState: "needs_person",
+      });
+      const staleDeal = await insertCloserDeal(ctx, { ...f, status: "follow_up_scheduled", createdAt: before - 2 * DAY });
+      const stale = await insertCloserMeeting(ctx, {
+        ...f, opportunityId: staleDeal, status: "scheduled", scheduledAt: before - DAY,
+      });
+      await ctx.db.patch("meetings", stale, { attendanceOwedSince: before - DAY + HOUR / 2 });
+      const ids = [];
+      for (let i = 1; i <= 33; i++) {
+        ids.push(await insertProviderMeeting(ctx, {
+          ...f, opportunityId: i <= 17 ? f.dealId : secondDeal, scheduledAt: before - DAY + i * HOUR / 10,
+        }));
+      }
+      return { ids, secondDeal, secondPayment };
+    });
+    await invariant();
+    await f.t.run((ctx) => seedProviderWin(ctx, {
+      ...f, opportunityId: f.dealId, approverId: f.adminId, recordedAt: before - DAY,
+    }));
+    await invariant();
+    await f.t.run((ctx) => seedProviderWin(ctx, {
+      ...f, opportunityId: secondDeal, providerPaymentId: secondPayment, approverId: f.adminId, recordedAt: before - DAY,
+    }));
+    await invariant();
+    const result = await f.closer.query(api.closer.dashboard.getMeetingsNeedingOutcome, { before });
+    expect(result).toMatchObject({ isPartial: true, attendancePartial: true });
+    expect(result.meetings.filter((row) => row.rowKind === "attendance").map((row) => row.meetingId)).toEqual(ids.slice(0, 30));
   });
 
   it("refuses anyone but a closer", async () => {

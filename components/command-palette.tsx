@@ -35,6 +35,7 @@ const adminExtras: NavItem[] = [
   { label: "Lead gen rules", href: "/workspace/settings?tab=lead-gen", icon: SettingsIcon },
   { label: "Fathom", href: "/workspace/settings/fathom", icon: SettingsIcon },
   { label: "Whop", href: "/workspace/settings/whop", icon: SettingsIcon },
+  { label: "Automatic results", href: "/workspace/settings/automatic-results", icon: SettingsIcon },
   { label: "Respark", href: RESPARK_HREF, icon: RefreshCwIcon },
 ];
 

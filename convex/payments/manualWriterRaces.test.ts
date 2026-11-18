@@ -124,11 +124,24 @@ async function storeWhopPayment(f: Fixture) {
   })).toBe("stored");
 }
 
-function sameMoney(providerPaymentId: Id<"providerPayments">, expectedAllocationRevision: number): ProviderIntent {
+function sameMoney(providerPaymentId: Id<"providerPayments">, expectedAllocationRevision: number):
+  Extract<ProviderIntent, { kind: "same_money" }> {
   return { kind: "same_money", providerPaymentId, expectedAllocationRevision, acknowledgeAmountDifference: false };
 }
 
 const whopConflict = "payment.whop_payment_found";
+
+function addConflict(f: Fixture, externalPaymentId: string) {
+  return f.t.run((ctx) => insertProviderFact(ctx, f.tenantId, f.connectionId, {
+    externalPaymentId, reviewState: "needs_person",
+  }));
+}
+
+function selectPayment(f: Fixture, kind: "same_money" | "confirm") {
+  return kind === "same_money"
+    ? sameMoney(f.providerPaymentId, 0)
+    : { kind, providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 };
+}
 
 describe.each(WRITERS)("%s payment writer", (writer) => {
   it("requires an answer when the Whop read commits first", async () => {
@@ -152,6 +165,44 @@ describe.each(WRITERS)("%s payment writer", (writer) => {
     expect(after.fact).toMatchObject({ reviewState: "linked", allocationRevision: 1 });
     expect(after.deal?.humanResultRevision).toBe((before.deal?.humanResultRevision ?? 0) + 1);
     await f.invariant();
+  });
+
+  it.each(["same_money", "confirm"] as const)("stores the other pins with %s", async (kind) => {
+    const f = await writerFixture(writer);
+    await f.t.run(async (ctx) => {
+      await setPaymentFixtureModes(ctx, f);
+      await ctx.db.patch("providerPayments", f.providerPaymentId, { reviewState: "needs_person" });
+    });
+    const otherId = await addConflict(f, "pay_other");
+    const before = await f.state();
+    await f.save({
+      provider: {
+        ...selectPayment(f, kind),
+        otherPins: [{ providerPaymentId: otherId, allocationRevision: 0 }],
+      },
+    });
+    const after = await f.state();
+    expect(after.rows).toHaveLength(before.rows.length + 1);
+    expect(after.rows).toContainEqual(expect.objectContaining({
+      providerPaymentId: f.providerPaymentId,
+      distinctFromProviderPaymentIds: [otherId],
+    }));
+    expect(after.fact).toMatchObject({ reviewState: kind === "confirm" ? "recorded" : "linked" });
+    expect(await f.t.run((ctx) => ctx.db.get("providerPayments", otherId))).toMatchObject({
+      reviewState: "needs_person", allocationRevision: 0,
+    });
+    const reconciliation = await f.closer.query(api.payments.reconcileCheck.getPaymentReconciliation, {
+      target: { kind: "deal", opportunityId: f.opportunityId },
+    });
+    expect(reconciliation.conflicts.map((conflict) => conflict.providerPaymentId))
+      .toEqual(kind === "confirm" ? [f.providerPaymentId] : []);
+    await f.invariant();
+
+    if (writer === "additional" && kind === "same_money") {
+      await f.save({ proofFileId: await storeProofFile(f.t) });
+      expect((await f.state()).rows).toHaveLength(before.rows.length + 2);
+      await f.invariant();
+    }
   });
 
   it("leaves the Whop fact unallocated when the manual save commits first", async () => {
@@ -208,6 +259,108 @@ describe.each(WRITERS)("%s payment writer", (writer) => {
     }
     await f.invariant();
   });
+});
+
+it.each(["same_money", "confirm"] as const)("rejects invalid or out-of-date other pins with %s", async (kind) => {
+  const f = await writerFixture("additional");
+  await f.t.run(async (ctx) => {
+    await setPaymentFixtureModes(ctx, f);
+    await ctx.db.patch("providerPayments", f.providerPaymentId, { reviewState: "needs_person" });
+  });
+  const otherId = await addConflict(f, "pay_other");
+  const pin = { providerPaymentId: otherId, allocationRevision: 0 };
+  const extraId = await f.t.run((ctx) => insertProviderFact(ctx, f.tenantId, f.connectionId, {
+    externalPaymentId: "pay_outside_conflicts",
+  }));
+  const extraPin = { providerPaymentId: extraId, allocationRevision: 0 };
+  const selected = selectPayment(f, kind);
+  const before = await f.state();
+  for (const otherPins of [undefined, [pin, extraPin], [{ ...pin, allocationRevision: 1 }]]) {
+    await expect(f.save({ provider: { ...selected, otherPins } }))
+      .rejects.toMatchObject({ data: { code: whopConflict } });
+    expect(await f.state()).toEqual(before);
+    await f.invariant();
+  }
+
+  const shown = await f.closer.query(api.payments.reconcileCheck.getPaymentReconciliation, {
+    target: { kind: "deal", opportunityId: f.opportunityId },
+  });
+  expect(shown.conflicts.map((conflict) => conflict.providerPaymentId))
+    .toEqual([f.providerPaymentId, otherId]);
+  const arrivedId = await addConflict(f, "pay_arrived");
+  await expect(f.save({ provider: { ...selected, otherPins: [pin] } }))
+    .rejects.toMatchObject({ data: {
+      code: whopConflict,
+      conflicts: expect.arrayContaining([expect.objectContaining({ providerPaymentId: arrivedId })]),
+    } });
+  expect(await f.state()).toEqual(before);
+  await f.invariant();
+});
+
+it("saves with a read-limit acknowledgement and asks again on the next save", async () => {
+  const f = await writerFixture("additional");
+  await f.t.run(async (ctx) => {
+    await setPaymentFixtureModes(ctx, f);
+    for (let index = 0; index < 20; index++) {
+      await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: `pay_overflow_${index}`, reviewState: "needs_person",
+      });
+    }
+  });
+  const proofFileId = await storeProofFile(f.t);
+  const before = await f.state();
+  const provider = { kind: "different_money" as const, pins: [] };
+  const readLimitError = { data: { code: whopConflict, conflicts: [{ state: "read_limit" }] } };
+  await expect(f.save({ provider, proofFileId })).rejects.toMatchObject(readLimitError);
+  expect(await f.state()).toEqual(before);
+  await f.invariant();
+
+  const result = await f.save({ provider: { ...provider, acknowledgeReadLimit: true }, proofFileId });
+  if (typeof result === "string") throw new Error("Expected the additional-payment writer result");
+  const row = await f.t.run((ctx) => ctx.db.get("paymentRecords", result.paymentId));
+  expect(row).toMatchObject({ proofFileId, origin: "closer_additional" });
+  expect(row?.distinctFromProviderPaymentIds).toBeUndefined();
+  const after = await f.state();
+  expect(after.rows).toHaveLength(before.rows.length + 1);
+  await f.invariant();
+
+  await expect(f.save()).rejects.toMatchObject(readLimitError);
+  expect(await f.state()).toEqual(after);
+  await f.invariant();
+});
+
+it.each([1, 10])("attaches to an existing payment with %i previously saved distinct payments", async (priorCount) => {
+  const f = await writerFixture("additional", { providerWin: true });
+  const priorIds = await f.t.run(async (ctx) => {
+    await setPaymentFixtureModes(ctx, f);
+    const ids = [];
+    for (let index = 0; index < priorCount; index++) {
+      ids.push(await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: `pay_prior_${index}`,
+      }));
+    }
+    await ctx.db.patch("paymentRecords", f.firstPaymentId!, {
+      distinctFromProviderPaymentIds: priorCount === 1 ? [ids[0], ids[0]] : ids,
+    });
+    return ids;
+  });
+  const otherId = await addConflict(f, "pay_other");
+  const before = await f.state();
+  const provider = {
+    ...sameMoney(f.providerPaymentId, 1),
+    otherPins: [{ providerPaymentId: otherId, allocationRevision: 0 }],
+  };
+  if (priorCount === 10) {
+    await expect(f.save({ provider })).rejects.toMatchObject({ data: { code: whopConflict } });
+    expect(await f.state()).toEqual(before);
+  } else {
+    expect(await f.save({ provider })).toEqual({ paymentId: f.firstPaymentId });
+    expect((await f.state()).rows).toEqual([{
+      ...before.rows[0],
+      distinctFromProviderPaymentIds: [...priorIds, otherId],
+    }]);
+  }
+  await f.invariant();
 });
 
 it("attaches proof and marks attendance when Whop won before the meeting writer could save", async () => {

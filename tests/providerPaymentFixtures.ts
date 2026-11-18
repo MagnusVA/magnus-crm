@@ -507,3 +507,48 @@ export async function seedManualPayment(
   await xSyncPersonEnrollments(ctx, { tenantId: f.tenantId, leadId: f.personId, source: "closer", actorUserId: f.closerId });
   return id;
 }
+
+export const paymentConfirmationApi = (anyApi as unknown as ApiFromModules<{
+  "payments/confirm": typeof import("../convex/payments/confirm");
+  "payments/notMySale": typeof import("../convex/payments/notMySale");
+  "closer/attendanceOnly": typeof import("../convex/closer/attendanceOnly");
+  "closer/pinnedLines": typeof import("../convex/closer/pinnedLines");
+}>);
+
+export async function paymentConfirmationFixture(
+  options?: Parameters<typeof automationPaymentFixture>[0],
+) {
+  const f = await automationPaymentFixture({
+    ...options,
+    fact: { reviewState: "needs_person", ...options?.fact },
+  });
+  if (!f.dealId) throw new Error("Payment confirmation needs a deal");
+  await f.t.run((ctx) => setPaymentFixtureModes(ctx, f));
+  return { ...f, dealId: f.dealId };
+}
+
+export async function seedReadablePaymentRecording(
+  ctx: MutationCtx & Pick<import("../convex/_generated/server").ActionCtx, "storage">,
+  args: {
+    tenantId: Id<"tenants">;
+    meetingId: Id<"meetings">;
+    closerId: Id<"users">;
+    ownerId: Id<"users">;
+  },
+) {
+  const { tenantId, meetingId, closerId, ownerId } = args;
+  await ctx.db.patch("tenants", tenantId, {
+    secondOpinion: { mode: "on", monthlyCapUsd: 40, changedAt: FIXTURE_NOW, changedByUserId: ownerId },
+  });
+  const connectionId = await ctx.db.insert("tenantFathomConnections", {
+    tenantId, apiKey: "fixture", keyLast4: "ture", webhookSecret: "fixture", webhookId: "fixture",
+    connectionStatus: "connected", triggeredFor: [], connectedByUserId: ownerId, connectedAt: FIXTURE_NOW,
+  });
+  const transcriptStorageId = await ctx.storage.store(new Blob(["[]"], { type: "application/json" }));
+  return await ctx.db.insert("callRecordings", {
+    tenantId, connectionId, meetingId, transcriptStorageId, transcriptLineCount: 0, matchStatus: "matched",
+    recordedByUserId: closerId, recordedByEmail: "closer@example.com", inviteeEmails: [PAYER_EMAIL],
+    fathomRecordingId: 1, title: "Sales call", url: "https://fathom.video/calls/1", shareUrl: "https://fathom.video/share/1",
+    recordingStartAt: FIXTURE_NOW - 3600_000, recordingEndAt: FIXTURE_NOW - 1800_000, createdAt: FIXTURE_NOW,
+  });
+}

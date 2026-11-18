@@ -96,6 +96,21 @@ describe("confirming a Whop payment", () => {
     await f.invariant();
   });
 
+  it("carries product and price names in the conflict error", async () => {
+    const f = await meetingFixture();
+    await expect(f.closer.mutation(api.closer.payments.logPayment, f.args))
+      .rejects.toMatchObject({ data: {
+        code: "payment.whop_payment_found",
+        conflicts: [{
+          providerPaymentId: f.providerPaymentId,
+          productTitle: "Sales training",
+          variantTitle: "Pay in full",
+        }],
+      } });
+    expect(await f.t.run((ctx) => ctx.db.query("paymentRecords").take(1))).toEqual([]);
+    await f.invariant();
+  });
+
   it.each([{ amount: 99 }, { currency: "CAD" }])("refuses a Whop amount/currency mismatch %j", async (typed) => {
     const f = await meetingFixture();
     await expect(f.closer.mutation(api.closer.payments.logPayment, { ...f.args, ...typed, provider: f.confirm }))

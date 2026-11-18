@@ -46,7 +46,7 @@ import { noteHumanResult } from "../automation/humanResult";
 import { markAttendanceOwed } from "../payments/attendanceDebt";
 import {
   allocateReconciledPayment,
-  attachReconciledPaymentProof,
+  attachReconciledPayment,
   finishReconciledPayment,
   loadReminderPaymentTarget,
   providerIntentValidator,
@@ -265,7 +265,7 @@ export async function recordTaskPayment(
   const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
   const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "reminder", dealPayments, args.provider);
   if (reconciliation.action === "attach_existing") {
-    if (await attachReconciledPaymentProof(ctx, reconciliation.paymentRecordId, actor, args.proofFileId)) {
+    if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {
       await noteHumanResult(ctx, target.opportunity._id, actor);
     }
     return reconciliation.paymentRecordId;

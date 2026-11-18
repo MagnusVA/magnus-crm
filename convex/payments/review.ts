@@ -13,6 +13,7 @@ import { log } from "../lib/observability/log";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { dealOutcomeValidator, dealStageValidator } from "../opportunities/stages";
 import { allocationChanged, clearActiveAllocation, setActiveAllocation } from "./allocation";
+import { describeWhopWait, findReadyWhopDecision, isCurrentWhopAsk } from "./confirm";
 import { findConnection } from "./connection";
 import { releasePaymentFence } from "./intake";
 import { findPaymentTarget, refreshProviderPaymentReview, type PaymentTarget } from "./match";
@@ -182,10 +183,15 @@ function dealSummary(deal: Doc<"opportunities">) {
   };
 }
 
+function notMySaleQueue(ctx: QueryCtx, tenantId: Id<"tenants">) {
+  return ctx.db.query("providerPayments")
+    .withIndex("by_tenantId_and_notMySaleAt", (q) => q.eq("tenantId", tenantId).gt("notMySaleAt", undefined));
+}
+
 export const listProviderExceptions = query({
   args: {
     paginationOpts: paginationOptsValidator,
-    state: v.optional(exceptionState),
+    state: v.optional(v.union(exceptionState, v.literal("not_my_sale"))),
     asOf: v.optional(v.number()),
   },
   returns: v.object({
@@ -203,6 +209,13 @@ export const listProviderExceptions = query({
       candidateDeal: v.union(dealSummaryValidator, v.null()),
       environment: providerEnvironmentValidator,
       classificationDeferred: v.boolean(),
+      waitsOn: v.union(v.literal("closer"), v.literal("billing")),
+      waitingSince: v.number(),
+      ageMs: v.number(),
+      closerId: v.optional(v.id("users")),
+      closerName: nullableString,
+      billingAvailableAt: v.optional(v.number()),
+      notMySaleAt: nullableNumber,
       lastSuccessfulSweepAt: nullableNumber,
     })),
     isDone: v.boolean(),
@@ -213,9 +226,13 @@ export const listProviderExceptions = query({
   handler: async (ctx, { paginationOpts, state = "needs_person", asOf = Date.now() }) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
-    const connection = await billingConnection(ctx, tenantId);
-    if (!connection) return { page: [], isDone: true, continueCursor: "" };
-    const page = await exceptionQueue(ctx, connection, state).paginate(reviewPageOptions(paginationOpts));
+    const [connection, tenant] = await Promise.all([
+      billingConnection(ctx, tenantId), ctx.db.get("tenants", tenantId),
+    ]);
+    const queue = state === "not_my_sale" ? notMySaleQueue(ctx, tenantId)
+      : connection ? exceptionQueue(ctx, connection, state) : null;
+    if (!tenant || !queue) return { page: [], isDone: true, continueCursor: "" };
+    const page = await queue.paginate(reviewPageOptions(paginationOpts));
     const rows = [];
     for (const stored of page.page) {
       const payment = paymentForReview(stored, Date.now());
@@ -225,11 +242,20 @@ export const listProviderExceptions = query({
         leadId: payment.candidateLeadId,
         dealIds: payment.candidateOpportunityId ? [payment.candidateOpportunityId] : [],
       };
-      const [lead, deals] = await Promise.all([
+      const [lead, deals, ready, source] = await Promise.all([
         loadPerson(ctx, tenantId, ids.leadId),
         Promise.all(ids.dealIds.map((id) => ctx.db.get("opportunities", id))),
+        findReadyWhopDecision(ctx, payment),
+        connection?._id === payment.connectionId ? connection : ctx.db.get("tenantPaymentConnections", payment.connectionId),
       ]);
+      if (source?.tenantId !== tenantId) continue;
       const deal = deals.find((deal) => lead && deal?.tenantId === tenantId && deal.leadId === lead._id);
+      const waitingDeal = ready?.opportunityId
+        ? deal?._id === ready.opportunityId ? deal : await ctx.db.get("opportunities", ready.opportunityId)
+        : null;
+      const wait = describeWhopWait(tenant, payment,
+        ready && waitingDeal && isCurrentWhopAsk(tenant, ready, waitingDeal, payment) ? ready : null, asOf);
+      const closer = wait.closerId && await ctx.db.get("users", wait.closerId);
       rows.push({
         providerPaymentId: payment._id,
         totalMinor: payment.totalMinor ?? null,
@@ -243,9 +269,12 @@ export const listProviderExceptions = query({
         payerEmail: payment.payerEmail ?? null,
         candidatePerson: personSummary(lead),
         candidateDeal: deal ? dealSummary(deal) : null,
-        environment: connection.environment,
+        environment: source.environment,
         classificationDeferred,
-        lastSuccessfulSweepAt: connection.lastSuccessfulSweepAt ?? null,
+        lastSuccessfulSweepAt: source.lastSuccessfulSweepAt ?? null,
+        ...wait,
+        closerName: closer && closer.tenantId === tenantId ? closer.fullName ?? closer.calendlyMemberName ?? null : null,
+        notMySaleAt: payment.notMySaleAt ?? null,
       });
     }
     return { ...page, page: rows };
@@ -257,6 +286,7 @@ export const getProviderExceptionCounts = query({
   returns: v.object({
     count: v.number(), capped: v.boolean(),
     adverseCount: v.number(), adverseCapped: v.boolean(), connected: v.boolean(),
+    notMySaleCount: v.number(), notMySaleCapped: v.boolean(),
     environment: v.union(providerEnvironmentValidator, v.null()),
     lastSuccessfulSweepAt: nullableNumber,
   }),
@@ -264,13 +294,15 @@ export const getProviderExceptionCounts = query({
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
     const connection = await billingConnection(ctx, tenantId);
-    const [rows, adverse] = connection ? await Promise.all([
-      exceptionQueue(ctx, connection, "needs_person").take(COUNT_LIMIT + 1),
-      adverseQueue(ctx, connection).take(COUNT_LIMIT + 1),
-    ]) : [[], []];
+    const [rows, adverse, flagged] = await Promise.all([
+      connection ? exceptionQueue(ctx, connection, "needs_person").take(COUNT_LIMIT + 1) : [],
+      connection ? adverseQueue(ctx, connection).take(COUNT_LIMIT + 1) : [],
+      notMySaleQueue(ctx, tenantId).take(COUNT_LIMIT + 1),
+    ]);
     return {
       count: Math.min(rows.length, COUNT_LIMIT), capped: rows.length > COUNT_LIMIT,
       adverseCount: Math.min(adverse.length, COUNT_LIMIT), adverseCapped: adverse.length > COUNT_LIMIT,
+      notMySaleCount: Math.min(flagged.length, COUNT_LIMIT), notMySaleCapped: flagged.length > COUNT_LIMIT,
       connected: connection !== null, environment: connection?.environment ?? null,
       lastSuccessfulSweepAt: connection?.lastSuccessfulSweepAt ?? null,
     };
