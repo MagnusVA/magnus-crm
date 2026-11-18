@@ -35,22 +35,28 @@ Each kind has a level in `tenants.resultAutomation`:
 - **A stop stays stopped.** A person's stop is stored under a veto key that survives a re-read, a reprojection and a policy change. `stood_down` is the gate that keeps it from coming back.
 - **Automatic needs a certificate.** `setKindMode` cannot set `automatic`. `promoteKind` (owner only) writes the certificate pointer and the level together, and refuses a sample that is not certified for this kind and the current rule version. Every executor calls `breaker.assertAutomaticAllowed` inside its own mutation.
 - **A row with no recorder is an automatic write.** `lib/paymentWrite.ts` `insertAutomaticPayment` is the only writer, and it requires a ready automatic decision for the same tenant, payment and deal.
-- **A refusal is never silent.** Under automatic, a refusal raises a notice. Nothing changes until the assigned closer acknowledges it, or an owner or admin takes responsibility. The period (`refusalNoticeHours`, 48 by default) runs from that acknowledgment. `notice.finalizeRefusal` re-checks fifteen conditions before it writes; a payment for the person cancels it.
+- **A refusal is never silent.** Under automatic, a refusal raises a notice. Nothing changes until the assigned closer acknowledges it, or an owner or admin takes responsibility. The period (`refusalNoticeHours`, 48 by default) runs from that acknowledgment. `notice.finalizeRefusal` re-checks fifteen conditions before it writes; a payment for the person cancels it, and so does a pending or authorized Whop payment that may be theirs (`payments/provisionalLookup.ts`). A booking-review answer that names the person bumps `leads.identityReviewRevision`, which the deadline also checks.
 
 ## The gate
 
 A certificate is a frozen sample (`automationSamples`) of decisions the rule would have written, one per person, graded by a human. Targets: 300 for `payment_win`, `additional_payment` and `refusal_loss`; 60 for `call_back` and `payment_owed`. One wrong case or one unresolved unsure fails the sample. Abstentions are graded separately and never fill it. A rule version change lapses the certificate; for call kinds the version includes the prompt, the model and the check versions.
 
-Grading is blind: `grading.listToGrade` returns evidence only, the grader commits an answer, and `reveal` shows the proposal. A grader who reveals first is recorded, and the panel reports it.
+Grading is blind: `grading.listToGrade` returns evidence only, the grader commits an answer, and `reveal` shows the proposal. A grader who reveals first is recorded, and the panel reports it; such a grade still counts. Once the owner names a grader, only that person can commit, reveal or grade, and they take over any answer someone else left ungraded. A sample holds only cases the automatic writer could execute (`automaticEligible`): a Billing-only proposal, such as money for a deal the system closed, is graded but never fills it.
 
-After promotion, `audit.ts` selects the first 10 automatic writes of a kind and then one in five, by a hash of the decision id. A canary left open for a business day, or a sampled write for 7 days, trips the breaker. So does one audited wrong person, wrong deal or false loss, and, for payment kinds, a "This isn't my sale" flag left unanswered for a business day. A wrong amount, type or program holds only that product's mapping.
+After promotion, `audit.ts` selects the first 10 automatic writes of a kind and then one in five, by a hash of the decision id. A canary left open for a business day, or a sampled write for 7 days, trips the breaker. So does one audited wrong person, wrong deal or false loss, and, for payment kinds, a "This isn't my sale" flag left unanswered for a business day. A wrong amount, type or program holds only that product's mapping. A sampled check stays open when the result is later corrected or undone: the correction is shown beside the original, and the check still has to be recorded.
 
 ## Putting a result right
 
 - **Payments**: `payments/exclude.ts` and `payments/restore.ts` (see `docs/agents/payments.md`).
 - **Tasks set from a call**: `taskCorrections.changeNextStep` and `callDidNotHappen`. The second withdraws the held mark through `lib/meetingAttendanceUndo.ts`, the only caller of the `automation_held_undone` meeting exception, and corrects the person's lifecycle with `attendance_withdrawn`.
 - **Refusals**: `refusal.reopenRefusal` moves the deal to Follow-up with a reminder due now through `call_refusal_reopened`. It needs the applied refusal decision, so a loss a person typed is never reopened this way.
-- **Automatic writes**: `undo.undoAutomaticWrite`, allowed while nothing a person did has touched the deal since.
+- **Automatic writes**: `undo.undoAutomaticWrite`, allowed while nothing a person did has touched the deal since. Undo of a later payment takes that payment out and the deal stays won. Payment Undo needs Billing Ops on.
+
+## Background work
+
+- `sweep.ts` runs every 15 minutes. Its payment repair reads a bounded band per connection (recent payments and outstanding decisions), saves its place in `automationPaymentRepairCursors`, and stops as soon as both payment kinds are off.
+- A queued call reading rechecks `callEvidenceWanted` when it is claimed. If evidence is no longer wanted it runs with the plain prompt, so switching the call kinds off stops the extra model work at once.
+- Turning Call insights back on while a call kind is automatic needs the owner (`result-automation:raise`).
 
 ## Tests
 
