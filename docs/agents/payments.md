@@ -43,8 +43,8 @@ These tables live in `convex/payments/schema.ts`.
 Every event means "read this payment again". `intake.ts` reads `GET /payments/{id}` and stores it in `storePaymentRead`:
 
 - An older source revision or refresh generation cannot replace newer facts. A superseded receipt retries unless a later generation has already stored a source revision at least as new.
-- A refund or dispute delivery sets `adverseFencedAt` as soon as its payment is known. A resource read and a canonical payment read settle that resource. Refunds are compared by magnitude because Whop can send signed amounts. The fence stays while a resource remains pending. A refund or dispute resource that returns HTTP 403 still triggers the canonical read if its payment id is known.
-- Billing can release a stuck fence after checking Whop. Release clears the fence, resolves the attached pending receipts as `released_by_person`, and schedules a canonical refresh through intake. A real refund or dispute can still appear on the next read.
+- A refund or dispute delivery sets `adverseFencedAt` and advances `adverseFenceRevision` as soon as the receipt attaches to its payment. A resource read and a canonical payment read settle that resource. Refunds are compared by magnitude because Whop can send signed amounts. The fence stays while a resource remains pending. A refund or dispute resource that returns HTTP 403 still triggers the canonical read if its payment id is known.
+- Billing can release a stuck fence after checking Whop. Release checks the fence revision shown to the operator and refuses if more than 100 receipts are pending. In one transaction it clears the fence, resolves the pending receipts as `released_by_person`, and schedules a canonical refresh. An adverse result on that refresh fences the payment again.
 - Receipts stop retrying when the connection is disconnected or the key is rejected. Sweeps resume from the connection's checkpoints after reconnect and revisit pending receipts for known payments. Whop's `Retry-After` accepts seconds or an HTTP date and is capped at 15 minutes.
 - A re-read never overwrites the resolution (`leadId`, `opportunityId`, `paymentRecordId`, `matchMethod`, or a `reviewState` of `linked`, `recorded` or `dismissed`).
 - After storing, `refreshProviderPaymentReview` recomputes where an unresolved payment stands.
@@ -57,7 +57,9 @@ Every event means "read this payment again". `intake.ts` reads `GET /payments/{i
 | `whop-payment-full-scan` | 07:34 UTC | Every payment, paged across runs. Whop has no `updated_after`, and an old pending payment can turn paid |
 | `whop-payment-retention` | 07:54 UTC | Clears raw bodies after 7 days and payer details at their indexed deadlines |
 
-At the start of each recent sweep, retry up to 25 previously unreadable or superseded payment details. A stored read removes its id from the list. An indexed stage also retries provisional facts older than 15 minutes. Indexed fence reads and Whop's recent refund and dispute filters keep terminal history out of these stages. A sweep's success timestamp is the end of the window it covered.
+A payment detail that returns 404 or cannot be parsed is queued on its provider payment row. A superseded sweep read is also queued unless a newer stored revision covers it. Each recent sweep retries up to 25 due rows, oldest first. The delay starts at 15 minutes and doubles up to 24 hours. A stored read clears the retry fields. The sweeps stop retrying after 20 attempts, and Settings reports up to 100 exhausted payments per connection. A later webhook can still refresh an exhausted payment.
+
+An indexed stage also revisits provisional facts older than 15 minutes. Indexed fence reads and Whop's recent refund and dispute filters keep terminal history out of these stages. A sweep's success timestamp is the end of the window it covered.
 
 Provider-wide failures leave a checkpoint at the failing page. A run allows up to 64 pages across Workpool jobs and stops when it sees a repeated cursor in the run. A nightly sweep skips a busy lease.
 

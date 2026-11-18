@@ -17,6 +17,7 @@ import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import {
+  MAX_PAYMENT_READ_ATTEMPTS,
   disputeAccessValidator,
   paymentConnectionErrorValidator,
   paymentConnectionStatusValidator,
@@ -62,6 +63,7 @@ const connectionView = v.object({
   lastSuccessfulSweepAt: v.optional(v.number()),
   lastFullScanAt: v.optional(v.number()),
   lastErrorCode: v.optional(paymentConnectionErrorValidator),
+  unreadablePayments: v.number(),
   connectedAt: v.number(),
   connectedByUserId: v.id("users"),
   webhookEvents: v.array(v.string()),
@@ -100,6 +102,10 @@ export const getConnection = query({
     const { tenantId } = await requireTenantUser(ctx, settingsRoles);
     const row = await findConnection(ctx, tenantId, environment);
     if (!row) return null;
+    const unreadablePayments = await ctx.db.query("providerPayments")
+      .withIndex("by_connectionId_and_retryReadAttempts", (q) =>
+        q.eq("connectionId", row._id).eq("retryReadAttempts", MAX_PAYMENT_READ_ATTEMPTS))
+      .take(100);
 
     return {
       connectionId: row._id,
@@ -118,6 +124,7 @@ export const getConnection = query({
       lastSuccessfulSweepAt: row.lastSuccessfulSweepAt,
       lastFullScanAt: row.lastFullScanAt,
       lastErrorCode: row.lastErrorCode,
+      unreadablePayments: unreadablePayments.length,
       connectedAt: row.connectedAt,
       connectedByUserId: row.connectedByUserId,
       webhookEvents,

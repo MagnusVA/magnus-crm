@@ -72,6 +72,11 @@ export function WhopConnectionCard({ connection }: { connection: WhopConnection 
             {errorSentence}
           </NoteLine>
         ) : null}
+        {connection.unreadablePayments > 0 ? (
+          <NoteLine tone="warning" role="alert">
+            {connection.unreadablePayments} Whop {connection.unreadablePayments === 1 ? "payment" : "payments"} could not be read.
+          </NoteLine>
+        ) : null}
         <NoteLine>
           Payments collected before <span className="whitespace-nowrap">{formatDay(connection.autoImportAfter)}</span>{" "}
           are history. They are listed under History in Billing › From Whop and are never proposed.

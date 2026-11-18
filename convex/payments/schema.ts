@@ -10,6 +10,7 @@ import { paymentTypeValidator } from "../lib/paymentTypes";
  */
 
 export const RAW_RECEIPT_BATCH = 20;
+export const MAX_PAYMENT_READ_ATTEMPTS = 20;
 
 export const paymentProviderValidator = v.literal("whop");
 export const providerEnvironmentValidator = v.union(
@@ -248,7 +249,6 @@ export const paymentProviderTables = {
     lastWebhookAt: v.optional(v.number()),
     lastSuccessfulSweepAt: v.optional(v.number()),
     lastFullScanAt: v.optional(v.number()),
-    unreadablePaymentIds: v.optional(v.array(v.string())),
     // The newest `created_at` the recent sweep has covered.
     sweepCreatedThrough: v.optional(v.number()),
     recentSweepProgress: v.optional(v.object({
@@ -297,6 +297,8 @@ export const paymentProviderTables = {
     refreshGeneration: v.number(),
     refreshedAt: v.optional(v.number()),
     storedRefreshGeneration: v.optional(v.number()),
+    retryReadAt: v.optional(v.number()),
+    retryReadAttempts: v.optional(v.number()),
     firstSeenAt: v.number(),
     paidAt: v.optional(v.number()),
     // `total`: after discounts, with tax, without the buyer's fees. Exact
@@ -312,6 +314,7 @@ export const paymentProviderTables = {
     // Set the moment a refund or dispute delivery arrives, before the read
     // that explains it. Nothing financial is written while it is set.
     adverseFencedAt: v.optional(v.number()),
+    adverseFenceRevision: v.number(),
     sourceAdverseState: v.optional(providerAdverseStateValidator),
     adverseReviewAt: v.optional(v.number()),
     adverseReviewRevision: v.number(),
@@ -401,6 +404,8 @@ export const paymentProviderTables = {
     .index("by_connectionId_and_status_and_sourceCreatedAt_and_firstSeenAt", [
       "connectionId", "status", "sourceCreatedAt", "firstSeenAt",
     ])
+    .index("by_connectionId_and_retryReadAt", ["connectionId", "retryReadAt"])
+    .index("by_connectionId_and_retryReadAttempts", ["connectionId", "retryReadAttempts"])
     .index("by_connectionId_and_adverseFencedAt", ["connectionId", "adverseFencedAt"])
     .index("by_connectionId_and_adverseState_and_adverseFencedAt", ["connectionId", "adverseState", "adverseFencedAt"])
     .index("by_hasPayerDetails_and_payerDetailsExpireAt", ["hasPayerDetails", "payerDetailsExpireAt"]),

@@ -611,13 +611,19 @@ export const acknowledgeAdverse = mutation({
 });
 
 export const releaseAdverseHold = mutation({
-  args: providerPaymentArgs,
+  args: { ...providerPaymentArgs, expectedFenceRevision: v.number() },
   returns: v.null(),
-  handler: async (ctx, { providerPaymentId }) => {
+  handler: async (ctx, { providerPaymentId, expectedFenceRevision }) => {
     const actor = await requireBillingPermission(ctx, "billing:correct");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
     await requireActivePaymentSource(ctx, payment);
+    if (payment.adverseFenceRevision !== expectedFenceRevision) {
+      throw expectedError(
+        "provider_payment.changed",
+        "Someone else changed this payment, or Whop sent a new event. Reload to see the current state.",
+      );
+    }
     if (payment.adverseFencedAt === undefined) {
       throw expectedError("provider_payment.hold_already_cleared", "This Whop hold has already cleared.");
     }

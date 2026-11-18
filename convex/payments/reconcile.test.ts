@@ -233,11 +233,14 @@ test.each(["recent", "full"] as const)("records unreadable details and finishes 
   else await t.action(internal.payments.reconcile.scanFull, { connectionId, startedAt: TEST_TIME });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   const row = await connection(fixture);
-  expect(row?.unreadablePaymentIds).toEqual(["pay_missing", "pay_bad"]);
+  const facts = await t.run((ctx) => ctx.db.query("providerPayments").take(10));
+  expect(facts.filter((fact) => fact.retryReadAttempts !== undefined)).toMatchObject([
+    { externalPaymentId: "pay_missing", retryReadAttempts: 1, retryReadAt: expect.any(Number) },
+    { externalPaymentId: "pay_bad", retryReadAttempts: 1, retryReadAt: expect.any(Number) },
+  ]);
   expect(kind === "recent" ? row?.lastSuccessfulSweepAt : row?.lastFullScanAt).toBeGreaterThanOrEqual(TEST_TIME);
   expect(requests.some((url) => url.pathname.endsWith(`/${PAYMENT_ID}`))).toBe(true);
-  expect(await t.run((ctx) => ctx.db.query("providerPayments").take(10)))
-    .toContainEqual(expect.objectContaining({ externalPaymentId: PAYMENT_ID, status: "paid" }));
+  expect(facts).toContainEqual(expect.objectContaining({ externalPaymentId: PAYMENT_ID, status: "paid" }));
 });
 
 test.each([429, 503])("resumes a provider-wide HTTP %s failure at the same page and through timestamp", async (status) => {
@@ -380,46 +383,121 @@ test("counts and deletes inline receipt bodies in bounded operational reset page
     .toMatchObject({ deleted: 1, hasMore: false });
 });
 
-test("retries an unreadable detail before the next window and removes it after a stored read", async () => {
-  const fixture = await whopFixture({ sweepCreatedThrough: TEST_TIME - 15 * 60_000 });
+async function runRecentSweep(fixture: Fixture, through: number) {
   const { t, connectionId } = fixture;
-  const createdAt = TEST_TIME - 29 * 60_000;
+  vi.setSystemTime(Math.max(Date.now(), through));
+  await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+}
+
+const RETRY_INTERVAL_MS = 15 * 60_000;
+
+test("retries an established payment after the recent refund window and clears its retry fields on recovery", async () => {
+  const fixture = await whopFixture({ sweepCreatedThrough: TEST_TIME - RETRY_INTERVAL_MS });
+  const { t } = fixture;
+  const refundedAt = TEST_TIME - 40 * 60_000;
+  const stored = await seedRead(fixture, { created_at: iso(TEST_TIME - 2 * TEST_DAY_MS) });
+  const fact = () => t.run((ctx) => ctx.db.get("providerPayments", stored._id));
   let readable = false;
   const requests = stubApi((url) => {
     if (url.pathname !== "/api/v1/payments") {
-      return readable
-        ? Response.json(paymentFixture({ created_at: iso(createdAt) }))
-        : new Response(null, { status: 404 });
+      return readable ? Response.json(paymentFixture({
+        created_at: iso(stored.sourceCreatedAt), updated_at: iso(TEST_TIME + 1000), substatus: "refunded",
+      })) : new Response(null, { status: 404 });
     }
-    const after = url.searchParams.get("created_after");
-    return listPage(after && Date.parse(after) <= createdAt ? [PAYMENT_ID] : []);
+    const after = url.searchParams.get("refunded_after");
+    return listPage(after && Date.parse(after) <= refundedAt ? [PAYMENT_ID] : []);
   });
-  const sweep = async (through: number) => {
-    vi.setSystemTime(Math.max(Date.now(), through));
-    await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through });
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
-  };
 
-  await sweep(TEST_TIME);
-  await sweep(TEST_TIME + 15 * 60_000);
-  expect(await connection(fixture)).toMatchObject({
-    unreadablePaymentIds: [PAYMENT_ID], sweepCreatedThrough: TEST_TIME + 15 * 60_000,
-  });
+  await runRecentSweep(fixture, TEST_TIME);
+  expect(await connection(fixture)).toMatchObject({ sweepCreatedThrough: TEST_TIME });
+  const unreadable = (await fact())!;
+  expect(unreadable).toMatchObject({ adverseState: "none", retryReadAttempts: 1, retryReadAt: expect.any(Number) });
 
   const readsBeforeRecovery = requests.length;
   readable = true;
-  await sweep(TEST_TIME + 30 * 60_000);
+  await runRecentSweep(fixture, unreadable.retryReadAt!);
   const recovery = requests.slice(readsBeforeRecovery);
   expect(recovery[0].pathname).toBe(`/api/v1/payments/${PAYMENT_ID}`);
-  expect(Date.parse(recovery[1].searchParams.get("created_after")!)).toBeGreaterThan(createdAt);
+  expect(Date.parse(recovery.find((url) => url.searchParams.has("refunded_after"))!.searchParams.get("refunded_after")!))
+    .toBeGreaterThan(refundedAt);
   expect(recovery.filter((url) => url.pathname.endsWith(`/${PAYMENT_ID}`))).toHaveLength(1);
-  expect(await connection(fixture)).toMatchObject({
-    unreadablePaymentIds: [], lastSuccessfulSweepAt: TEST_TIME + 30 * 60_000,
-  });
-  expect(await t.run((ctx) => ctx.db.query("providerPayments").first())).toMatchObject({ status: "paid" });
+  expect(await connection(fixture)).toMatchObject({ lastSuccessfulSweepAt: unreadable.retryReadAt });
+  const recovered = await fact();
+  expect(recovered).toMatchObject({ adverseState: "refunded" });
+  expect(recovered?.retryReadAt).toBeUndefined();
+  expect(recovered?.retryReadAttempts).toBeUndefined();
 });
 
-test("retries an old provisional fact even when it is absent from the unreadable list", async () => {
+test("keeps all 30 unreadable details and retries the oldest 25 first across recent sweeps", async () => {
+  const fixture = await whopFixture();
+  const ids = Array.from({ length: 30 }, (_, i) => `pay_unreadable_${i}`);
+  const detailReads: string[] = [];
+  stubApi((url) => {
+    if (url.pathname !== "/api/v1/payments") {
+      detailReads.push(url.pathname.split("/").at(-1)!);
+      return new Response(null, { status: 404 });
+    }
+    if (!url.searchParams.has("created_after")) return listPage([]);
+    return url.searchParams.has("after") ? listPage(ids.slice(20)) : listPage(ids.slice(0, 20), "overflow");
+  });
+  const facts = () => fixture.t.run((ctx) => ctx.db.query("providerPayments").take(31));
+
+  await runRecentSweep(fixture, TEST_TIME);
+  expect(detailReads).toEqual(ids);
+  const firstFailures = await facts();
+  expect(firstFailures).toHaveLength(30);
+  expect(firstFailures.every((row) => row.retryReadAttempts === 1 && row.retryReadAt !== undefined)).toBe(true);
+  const allDueAt = firstFailures.at(-1)!.retryReadAt!;
+
+  detailReads.length = 0;
+  await runRecentSweep(fixture, allDueAt);
+  expect(detailReads).toEqual(ids.slice(0, 25));
+  expect((await facts()).map((row) => row.retryReadAttempts))
+    .toEqual([...Array<number>(25).fill(2), ...Array<number>(5).fill(1)]);
+
+  detailReads.length = 0;
+  await runRecentSweep(fixture, allDueAt + RETRY_INTERVAL_MS);
+  expect(detailReads.slice(0, 5)).toEqual(ids.slice(25));
+  expect(detailReads.length).toBeLessThanOrEqual(25);
+  const retried = await facts();
+  expect(retried).toHaveLength(30);
+  expect(retried.every((row) => (row.retryReadAttempts ?? 0) >= 2 && row.retryReadAt !== undefined)).toBe(true);
+});
+
+test("backs off to 24 hours and counts a payment after 20 failed reads stop its retries", async () => {
+  const fixture = await whopFixture();
+  const { t, admin } = fixture;
+  const failureTimes: number[] = [];
+  stubApi((url) => {
+    if (url.pathname === "/api/v1/payments") {
+      return listPage(url.searchParams.has("created_after") ? [PAYMENT_ID] : []);
+    }
+    failureTimes.push(Date.now());
+    return new Response(null, { status: 404 });
+  });
+  let through = TEST_TIME;
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    await runRecentSweep(fixture, through);
+    const row = await t.run((ctx) => ctx.db.query("providerPayments").first());
+    expect(failureTimes).toHaveLength(attempt);
+    expect(row?.retryReadAttempts).toBe(attempt);
+    if (attempt < 20) {
+      const delay = Math.min(RETRY_INTERVAL_MS * 2 ** (attempt - 1), TEST_DAY_MS);
+      expect(row?.retryReadAt).toBe(failureTimes[attempt - 1] + delay);
+      through = row!.retryReadAt!;
+    } else {
+      expect(row?.retryReadAt).toBeUndefined();
+    }
+  }
+
+  await runRecentSweep(fixture, through + TEST_DAY_MS);
+  expect(failureTimes).toHaveLength(20);
+  expect(await admin.query(api.payments.connection.getConnection, { environment: "sandbox" }))
+    .toMatchObject({ unreadablePayments: 1 });
+});
+
+test("retries an old provisional fact even without a failed read", async () => {
   const fixture = await whopFixture();
   const { t, connectionId } = fixture;
   const row = (await connection(fixture))!;
@@ -442,7 +520,7 @@ test("retries an old provisional fact even when it is absent from the unreadable
   ]);
 });
 
-test("puts a superseded sweep detail on the retry list when no later read stored it", async () => {
+test.each([false, true])("queues a superseded detail only without a newer stored read (covered: %s)", async (covered) => {
   const fixture = await whopFixture();
   const { t, connectionId } = fixture;
   const row = (await connection(fixture))!;
@@ -451,17 +529,21 @@ test("puts a superseded sweep detail on the retry list when no later read stored
     if (url.pathname === "/api/v1/payments") {
       return listPage(url.searchParams.has("created_after") ? [PAYMENT_ID] : []);
     }
-    await t.mutation(internal.payments.intake.beginPaymentRead, identity);
+    const generation = (await t.mutation(internal.payments.intake.beginPaymentRead, identity))!;
+    if (covered) {
+      const payment = normalizePayment(paymentSchema.parse(paymentFixture({ updated_at: iso(TEST_TIME + 1000) })));
+      await t.mutation(internal.payments.intake.storePaymentRead, { ...identity, generation, payment });
+    }
     return Response.json(paymentFixture());
   });
   await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
-  expect(await connection(fixture)).toMatchObject({
-    unreadablePaymentIds: [PAYMENT_ID], lastSuccessfulSweepAt: TEST_TIME,
-  });
-  expect(await t.run((ctx) => ctx.db.query("providerPayments").first())).toMatchObject({
-    status: "unknown", refreshGeneration: 2,
-  });
+  expect(await connection(fixture)).toMatchObject({ lastSuccessfulSweepAt: TEST_TIME });
+  const payment = await t.run((ctx) => ctx.db.query("providerPayments").first());
+  expect(payment).toMatchObject({ status: covered ? "paid" : "unknown", refreshGeneration: 2 });
+  expect(payment?.retryReadAttempts).toBe(covered ? undefined : 1);
+  if (covered) expect(payment?.retryReadAt).toBeUndefined();
+  else expect(payment?.retryReadAt).toEqual(expect.any(Number));
 });
 
 test("uses a single indexed fence page regardless of unfenced terminal history", async () => {

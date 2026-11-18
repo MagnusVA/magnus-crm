@@ -441,7 +441,13 @@ function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
   return (
     <DetailCard title="Where it stands" meta={<span className={cn(STATUS_WORD, state.ink)}>{state.word}</span>}>
       <div className="px-4 py-3">{body}</div>
-      {payment.adverseFencedAt !== undefined ? <AdverseHold providerPaymentId={payment._id} /> : null}
+      {payment.adverseFencedAt !== undefined ? (
+        <AdverseHold
+          key={payment._id}
+          providerPaymentId={payment._id}
+          fenceRevision={payment.adverseFenceRevision}
+        />
+      ) : null}
       {!isWhopSweepFresh(detail.lastSuccessfulSweepAt, now) ? (
         <p className="border-t px-4 py-2 text-[13px] text-warning-ink">
           {detail.lastSuccessfulSweepAt === null
@@ -454,7 +460,15 @@ function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
   );
 }
 
-function AdverseHold({ providerPaymentId }: { providerPaymentId: Id<"providerPayments"> }) {
+function AdverseHold({
+  providerPaymentId,
+  fenceRevision,
+}: {
+  providerPaymentId: Id<"providerPayments">;
+  fenceRevision: number;
+}) {
+  // Keep the hold first shown here while the operator checks Whop in another tab.
+  const [expectedFenceRevision] = useState(fenceRevision);
   const { hasPermission } = useRole();
   const release = useMutation(api.payments.review.releaseAdverseHold);
   const [pending, setPending] = useState(false);
@@ -464,11 +478,18 @@ function AdverseHold({ providerPaymentId }: { providerPaymentId: Id<"providerPay
     setPending(true);
     setError(null);
     try {
-      await release({ providerPaymentId });
+      await release({ providerPaymentId, expectedFenceRevision });
       toast.success("Whop hold released.");
     } catch (caught) {
       const fallback = "Couldn't release the Whop hold. Try again.";
-      setError(getErrorCode(caught)?.startsWith("provider_payment.") ? providerErrorMessage(caught, fallback) : fallback);
+      const code = getErrorCode(caught);
+      if (code === "provider_payment.changed") {
+        setError("Someone else changed this payment, or Whop sent a new event. Reload to see the current state.");
+      } else if (code === "provider_payment.too_many_pending") {
+        setError("Too many Whop events are pending on this payment to release it here.");
+      } else {
+        setError(code?.startsWith("provider_payment.") ? providerErrorMessage(caught, fallback) : fallback);
+      }
     } finally {
       setPending(false);
     }

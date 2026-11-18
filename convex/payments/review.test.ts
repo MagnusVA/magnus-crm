@@ -403,7 +403,7 @@ describe("review decisions and permissions", () => {
       client.mutation(review.acknowledgeAdverse, {
         providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAdverseReviewRevision: 0,
       }),
-      client.mutation(review.releaseAdverseHold, { providerPaymentId }),
+      client.mutation(review.releaseAdverseHold, { providerPaymentId, expectedFenceRevision: 0 }),
       client.query(review.getArchivedProviderPayment, { providerPaymentId }),
       client.query(review.getProviderPayment, { providerPaymentId }),
       client.query(review.getLinkedProviderPayment, { paymentRecordId }),
@@ -747,16 +747,16 @@ it("releases a fenced payment's pending receipts and reads Whop again", async ()
   const fixture = await providerPaymentFixture();
   const { t, admin, tenantId, connectionId, providerPaymentId } = fixture;
   const paymentRecordId = await manualRecord(fixture);
-  const args = { providerPaymentId };
-  await admin.mutation(review.linkToPaymentRecord, { ...args, paymentRecordId, expectedAllocationRevision: 0 });
-  await expect(admin.mutation(review.releaseAdverseHold, args)).rejects.toThrow(/provider_payment\.hold_already_cleared/);
+  await admin.mutation(review.linkToPaymentRecord, { providerPaymentId, paymentRecordId, expectedAllocationRevision: 0 });
+  await expect(admin.mutation(review.releaseAdverseHold, { providerPaymentId, expectedFenceRevision: 0 }))
+    .rejects.toThrow(/provider_payment\.hold_already_cleared/);
 
   const receipts = await t.run(async (ctx) => {
     await ctx.db.patch("providerPayments", providerPaymentId, {
-      adverseFencedAt: FIXTURE_NOW, sourceAdverseState: "none", adverseState: "refund_pending",
+      adverseFencedAt: FIXTURE_NOW, adverseFenceRevision: 1, sourceAdverseState: "none", adverseState: "refund_pending",
     });
     const ids = [];
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < 100; i++) {
       ids.push(await ctx.db.insert("paymentWebhookReceipts", {
         tenantId, connectionId, externalPaymentId: "pay_fixture", webhookId: `msg_hold_${i}`,
         externalObjectId: i === 0 ? "disp_hold_fixture" : `ref_hold_${i}`,
@@ -767,17 +767,19 @@ it("releases a fenced payment's pending receipts and reads Whop again", async ()
     }
     return ids;
   });
-  await expect(fixture.closer.mutation(review.releaseAdverseHold, args)).rejects.toThrow();
+  const detail = await admin.query(review.getProviderPayment, { providerPaymentId });
+  const releaseArgs = { providerPaymentId, expectedFenceRevision: detail!.payment.adverseFenceRevision };
+  await expect(fixture.closer.mutation(review.releaseAdverseHold, releaseArgs)).rejects.toThrow();
   const fetchMock = vi.fn(async (_url: string) => Response.json(paymentFixture({
     id: "pay_fixture", account_id: "biz_fixture", substatus: "refunded",
     updated_at: iso(FIXTURE_NOW + 1000), refunded_amount: { amount: "100.00", currency: "usd", decimals: 2 },
   })));
   vi.stubGlobal("fetch", fetchMock);
-  await admin.mutation(review.releaseAdverseHold, args);
+  await admin.mutation(review.releaseAdverseHold, releaseArgs);
   const getFact = () => t.run((ctx) => ctx.db.get("providerPayments", providerPaymentId));
   const getReceipts = () => t.run((ctx) => Promise.all(receipts.map((id) => ctx.db.get("paymentWebhookReceipts", id))));
   expect((await getFact())?.adverseFencedAt).toBeUndefined();
-  expect((await getReceipts()).filter((receipt) => receipt?.failureCode === "released_by_person")).toHaveLength(20);
+  expect((await getReceipts()).filter((receipt) => receipt?.failureCode === "released_by_person")).toHaveLength(100);
   expect(fetchMock).not.toHaveBeenCalled();
   const events = await t.run((ctx) => ctx.db.query("domainEvents").take(10));
   expect(events.filter((event) => event.eventType === "payment.provider_hold_released")).toMatchObject([
@@ -790,8 +792,79 @@ it("releases a fenced payment's pending receipts and reads Whop again", async ()
   }
   expect(fetchMock).toHaveBeenCalledOnce();
   expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/payments\/pay_fixture$/);
-  expect(await getFact()).toMatchObject({ adverseState: "refunded", refundedMinor: 10000 });
+  expect(await getFact()).toMatchObject({
+    adverseState: "refunded", refundedMinor: 10000,
+    adverseFencedAt: expect.any(Number), adverseFenceRevision: releaseArgs.expectedFenceRevision + 1,
+  });
   expect((await adverseItems(fixture)).page).toMatchObject([{ paymentRecordId, adverseState: "refunded" }]);
+});
+
+it.each([false, true])("refuses a release after a dispute attaches to the viewed hold (late attachment: %s)", async (lateAttachment) => {
+  const { t, admin, tenantId, connectionId, providerPaymentId } = await providerPaymentFixture();
+  const connection = (await t.run((ctx) => ctx.db.get("tenantPaymentConnections", connectionId)))!;
+  const receive = (webhookId: string, externalObjectId: string, eventType: string, externalPaymentId?: string) =>
+    t.mutation(internal.payments.intake.receiveWebhook, {
+      tenantId, connectionId, accountId: connection.accountId, connectedAt: connection.connectedAt,
+      webhookId, eventType, externalObjectId, externalPaymentId, bodySha256: "fixture_hash", rawBody: "{}",
+    });
+  const receiveDispute = (externalPaymentId?: string) =>
+    receive("msg_new_dispute", "disp_new_fixture", "dispute.created", externalPaymentId);
+  const pendingReceipts = () => t.run((ctx) => ctx.db.query("paymentWebhookReceipts").take(3));
+  if (lateAttachment) await receiveDispute();
+  await receive("msg_stuck_refund", "ref_stuck_fixture", "refund.created", "pay_fixture");
+
+  const detail = (await admin.query(review.getProviderPayment, { providerPaymentId }))!;
+  expect(detail.payment.adverseFenceRevision).toBe(1);
+  const args = { providerPaymentId, expectedFenceRevision: detail.payment.adverseFenceRevision };
+
+  if (lateAttachment) {
+    const dispute = (await pendingReceipts()).find((receipt) => receipt.webhookId === "msg_new_dispute")!;
+    expect(dispute.externalPaymentId).toBeUndefined();
+    await t.mutation(internal.payments.intake.attachAdversePayment, {
+      receiptId: dispute._id, externalPaymentId: "pay_fixture", connectedAt: connection.connectedAt,
+    });
+  } else {
+    await receiveDispute("pay_fixture");
+  }
+
+  const before = await admin.query(review.getProviderPayment, { providerPaymentId });
+  const receiptsBefore = await pendingReceipts();
+  expect(before?.payment).toMatchObject({ adverseFencedAt: FIXTURE_NOW, adverseFenceRevision: 2 });
+  expect(receiptsBefore).toHaveLength(2);
+  for (const receipt of receiptsBefore) {
+    expect(receipt).toMatchObject({ externalPaymentId: "pay_fixture", adversePending: true });
+  }
+  await expect(admin.mutation(review.releaseAdverseHold, args)).rejects.toThrow(/provider_payment\.changed/);
+  expect(await pendingReceipts()).toEqual(receiptsBefore);
+  expect(await admin.query(review.getProviderPayment, { providerPaymentId })).toEqual(before);
+  expect(await t.run((ctx) => ctx.db.query("domainEvents").take(1))).toEqual([]);
+});
+
+it("leaves all 101 pending receipts and the fence in place when a hold is too large to release", async () => {
+  const { t, admin, tenantId, connectionId, providerPaymentId } = await providerPaymentFixture();
+  await t.run(async (ctx) => {
+    await ctx.db.patch("providerPayments", providerPaymentId, {
+      adverseFencedAt: FIXTURE_NOW, adverseFenceRevision: 101, adverseState: "refund_pending",
+    });
+    for (let i = 0; i < 101; i++) {
+      await ctx.db.insert("paymentWebhookReceipts", {
+        tenantId, connectionId, externalPaymentId: "pay_fixture", webhookId: `msg_hold_${i}`,
+        externalObjectId: `ref_hold_${i}`, eventType: "refund.created", receivedAt: FIXTURE_NOW,
+        adversePending: true, status: "failed", attempts: 8, bodySha256: "fixture_hash",
+        failureCode: "attempts_exhausted",
+      });
+    }
+  });
+  const args = { providerPaymentId, expectedFenceRevision: 101 };
+  const before = await admin.query(review.getProviderPayment, { providerPaymentId });
+  await expect(admin.mutation(review.releaseAdverseHold, args)).rejects.toThrow(/provider_payment\.too_many_pending/);
+  expect(await admin.query(review.getProviderPayment, { providerPaymentId })).toEqual(before);
+  const receipts = await t.run((ctx) => ctx.db.query("paymentWebhookReceipts").take(102));
+  expect(receipts).toHaveLength(101);
+  for (const receipt of receipts) {
+    expect(receipt).toMatchObject({ adversePending: true, status: "failed", failureCode: "attempts_exhausted" });
+  }
+  expect(await t.run((ctx) => ctx.db.query("domainEvents").take(1))).toEqual([]);
 });
 
 it("keeps sandbox evidence visible and unlinkable after disconnect", async () => {
@@ -805,7 +878,7 @@ it("keeps sandbox evidence visible and unlinkable after disconnect", async () =>
   });
   expect(await admin.query(review.getProviderPayment, { providerPaymentId })).toBeNull();
   expect(await admin.query(review.getArchivedProviderPayment, { providerPaymentId })).toMatchObject({
-    environment: "sandbox", payment: { paymentRecordId, reviewState: "linked" },
+    environment: "sandbox", payment: { paymentRecordId, reviewState: "linked", adverseFenceRevision: 0 },
   });
   await expect(admin.mutation(review.unlinkPaymentRecord, {
     providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAllocationRevision: 1,
@@ -837,7 +910,7 @@ it("rejects active review operations on a non-active source even when that row s
   await expect(admin.mutation(review.acknowledgeAdverse, {
     providerPaymentId, expectedPaymentRecordId: paymentRecordId, expectedAdverseReviewRevision: 1,
   })).rejects.toThrow(/provider_payment\.connection_unavailable/);
-  await expect(admin.mutation(review.releaseAdverseHold, { providerPaymentId }))
+  await expect(admin.mutation(review.releaseAdverseHold, { providerPaymentId, expectedFenceRevision: 0 }))
     .rejects.toThrow(/provider_payment\.connection_unavailable/);
 });
 

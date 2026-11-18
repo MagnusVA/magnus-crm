@@ -5,12 +5,13 @@ import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx,
 } from "../_generated/server";
+import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { providerPool } from "../pipeline/workpools";
 import { noteWebhook } from "./connectionState";
 import { baseProviderReviewState, refreshProviderPaymentReview } from "./match";
 import { payerDetailsDeadline } from "./payerRetention";
-import { paymentProviderTables, RAW_RECEIPT_BATCH } from "./schema";
+import { MAX_PAYMENT_READ_ATTEMPTS, paymentProviderTables } from "./schema";
 import { MAX_RETRY_AFTER_MS, reportWhopRequestError, WhopRequestError } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
 import {
@@ -21,6 +22,9 @@ import {
 const connectionId = v.id("tenantPaymentConnections");
 const receiptId = v.id("paymentWebhookReceipts");
 const MAX_ATTEMPTS = 8;
+const PAYMENT_READ_RETRY_MS = 15 * 60_000;
+const MAX_PAYMENT_READ_RETRY_MS = 24 * 60 * 60_000;
+const MAX_RELEASE_RECEIPTS = 100;
 const {
   tenantId: receiptTenantId, connectionId: receiptConnectionId, eventType: receiptEventType,
   externalPaymentId: receiptExternalPaymentId, externalObjectId: receiptExternalObjectId,
@@ -88,6 +92,7 @@ async function insertProvisionalPayment(
     adverseState: adverse ? pendingAdverseState(adverse.kind) : "none",
     sourceAdverseState: "none",
     adverseFencedAt: adverse?.fencedAt,
+    adverseFenceRevision: adverse ? 1 : 0,
     lineItemCount: 0,
     failedAttemptCount: 0,
     reviewState: "not_actionable",
@@ -122,6 +127,7 @@ async function fenceForReceipt(
       ? pendingAdverseState(kind) : sourceAdverseState;
     await ctx.db.patch("providerPayments", existing._id, {
       adverseFencedAt: fencedAt,
+      adverseFenceRevision: existing.adverseFenceRevision + 1,
       sourceAdverseState,
       adverseState,
       ...adverseReviewUpdate(existing, {
@@ -250,13 +256,19 @@ function isCurrentConnection(
 }
 
 const adverseKind = v.union(v.literal("refund"), v.literal("dispute"), v.literal("dispute_alert"));
+const readMode = v.union(v.literal("sweep"), v.literal("retry"), v.literal("release"));
+type ReadMode = typeof readMode.type;
+
 export const beginPaymentRead = internalMutation({
-  args: readIdentity,
+  args: { ...readIdentity, mode: v.optional(readMode) },
   returns: v.union(v.number(), v.null()),
   handler: async (ctx, args) => {
     const connection = await ctx.db.get("tenantPaymentConnections", args.connectionId);
     if (!isCurrentConnection(connection, args)) return null;
     const row = await findPayment(ctx, connection, args.externalPaymentId);
+    // The indexed retry batch owns sweep reads for rows with a failed read.
+    if (args.mode === "sweep" && row?.retryReadAttempts !== undefined) return null;
+    if (args.mode === "retry" && (row?.retryReadAt === undefined || row.retryReadAt > Date.now())) return null;
     if (!row) {
       await insertProvisionalPayment(ctx, connection, args.externalPaymentId);
       return 1;
@@ -264,6 +276,28 @@ export const beginPaymentRead = internalMutation({
     const generation = row.refreshGeneration + 1;
     await ctx.db.patch("providerPayments", row._id, { refreshGeneration: generation });
     return generation;
+  },
+});
+
+async function deferPaymentRead(ctx: MutationCtx, row: Doc<"providerPayments">) {
+  const attempts = (row.retryReadAttempts ?? 0) + 1;
+  if (attempts > MAX_PAYMENT_READ_ATTEMPTS) return;
+  const delay = Math.min(MAX_PAYMENT_READ_RETRY_MS, PAYMENT_READ_RETRY_MS * 2 ** (attempts - 1));
+  await ctx.db.patch("providerPayments", row._id, {
+    retryReadAttempts: attempts,
+    retryReadAt: attempts < MAX_PAYMENT_READ_ATTEMPTS ? Date.now() + delay : undefined,
+  });
+}
+
+export const recordPaymentReadFailure = internalMutation({
+  args: { ...readIdentity, generation: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const connection = await ctx.db.get("tenantPaymentConnections", args.connectionId);
+    if (!isCurrentConnection(connection, args)) return null;
+    const row = await findPayment(ctx, connection, args.externalPaymentId);
+    if (row && (row.storedRefreshGeneration ?? 0) < args.generation) await deferPaymentRead(ctx, row);
+    return null;
   },
 });
 
@@ -341,15 +375,12 @@ function pendingAdverseReceipts(
   ctx: QueryCtx | MutationCtx,
   connectionId: Id<"tenantPaymentConnections">,
   externalPaymentId: string,
-  through?: number,
 ) {
   return ctx.db.query("paymentWebhookReceipts")
-    .withIndex("by_connectionId_and_externalPaymentId_and_adversePending", (q) => {
-      const range = q.eq("connectionId", connectionId)
-        .eq("externalPaymentId", externalPaymentId)
-        .eq("adversePending", true);
-      return through === undefined ? range : range.lte("_creationTime", through);
-    });
+    .withIndex("by_connectionId_and_externalPaymentId_and_adversePending", (q) => q
+      .eq("connectionId", connectionId)
+      .eq("externalPaymentId", externalPaymentId)
+      .eq("adversePending", true));
 }
 
 type AdverseFacts = Pick<Doc<"providerPayments">, "adverseState" | "adverseFencedAt" | "refundedMinor">;
@@ -389,6 +420,7 @@ export const storePaymentRead = internalMutation({
   args: {
     ...readIdentity,
     generation: v.number(),
+    mode: v.optional(readMode),
     payment: normalizedRead,
     evidence: v.optional(v.array(adverseEvidence)),
   },
@@ -401,12 +433,16 @@ export const storePaymentRead = internalMutation({
     const row = await findPayment(ctx, connection, payment.externalPaymentId);
     if (!row) return "superseded";
     if (row.refreshGeneration !== args.generation) {
-      return (row.storedRefreshGeneration ?? 0) > args.generation &&
-        row.sourceUpdatedAt >= payment.sourceUpdatedAt ? "covered" : "superseded";
+      if ((row.storedRefreshGeneration ?? 0) > args.generation &&
+          row.sourceUpdatedAt >= payment.sourceUpdatedAt) return "covered";
+      if (args.mode !== undefined) await deferPaymentRead(ctx, row);
+      return "superseded";
     }
-    if (payment.sourceUpdatedAt < row.sourceUpdatedAt) {
+    const rejectedRead = async () => {
+      if (args.mode === "retry") await deferPaymentRead(ctx, row);
       return row.adverseFencedAt !== undefined ? "fenced" : "stale";
-    }
+    };
+    if (payment.sourceUpdatedAt < row.sourceUpdatedAt) return rejectedRead();
     const confirmed = [];
     for (const evidence of args.evidence ?? []) {
       if (!corroboratesResource(payment, evidence)) continue;
@@ -424,7 +460,7 @@ export const storePaymentRead = internalMutation({
     if (payment.sourceUpdatedAt === row.sourceUpdatedAt && !confirmsCleanRefund && (
       (row.adverseFencedAt !== undefined || sourceAdverseState !== "none") &&
       (payment.adverseState !== sourceAdverseState || Math.abs(payment.refundedMinor) < Math.abs(row.refundedMinor))
-    )) return row.adverseFencedAt !== undefined ? "fenced" : "stale";
+    )) return rejectedRead();
 
     for (const { receipt } of confirmed) {
       await ctx.db.patch("paymentWebhookReceipts", receipt._id, { adversePending: undefined });
@@ -436,11 +472,13 @@ export const storePaymentRead = internalMutation({
       (payment.adverseState === "none" || payment.adverseState === "dispute_won")
       ? pendingAdverseState(pendingKind)
       : payment.adverseState;
-    const adverseFencedAt = pending ? row.adverseFencedAt : undefined;
+    const now = Date.now();
+    const fenceAfterRelease = args.mode === "release" && !pending &&
+      adverseReviewRequired({ ...payment, adverseFencedAt: undefined });
+    const adverseFencedAt = pending ? row.adverseFencedAt : fenceAfterRelease ? now : undefined;
     const nextReviewState = baseProviderReviewState(payment, connection.autoImportAfter);
     const protectedReview = row.reviewState === "linked" || row.reviewState === "recorded" ||
       row.reviewState === "dismissed";
-    const now = Date.now();
     const payerDetailsExpireAt = payerDetailsDeadline(
       row, protectedReview ? row.reviewState : nextReviewState, row.resolvedAt,
     );
@@ -455,7 +493,10 @@ export const storePaymentRead = internalMutation({
       ...factsPatch,
       refreshedAt: now,
       storedRefreshGeneration: args.generation,
+      retryReadAt: undefined,
+      retryReadAttempts: undefined,
       adverseFencedAt,
+      ...(fenceAfterRelease ? { adverseFenceRevision: row.adverseFenceRevision + 1 } : {}),
       adverseState,
       sourceAdverseState: payment.adverseState,
       ...adverseReviewUpdate(row, {
@@ -476,21 +517,21 @@ export const storePaymentRead = internalMutation({
         } : {}),
       }),
     });
-    if (connection.unreadablePaymentIds?.includes(payment.externalPaymentId)) {
-      await ctx.db.patch("tenantPaymentConnections", connection._id, {
-        unreadablePaymentIds: connection.unreadablePaymentIds.filter((id) => id !== payment.externalPaymentId),
-      });
-    }
     await refreshProviderPaymentReview(ctx, row._id);
-    return pending ? "fenced" : "stored";
+    return adverseFencedAt === undefined ? "stored" : "fenced";
   },
 });
 
-export async function refreshWhopPayment(
+export function isPaymentReadFailure(error: unknown) {
+  return error instanceof WhopRequestError && error.code === "unexpected_response" &&
+    (error.status === undefined || error.status === 404 || error.status < 300);
+}
+
+async function refreshWhopPayment(
   ctx: ActionCtx,
   connection: Doc<"tenantPaymentConnections">,
   externalPaymentId: string,
-  evidence?: AdverseEvidence[],
+  { evidence, mode }: { evidence?: AdverseEvidence[]; mode?: ReadMode } = {},
 ): Promise<typeof readResult.type> {
   const identity = {
     connectionId: connection._id,
@@ -498,17 +539,25 @@ export async function refreshWhopPayment(
     accountId: connection.accountId,
     externalPaymentId,
   };
-  const generation = await ctx.runMutation(internal.payments.intake.beginPaymentRead, identity);
+  const generation = await ctx.runMutation(internal.payments.intake.beginPaymentRead, { ...identity, mode });
   if (generation === null) return "superseded";
-  const payment = await whopFetch(ctx, connection._id, `/payments/${encodeURIComponent(externalPaymentId)}`, { connectedAt: connection.connectedAt }, (value) => {
-    const parsed = paymentSchema.parse(value);
-    if (parsed.account_id !== connection.accountId) throw new WhopAccountMismatch();
-    if (parsed.id !== externalPaymentId) throw new WhopRequestError("unexpected_response");
-    return normalizePayment(parsed);
-  });
-  return ctx.runMutation(internal.payments.intake.storePaymentRead, {
-    ...identity, generation, payment, evidence,
-  });
+  if (mode === "sweep" || mode === "retry") evidence = await sweepAdverseEvidence(ctx, connection, externalPaymentId);
+
+  let payment: PaymentFacts;
+  try {
+    payment = await whopFetch(ctx, connection._id, `/payments/${encodeURIComponent(externalPaymentId)}`, { connectedAt: connection.connectedAt }, (value) => {
+      const parsed = paymentSchema.parse(value);
+      if (parsed.account_id !== connection.accountId) throw new WhopAccountMismatch();
+      if (parsed.id !== externalPaymentId) throw new WhopRequestError("unexpected_response");
+      return normalizePayment(parsed);
+    });
+  } catch (error) {
+    if (mode === "release" || isPaymentReadFailure(error)) {
+      await ctx.runMutation(internal.payments.intake.recordPaymentReadFailure, { ...identity, generation });
+    }
+    throw error;
+  }
+  return ctx.runMutation(internal.payments.intake.storePaymentRead, { ...identity, generation, mode, payment, evidence });
 }
 
 export const attachAdversePayment = internalMutation({
@@ -575,11 +624,20 @@ export const listPendingAdverse = internalQuery({
   },
 });
 
-export async function refreshWhopPaymentForSweep(
+export function refreshWhopPaymentForSweep(
   ctx: ActionCtx,
   connection: Doc<"tenantPaymentConnections">,
   externalPaymentId: string,
+  mode: "sweep" | "retry",
 ) {
+  return refreshWhopPayment(ctx, connection, externalPaymentId, { mode });
+}
+
+async function sweepAdverseEvidence(
+  ctx: ActionCtx,
+  connection: Doc<"tenantPaymentConnections">,
+  externalPaymentId: string,
+): Promise<AdverseEvidence[]> {
   const resources = await ctx.runQuery(internal.payments.intake.listPendingAdverse, {
     connectionId: connection._id, externalPaymentId,
   });
@@ -587,29 +645,40 @@ export async function refreshWhopPaymentForSweep(
   for (const resource of resources) {
     try {
       const object = await fetchAdverseResource(ctx, connection, resource.kind, resource.externalObjectId);
-      if (object.paymentId === externalPaymentId) evidence.push({ ...resource, ...object });
+      if (object.paymentId === externalPaymentId) {
+        const { state, updatedAt, refundMinor } = object;
+        evidence.push({ receiptId: resource.receiptId, kind: resource.kind, state, updatedAt, refundMinor });
+      }
     } catch (error) {
       // An inaccessible resource must not prevent the canonical payment read.
       if (!(error instanceof WhopRequestError) ||
           (error.code !== "forbidden" && error.code !== "unexpected_response")) throw error;
     }
   }
-  return refreshWhopPayment(ctx, connection, externalPaymentId, evidence.map(
-    ({ receiptId, kind, state, updatedAt, refundMinor }) => ({ receiptId, kind, state, updatedAt, refundMinor }),
-  ));
+  return evidence;
 }
 
-async function resolveReleasedReceipts(
-  ctx: MutationCtx,
-  payment: Doc<"providerPayments">,
-  through?: number,
-) {
-  const { _id: providerPaymentId, connectionId, externalPaymentId } = payment;
-  const receipts = through === undefined ? [] : await pendingAdverseReceipts(
-    ctx, connectionId, externalPaymentId, through,
-  ).take(RAW_RECEIPT_BATCH + 1);
+export async function releasePaymentFence(ctx: MutationCtx, payment: Doc<"providerPayments">) {
+  const { connectionId, externalPaymentId } = payment;
+  const receipts = await pendingAdverseReceipts(ctx, connectionId, externalPaymentId)
+    .take(MAX_RELEASE_RECEIPTS + 1);
+  if (receipts.length > MAX_RELEASE_RECEIPTS) {
+    throw expectedError(
+      "provider_payment.too_many_pending",
+      "Too many Whop events are pending on this payment to release it here.",
+    );
+  }
   const now = Date.now();
-  for (const receipt of receipts.slice(0, RAW_RECEIPT_BATCH)) {
+  const adverseState = payment.sourceAdverseState ?? "none";
+  await ctx.db.patch("providerPayments", payment._id, {
+    adverseFencedAt: undefined,
+    adverseState,
+    refreshGeneration: payment.refreshGeneration + 1,
+    ...adverseReviewUpdate(payment, {
+      adverseState, adverseFencedAt: undefined, refundedMinor: payment.refundedMinor,
+    }, now, false),
+  });
+  for (const receipt of receipts) {
     await ctx.db.patch("paymentWebhookReceipts", receipt._id, {
       adversePending: undefined,
       status: "processed",
@@ -618,40 +687,9 @@ async function resolveReleasedReceipts(
       retryAt: undefined,
     });
   }
-  if (through !== undefined && receipts.length > RAW_RECEIPT_BATCH) {
-    await ctx.scheduler.runAfter(0, internal.payments.intake.continueAdverseRelease, { providerPaymentId, through });
-  } else {
-    await providerPool.enqueueAction(ctx, internal.payments.intake.refreshReleasedPayment, {
-      connectionId, externalPaymentId,
-    });
-  }
-}
-
-export async function releasePaymentFence(ctx: MutationCtx, payment: Doc<"providerPayments">) {
-  const newest = await pendingAdverseReceipts(ctx, payment.connectionId, payment.externalPaymentId)
-    .order("desc").first();
-  const adverseState = payment.sourceAdverseState ?? "none";
-  await ctx.db.patch("providerPayments", payment._id, {
-    adverseFencedAt: undefined,
-    adverseState,
-    refreshGeneration: payment.refreshGeneration + 1,
-    ...adverseReviewUpdate(payment, {
-      adverseState, adverseFencedAt: undefined, refundedMinor: payment.refundedMinor,
-    }, Date.now(), false),
-  });
-  await resolveReleasedReceipts(ctx, payment, newest?._creationTime);
+  await providerPool.enqueueAction(ctx, internal.payments.intake.refreshReleasedPayment, { connectionId, externalPaymentId });
   await refreshProviderPaymentReview(ctx, payment._id);
 }
-
-export const continueAdverseRelease = internalMutation({
-  args: { providerPaymentId: v.id("providerPayments"), through: v.number() },
-  returns: v.null(),
-  handler: async (ctx, { providerPaymentId, through }) => {
-    const payment = await ctx.db.get("providerPayments", providerPaymentId);
-    if (payment) await resolveReleasedReceipts(ctx, payment, through);
-    return null;
-  },
-});
 
 export const refreshReleasedPayment = internalAction({
   args: { connectionId, externalPaymentId: v.string() },
@@ -660,14 +698,10 @@ export const refreshReleasedPayment = internalAction({
     const connection = await ctx.runQuery(internal.payments.connectionState.connection, { connectionId });
     if (connection?.status !== "connected") return null;
     try {
-      const result = await refreshWhopPayment(ctx, connection, externalPaymentId);
-      if (result !== "superseded") return null;
+      await refreshWhopPayment(ctx, connection, externalPaymentId, { mode: "release" });
     } catch (error) {
       reportWhopRequestError("whop.hold.refresh_failed", error, { connectionId });
     }
-    await ctx.runMutation(internal.payments.reconcile.recordUnreadablePayments, {
-      connectionId, connectedAt: connection.connectedAt, ids: [externalPaymentId],
-    });
     return null;
   },
 });
@@ -776,7 +810,7 @@ export const processReceipt = internalAction({
         if (!externalPaymentId) {
           outcome = "missing_object";
         } else {
-          const result = await refreshWhopPayment(ctx, connection, externalPaymentId, evidence && [evidence]);
+          const result = await refreshWhopPayment(ctx, connection, externalPaymentId, { evidence: evidence && [evidence] });
           if (result !== "superseded") {
             if (!kind) {
               outcome = "processed";

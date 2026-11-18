@@ -140,6 +140,7 @@ describe("Whop connection", () => {
       connectedAt: now,
       connectedByUserId: f.adminId,
       keyLast4: "1111",
+      unreadablePayments: 0,
       disputeAccess: "ok",
       hasWebhookSecret: true,
       webhookUrl: `https://test.convex.site/webhooks/whop?c=${connectionId}`,

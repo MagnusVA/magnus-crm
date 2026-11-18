@@ -6,13 +6,14 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { providerPool } from "../pipeline/workpools";
-import { refreshWhopPaymentForSweep } from "./intake";
+import { isPaymentReadFailure, refreshWhopPaymentForSweep } from "./intake";
 import { RAW_RECEIPT_BATCH } from "./schema";
 import { reportWhopRequestError, WhopRequestError, type WhopQuery } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
 import { whopId } from "./whop/normalize";
 
 const PAGE_SIZE = 20;
+const PAYMENT_READ_RETRY_BATCH = 25;
 export const SWEEP_PAGE_BUDGET = 64;
 const PROVISIONAL_RETRY_AGE_MS = 15 * 60_000;
 const DAY_MS = 86_400_000;
@@ -150,18 +151,17 @@ const RECENT_STAGES = [
   { kind: "provisional" },
 ] as const;
 
-export const recordUnreadablePayments = internalMutation({
-  args: { connectionId, connectedAt: v.number(), ids: v.array(v.string()) },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get("tenantPaymentConnections", args.connectionId);
-    if (row?.connectedAt === args.connectedAt) {
-      const unreadable = new Set(args.ids);
-      const prior = row.unreadablePaymentIds?.filter((id) => !unreadable.has(id)) ?? [];
-      const ids = [...prior, ...unreadable].slice(-25);
-      await ctx.db.patch("tenantPaymentConnections", args.connectionId, { unreadablePaymentIds: ids });
-    }
-    return null;
+export const listDuePaymentReads = internalQuery({
+  args: { connectionId, dueThrough: v.number() },
+  returns: v.array(v.string()),
+  handler: async (ctx, { connectionId, dueThrough }) => {
+    const connection = await ctx.db.get("tenantPaymentConnections", connectionId);
+    if (connection?.status !== "connected") return [];
+    const due = await ctx.db.query("providerPayments")
+      .withIndex("by_connectionId_and_retryReadAt", (q) =>
+        q.eq("connectionId", connectionId).gt("retryReadAt", undefined).lte("retryReadAt", dueThrough))
+      .take(PAYMENT_READ_RETRY_BATCH);
+    return due.filter((row) => row.tenantId === connection.tenantId).map((row) => row.externalPaymentId);
   },
 });
 
@@ -169,24 +169,13 @@ async function refreshPage(
   ctx: ActionCtx,
   connection: Doc<"tenantPaymentConnections">,
   ids: string[],
+  mode: "sweep" | "retry" = "sweep",
 ) {
-  const unreadable: string[] = [];
-  try {
-    for (const id of new Set(ids)) {
-      try {
-        const result = await refreshWhopPaymentForSweep(ctx, connection, id);
-        if (result === "superseded") unreadable.push(id);
-      } catch (error) {
-        if (!(error instanceof WhopRequestError) || error.code !== "unexpected_response" ||
-            (error.status !== undefined && error.status !== 404 && error.status >= 300)) throw error;
-        unreadable.push(id);
-      }
-    }
-  } finally {
-    if (unreadable.length) {
-      await ctx.runMutation(internal.payments.reconcile.recordUnreadablePayments, {
-        connectionId: connection._id, connectedAt: connection.connectedAt, ids: unreadable,
-      });
+  for (const id of new Set(ids)) {
+    try {
+      await refreshWhopPaymentForSweep(ctx, connection, id, mode);
+    } catch (error) {
+      if (!isPaymentReadFailure(error)) throw error;
     }
   }
 }
@@ -279,8 +268,11 @@ export const sweepRecent = internalAction({
     const stageIndex = continuation?.stage ?? args.stage ?? 0;
     const pageCursor = continuation?.cursor ?? args.cursor ?? null;
     try {
-      if (!args.token && connection.unreadablePaymentIds?.length) {
-        await refreshPage(ctx, connection, connection.unreadablePaymentIds);
+      if (!args.token) {
+        const dueIds = await ctx.runQuery(internal.payments.reconcile.listDuePaymentReads, {
+          connectionId: connection._id, dueThrough: Date.now(),
+        });
+        await refreshPage(ctx, connection, dueIds, "retry");
       }
       if ((connection.sweepCreatedThrough ?? 0) >= through) {
         await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, leaseArgs);
