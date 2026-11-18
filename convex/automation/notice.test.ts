@@ -1,4 +1,5 @@
 import { anyApi, makeFunctionReference, type ApiFromModules } from "convex/server";
+import { possibleProvisionalPayment } from "../payments/provisionalLookup";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { assertAutomationInvariants } from "../../tests/automationInvariants";
 import { callInsightsHarness, seedCallDecisionReading } from "../../tests/callInsightsHarness";
@@ -506,6 +507,28 @@ it("13: a pre-existing authorization with no candidate blocks re-derivation and 
   });
   expect(current.derived?.wouldWrite).toBe(false);
   await expectWithdrawal(f, "payment_found");
+});
+
+it("13: a contactless provisional payment holds refusals only while it is recent", async () => {
+  const f = await dueFixture();
+  const possible = () => f.t.run(async (ctx) =>
+    possibleProvisionalPayment(ctx, (await ctx.db.get("leads", f.leadId))!, DUE));
+  const factId = await f.t.run(async (ctx) => {
+    const connectionId = await insertPaymentFixtureConnection(ctx, f.tenantId, f.ownerId);
+    await ctx.db.patch("tenantPaymentConnections", connectionId, { lastSuccessfulSweepAt: DUE, autoImportAfter: 0 });
+    return insertProviderFact(ctx, f.tenantId, connectionId, {
+      status: "pending", paidAt: undefined, payerEmail: undefined, payerPhone: undefined, sourceCreatedAt: DUE - HOUR_MS,
+    });
+  });
+  expect(await possible()).toMatchObject({ _id: factId });
+  // Past the matcher's age limit it can no longer settle into a match.
+  await f.t.run((ctx) => ctx.db.patch("providerPayments", factId, { sourceCreatedAt: DUE - 8 * 24 * HOUR_MS }));
+  expect(await possible()).toBeNull();
+  // A purged row says nothing about who paid.
+  await f.t.run((ctx) => ctx.db.patch("providerPayments", factId, {
+    sourceCreatedAt: DUE - HOUR_MS, payerDetailsClearedAt: DUE,
+  }));
+  expect(await possible()).toBeNull();
 });
 
 it("13: a checkout-bound authorization with a different payer holds the refusal", async () => {

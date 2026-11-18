@@ -74,11 +74,17 @@ function callReference(row: Decision) {
 }
 const pageSize = 50;
 
+async function designatedGrader(ctx: QueryCtx | MutationCtx, tenantId: Id<"tenants">) {
+  return (await ctx.db.get("tenants", tenantId))?.resultAutomation?.graderUserId;
+}
+
+/** Mutations refuse anyone but the named grader. Queries return nothing instead, so the panel still renders. */
 async function assertDesignatedGrader(ctx: QueryCtx | MutationCtx, tenantId: Id<"tenants">, userId: Id<"users">) {
-  const grader = (await ctx.db.get("tenants", tenantId))?.resultAutomation?.graderUserId;
+  const grader = await designatedGrader(ctx, tenantId);
   if (grader && grader !== userId) {
     throw expectedError("automation.not_designated_grader", "Only the designated grader can grade cases.");
   }
+  return grader;
 }
 
 async function scopedDecisions(ctx: QueryCtx, tenantId: Id<"tenants">, kind: AutomationKind, includeSample = false) {
@@ -146,7 +152,8 @@ export const listToGrade = query({
   }),
   handler: async (ctx, { kind, sample }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
-    await assertDesignatedGrader(ctx, tenantId, userId);
+    const grader = await designatedGrader(ctx, tenantId);
+    if (grader && grader !== userId) return { cases: [], capped: false };
     const { rows, capped } = await scopedDecisions(ctx, tenantId, kind, sample === "writes");
     const people = await personIds(ctx, tenantId, rows);
     const seen = new Set<Id<"leads">>();
@@ -155,7 +162,8 @@ export const listToGrade = query({
       const person = row.leadId && people.get(row.leadId);
       if (!person || (isPaymentKind(kind) ? !row.providerPaymentId : !callReference(row)) || row.wouldWrite !== (sample === "writes") || seen.has(person)) continue;
       seen.add(person);
-      if (row.grade || (row.answer && row.answer.committedByUserId !== userId)) continue;
+      // The named grader takes over a case someone else answered and never graded.
+      if (row.grade || (row.answer && row.answer.committedByUserId !== userId && grader !== userId)) continue;
       cases.push(row);
       if (cases.length > pageSize) break;
     }
@@ -201,7 +209,8 @@ export const getMyAnswer = query({
   returns: v.union(v.null(), v.object({ answer: answerValidator, blind: v.boolean() })),
   handler: async (ctx, { decisionId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
-    await assertDesignatedGrader(ctx, tenantId, userId);
+    const grader = await designatedGrader(ctx, tenantId);
+    if (grader && grader !== userId) return null;
     const row = await gradeCase(ctx, tenantId, decisionId);
     if (row.answer?.committedByUserId !== userId) return null;
     const blind = row.grade
@@ -241,10 +250,13 @@ export const commitAnswer = mutation({
   returns: v.null(),
   handler: async (ctx, { decisionId, answer }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
-    await assertDesignatedGrader(ctx, tenantId, userId);
+    const grader = await assertDesignatedGrader(ctx, tenantId, userId);
     const row = await gradeCase(ctx, tenantId, decisionId);
     if (row.answer?.committedByUserId === userId) return null;
-    if (row.grade || row.answer) throw expectedError("automation.answer_committed", "An answer is already committed.");
+    // The named grader replaces an answer another person left ungraded.
+    if (row.grade || (row.answer && grader !== userId)) {
+      throw expectedError("automation.answer_committed", "An answer is already committed.");
+    }
     await verifyAnswer(ctx, tenantId, answer);
     await ctx.db.patch("resultAutomationDecisions", decisionId, {
       answer: { ...answer, committedByUserId: userId, committedAt: Date.now() },

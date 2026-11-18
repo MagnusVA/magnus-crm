@@ -4,6 +4,7 @@ import { followMergeChain } from "../leads/identityResolution";
 import { mergedLeadIds } from "../lib/mergedLeads";
 import { isPlaceholderEmail, isPlaceholderPhone, normalizeEmail, normalizePhone } from "../lib/normalization";
 import { findEnabledBinding } from "./bindingLookup";
+import { MAX_PROVIDER_PAYMENT_AGE_MS } from "./reviewTiming";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type Payment = Doc<"providerPayments">;
@@ -55,16 +56,31 @@ async function personContactKeys(ctx: ReadCtx, person: Doc<"leads">) {
 
 /** Finds provisional evidence that could belong to the person, even before the paid matcher runs. */
 export async function possibleProvisionalPayment(
-  ctx: ReadCtx, person: Doc<"leads">,
+  ctx: ReadCtx, person: Doc<"leads">, now = Date.now(),
 ): Promise<Payment | "unknown" | null> {
   const keys = await personContactKeys(ctx, person);
   if (!keys) return "unknown";
   const tenantId = person.tenantId;
   let remaining = IDENTITY_LIMIT;
+  // A payment with no contact details names nobody, so it could be anyone's.
+  // Only a recent one can still settle into a match: an older one is past the
+  // matcher's age limit, and one whose details were purged is older still.
+  // These rows get their own budget, read newest first, so old history can
+  // neither use it up nor stop every refusal in the tenant.
+  async function readContactless(range: { order(o: "desc"): { take(limit: number): Promise<Payment[]> } }) {
+    const rows = await range.order("desc").take(IDENTITY_LIMIT + 1);
+    const recent = rows.filter((payment) => payment.payerDetailsClearedAt === undefined &&
+      payment.sourceCreatedAt >= now - MAX_PROVIDER_PAYMENT_AGE_MS);
+    if (recent.length > IDENTITY_LIMIT) return "unknown" as const;
+    return firstLive(recent);
+  }
   async function readRange(range: { take(limit: number): Promise<Payment[]> }) {
     const rows = await range.take(remaining + 1);
     if (rows.length > remaining) return "unknown" as const;
     remaining -= rows.length;
+    return firstLive(rows);
+  }
+  async function firstLive(rows: Payment[]) {
     for (const payment of rows) {
       if (!isProvisionalPayment(payment)) continue;
       const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
@@ -80,18 +96,18 @@ export async function possibleProvisionalPayment(
         const range = q.eq("tenantId", tenantId).eq("status", status).eq("payerEmail", email);
         return email === undefined ? range.eq("payerPhone", undefined) : range;
       });
-    // A provisional with no retained contact cannot be ruled out.
     const ranges = [
       ...Array.from(keys.emails, emailPayments),
       ...Array.from(keys.phones, (phone) => ctx.db.query("providerPayments")
         .withIndex("by_tenantId_and_status_and_payerPhone", (q) =>
           q.eq("tenantId", tenantId).eq("status", status).eq("payerPhone", phone))),
-      emailPayments(undefined),
     ];
     for (const range of ranges) {
       const payment = await readRange(range);
       if (payment) return payment;
     }
+    const contactless = await readContactless(emailPayments(undefined));
+    if (contactless) return contactless;
   }
 
   // The checkout or membership can still name this person when someone else is paying.

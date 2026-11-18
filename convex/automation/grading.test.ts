@@ -107,8 +107,9 @@ describe("grade capture", () => {
     await f.owner.mutation(settings.setGrader, { userId: f.adminId });
     const args = { kind: "payment_win", sample: "writes" } as const;
     const denied = "Only the designated grader can grade cases.";
-    await expect(f.owner.query(grading.listToGrade, args)).rejects.toThrow(denied);
-    await expect(f.owner.query(grading.getMyAnswer, { decisionId: formerCase })).rejects.toThrow(denied);
+    // Queries answer with nothing, so the owner's panel still renders.
+    expect(await f.owner.query(grading.listToGrade, args)).toEqual({ cases: [], capped: false });
+    expect(await f.owner.query(grading.getMyAnswer, { decisionId: formerCase })).toBeNull();
     await expect(f.owner.mutation(grading.commitAnswer, { decisionId, answer })).rejects.toThrow(denied);
     await expect(f.owner.mutation(grading.reveal, { decisionId })).rejects.toThrow(denied);
     await expect(f.owner.mutation(grading.recordGrade, { decisionId: formerCase, verdict: "correct", wrongFields: [] }))
@@ -120,6 +121,13 @@ describe("grade capture", () => {
     await f.admin.mutation(grading.recordGrade, { decisionId, verdict: "unsure", wrongFields: [] });
     await f.owner.mutation(grading.resolveUnsure, { decisionId, verdict: "correct" });
     expect((await getDecision(f, decisionId))?.grade?.secondLook?.verdict).toBe("correct");
+
+    // The named grader takes over the case the owner answered and never graded.
+    await f.admin.mutation(grading.commitAnswer, { decisionId: formerCase, answer });
+    await f.admin.mutation(grading.recordGrade, { decisionId: formerCase, verdict: "correct", wrongFields: [] });
+    expect(await getDecision(f, formerCase)).toMatchObject({
+      answer: { committedByUserId: f.adminId }, grade: { gradedByUserId: f.adminId, verdict: "correct" },
+    });
   });
 
   it("keeps all proposal and match fields out of the pre-commit JSON with Billing off", async () => {
