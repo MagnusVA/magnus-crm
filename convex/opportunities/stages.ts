@@ -237,6 +237,10 @@ export const STAGE_TRANSITION_EXCEPTIONS = {
   },
   // Calendly withdraws the no-show it reported.
   no_show_withdrawn: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.no_show] },
+  // The closer or an admin undoes a no-show marked in Magnus: the lead joined
+  // late and the call happened, so its result is still owed
+  // (docs/plans/closer-assistant.md, decision 33).
+  no_show_undone: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.no_show] },
 } as const satisfies Record<
   string,
   { from: DealPosition; to: DealPosition; loss: readonly SystemLossReason[] | null }
