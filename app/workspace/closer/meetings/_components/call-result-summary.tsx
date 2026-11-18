@@ -164,8 +164,9 @@ export function CallResultSummary({
         {confirming === "withdraw" ? (
           <div role="group" aria-label="This call didn't happen" className="flex flex-col gap-2 rounded-md border bg-background p-3">
             <p className="text-sm text-pretty">
-              The task is canceled and the call no longer counts as held. A deal that was booked before the
-              call goes back to Booked.
+              {can.changeNextStep
+                ? "The task is canceled and the call no longer counts as held. A deal that was booked before the call goes back to Booked."
+                : "The call no longer counts as held. The next step that was set afterwards stays, and the deal stays at Follow-up."}
             </p>
             <div className="flex flex-wrap gap-2">
               <PendingButton
