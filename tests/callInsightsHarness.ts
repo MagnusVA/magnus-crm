@@ -1,5 +1,5 @@
 import { secondOpinionHarness } from "./secondOpinionHarness";
-import type { Doc } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { CallInsightsSettings } from "../convex/callInsights/validators";
 import { initialSettings } from "../convex/callInsights/settings";
 
@@ -187,6 +187,29 @@ export function gatewayFetch(
   return { fetchImpl, calls };
 }
 
+export function callEvidenceSettings(
+  ownerId: Id<"users">,
+  changedAt: number,
+): NonNullable<Doc<"tenants">["resultAutomation"]> {
+  const policy = {
+    mode: "shadow" as const,
+    policyVersion: 1,
+    changedAt,
+    changedByUserId: ownerId,
+  };
+  return {
+    enabled: true,
+    activationVersion: 1,
+    changedAt,
+    changedByUserId: ownerId,
+    kinds: {
+      payment_win: policy,
+      additional_payment: policy,
+      call_back: policy,
+    },
+  };
+}
+
 /**
  * One tenant with Second opinion on, one booked meeting nobody recorded a
  * result for, and its matched recording. `settings` switches Call insights on.
@@ -194,6 +217,7 @@ export function gatewayFetch(
 export async function callInsightsHarness(
   opts: {
     settings?: Partial<CallInsightsSettings> | null;
+    callEvidence?: boolean;
     transcript?: Array<{
       speaker: string;
       email?: string;
@@ -217,6 +241,10 @@ export async function callInsightsHarness(
         (recording?.recordingStartAt ?? Date.now()) + 90 * 86_400_000,
       matchMethod: "time_email",
     });
+    if (opts.callEvidence)
+      await ctx.db.patch("tenants", f.tenantId, {
+        resultAutomation: callEvidenceSettings(f.ownerId, Date.now()),
+      });
     if (opts.settings !== null)
       await ctx.db.patch("tenants", f.tenantId, {
         callInsights: {

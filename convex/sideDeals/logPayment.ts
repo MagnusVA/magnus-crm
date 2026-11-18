@@ -1,9 +1,21 @@
 import { v } from "convex/values";
+import { markAttendanceOwed } from "../payments/attendanceDebt";
+import { noteHumanResult } from "../automation/humanResult";
+import {
+  allocateReconciledPayment,
+  attachReconciledPaymentProof,
+  finishReconciledPayment,
+  providerIntentValidator,
+  providerWaivesProof,
+  readReconciliationDealPayments,
+  reconcilePaymentWrite,
+  reconciledPaymentFields,
+} from "../payments/reconcileCheck";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { recordPayment } from "../lib/leadLifecycle";
+import { insertRecordedPayment } from "../lib/paymentWrite";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
@@ -18,7 +30,6 @@ import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
 import { canTakePayment, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
-import { insertPaymentAggregate } from "../reporting/writeHooks";
 
 export const logPayment = mutation({
   args: {
@@ -28,16 +39,18 @@ export const logPayment = mutation({
     programId: v.id("tenantPrograms"),
     paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
+    provider: v.optional(providerIntentValidator),
   },
   returns: v.object({
     paymentId: v.id("paymentRecords"),
   }),
   handler: async (ctx, args) => {
-    const { userId, tenantId, role } = await requireTenantUser(ctx, [
+    const actor = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
       "tenant_admin",
     ]);
+    const { userId, tenantId, role } = actor;
     const now = Date.now();
     const isAdmin = role === "tenant_master" || role === "tenant_admin";
 
@@ -51,6 +64,16 @@ export const logPayment = mutation({
     if (!isAdmin && opportunity.assignedCloserId !== userId) {
       throw new Error("You are not the assigned closer for this opportunity.");
     }
+    const dealPayments = await readReconciliationDealPayments(ctx, opportunity._id);
+    const reconciliation = await reconcilePaymentWrite(ctx, opportunity, "side_deal", dealPayments, args.provider);
+    if (reconciliation.action === "attach_existing") {
+      const paymentId = reconciliation.paymentRecordId;
+      if (await attachReconciledPaymentProof(ctx, paymentId, actor, args.proofFileId)) {
+        await noteHumanResult(ctx, opportunity._id, actor);
+      }
+      return { paymentId };
+    }
+
     if (!canTakePayment(opportunity, await loadDealTasks(ctx, opportunity._id))) {
       throw new Error(`A deal at "${describeDealState(opportunity)}" can't take a payment.`);
     }
@@ -65,9 +88,9 @@ export const logPayment = mutation({
     const amountMinor = toAmountMinor(args.amount);
     const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
     const paymentType = resolvePaymentType(args.paymentType);
-    const origin: PaymentOrigin = isAdmin
-      ? "admin_side_deal"
-      : "closer_side_deal";
+    const origin: PaymentOrigin = reconciliation.action === "insert_from_provider"
+      ? "provider"
+      : isAdmin ? "admin_side_deal" : "closer_side_deal";
 
     assertPaymentRow({
       tenantId,
@@ -78,10 +101,13 @@ export const logPayment = mutation({
       programId: program._id,
       paymentType,
     });
-    const proof = await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
+    const whopWaivesProof = providerWaivesProof(reconciliation, amountMinor, currency);
+    const proof = whopWaivesProof && !args.proofFileId
+      ? null
+      : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
     const recordedFields = await newPaymentFields(ctx, tenantId, proof, WEB);
 
-    const paymentId = await ctx.db.insert("paymentRecords", {
+    const paymentId = await insertRecordedPayment(ctx, {
       tenantId,
       opportunityId: args.opportunityId,
       meetingId: undefined,
@@ -93,15 +119,12 @@ export const logPayment = mutation({
       programName: program.name,
       paymentType,
       proofFileId: args.proofFileId ?? undefined,
-      status: "recorded",
-      statusChangedAt: now,
       recordedAt: now,
       origin,
       ...recordedFields,
+      ...reconciledPaymentFields(reconciliation),
     });
-    await recordPayment(ctx, paymentId);
-
-    await insertPaymentAggregate(ctx, paymentId);
+    await allocateReconciledPayment(ctx, reconciliation, paymentId, actor, now);
     await setSoldProgramCaches(ctx, {
       tenantId,
       opportunityId: args.opportunityId,
@@ -143,13 +166,17 @@ export const logPayment = mutation({
         amountMinor,
         currency,
         programId: program._id,
-        programName: program.name,
+        ...(origin !== "provider" && { programName: program.name }),
         paymentType,
         origin,
         sideDeal: true,
       },
     });
 
+    if (reconciliation.action === "insert_from_provider") {
+      await markAttendanceOwed(ctx, opportunity._id);
+    }
+    await finishReconciledPayment(ctx, reconciliation, { actor, writer: "side_deal", opportunity, paymentId, now });
     return { paymentId };
   },
 });

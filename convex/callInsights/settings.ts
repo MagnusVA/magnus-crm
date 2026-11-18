@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { TAXONOMY_VERSION } from "../../lib/callInsights/taxonomy";
 import {
   DEFAULT_EXTRACTION_MODEL,
+  EVIDENCE_PROMPT_VERSION,
   PROMPT_VERSION,
   THRESHOLDS_VERSION,
   type CallInsightsSettings,
@@ -45,14 +46,46 @@ export function initialSettings(
   };
 }
 
+const CALL_KINDS = ["call_back", "payment_owed", "refusal_loss"] as const;
+type EvidenceTenant = {
+  resultAutomation?: {
+    enabled?: boolean;
+    pausedAt?: number;
+    kinds?: Partial<Record<(typeof CALL_KINDS)[number], { mode?: string }>>;
+    paidOnCallAlert?: { mode?: string };
+  };
+};
+
+export function callEvidenceWanted(
+  tenant: EvidenceTenant | null | undefined,
+): boolean {
+  const settings = tenant?.resultAutomation;
+  if (settings?.enabled !== true || settings.pausedAt !== undefined)
+    return false;
+  const alert = settings.paidOnCallAlert?.mode;
+  return (
+    alert === "shadow" ||
+    alert === "on" ||
+    CALL_KINDS.some((kind) => {
+      const mode = settings.kinds?.[kind]?.mode;
+      return mode === "shadow" || mode === "ask" || mode === "automatic";
+    })
+  );
+}
+
 /** The versions a serving read made now would carry. */
-export function servingConfig(settings: CallInsightsSettings): RunConfig {
+export function servingConfig(
+  settings: CallInsightsSettings,
+  tenant?: EvidenceTenant | null,
+): RunConfig {
+  const callEvidence = callEvidenceWanted(tenant);
   return {
     model: settings.model,
-    promptVersion: PROMPT_VERSION,
+    promptVersion: callEvidence ? EVIDENCE_PROMPT_VERSION : PROMPT_VERSION,
     taxonomyVersion: TAXONOMY_VERSION,
     thresholdsVersion: THRESHOLDS_VERSION,
     itemCheck: settings.itemCheck,
+    ...(callEvidence ? { callEvidence: true } : {}),
   };
 }
 
@@ -62,6 +95,7 @@ export function sameConfig(a: RunConfig, b: RunConfig): boolean {
     a.promptVersion === b.promptVersion &&
     a.taxonomyVersion === b.taxonomyVersion &&
     a.thresholdsVersion === b.thresholdsVersion &&
-    a.itemCheck === b.itemCheck
+    a.itemCheck === b.itemCheck &&
+    (a.callEvidence ?? false) === (b.callEvidence ?? false)
   );
 }

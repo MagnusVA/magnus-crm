@@ -3,6 +3,8 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
+import { noteHumanResult } from "../automation/humanResult";
+import { insertManualReminder } from "../lib/reminderInsert";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { transitionOpportunity } from "../lib/opportunityActivity";
@@ -64,6 +66,12 @@ export const createFollowUpRecord = internalMutation({
     if (!opportunity || opportunity.tenantId !== args.tenantId) {
       throw new Error("Opportunity not found");
     }
+    if (opportunity.assignedCloserId !== args.closerId) {
+      throw new Error("Not your opportunity");
+    }
+    if (opportunity.leadId !== args.leadId) {
+      throw new Error("Opportunity person changed while creating the link");
+    }
     if (!canStartFollowUp(opportunity)) {
       throw new Error(
         `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}". ` +
@@ -109,6 +117,7 @@ export const createFollowUpRecord = internalMutation({
       actorUserId: args.closerId,
       occurredAt: now,
     });
+    await noteHumanResult(ctx, args.opportunityId, { tenantId: args.tenantId, userId: args.closerId });
     return id;
   },
 });
@@ -273,6 +282,7 @@ export const createSchedulingLinkFollowUp = mutation({
       }).catch(() => undefined);
     }
 
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId });
     return { schedulingLinkUrl, followUpId };
   },
 });
@@ -437,37 +447,18 @@ export async function createCallbackTask(
       }).catch(() => null)
     : null;
 
-  const followUpId = await ctx.db.insert("followUps", {
-    tenantId,
-    opportunityId: args.opportunityId,
-    leadId: opportunity.leadId,
+  const followUpId = await insertManualReminder(ctx, {
+    opportunity,
     closerId: userId,
-    type: "manual_reminder",
     contactMethod: args.contactMethod,
     reminderScheduledAt: args.reminderScheduledAt,
     reminderNote: args.reminderNote,
+    sourceMeetingId: meeting?._id,
     reason: "closer_initiated",
-    status: "pending",
-    ...(meeting ? { sourceMeetingId: meeting._id } : {}),
-    createdAt: now,
-    createdByUserId: userId,
-    createdSource: "closer",
-  });
-
-  await emitDomainEvent(ctx, {
-    tenantId,
-    entityType: "followUp",
-    entityId: followUpId,
-    eventType: "followUp.created",
+    now,
     source: "closer",
     actorUserId: userId,
-    toStatus: "pending",
-    metadata: {
-      type: "manual_reminder",
-      opportunityId: args.opportunityId,
-      ...provenanceMetadata(provenance),
-    },
-    occurredAt: now,
+    metadata: provenanceMetadata(provenance),
   });
 
   await landFollowUp(ctx, args.opportunityId, start, {
@@ -493,6 +484,7 @@ export async function createCallbackTask(
     await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
   }
 
+  await noteHumanResult(ctx, opportunity._id, actor);
   return { followUpId };
 }
 
@@ -538,5 +530,6 @@ export const markReminderComplete = mutation({
       toStatus: "completed",
       occurredAt: now,
     });
+    await noteHumanResult(ctx, followUp.opportunityId, { tenantId, userId });
   },
 });

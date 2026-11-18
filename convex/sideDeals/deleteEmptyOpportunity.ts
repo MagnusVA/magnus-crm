@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
@@ -129,7 +130,9 @@ export const deleteEmptyOpportunity = mutation({
       throw new Error("Too many attribution rows are attached to delete safely.");
     }
     await deleteOpportunityAggregate(ctx, opportunity);
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId });
     await ctx.db.delete("opportunities", opportunityId);
+    // B1 wires scheduleEvaluationsForLead here
     await rebuildLeadCustomerSearchRow(ctx, tenantId, opportunity.leadId);
     // Its event went out before the delete, while the deal was still open.
     await refreshResparkState(ctx, tenantId, opportunity.leadId);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { FormatError, parseAttendanceOnly, parseExtraction } from "./parse";
 import {
@@ -6,6 +7,8 @@ import {
   EXTRACTION_SCHEMA,
   EXTRACTION_SYSTEM,
   buildUserMessage,
+  extractionSchema,
+  extractionSystem,
 } from "./prompt";
 import {
   GOAL_CATEGORIES,
@@ -13,6 +16,11 @@ import {
   STRUGGLE_CATEGORIES,
 } from "../../lib/callInsights/taxonomy";
 import { flatAnswer } from "../../tests/callInsightsFlat";
+import {
+  evidenceAnswer,
+  evidenceStatement,
+} from "../../tests/callInsights/synthetic/fixtures";
+import { EVIDENCE_PROMPT_VERSION, PROMPT_VERSION } from "./validators";
 const attendance = { reading: "unclear", quotes: [], reachOutcome: "none" };
 const full = flatAnswer();
 const item = {
@@ -213,10 +221,10 @@ test("attendance rejects a missing list or wrong reading", () => {
     parseAttendanceOnly(JSON.stringify({ ...attendance, reading: "no_show" })),
   ).toThrow(FormatError);
 });
-function inspectSchema(value: unknown) {
+function inspectSchema(value: unknown, depth = 0) {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value)) {
-    value.forEach(inspectSchema);
+    value.forEach((entry) => inspectSchema(entry, depth));
     return;
   }
   const node = value as Record<string, unknown>;
@@ -228,19 +236,32 @@ function inspectSchema(value: unknown) {
     expect(node.additionalProperties).toBe(false);
     expect(node.required).toEqual(Object.keys(node.properties as object));
   }
-  Object.values(node).forEach(inspectSchema);
+  if (node.enum) expect((node.enum as string[]).length).toBeLessThanOrEqual(16);
+  if (node.type === "object" || node.type === "array")
+    expect(depth).toBeLessThan(4);
+  if (node.type === "object")
+    Object.values(node.properties as object).forEach((field) =>
+      inspectSchema(field, depth + 1),
+    );
+  if (node.type === "array") inspectSchema(node.items, depth + 1);
 }
 describe("structured output schemas and prompt", () => {
-  test.each([ATTENDANCE_SCHEMA, EXTRACTION_SCHEMA])(
-    "every schema object is closed and requires every key %#",
-    (schema) => {
-      expect(() => JSON.parse(JSON.stringify(schema))).not.toThrow();
-      inspectSchema(schema);
-    },
-  );
+  test.each([
+    ATTENDANCE_SCHEMA,
+    EXTRACTION_SCHEMA,
+    extractionSchema(EVIDENCE_PROMPT_VERSION),
+  ])("every schema object is closed and requires every key %#", (schema) => {
+    expect(() => JSON.parse(JSON.stringify(schema))).not.toThrow();
+    inspectSchema(schema);
+  });
   test("has no nullable field: the API rejects a schema with more than 16 of them", () => {
-    expect(JSON.stringify(EXTRACTION_SCHEMA)).not.toContain("anyOf");
-    expect(JSON.stringify(EXTRACTION_SCHEMA)).not.toContain('"null"');
+    for (const schema of [
+      EXTRACTION_SCHEMA,
+      extractionSchema(EVIDENCE_PROMPT_VERSION),
+    ]) {
+      expect(JSON.stringify(schema)).not.toContain("anyOf");
+      expect(JSON.stringify(schema)).not.toContain('"null"');
+    }
   });
   test("embeds the taxonomy definitions and protects transcript instructions", () => {
     for (const table of [
@@ -269,4 +290,80 @@ describe("structured output schemas and prompt", () => {
       "Today: 2026-11-12\nTenant time zone: America/Tegucigalpa\nScheduled start: -30 seconds from the recording's start.\n<untrusted_transcript>\n#1 [00:00] P: Hello\n</untrusted_transcript>",
     );
   });
+});
+
+test("p1 system and schema retain their original bytes", () => {
+  const sha256 = (bytes: string) =>
+    createHash("sha256").update(bytes, "utf8").digest("hex");
+  expect(sha256(extractionSystem(PROMPT_VERSION))).toMatchInlineSnapshot(
+    `"5065e81e43a9b564f4341db1957e266f01d62a87a684bb6eeb0d782511cf608d"`,
+  );
+  expect(
+    sha256(JSON.stringify(extractionSchema(PROMPT_VERSION))),
+  ).toMatchInlineSnapshot(
+    `"1f266ebf4f88ab50a7be7ba79e61e8e4d5d159ef86448d0f762ea9265d4f6234"`,
+  );
+});
+
+test("p2 adds one required block to the p1 response and appends evidence instructions", () => {
+  const p2 = extractionSchema(EVIDENCE_PROMPT_VERSION);
+  const { evidence, ...legacy } = p2.properties as Record<string, unknown>;
+  expect(evidence).toBeDefined();
+  expect(p2.required).toEqual([...Object.keys(legacy), "evidence"]);
+  expect(legacy).toEqual(EXTRACTION_SCHEMA.properties);
+  expect(
+    extractionSystem(EVIDENCE_PROMPT_VERSION).startsWith(
+      `${EXTRACTION_SYSTEM}\n\nEVIDENCE\n`,
+    ),
+  ).toBe(true);
+});
+
+test.each([
+  null,
+  [],
+  "untrusted words",
+  { statements: false },
+  evidenceAnswer({
+    statements: [evidenceStatement("declines", "words", 1, { lineIndex: 1.5 })],
+  }),
+])(
+  "drops a malformed evidence block without losing the p1 fields %#",
+  (evidence) => {
+    const answer = { ...full, items: [item] };
+    const p1 = parseExtraction(JSON.stringify(answer));
+    const { evidenceFailure, ...rest } = parseExtraction(
+      JSON.stringify({ ...answer, evidence }),
+    );
+    expect(evidenceFailure).toBe("malformed_evidence");
+    expect(rest).toEqual(p1);
+  },
+);
+
+test("normalizes unknown evidence choices without storing their text", () => {
+  const parsed = parseExtraction(
+    JSON.stringify({
+      ...full,
+      evidence: evidenceAnswer({
+        recordingScope: "invented",
+        prospectStance: "invented",
+        closerStance: "invented",
+        nextStep: "invented",
+        nextStepMethod: "invented",
+        statements: [
+          evidenceStatement("invented", "words", 1, { amountRole: "invented" }),
+        ],
+        quotedCurrencyAsSaid: "invented",
+      }),
+    }),
+  );
+  expect(parsed.evidence).toMatchObject({
+    recordingScope: "unknown",
+    prospectStance: "unknown",
+    closerStance: "unknown",
+    nextStep: "unknown",
+    nextStepMethod: undefined,
+    quotedCurrencyAsSaid: undefined,
+    statements: [{ kind: undefined, amountRole: undefined }],
+  });
+  expect(JSON.stringify(parsed.evidence)).not.toContain("invented");
 });

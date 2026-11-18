@@ -5,8 +5,16 @@ import {
   type RawExtraction,
 } from "./parse";
 import { prepareTranscript } from "./transcriptPrep";
-import { validateAttendance, validateExtraction } from "./validate";
+import {
+  validateAttendance,
+  validateEvidence,
+  validateExtraction,
+} from "./validate";
 import { flatAnswer, flatAttendance } from "../../tests/callInsightsFlat";
+import {
+  evidenceAnswer,
+  evidenceStatement,
+} from "../../tests/callInsights/synthetic/fixtures";
 const recorder = { email: "closer@example.test", names: ["Closer"] };
 const p = "prospect@example.test";
 const options = {
@@ -704,4 +712,166 @@ describe("amounts are checked against the transcript, not the model's copy of it
     );
     expect(spanish.result.failedChecks).toContain("later_amount");
   });
+});
+
+describe("call evidence checks", () => {
+  const validate = (
+    evidence: ReturnType<typeof evidenceAnswer>,
+    texts: string[],
+  ) => {
+    const parsed = parseExtraction(
+      JSON.stringify({ ...flatAnswer(), evidence }),
+    );
+    if (!parsed.evidence) throw new Error("Invalid evidence fixture");
+    return validateEvidence(parsed.evidence, transcript(texts), {
+      timeZone: options.timeZone,
+      callDateIso: "2026-11-11",
+      callEndedAt: Date.parse("2026-11-11T20:00:00Z"),
+    });
+  };
+
+  test("takes bounded evidence in transcript order and preserves the final statement", () => {
+    const texts = Array.from(
+      { length: 19 },
+      (_, i) => `Decision phrase ${i + 1}`,
+    );
+    const valid = texts.map((quote, i) =>
+      evidenceStatement("defers", quote, i + 1),
+    );
+    const atLimit = "a".repeat(400);
+    const overLimit = "b".repeat(401);
+    const out = validate(
+      evidenceAnswer({
+        scopeLines: [-1, 1, 1, 2, 50, 3, 4, 5, 6, 7],
+        statements: [
+          evidenceStatement("declines", overLimit, 21),
+          evidenceStatement("declines", atLimit, 20),
+          ...valid.reverse(),
+        ],
+      }),
+      [...texts, atLimit, overLimit],
+    );
+    expect(out.scopeLines).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(out.statements.map((statement) => statement.lineIndex)).toEqual(
+      Array.from({ length: 16 }, (_, i) => i + 5),
+    );
+    expect(out.statements[15].quote).toBe(atLimit);
+    expect(out.dropped.overLimit).toBe(6);
+  });
+
+  test("keeps only matched spoken spans and verifies amounts on the line and quote", () => {
+    const out = validate(
+      evidenceAnswer({
+        statements: [
+          evidenceStatement("promises_payment", "pagare mil dolares", 3, {
+            amount: "1000",
+            amountRole: "this_payment",
+            currencyAsSaid: "dollars_unspecified",
+          }),
+          evidenceStatement("payment_failed", "my card", 3),
+          evidenceStatement("states_price", "I can pay tomorrow", 4, {
+            amount: "1000",
+            currencyAsSaid: "usd",
+          }),
+          evidenceStatement("declines", "completely invented", 5),
+          evidenceStatement("states_price", "The price is 170000", 5, {
+            amount: "170000",
+            currencyAsSaid: "usd",
+          }),
+        ],
+        quotedAmount: "999999",
+        quotedCurrencyAsSaid: "usd",
+      }),
+      [
+        "Hello",
+        "Sí. Pagaré  mil dólares!",
+        "my card is 4111 1111 1111 1111",
+        "I can pay tomorrow",
+        "The price is 1,700.00",
+      ],
+    );
+    expect(out.statements).toEqual([
+      {
+        kind: "promises_payment",
+        quote: "Pagaré  mil dólares!",
+        speaker: "Prospect",
+        lineIndex: 2,
+        atSeconds: 60,
+        amountMinor: 100_000,
+        amountRole: "this_payment",
+        currency: "USD",
+        currencyAssumed: true,
+      },
+      {
+        kind: "states_price",
+        quote: "I can pay tomorrow",
+        speaker: "Prospect",
+        lineIndex: 4,
+        atSeconds: 180,
+      },
+      {
+        kind: "states_price",
+        quote: "The price is 1,700.00",
+        speaker: "Prospect",
+        lineIndex: 5,
+        atSeconds: 240,
+      },
+    ]);
+    expect(out.dropped).toEqual({
+      quoteNotFound: 1,
+      amountNotInQuote: 3,
+      cardNumber: 1,
+      overLimit: 0,
+    });
+    expect(out.quotedAmountMinor).toBeUndefined();
+    expect(out.quotedCurrency).toBeUndefined();
+  });
+
+  test.each([
+    "2026-11-10T15:00:00",
+    "2026-11-11T13:00:00",
+    "2026-11-12",
+    "2026-11-31T12:00:00",
+  ])(
+    "leaves next-step time absent for an invalid or pre-call date %s",
+    (nextStepDateTimeLocal) => {
+      expect(
+        validate(
+          evidenceAnswer({ nextStep: "call_back", nextStepDateTimeLocal }),
+          ["Hello"],
+        ).nextStepAt,
+      ).toBeUndefined();
+    },
+  );
+  test.each([
+    ["America/New_York", "2026-03-08T02:15:00", undefined],
+    [
+      "Australia/Lord_Howe",
+      "2026-10-04T02:45:00",
+      Date.parse("2026-10-03T15:45:00Z"),
+    ],
+  ])(
+    "resolves exact local times across clock changes in %s",
+    (timeZone, nextStepDateTimeLocal, expected) => {
+      const parsed = parseExtraction(
+        JSON.stringify({
+          ...flatAnswer(),
+          evidence: evidenceAnswer({
+            nextStep: "call_back",
+            nextStepDateTimeLocal,
+          }),
+        }),
+      );
+      const evidence = validateEvidence(
+        parsed.evidence!,
+        transcript(["Hello"]),
+        {
+          timeZone,
+          callDateIso: "2026-01-01",
+          callEndedAt: Date.parse("2026-01-01T01:00:00Z"),
+        },
+      );
+      expect(evidence.nextStepAt).toBe(expected);
+    },
+  );
 });

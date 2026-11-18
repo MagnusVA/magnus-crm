@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -188,6 +189,7 @@ export async function adminMarkLostCore(
       changedFields: args.fromSuggestion?.changedFields,
     }).catch(() => undefined);
   }
+  await noteHumanResult(ctx, args.opportunityId, actor);
 }
 
 export const adminMarkAsLost = mutation({
@@ -328,6 +330,7 @@ export async function adminCreateFollowUpCore(
       occurredAt: now,
     });
     // Review reopens the deal only. Attendance remains no-show.
+    await noteHumanResult(ctx, opportunity._id, actor);
     return { followUpId, schedulingLinkUrl: null };
   }
 
@@ -425,6 +428,7 @@ export async function adminCreateFollowUpCore(
     }).catch(() => undefined);
   }
 
+  await noteHumanResult(ctx, opportunity._id, actor);
   return { schedulingLinkUrl, followUpId };
 }
 
@@ -676,6 +680,7 @@ export async function adminCreateManualReminderCore(
     }).catch(() => undefined);
   }
 
+  await noteHumanResult(ctx, args.opportunityId, actor);
   return { followUpId };
 }
 
@@ -829,6 +834,7 @@ export async function adminMarkNoShowCore(
       changedFields: args.fromSuggestion?.changedFields,
     }).catch(() => undefined);
   }
+  await noteHumanResult(ctx, opportunity._id, actor);
 }
 
 export const adminMarkNoShow = mutation({
@@ -986,6 +992,7 @@ export async function adminCreateRescheduleLinkCore(
     },
   });
 
+  await noteHumanResult(ctx, args.opportunityId, actor);
   return { schedulingLinkUrl, followUpId };
 }
 

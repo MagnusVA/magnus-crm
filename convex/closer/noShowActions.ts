@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { v, type Infer } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -200,6 +201,7 @@ export async function recordNoShow(
   }
   // A recorded result plus a matched recording starts Jev's check (§6.9).
   await queueSecondOpinion(ctx, { meetingId: meetingId, trigger: "result_recorded" });
+  await noteHumanResult(ctx, opportunity._id, actor);
 }
 
 /**
@@ -306,6 +308,7 @@ export const createNoShowRescheduleLink = mutation({
       occurredAt: now,
     });
 
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId });
     return { schedulingLinkUrl, followUpId };
   },
 });

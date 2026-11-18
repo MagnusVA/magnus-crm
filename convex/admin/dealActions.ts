@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
@@ -95,6 +96,7 @@ export async function adminCancelTaskCore(
     },
     occurredAt: now,
   });
+  await noteHumanResult(ctx, opportunity._id, actor);
   return null;
 }
 

@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
@@ -53,6 +54,7 @@ export const markLost = mutation({
       metadata: { source: "side_deal" },
     });
     await expirePendingStaleOpportunityNudges(ctx, opportunityId);
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId });
 
     return null;
   },

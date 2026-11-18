@@ -5,14 +5,14 @@ import { mutation, query } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { recordPayment } from "../lib/leadLifecycle";
+import { insertRecordedPayment } from "../lib/paymentWrite";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
   type PaymentOrigin,
 } from "../lib/paymentHelpers";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
+import { assertCanRecordMeetingOutcome, isMeetingOutcomeEligible } from "../lib/outcomeEligibility";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertCoreRole,
@@ -35,9 +35,21 @@ import {
 } from "../lib/paymentProof";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { requireTenantUser } from "../requireTenantUser";
+import { noteHumanResult } from "../automation/humanResult";
+import { markAttendanceOwed } from "../payments/attendanceDebt";
 import {
-  insertPaymentAggregate,
-} from "../reporting/writeHooks";
+  allocateReconciledPayment,
+  attachReconciledPaymentProof,
+  finishReconciledPayment,
+  loadMeetingPaymentTarget,
+  providerIntentValidator,
+  providerWaivesProof,
+  readReconciliationDealPayments,
+  reconcilePaymentWrite,
+  reconciledPaymentFields,
+  type InsertReconciliation,
+  type ProviderIntent,
+} from "../payments/reconcileCheck";
 import { queueSecondOpinion } from "../secondOpinion/trigger";
 import { fromSuggestionValidator, type FromSuggestion } from "../callInsights/validators";
 import {
@@ -66,6 +78,7 @@ export const logPayment = mutation({
     paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
     fromSuggestion: v.optional(fromSuggestionValidator),
+    provider: v.optional(providerIntentValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, [...MEETING_PAYMENT_ROLES]);
@@ -83,6 +96,7 @@ export type MeetingPaymentArgs = {
   paymentType: PaymentType;
   proofFileId?: Id<"_storage">;
   fromSuggestion?: FromSuggestion;
+  provider?: ProviderIntent;
 };
 
 /**
@@ -93,27 +107,12 @@ async function checkMeetingPayment(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: MeetingPaymentArgs,
-  options: ProofCheckOptions = {},
+  { opportunity, meeting }: Awaited<ReturnType<typeof loadMeetingPaymentTarget>>,
+  options: ProofCheckOptions,
+  reconciliation?: InsertReconciliation,
 ) {
-  assertCoreRole(actor, MEETING_PAYMENT_ROLES);
   const { userId, tenantId, role } = actor;
 
-  const opportunity = await ctx.db.get("opportunities", args.opportunityId);
-  if (!opportunity || opportunity.tenantId !== tenantId) {
-    throw new Error("Opportunity not found");
-  }
-  if (role === "closer" && opportunity.assignedCloserId !== userId) {
-    throw new Error("Not your opportunity");
-  }
-
-  const meeting = await ctx.db.get("meetings", args.meetingId);
-  if (
-    !meeting ||
-    meeting.tenantId !== tenantId ||
-    meeting.opportunityId !== args.opportunityId
-  ) {
-    throw new Error("Meeting does not belong to this opportunity");
-  }
   const now = Date.now();
   // A deal awaiting its call's result, which can always take a payment.
   assertCanRecordMeetingOutcome({
@@ -137,8 +136,9 @@ async function checkMeetingPayment(
   }
   const attributedCloserId =
     role === "closer" ? userId : opportunity.assignedCloserId!;
-  const origin: PaymentOrigin =
-    role === "closer" ? "closer_meeting" : "admin_meeting";
+  const origin: PaymentOrigin = reconciliation?.action === "insert_from_provider"
+    ? "provider"
+    : role === "closer" ? "closer_meeting" : "admin_meeting";
 
   assertPaymentRow({
     tenantId,
@@ -157,11 +157,13 @@ async function checkMeetingPayment(
         ref: args.fromSuggestion,
       }).catch(() => null)
     : null;
-  // Only a closer needs proof, so only a closer's save can have it waived.
+  const whopWaivesProof = reconciliation && providerWaivesProof(reconciliation, amountMinor, currency);
+  // Track suggestion waivers separately from Whop proof.
   const proofWaived =
-    role === "closer" && !args.proofFileId && suggestionWaivesProof(suggestion);
+    role === "closer" && !args.proofFileId && !whopWaivesProof &&
+    reconciliation?.action !== "insert_and_link" && suggestionWaivesProof(suggestion);
   const proof =
-    options.proof === "skip" || proofWaived
+    options.proof === "skip" || proofWaived || (whopWaivesProof && !args.proofFileId)
       ? null
       : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
 
@@ -208,7 +210,11 @@ export async function checkMeetingPaymentAllowed(
   }>
 > {
   return await toCheckResult(async () => {
-    const checked = await checkMeetingPayment(ctx, actor, args, options);
+    assertCoreRole(actor, MEETING_PAYMENT_ROLES);
+    const target = await loadMeetingPaymentTarget(ctx, actor, args);
+    const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
+    await reconcilePaymentWrite(ctx, target.opportunity, "meeting", dealPayments);
+    const checked = await checkMeetingPayment(ctx, actor, args, target, options);
     return {
       opportunityId: checked.opportunity._id,
       meetingId: checked.meeting._id,
@@ -234,6 +240,32 @@ export async function recordMeetingPayment(
   args: MeetingPaymentArgs,
   provenance: Provenance,
 ): Promise<Id<"paymentRecords">> {
+  assertCoreRole(actor, MEETING_PAYMENT_ROLES);
+  const target = await loadMeetingPaymentTarget(ctx, actor, args);
+  const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
+  const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "meeting", dealPayments, args.provider);
+  if (reconciliation.action === "attach_existing") {
+    const { meeting, opportunity } = target;
+    const now = Date.now();
+    if (meeting.status !== "held") {
+      if (meeting.status !== "scheduled") {
+        throw new Error(`Meeting is not scheduled (current: ${meeting.status})`);
+      }
+      if (actor.role === "closer" && !isMeetingOutcomeEligible(meeting, now)) {
+        throw new Error("Outcome actions open 5 minutes before the scheduled time.");
+      }
+      await completeMeetingForOutcome(ctx, {
+        meetingId: meeting._id,
+        opportunityId: opportunity._id,
+        toMeetingStatus: "held",
+        recordedAt: now,
+        extraMeetingPatch: { attendanceOwedSince: undefined },
+      });
+    }
+    const attached = await attachReconciledPaymentProof(ctx, reconciliation.paymentRecordId, actor, args.proofFileId);
+    if (attached || meeting.status === "scheduled") await noteHumanResult(ctx, opportunity._id, actor);
+    return reconciliation.paymentRecordId;
+  }
   const {
     userId,
     tenantId,
@@ -250,10 +282,10 @@ export async function recordMeetingPayment(
     proof,
     suggestion,
     proofWaived,
-  } = await checkMeetingPayment(ctx, actor, args);
+  } = await checkMeetingPayment(ctx, actor, args, target, {}, reconciliation);
 
   const recordedFields = await newPaymentFields(ctx, tenantId, proof, provenance);
-  const paymentId = await ctx.db.insert("paymentRecords", {
+  const paymentId = await insertRecordedPayment(ctx, {
     tenantId,
     opportunityId: args.opportunityId,
     meetingId: args.meetingId,
@@ -265,14 +297,12 @@ export async function recordMeetingPayment(
     programName: program.name,
     paymentType,
     proofFileId: args.proofFileId ?? undefined,
-    status: "recorded",
-    statusChangedAt: now,
     recordedAt: now,
     origin,
     ...recordedFields,
+    ...reconciledPaymentFields(reconciliation),
   });
-  await recordPayment(ctx, paymentId);
-  await insertPaymentAggregate(ctx, paymentId);
+  await allocateReconciledPayment(ctx, reconciliation, paymentId, actor, now);
   await setSoldProgramCaches(ctx, {
     tenantId,
     opportunityId: args.opportunityId,
@@ -310,7 +340,7 @@ export async function recordMeetingPayment(
       amountMinor,
       currency,
       programId: program._id,
-      programName: program.name,
+      ...(origin !== "provider" && { programName: program.name }),
       paymentType,
       attributedCloserId,
       recordedByUserId: userId,
@@ -343,6 +373,10 @@ export async function recordMeetingPayment(
   // A recorded result plus a matched recording starts Jev's check (§6.9).
   await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
 
+  if (reconciliation.action === "insert_from_provider") {
+    await markAttendanceOwed(ctx, opportunity._id, { exceptMeetingId: meeting._id });
+  }
+  await finishReconciledPayment(ctx, reconciliation, { actor, writer: "meeting", opportunity, paymentId, now, meeting });
   return paymentId;
 }
 

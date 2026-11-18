@@ -1,3 +1,4 @@
+import { scheduleEvaluation } from "../automation/decisions";
 import { v, type Infer } from "convex/values";
 import { z } from "zod";
 import { internal } from "../_generated/api";
@@ -268,6 +269,7 @@ export const refreshMappingPayments = internalMutation({
       const externalId = args.kind === "product_program" ? payment.productId : payment.variantId;
       if (payment.tenantId === connection.tenantId && externalId === args.externalId) {
         await refreshProviderPaymentReview(ctx, payment._id);
+        await scheduleEvaluation(ctx, payment._id, "mapping");
       }
     }
     if (!payments.isDone) {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  EVIDENCE_FIXTURES,
+  evidenceAnswer,
+  evidenceStatement,
   INVITEES,
   NOW,
   RECORDER,
@@ -8,10 +11,18 @@ import {
 } from "../../tests/callInsights/synthetic/fixtures";
 import { parseStoredTranscript, prepareTranscript } from "./transcriptPrep";
 import { parseExtraction } from "./parse";
-import { validateExtraction } from "./validate";
+import { validateEvidence, validateExtraction } from "./validate";
 import { measureAttendance } from "./noShow/measures";
 import { noShowTier } from "./noShow/tier";
 import { deriveSuggestion } from "./suggest/derive";
+import { flatAnswer } from "../../tests/callInsightsFlat";
+
+const timeZone = "America/Tegucigalpa";
+const evidenceTiming = {
+  timeZone,
+  callDateIso: "2026-11-10",
+  callEndedAt: SCHEDULED_AT + 7 * 60_000,
+};
 
 describe("public-safe stored synthetic model answers", () => {
   it("keeps the twelve required scenarios", () =>
@@ -23,11 +34,13 @@ describe("public-safe stored synthetic model answers", () => {
         RECORDER,
         INVITEES,
       );
-      const extracted = validateExtraction(
-        parseExtraction(JSON.stringify(f.answer)),
-        transcript,
-        { timeZone: "America/Tegucigalpa", now: NOW },
-      );
+      const extract = (answer: unknown) =>
+        validateExtraction(
+          parseExtraction(JSON.stringify(answer)),
+          transcript,
+          { timeZone, now: NOW },
+        );
+      const extracted = extract(f.answer);
       const measures = measureAttendance({
         lines: transcript.lines,
         scheduledAt: SCHEDULED_AT,
@@ -41,20 +54,40 @@ describe("public-safe stored synthetic model answers", () => {
         newerBooking: false,
         inviteeEmails: INVITEES,
       });
-      const noShow = noShowTier({
-        eligible: true,
-        now: NOW,
-        measures,
-        attendance: extracted.attendance,
-        jev: f.reading.attendance,
-        waitMinutes: 5,
+      const decide = (value: typeof extracted) => {
+        const noShow = noShowTier({
+          eligible: true,
+          now: NOW,
+          measures,
+          attendance: value.attendance,
+          jev: f.reading.attendance,
+          waitMinutes: 5,
+        });
+        return {
+          noShow,
+          suggestion: deriveSuggestion({
+            noShow,
+            result: value.result,
+            attendance: value.attendance,
+            reading: f.reading,
+          }),
+        };
+      };
+      const { noShow, suggestion } = decide(extracted);
+      const evidence = evidenceAnswer({
+        recordingScope: "whole",
+        scopeLines: [1],
+        statements: f.transcript
+          .slice(0, 2)
+          .map((line, index) =>
+            evidenceStatement("defers", line.text, index + 1),
+          ),
       });
-      const suggestion = deriveSuggestion({
-        noShow,
-        result: extracted.result,
-        attendance: extracted.attendance,
-        reading: f.reading,
-      });
+      const p2 = extract({ ...f.answer, evidence });
+      expect(JSON.stringify(p2)).toBe(JSON.stringify(extracted));
+      expect(JSON.stringify(decide(p2))).toBe(
+        JSON.stringify({ noShow, suggestion }),
+      );
       expect(extracted.items).toHaveLength(f.expected.items.length);
       f.expected.items.forEach((item, index) =>
         expect(extracted.items[index]).toMatchObject(item),
@@ -70,4 +103,37 @@ describe("public-safe stored synthetic model answers", () => {
       for (const code of f.expected.failedChecks ?? [])
         expect(extracted.result.failedChecks).toContain(code);
     });
+});
+
+describe("public-safe call evidence", () => {
+  it.each(EVIDENCE_FIXTURES)("$name", (fixture) => {
+    const transcript = prepareTranscript(
+      parseStoredTranscript(fixture.transcript),
+      RECORDER,
+      INVITEES,
+    );
+    const readAt = fixture.readAt ?? NOW;
+    const answer = flatAnswer(
+      fixture.readAt !== undefined
+        ? {
+            result: {
+              kind: "call_back",
+              callbackDateTimeLocal: fixture.evidence.nextStepDateTimeLocal,
+            },
+          }
+        : {},
+    );
+    const raw = parseExtraction(
+      JSON.stringify({ ...answer, evidence: fixture.evidence }),
+    );
+    expect(raw.evidence).toBeDefined();
+    expect(
+      validateEvidence(raw.evidence!, transcript, evidenceTiming),
+    ).toMatchObject(fixture.expected);
+    if (fixture.readAt !== undefined)
+      expect(
+        validateExtraction(raw, transcript, { timeZone, now: readAt }).result
+          .failedChecks,
+      ).toContain("callback_not_future");
+  });
 });

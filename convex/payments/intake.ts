@@ -1,3 +1,4 @@
+import { scheduleEvaluation } from "../automation/decisions";
 import { internal } from "../_generated/api";
 import { vOnCompleteArgs } from "@convex-dev/workpool";
 import { v } from "convex/values";
@@ -135,6 +136,7 @@ async function fenceForReceipt(
       }, receivedAt, seen === null),
       refreshGeneration: existing.refreshGeneration + 1,
     });
+    await scheduleEvaluation(ctx, existing._id, "fence");
   } else {
     await insertProvisionalPayment(ctx, connection, externalPaymentId, { fencedAt, kind });
   }
@@ -518,6 +520,7 @@ export const storePaymentRead = internalMutation({
       }),
     });
     await refreshProviderPaymentReview(ctx, row._id);
+    await scheduleEvaluation(ctx, row._id, "provider_read");
     return adverseFencedAt === undefined ? "stored" : "fenced";
   },
 });
@@ -689,6 +692,7 @@ export async function releasePaymentFence(ctx: MutationCtx, payment: Doc<"provid
   }
   await providerPool.enqueueAction(ctx, internal.payments.intake.refreshReleasedPayment, { connectionId, externalPaymentId });
   await refreshProviderPaymentReview(ctx, payment._id);
+  await scheduleEvaluation(ctx, payment._id, "release");
 }
 
 export const refreshReleasedPayment = internalAction({

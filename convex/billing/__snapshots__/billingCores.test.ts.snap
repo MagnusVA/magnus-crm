@@ -162,6 +162,7 @@ exports[`web paths write what they wrote before the split > correctPayment, prog
           "_id": "0000000000000010011opportunities",
           "removed": [],
           "set": {
+            "humanResultRevision": 2,
             "soldProgramId": "000000000000010004tenantPrograms",
             "soldProgramName": "Program B",
           },

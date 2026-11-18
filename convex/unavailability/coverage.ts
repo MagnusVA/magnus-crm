@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
@@ -503,6 +504,10 @@ export async function applyCoveragePlanCore(
       },
       occurredAt: now,
     });
+  }
+
+  for (const opportunityId of new Set(args.deals.map((deal) => deal.opportunityId))) {
+    await noteHumanResult(ctx, opportunityId, actor);
   }
 
   log.info("unavailability.coverage_plan.applied", {

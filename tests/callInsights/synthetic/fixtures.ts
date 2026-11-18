@@ -426,3 +426,250 @@ export const SYNTHETIC_FIXTURES: SyntheticFixture[] = [
     },
   },
 ];
+
+type WireStatement = {
+  kind: string;
+  quote: string;
+  lineIndex: number;
+  amountRole: string;
+  amount: string;
+  currencyAsSaid: string;
+};
+
+export function evidenceStatement(
+  kind: string,
+  quote: string,
+  lineIndex: number,
+  extra: Partial<WireStatement> = {},
+): WireStatement {
+  return {
+    kind,
+    quote,
+    lineIndex,
+    amountRole: "none",
+    amount: "",
+    currencyAsSaid: "none",
+    ...extra,
+  };
+}
+
+export function evidenceAnswer(
+  overrides: Partial<{
+    recordingScope: string;
+    scopeLines: number[];
+    statements: WireStatement[];
+    prospectStance: string;
+    closerStance: string;
+    nextStep: string;
+    nextStepDateTimeLocal: string;
+    nextStepMethod: string;
+    quotedAmount: string;
+    quotedCurrencyAsSaid: string;
+  }> = {},
+) {
+  return {
+    recordingScope: "unknown",
+    scopeLines: [],
+    statements: [],
+    prospectStance: "unknown",
+    closerStance: "unknown",
+    nextStep: "none",
+    nextStepDateTimeLocal: "",
+    nextStepMethod: "none",
+    quotedAmount: "",
+    quotedCurrencyAsSaid: "none",
+    ...overrides,
+  };
+}
+
+const goodbye = closer(
+  "00:06:50",
+  "Thanks for letting me know, Aster. Goodbye.",
+);
+const refusal = prospect("00:06:00", "No, I won't buy the course.");
+const disqualifies = closer(
+  "00:06:00",
+  "We can't help with that, so I won't offer you a place.",
+);
+const agreement = prospect("00:04:00", "Yes, I'll join.");
+const deferral = prospect("00:06:00", "I've changed my mind. Let me think.");
+const callback = prospect(
+  "00:06:00",
+  "Please text me tomorrow at 3 in the afternoon.",
+);
+const paymentOwed = prospect(
+  "00:06:00",
+  "I will pay the remaining two hundred Canadian dollars tomorrow at noon.",
+);
+const paymentSeen = closer(
+  "00:06:30",
+  "The receipt shows your payment of 100 US dollars went through.",
+);
+
+export const EVIDENCE_FIXTURES = [
+  {
+    name: "multiple calls in one recording",
+    transcript: [
+      opening,
+      prospect("00:03:00", "Thanks, goodbye."),
+      closer("00:03:05", "Hello again. Can you hear me on this second call?"),
+      goodbye,
+    ],
+    evidence: evidenceAnswer({
+      recordingScope: "multiple_calls",
+      scopeLines: [1, 2, 3, 4],
+    }),
+    expected: {
+      recordingScope: "multiple_calls",
+      scopeLines: [1, 2, 3, 4],
+      statements: [],
+    },
+  },
+  {
+    name: "recording cuts off during the conversation",
+    transcript: [
+      opening,
+      prospect("00:04:00", "I have a question before we talk about"),
+    ],
+    evidence: evidenceAnswer({
+      recordingScope: "cut_off",
+      scopeLines: [2],
+      nextStep: "unknown",
+    }),
+    expected: { recordingScope: "cut_off", nextStep: "unknown" },
+  },
+  {
+    name: "clear final refusal",
+    transcript: [opening, refusal, goodbye],
+    evidence: evidenceAnswer({
+      recordingScope: "whole",
+      prospectStance: "refused",
+      statements: [evidenceStatement("declines", refusal.text, 2)],
+    }),
+    expected: {
+      prospectStance: "refused",
+      statements: [
+        {
+          kind: "declines",
+          speaker: "Prospect",
+          quote: refusal.text,
+          lineIndex: 2,
+          atSeconds: 360,
+        },
+      ],
+    },
+  },
+  {
+    name: "closer disqualifies the prospect",
+    transcript: [opening, disqualifies, goodbye],
+    evidence: evidenceAnswer({
+      recordingScope: "whole",
+      closerStance: "disqualified",
+      statements: [evidenceStatement("disqualifies", disqualifies.text, 2)],
+    }),
+    expected: {
+      prospectStance: "unknown",
+      closerStance: "disqualified",
+      statements: [{ kind: "disqualifies", speaker: "Closer" }],
+    },
+  },
+  {
+    name: "yes followed by let me think",
+    transcript: [opening, agreement, deferral, goodbye],
+    // The model may return statements out of order.
+    evidence: evidenceAnswer({
+      recordingScope: "whole",
+      prospectStance: "undecided",
+      statements: [
+        evidenceStatement("defers", deferral.text, 3),
+        evidenceStatement("agrees_to_buy", agreement.text, 2),
+      ],
+    }),
+    expected: {
+      prospectStance: "undecided",
+      statements: [
+        { kind: "agrees_to_buy", lineIndex: 2 },
+        { kind: "defers", lineIndex: 3 },
+      ],
+    },
+  },
+  {
+    name: "call-back recorded ten days before the read",
+    transcript: [opening, callback, goodbye],
+    readAt: SCHEDULED_AT + 10 * 86_400_000,
+    evidence: evidenceAnswer({
+      recordingScope: "whole",
+      nextStep: "call_back",
+      nextStepDateTimeLocal: "2026-11-11T15:00:00",
+      nextStepMethod: "text",
+      statements: [evidenceStatement("asks_call_back", callback.text, 2)],
+    }),
+    expected: {
+      nextStep: "call_back",
+      nextStepAt: Date.parse("2026-11-11T21:00:00Z"),
+      nextStepMethod: "text",
+    },
+  },
+  {
+    name: "payment owed with spoken amount and due date",
+    transcript: [opening, paymentOwed, goodbye],
+    evidence: evidenceAnswer({
+      recordingScope: "whole",
+      prospectStance: "yes",
+      nextStep: "payment_owed",
+      nextStepDateTimeLocal: "2026-11-11T12:00:00",
+      quotedAmount: "200",
+      quotedCurrencyAsSaid: "cad",
+      statements: [
+        evidenceStatement("promises_payment", paymentOwed.text, 2, {
+          amountRole: "balance",
+          amount: "200",
+          currencyAsSaid: "cad",
+        }),
+      ],
+    }),
+    expected: {
+      nextStep: "payment_owed",
+      nextStepAt: Date.parse("2026-11-11T18:00:00Z"),
+      quotedAmountMinor: 20_000,
+      quotedCurrency: "CAD",
+      statements: [
+        {
+          kind: "promises_payment",
+          speaker: "Prospect",
+          amountMinor: 20_000,
+          currency: "CAD",
+          amountRole: "balance",
+        },
+      ],
+    },
+  },
+  {
+    name: "closer sees the payment",
+    transcript: [opening, agreement, paymentSeen, goodbye],
+    evidence: evidenceAnswer({
+      recordingScope: "whole",
+      prospectStance: "yes",
+      statements: [
+        evidenceStatement("agrees_to_buy", agreement.text, 2),
+        evidenceStatement("payment_seen", paymentSeen.text, 3, {
+          amountRole: "this_payment",
+          amount: "100",
+          currencyAsSaid: "usd",
+        }),
+      ],
+    }),
+    expected: {
+      nextStep: "none",
+      statements: [
+        { kind: "agrees_to_buy", speaker: "Prospect" },
+        {
+          kind: "payment_seen",
+          speaker: "Closer",
+          amountMinor: 10_000,
+          currency: "USD",
+        },
+      ],
+    },
+  },
+];

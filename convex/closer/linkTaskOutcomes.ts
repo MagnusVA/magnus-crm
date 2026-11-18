@@ -1,5 +1,6 @@
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
+import { noteHumanResult } from "../automation/humanResult";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
@@ -88,6 +89,7 @@ export const cancelLinkTask = mutation({
       },
       occurredAt: now,
     });
+    await noteHumanResult(ctx, opportunity._id, { tenantId, userId });
     return null;
   },
 });
@@ -171,6 +173,7 @@ export const markLinkTaskLost = mutation({
       },
       occurredAt: now,
     });
+    await noteHumanResult(ctx, opportunity._id, { tenantId, userId });
     return null;
   },
 });

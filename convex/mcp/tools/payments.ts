@@ -12,6 +12,7 @@ import { checkTaskPaymentAllowed, recordTaskPayment } from "../../closer/reminde
 import { emitDomainEvent } from "../../lib/domainEvents";
 import { checkPaymentProof, newPaymentFields } from "../../lib/paymentProof";
 import { paymentEntryOf, paymentTypeValidator, type PaymentType } from "../../lib/paymentTypes";
+import { WHOP_PAYMENT_FOUND } from "../../payments/reconcileCheck";
 import { rejectRequest } from "../../lib/observability/errors";
 import { normalizeProgramName } from "../../tenantPrograms/shared";
 import { buildPaymentLink } from "../../../lib/paymentLink";
@@ -157,13 +158,20 @@ async function checkPayment(ctx: MutationCtx, me: McpUser, input: PaymentInput, 
   if ("meeting" in r.target) {
     const args = { ...common, opportunityId: r.opportunityId, meetingId: r.target.meeting._id };
     const check = await checkMeetingPaymentAllowed(ctx, me, args, { proof: proofFileId ? "check" : "skip" });
-    if (!check.ok) throw rejectRequest(check.code, check.message);
+    if (!check.ok) throw paymentRefusal(input, r, check);
     return { kind: "meeting" as const, args };
   }
   const args = { ...common, followUpId: r.target.task._id };
   const check = await checkTaskPaymentAllowed(ctx, me, args, { proof: proofFileId ? "check" : "skip" });
-  if (!check.ok) throw rejectRequest(check.code, check.message);
+  if (!check.ok) throw paymentRefusal(input, r, check);
   return { kind: "task" as const, args };
+}
+
+function paymentRefusal(input: PaymentInput, r: Resolved, refusal: { code: string; message: string }) {
+  const message = refusal.code === WHOP_PAYMENT_FOUND
+    ? `${refusal.message} Open the web receipt page to review and finish the save. ${paymentLink(input, r)}`
+    : refusal.message;
+  return rejectRequest(refusal.code, message);
 }
 
 function paymentLink(input: PaymentInput, r: Resolved) {
@@ -172,7 +180,7 @@ function paymentLink(input: PaymentInput, r: Resolved) {
     {
       ...("meeting" in r.target ? { meetingId: r.target.meeting._id } : { followUpId: r.target.task._id }),
       amount: input.amount,
-      currency: r.currency,
+      currency: /^[A-Z]{3}$/.test(r.currency) ? r.currency : r.program.defaultCurrency ?? "USD",
       paymentType: input.paymentType,
       programId: r.program._id,
     },

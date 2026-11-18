@@ -1,3 +1,4 @@
+import { supersedeConnectionDecisions } from "../automation/decisions";
 import { v } from "convex/values";
 import { z } from "zod";
 import { api, internal } from "../_generated/api";
@@ -390,6 +391,7 @@ export const disconnect = mutation({
       lastErrorCode: undefined,
       lastErrorAt: undefined,
     });
+    await supersedeConnectionDecisions(ctx, tenantId, connectionId);
     log.info("whop.connection.disconnected", { tenantId, connectionId });
     return null;
   },

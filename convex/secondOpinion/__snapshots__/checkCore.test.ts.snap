@@ -104,6 +104,7 @@ exports[`the web check > reopens a no-show at Follow-up and records it 1`] = `
           "lostReason",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1792519200000,
           "outcome": "open",
           "stage": "follow_up",

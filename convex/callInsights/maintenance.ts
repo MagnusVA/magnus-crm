@@ -4,6 +4,7 @@ import { internalMutation, type MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { log } from "../lib/observability/log";
 import { settleAllAtReservation } from "./budget";
+import { transcriptGone } from "./retention";
 import { MAX_ATTEMPTS, MAX_CHECK_RETRIES } from "./run";
 import { headerFor } from "./trigger";
 import type { FoundQuote } from "./validators";
@@ -173,6 +174,26 @@ const blankQuote = <T extends FoundQuote>(quote: T): T => ({
   quote: "",
 });
 
+/** Call ask and result summary readers use this after authorizing the viewer. */
+export function maskEvidenceQuotes(
+  run: Pick<Doc<"callInsightRuns">, "evidence" | "quotesPurgedAt">,
+  recording: Parameters<typeof transcriptGone>[0] | null,
+  now: number,
+) {
+  if (!run.evidence) return undefined;
+  const hide =
+    !recording ||
+    transcriptGone(recording, now) ||
+    run.quotesPurgedAt !== undefined;
+  return {
+    ...run.evidence,
+    statements: run.evidence.statements.map((statement) => ({
+      ...statement,
+      quote: hide ? null : statement.quote,
+    })),
+  };
+}
+
 const IN_FLIGHT = new Set<Doc<"callInsightRuns">["status"]>([
   "queued",
   "waiting",
@@ -222,6 +243,10 @@ async function purgeRun(
       someoneThere: run.attendance.someoneThere.map(blankQuote),
       secondPerson: run.attendance.secondPerson.map(blankQuote),
       notSalesCall: run.attendance.notSalesCall.map(blankQuote),
+    },
+    evidence: run.evidence && {
+      ...run.evidence,
+      statements: run.evidence.statements.map(blankQuote),
     },
     judgeOutput: undefined,
     quotesPurgedAt: now,

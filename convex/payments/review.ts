@@ -1,3 +1,5 @@
+import { scheduleEvaluation, type EvaluateCause } from "../automation/decisions";
+import { noteHumanResult } from "../automation/humanResult";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -481,6 +483,33 @@ const allocationState = v.object({
   paymentRecordId: v.union(paymentRecordIdValidator, v.null()),
 });
 
+async function evaluateAfterBillingResult(
+  ctx: MutationCtx,
+  payment: Doc<"providerPayments">,
+  actor: { tenantId: Id<"tenants">; userId: Id<"users"> },
+  cause: Extract<EvaluateCause, "link" | "unlink" | "acknowledge" | "release" | "dismiss" | "reopen">,
+  opportunityId = payment.opportunityId ?? payment.candidateOpportunityId,
+) {
+  if (!opportunityId) {
+    // The matcher only caches a deal on ready provider rows. The decision
+    // can also ground an abstention on one known deal.
+    for (const state of ["ready", "needs_person", "shadow"] as const) {
+      const decision = await ctx.db.query("resultAutomationDecisions")
+        .withIndex("by_tenantId_and_providerPaymentId_and_state", (q) =>
+          q.eq("tenantId", actor.tenantId).eq("providerPaymentId", payment._id).eq("state", state))
+        .order("desc").first();
+      if (decision?.opportunityId) {
+        opportunityId = decision.opportunityId;
+        break;
+      }
+    }
+  }
+  if (cause !== "release") await scheduleEvaluation(ctx, payment._id, cause);
+  if (!opportunityId) return;
+  const deal = await ctx.db.get("opportunities", opportunityId);
+  if (deal?.tenantId === actor.tenantId) await noteHumanResult(ctx, deal._id, actor);
+}
+
 export const linkToPaymentRecord = mutation({
   args: {
     ...providerPaymentArgs,
@@ -550,6 +579,7 @@ export const linkToPaymentRecord = mutation({
     });
     const allocationRevision = payment.allocationRevision + 1;
     await emitLinkEvent(ctx, "payment.provider_linked", actor, paymentRecordId, providerPaymentId);
+    await evaluateAfterBillingResult(ctx, payment, actor, "link", deal._id);
     return { allocationRevision, paymentRecordId };
   },
 });
@@ -585,6 +615,7 @@ export const unlinkPaymentRecord = mutation({
     });
     await clearActiveAllocation(ctx, record);
     await emitLinkEvent(ctx, "payment.provider_unlinked", actor, record._id, providerPaymentId);
+    await evaluateAfterBillingResult(ctx, payment, actor, "unlink", record.opportunityId);
     return { allocationRevision: payment.allocationRevision + 1, paymentRecordId: null };
   },
 });
@@ -606,6 +637,7 @@ export const acknowledgeAdverse = mutation({
     if (payment.adverseReviewAt === undefined) return null;
     await ctx.db.patch("providerPayments", payment._id, { adverseReviewAt: undefined });
     await emitLinkEvent(ctx, "payment.provider_adverse_acknowledged", actor, expectedPaymentRecordId, providerPaymentId);
+    await evaluateAfterBillingResult(ctx, payment, actor, "acknowledge");
     return null;
   },
 });
@@ -637,6 +669,7 @@ export const releaseAdverseHold = mutation({
       actorUserId: actor.userId,
       metadata: { providerPaymentId, paymentRecordId: payment.paymentRecordId },
     });
+    await evaluateAfterBillingResult(ctx, payment, actor, "release");
     return null;
   },
 });
@@ -661,6 +694,7 @@ export const dismissProviderPayment = mutation({
       payerDetailsExpireAt: payerDetailsDeadline(payment, "needs_person", resolvedAt),
       resolvedByUserId: actor.userId,
     });
+    await evaluateAfterBillingResult(ctx, payment, actor, "dismiss");
     log.info("whop.payment.dismissed", { tenantId: actor.tenantId, providerPaymentId, userId: actor.userId, reason });
     return null;
   },
@@ -685,6 +719,7 @@ export const reopenProviderPayment = mutation({
       resolvedByUserId: undefined,
     });
     await refreshProviderPaymentReview(ctx, providerPaymentId);
+    await evaluateAfterBillingResult(ctx, (await ctx.db.get("providerPayments", payment._id)) ?? payment, actor, "reopen");
     log.info("whop.payment.reopened", { tenantId: actor.tenantId, providerPaymentId, userId: actor.userId });
     return null;
   },

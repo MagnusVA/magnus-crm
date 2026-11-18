@@ -105,7 +105,7 @@ export async function noteHumanResult(
   }
 
   if (RE_EVALUATE_AFTER_HUMAN_RESULT) {
-    // B1 wires scheduleEvaluationsForLead here
+    await (await import("./decisions")).scheduleEvaluationsForLead(ctx, actor.tenantId, deal.leadId, "human_result", { opportunityId, previousRevision: revision - 1, actorUserId: actor.userId, consumeDecisionId });
   }
   return { revision };
 }

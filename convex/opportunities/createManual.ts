@@ -273,6 +273,7 @@ export const createManual = mutation({
     });
     await recordDealCreation(ctx, opportunityId);
 
+    // B1 wires scheduleEvaluationsForLead here
     return { opportunityId, leadId, leadWasCreated };
   },
 });

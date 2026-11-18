@@ -1,3 +1,5 @@
+import { anyApi, type ApiFromModules } from "convex/server";
+import { paymentVetoKey } from "../convex/automation/receipts";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 import { sha256Hex, stableJson } from "../convex/lib/stableHash";
@@ -59,6 +61,7 @@ export async function insertProviderFact(
     refreshGeneration: 1,
     allocationRevision: 0,
     adverseReviewRevision: 0,
+    adverseFenceRevision: 0,
     firstSeenAt: FIXTURE_NOW - 2000,
     paidAt: FIXTURE_PAID_AT,
     totalMinor: 10000,
@@ -150,7 +153,9 @@ async function seedDecision(
     mode: "ask",
     state,
     inputKey: inputKey ?? await sha256Hex(stableJson(["fixture", state, ...subject, humanResultRevision, createdAt])),
-    vetoKey: vetoKey ?? await sha256Hex(stableJson(subject)),
+    vetoKey: vetoKey ?? (fields.providerPaymentId && fields.opportunityId
+      ? await paymentVetoKey(fields.providerPaymentId, fields.opportunityId)
+      : await sha256Hex(stableJson(subject))),
     ruleVersion: "payment-rule@1",
     policyVersion: 1,
     activationVersion: 1,
@@ -236,4 +241,77 @@ export async function providerPaymentFixture(
     return { adminId, closerId, personId, dealId, connectionId, providerPaymentId, programId, productBindingId, variantBindingId };
   });
   return { ...harness, ...ids };
+}
+
+export async function setPaymentFixtureModes(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    adminId: Id<"users">;
+    winMode?: "off" | "shadow" | "ask";
+    additionalMode?: "off" | "shadow" | "ask";
+    enabled?: boolean;
+    pausedAt?: number;
+  },
+) {
+  const stamp = {
+    policyVersion: 1,
+    changedAt: FIXTURE_NOW,
+    changedByUserId: args.adminId,
+  };
+  await ctx.db.patch("tenants", args.tenantId, {
+    resultAutomation: {
+      enabled: args.enabled ?? true,
+      activationVersion: 1,
+      pausedAt: args.pausedAt,
+      changedAt: stamp.changedAt,
+      changedByUserId: stamp.changedByUserId,
+      kinds: {
+        payment_win: { ...stamp, mode: args.winMode ?? "ask" },
+        additional_payment: { ...stamp, mode: args.additionalMode ?? "ask" },
+      },
+    },
+  });
+}
+
+export async function insertPaymentFixtureConnection(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  connectedByUserId: Id<"users">,
+) {
+  return await ctx.db.insert("tenantPaymentConnections", {
+    tenantId,
+    provider: "whop",
+    environment: "sandbox",
+    accountId: "biz_writer_fixture",
+    credentialKind: "account_key",
+    apiKey: "fixture-key",
+    keyLast4: "-key",
+    apiVersionDate: "2026-11-16-2",
+    status: "connected",
+    disputeAccess: "ok",
+    autoImportAfter: FIXTURE_PAID_AT - 86_400_000,
+    connectedByUserId,
+    connectedAt: FIXTURE_PAID_AT - 86_400_000,
+  });
+}
+
+export const automationFixtureApi = (anyApi as unknown as ApiFromModules<{
+  "automation/decisions": typeof import("../convex/automation/decisions");
+  "automation/settings": typeof import("../convex/automation/settings");
+  "automation/grading": typeof import("../convex/automation/grading");
+  "automation/scorecard": typeof import("../convex/automation/scorecard");
+  "automation/sweep": typeof import("../convex/automation/sweep");
+}>).automation;
+
+export async function automationPaymentFixture(
+  options?: Parameters<typeof providerPaymentFixture>[0],
+) {
+  const fixture = await providerPaymentFixture(options);
+  const ownerId = await fixture.t.run((ctx) => ctx.db.insert("users", {
+    tenantId: fixture.tenantId, workosUserId: "user_owner", email: "owner@example.com",
+    role: "tenant_master", isActive: true,
+  }));
+  const owner = fixture.t.withIdentity({ subject: "user_owner", org_id: "org_test" });
+  return { ...fixture, owner, ownerId };
 }

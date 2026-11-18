@@ -29,6 +29,8 @@
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { noteHumanResult } from "../automation/humanResult";
+import { standDownForMerge } from "../automation/mergeStandDown";
 import { moveMeetingAttributions } from "../lib/attribution/dealAttributions";
 import { retypeDealMeetingsWithoutRefs } from "../lib/dealCallTypes";
 import { requestMeetingProjection } from "../operations/meetingStats";
@@ -95,6 +97,7 @@ export async function moveOpportunityToLead(
      * `moveFormResponsesPage`, so a large lead can be paged.
      */
     moveFormResponses: boolean;
+    humanMove?: { userId: Id<"users">; mergeStandDownDone?: true };
   },
 ): Promise<OpportunityMoveResult> {
   const { tenantId, opportunityId, toLeadId, now } = args;
@@ -251,6 +254,12 @@ export async function moveOpportunityToLead(
     result.auditMatches += 1;
   }
 
+  if (args.humanMove && opportunity.leadId !== toLeadId) {
+    if (!args.humanMove.mergeStandDownDone) {
+      await standDownForMerge(ctx, { tenantId, leadIds: [opportunity.leadId, toLeadId], actorUserId: args.humanMove.userId });
+    }
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId: args.humanMove.userId });
+  }
   return result;
 }
 

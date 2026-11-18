@@ -1,4 +1,15 @@
 import { z } from "zod";
+import type { Infer } from "convex/values";
+import {
+  closerStanceValidator,
+  evidenceFailureValidator,
+  nextStepMethodValidator,
+  nextStepValidator,
+  prospectStanceValidator,
+  recordingScopeValidator,
+  statementAmountRoleValidator,
+  statementKindValidator,
+} from "./validators";
 import {
   INCOME_PERIODS,
   RESOLUTIONS,
@@ -114,6 +125,8 @@ export type RawExtraction = {
     lossCategory?: string;
   };
   attendance: RawAttendance;
+  evidence?: ParsedEvidence;
+  evidenceFailure?: Infer<typeof evidenceFailureValidator>;
 };
 
 export class FormatError extends Error {
@@ -167,6 +180,55 @@ const currency = choice(CURRENCIES_AS_SAID);
 const period = choice(INCOME_PERIODS);
 const lineIndex = z.number().int();
 const quote = z.object({ quote: z.string(), lineIndex: lineIndex.positive() });
+
+export const EVIDENCE_CHOICES = {
+  recordingScope: recordingScopeValidator.members.map((member) => member.value),
+  statementKind: statementKindValidator.members.map((member) => member.value),
+  amountRole: statementAmountRoleValidator.members.map(
+    (member) => member.value,
+  ),
+  prospectStance: prospectStanceValidator.members.map((member) => member.value),
+  closerStance: closerStanceValidator.members.map((member) => member.value),
+  nextStep: nextStepValidator.members.map((member) => member.value),
+  nextStepMethod: nextStepMethodValidator.members.map((member) => member.value),
+};
+
+// Evidence is parsed independently. A bad block must not invalidate the p1 fields.
+const wireChoice = <T extends string>(values: readonly T[]) =>
+  z
+    .string()
+    .transform((value) => values.find((candidate) => candidate === value));
+const wireAmount = z.string().transform((value) => value.trim() || undefined);
+const flatEvidence = z.object({
+  recordingScope: wireChoice(EVIDENCE_CHOICES.recordingScope).transform(
+    (v) => v ?? "unknown",
+  ),
+  scopeLines: z.array(lineIndex),
+  statements: z.array(
+    z.object({
+      kind: wireChoice(EVIDENCE_CHOICES.statementKind),
+      quote: z.string(),
+      lineIndex,
+      amountRole: wireChoice(EVIDENCE_CHOICES.amountRole),
+      amount: wireAmount,
+      currencyAsSaid: wireChoice(CURRENCIES_AS_SAID),
+    }),
+  ),
+  prospectStance: wireChoice(EVIDENCE_CHOICES.prospectStance).transform(
+    (v) => v ?? "unknown",
+  ),
+  closerStance: wireChoice(EVIDENCE_CHOICES.closerStance).transform(
+    (v) => v ?? "unknown",
+  ),
+  nextStep: wireChoice(EVIDENCE_CHOICES.nextStep).transform(
+    (v) => v ?? "unknown",
+  ),
+  nextStepDateTimeLocal: z.string(),
+  nextStepMethod: wireChoice(EVIDENCE_CHOICES.nextStepMethod),
+  quotedAmount: wireAmount,
+  quotedCurrencyAsSaid: wireChoice(CURRENCIES_AS_SAID),
+});
+export type ParsedEvidence = z.infer<typeof flatEvidence>;
 
 const flatAttendance = z.object({
   reading: z.enum(["absent", "present", "not_sales_call", "unclear"]),
@@ -229,6 +291,9 @@ const flatExtraction = z.object({
   }),
   attendance: flatAttendance,
 });
+const flatExtractionWithEvidence = flatExtraction.extend({
+  evidence: z.unknown().optional(),
+});
 
 function parseJson<T>(input: string, schema: z.ZodType<T>): T {
   try {
@@ -257,8 +322,14 @@ function attendanceFrom(flat: z.infer<typeof flatAttendance>): RawAttendance {
   };
 }
 
-export function parseExtraction(input: string): RawExtraction {
-  const flat = parseJson(input, flatExtraction);
+export function parseExtraction(
+  input: string,
+  readEvidence = true,
+): RawExtraction {
+  const flat = parseJson(
+    input,
+    readEvidence ? flatExtractionWithEvidence : flatExtraction,
+  );
   const out: RawExtraction = {
     objections: [],
     struggles: [],
@@ -268,6 +339,11 @@ export function parseExtraction(input: string): RawExtraction {
     result: flat.result,
     attendance: attendanceFrom(flat.attendance),
   };
+  if ("evidence" in flat && flat.evidence !== undefined) {
+    const evidence = flatEvidence.safeParse(flat.evidence);
+    if (evidence.success) out.evidence = evidence.data;
+    else out.evidenceFailure = "malformed_evidence";
+  }
   for (const item of flat.items) {
     const base = {
       category: item.category,

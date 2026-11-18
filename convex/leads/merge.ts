@@ -4,6 +4,8 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
+import { noteHumanResult } from "../automation/humanResult";
+import { standDownForMerge } from "../automation/mergeStandDown";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
@@ -449,6 +451,7 @@ export async function executeMerge(
   userId: Id<"users">,
   sourceLeadId: Id<"leads">,
   targetLeadId: Id<"leads">,
+  bumpedDeals = new Set<Id<"opportunities">>(),
 ): Promise<void> {
   const now = Date.now();
 
@@ -493,6 +496,12 @@ export async function executeMerge(
       { tenantId, sourceLeadId, targetLeadId },
     );
   }
+  const targetDeals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", targetLeadId),
+    )
+    .take(ENROLLMENT_DEAL_LIMIT + 1);
   // A source with an enrollment, or a customer, makes the target's
   // enrollments re-derive from both people's deals, which reads at most
   // ENROLLMENT_DEAL_LIMIT of them. A source with neither has no payment that
@@ -503,12 +512,6 @@ export async function executeMerge(
   // A customer target counts too: its next payment derives from every deal
   // it then has, so the merge mustn't leave it past the limit.
   if (await combinedDealsMustFitDerivation(ctx, tenantId, sourceLead, targetLead)) {
-    const targetDeals = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", targetLeadId),
-      )
-      .take(ENROLLMENT_DEAL_LIMIT + 1);
     if (targetDeals.length + sourceOpportunities.length > ENROLLMENT_DEAL_LIMIT) {
       throw rejectRequest(
         "lead.merge_too_many_opportunities",
@@ -607,6 +610,9 @@ export async function executeMerge(
     auditMatches: 0,
     webhookDeliveries: 0,
   };
+  // Supersede the old proposals before bumping revisions, so the merge owns
+  // the stop code for decisions on both people.
+  await standDownForMerge(ctx, { tenantId, leadIds: [sourceLeadId, targetLeadId], actorUserId: userId });
   for (const opportunity of sourceOpportunities) {
     const result = await moveOpportunityToLead(ctx, {
       tenantId,
@@ -615,7 +621,9 @@ export async function executeMerge(
       leadName,
       now,
       moveFormResponses: false,
+      humanMove: { userId, mergeStandDownDone: true },
     });
+    bumpedDeals.add(opportunity._id);
     moved.meetings += result.meetings;
     moved.followUps += result.followUps;
     moved.qualificationEvents += result.qualificationEvents;
@@ -680,6 +688,11 @@ export async function executeMerge(
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });
+  for (const deal of targetDeals) {
+    if (bumpedDeals.has(deal._id)) continue;
+    await noteHumanResult(ctx, deal._id, { tenantId, userId });
+    bumpedDeals.add(deal._id);
+  }
   // The target takes the later last touch of the two and a group from the
   // deals it now has; the source leaves the pool with the `lead.merged`
   // event below (docs/plans/respark.md §5.1).

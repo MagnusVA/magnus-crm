@@ -9,8 +9,10 @@ import {
 import {
   ATTENDANCE_QUOTE_TYPES,
   CURRENCIES_AS_SAID,
+  EVIDENCE_CHOICES,
   RESULT_QUOTE_LABELS,
 } from "./parse";
+import { EVIDENCE_PROMPT_VERSION } from "./validators";
 
 /**
  * The extraction prompt and its JSON schema. Changing either changes what the
@@ -103,6 +105,39 @@ export const EXTRACTION_SCHEMA: Record<string, unknown> = object({
   attendance,
 });
 
+const callEvidence = object({
+  recordingScope: oneOf(EVIDENCE_CHOICES.recordingScope),
+  scopeLines: array(integer),
+  statements: array(
+    object({
+      kind: oneOf([...EVIDENCE_CHOICES.statementKind, "none"]),
+      quote: string,
+      lineIndex: integer,
+      amountRole: oneOf([...EVIDENCE_CHOICES.amountRole, "none"]),
+      amount: string,
+      currencyAsSaid: currency,
+    }),
+  ),
+  prospectStance: oneOf(EVIDENCE_CHOICES.prospectStance),
+  closerStance: oneOf(EVIDENCE_CHOICES.closerStance),
+  nextStep: oneOf(EVIDENCE_CHOICES.nextStep),
+  nextStepDateTimeLocal: string,
+  nextStepMethod: oneOf([...EVIDENCE_CHOICES.nextStepMethod, "none"]),
+  quotedAmount: string,
+  quotedCurrencyAsSaid: currency,
+});
+
+const EVIDENCE_EXTRACTION_SCHEMA = object({
+  ...(EXTRACTION_SCHEMA.properties as Record<string, Schema>),
+  evidence: callEvidence,
+});
+
+export function extractionSchema(version: string): Schema {
+  return version === EVIDENCE_PROMPT_VERSION
+    ? EVIDENCE_EXTRACTION_SCHEMA
+    : EXTRACTION_SCHEMA;
+}
+
 function keys(
   table: Record<string, { label: string; definition?: string }>,
 ): string {
@@ -168,6 +203,22 @@ For lost: lossCategory is one of ${Object.entries(LOSS_CATEGORIES)
 
 ATTENDANCE
 ${attendanceRules}`;
+
+const EVIDENCE_SYSTEM = `${EXTRACTION_SYSTEM}
+
+EVIDENCE
+Fill evidence independently of the existing items, result and attendance fields. Follow their original instructions.
+recordingScope is "whole" only for one complete sales call between a closer and a prospect. Use "fragment" when it starts partway through, "cut_off" when the ending is missing, "multiple_calls" when there is more than one call, "not_sales_call" for a different kind of conversation, or "unknown" when unclear. scopeLines gives up to six supporting line numbers.
+statements lists at most sixteen decision and money statements. Put them in transcript order and put the final one last. If there are more than sixteen, prioritize the ending. Each is a verbatim quote with its line number. A closer's words never stand for the prospect's decision. Use "agrees_to_buy", "declines", "defers", "asks_call_back", "promises_payment" or "disqualifies" for decisions, and "states_price", "payment_attempt", "payment_seen" or "payment_failed" for money statements. Use "disqualifies" when the closer ends the sale. Use "payment_seen" when the speaker says they see a completed payment.
+For a statement that says an amount, use the same amount and currency rules as above and set amountRole to "this_payment", "full_price", "balance" or "instalment" when clear. Otherwise use the empty values. Never deduct, add or infer an amount.
+prospectStance is the prospect's final stance. "refused" requires their own clear final no. An earlier yes followed by "let me think" is "undecided". Use "yes" for a final agreement or "unknown" when unclear. closerStance is "continues", "disqualified" or "unknown".
+nextStep is the step agreed at the end: "call_back", "payment_owed", "none" or "unknown". Record the exact day and time as said in nextStepDateTimeLocal (YYYY-MM-DDTHH:mm:ss, tenant time zone). Resolve relative dates from Today, the local date of this call. Leave it empty unless both day and time were agreed. nextStepMethod is "call", "text" or "none". For an agreed future payment, give quotedAmount and quotedCurrencyAsSaid only for the amount of that payment said in a cited statement.`;
+
+export function extractionSystem(version: string): string {
+  return version === EVIDENCE_PROMPT_VERSION
+    ? EVIDENCE_SYSTEM
+    : EXTRACTION_SYSTEM;
+}
 
 export function buildUserMessage(a: {
   rendered: string;

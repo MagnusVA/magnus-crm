@@ -1,5 +1,6 @@
 import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
+import { noteHumanResult } from "../automation/humanResult";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
@@ -207,6 +208,7 @@ export async function recordMeetingLoss(
     // A recorded result plus a matched recording starts Jev's check (§6.9).
     await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
   }
+  await noteHumanResult(ctx, opportunityId, actor);
 }
 
 export const saveFathomLink = mutation({

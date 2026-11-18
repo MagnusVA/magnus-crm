@@ -207,6 +207,12 @@ describe("manual evidence links", () => {
         enrollments: await ctx.db.query("enrollments").take(10),
       };
     });
+    // Link and unlink are a person's actions, so each bumps the deal's
+    // human-result revision. Nothing else about the deal may move.
+    const withoutRevision = (report: Awaited<ReturnType<typeof reports>>) => ({
+      ...report,
+      deal: report.deal && { ...report.deal, humanResultRevision: undefined },
+    });
     const initial = await payment();
     const baseline = await reports();
     expect(baseline.sums).toEqual([1, 10000]);
@@ -221,7 +227,12 @@ describe("manual evidence links", () => {
       environment: "sandbox", sourceConnected: true,
       resolvedAt: FIXTURE_NOW,
     });
-    expect(await reports()).toEqual(baseline);
+    // A link is a person's action on the deal, so pending proposals stand down:
+    // the deal's human-result revision goes up by one. Every other field of the
+    // deal, and every cash and Billing figure, is unchanged.
+    const linked = await reports();
+    expect(linked.deal?.humanResultRevision).toBe((baseline.deal?.humanResultRevision ?? 0) + 1);
+    expect({ ...linked, deal: { ...linked.deal, humanResultRevision: baseline.deal?.humanResultRevision } }).toEqual(baseline);
 
     vi.setSystemTime(FIXTURE_NOW + 1000);
     expect(await fixture.admin.mutation(review.linkToPaymentRecord, args)).toEqual({ allocationRevision: 1, paymentRecordId });
@@ -237,7 +248,7 @@ describe("manual evidence links", () => {
     expect(detail?.payment.leadId).toBeUndefined();
     expect(detail?.payment.opportunityId).toBeUndefined();
     expect(detail?.payment.resolvedByUserId).toBeUndefined();
-    expect(await reports()).toEqual(baseline);
+    expect(withoutRevision(await reports())).toEqual(baseline);
 
     const events = await fixture.t.run((ctx) => ctx.db.query("domainEvents")
       .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
