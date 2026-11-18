@@ -247,7 +247,7 @@ export async function recordMeetingPayment(
   const target = await loadMeetingPaymentTarget(ctx, actor, args);
   const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
   const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "meeting", dealPayments, args.provider, {
-    kind: "meeting", meetingId: target.meeting._id,
+    kind: "meeting", meetingId: target.meeting._id, role: actor.role,
   });
   if (reconciliation.action === "attach_existing") {
     const { meeting, opportunity } = target;

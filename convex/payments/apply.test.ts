@@ -318,6 +318,76 @@ describe("provider apply", () => {
     await invariant(f);
   });
 
+  it.each(["Billing", "closer"] as const)("records a won side deal's confirmed membership renewal through %s", async (writer) => {
+    const membershipId = "mem_side_deal_renewal";
+    const f = await paymentConfirmationFixture({ source: "side_deal", fact: { membershipId } });
+    const firstRecordedAt = FIXTURE_NOW - 5_000;
+    vi.setSystemTime(firstRecordedAt);
+    const { paymentId: anchorId } = await f.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      opportunityId: f.dealId, amount: 100, currency: "USD", programId: f.programId, paymentType: "pif",
+      proofFileId: await storeProofFile(f.t),
+    });
+    await f.admin.mutation(api.payments.review.linkToPaymentRecord, {
+      providerPaymentId: f.providerPaymentId, paymentRecordId: anchorId, expectedAllocationRevision: 0,
+    });
+    await f.admin.mutation(api.payments.bindings.confirmMembership, {
+      providerPaymentId: f.providerPaymentId, expectedMembershipId: membershipId,
+      expectedAllocationRevision: 1, expectedBindingVersion: 0,
+    });
+
+    vi.setSystemTime(FIXTURE_NOW);
+    const renewal = await f.t.run(async (ctx) => {
+      const providerPaymentId = await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+        externalPaymentId: "pay_side_deal_renewal", reviewState: "needs_person",
+        membershipId, billingReason: "subscription_cycle", paidAt: FIXTURE_NOW, totalMinor: 5000,
+      });
+      const { decisionId } = await evaluateSubject(ctx, {
+        tenantId: f.tenantId, providerPaymentId, now: FIXTURE_NOW, cause: "sweep",
+      });
+      const decision = decisionId && await ctx.db.get("resultAutomationDecisions", decisionId);
+      return { providerPaymentId, decision };
+    });
+    expect(renewal.decision).toMatchObject({
+      kind: "additional_payment", state: "ready", wouldWrite: true, automaticEligible: true,
+    });
+
+    let paymentRecordId: Id<"paymentRecords">;
+    const selection = target(f, renewal.providerPaymentId);
+    if (writer === "Billing") {
+      const args = await pin(f, selection);
+      expect(args.decisionId).toBe(renewal.decision?._id);
+      const result = await f.admin.mutation(confirm.confirmWhopPayment, args);
+      if (!result.ok) throw new Error(result.code);
+      paymentRecordId = result.paymentRecordId;
+    } else {
+      const reconciliation = await f.closer.query(api.payments.reconcileCheck.getPaymentReconciliation, {
+        target: { kind: "deal", opportunityId: f.dealId },
+      });
+      expect(reconciliation.conflicts).toMatchObject([{ providerPaymentId: renewal.providerPaymentId, state: "unlinked" }]);
+      const result = await f.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+        opportunityId: f.dealId, amount: 50, currency: "USD", paymentType: "pif",
+        provider: {
+          kind: "same_money", providerPaymentId: renewal.providerPaymentId,
+          expectedAllocationRevision: 0, acknowledgeAmountDifference: false,
+        },
+      });
+      paymentRecordId = result.paymentId;
+    }
+    const state = await f.t.run(async (ctx) => ({
+      deal: await ctx.db.get("opportunities", f.dealId),
+      row: await ctx.db.get("paymentRecords", paymentRecordId),
+      fact: await ctx.db.get("providerPayments", renewal.providerPaymentId),
+    }));
+    expect(state.deal).toMatchObject({ outcome: "won", paymentReceivedAt: firstRecordedAt });
+    expect(state.row).toMatchObject({
+      origin: writer === "Billing" ? "provider" : "closer_additional",
+      programId: f.programId, amountMinor: 5000, providerPaymentId: renewal.providerPaymentId,
+    });
+    expect(state.row?.proofFileId).toBeUndefined();
+    expect(state.fact).toMatchObject({ paymentRecordId, allocationRevision: 1 });
+    await invariant(f);
+  });
+
   it.each(["side_deal", "qualified_only", "lost_by_person"] as const)("refuses %s before writing", async (code) => {
     const f = await paymentConfirmationFixture(code === "side_deal" ? { source: "side_deal" } :
       { dealPosition: code === "qualified_only" ? "qualified" : "lost" });

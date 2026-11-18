@@ -11,11 +11,13 @@ import {
   confirmAttendedWhopWin,
   insertProviderBinding,
   insertProviderDeal,
+  insertProviderFact,
   insertProviderMeeting,
   insertProviderPerson,
   providerPaymentFixture,
   seedBillingWin,
   seedManualPayment,
+  setPaymentFixtureModes,
 } from "../../tests/providerPaymentFixtures";
 import { noteHumanResult } from "../automation/humanResult";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
@@ -313,6 +315,49 @@ describe("the reviewed correction", () => {
       paymentRecordId: f.paymentRecordId, cause: "wrong_match", level: "reviewed", disposition: "lost",
       expectedFingerprint: shown.fingerprint,
     })).toMatchObject({ ok: true, alreadyApplied: false });
+    await f.invariant();
+  });
+
+  it.each(["exclusion", "apply"] as const)("allows payment %s after 21 removed membership confirmations", async (action) => {
+    const f = await billingWin();
+    const membershipId = "mem_removed_history";
+    await f.t.run((ctx) => ctx.db.patch("providerPayments", f.providerPaymentId, { membershipId }));
+    for (let round = 0; round < 21; round++) {
+      const control = await f.admin.query(api.payments.bindings.getMembershipControl, {
+        providerPaymentId: f.providerPaymentId,
+      });
+      if (control?.kind !== "confirm") throw new Error("Expected membership confirmation to be available");
+      const bindingId = await f.admin.mutation(api.payments.bindings.confirmMembership, {
+        providerPaymentId: f.providerPaymentId,
+        expectedMembershipId: membershipId,
+        expectedAllocationRevision: control.allocationRevision,
+        expectedBindingVersion: control.bindingVersion,
+      });
+      await f.admin.mutation(api.payments.bindings.removeMembershipConfirmation, { bindingId });
+    }
+
+    if (action === "exclusion") {
+      const shown = await preview(f.admin, f.paymentRecordId);
+      expect(shown.refusal).toBeUndefined();
+      expect(await exclude(f.admin, {
+        paymentRecordId: f.paymentRecordId, cause: "wrong_match", level: "reviewed", disposition: "lost",
+        expectedFingerprint: shown.fingerprint,
+      })).toMatchObject({ ok: true, alreadyApplied: false });
+    } else {
+      const providerPaymentId = await f.t.run(async (ctx) => {
+        await setPaymentFixtureModes(ctx, f);
+        return await insertProviderFact(ctx, f.tenantId, f.connectionId, {
+          externalPaymentId: "pay_after_removals", reviewState: "needs_person",
+        });
+      });
+      const args = { providerPaymentId, opportunityId: f.opportunityId };
+      const { preview: shown } = await f.admin.query(api.payments.confirm.previewWhopConfirm, args);
+      expect(shown).toMatchObject({ ok: true, kind: "additional_payment" });
+      if (!shown.ok) throw new Error(shown.code);
+      expect(await f.admin.mutation(api.payments.confirm.confirmWhopPayment, {
+        ...args, expectedFingerprint: shown.fingerprint, expectedAllocationRevision: shown.allocationRevision,
+      })).toMatchObject({ ok: true, alreadyApplied: false });
+    }
     await f.invariant();
   });
 

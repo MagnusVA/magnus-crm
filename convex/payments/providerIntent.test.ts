@@ -12,6 +12,7 @@ import {
   insertProviderBinding,
   insertProviderDeal,
   insertProviderFact,
+  insertProviderPerson,
   PAYER_EMAIL,
   providerPaymentFixture,
   PRODUCT_ID,
@@ -277,8 +278,22 @@ describe("confirming a Whop payment", () => {
       .rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
     await f.t.run((ctx) => ctx.db.patch("paymentProviderBindings", bindingId, { enabled: true }));
     const instalment = await f.closer.mutation(api.closer.additionalPayment.recordAdditionalPayment, { ...args, provider });
+    const duplicateProofFileId = await storeProofFile(f.t);
+    await expect(other.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
+      ...args, proofFileId: duplicateProofFileId,
+    })).rejects.toHaveProperty("data", {
+      code: "payment.billing_review_required",
+      message: "Billing needs to check this payment first.",
+    });
+    const manualDealId = await f.t.run(async (ctx) => {
+      const leadId = await insertProviderPerson(ctx, f.tenantId, { email: "manual-buyer@example.test" });
+      return await insertProviderDeal(ctx, { ...f, leadId, source: "side_deal", assignedCloserId: f.closerId });
+    });
+    await f.closer.mutation(api.sideDeals.logPayment.logPayment, {
+      ...args, opportunityId: manualDealId, programId: f.programId, proofFileId: await storeProofFile(f.t),
+    });
     const manual = await other.mutation(api.closer.additionalPayment.recordAdditionalPayment, {
-      ...args, proofFileId: await storeProofFile(f.t),
+      ...args, opportunityId: manualDealId, proofFileId: await storeProofFile(f.t),
     });
     expect(await f.t.run((ctx) => Promise.all([
       ctx.db.get("paymentRecords", instalment.paymentId),

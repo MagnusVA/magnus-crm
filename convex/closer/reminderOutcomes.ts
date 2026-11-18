@@ -268,7 +268,7 @@ export async function recordTaskPayment(
   const target = await loadReminderPaymentTarget(ctx, actor, args.followUpId);
   const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
   const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "reminder", dealPayments, args.provider, {
-    kind: "reminder", followUpId: target.followUp._id,
+    kind: "reminder", followUpId: target.followUp._id, role: actor.role,
   });
   if (reconciliation.action === "attach_existing") {
     if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {

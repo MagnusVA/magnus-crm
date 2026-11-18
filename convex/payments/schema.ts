@@ -470,6 +470,12 @@ export const paymentProviderTables = {
       "tenantId",
       "opportunityId",
       "kind",
+    ])
+    .index("by_tenantId_and_opportunityId_and_enabled_and_kind", [
+      "tenantId",
+      "opportunityId",
+      "enabled",
+      "kind",
     ]),
 
   // One delivery from the provider. Kept for good, so a redelivery is known;

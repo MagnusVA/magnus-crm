@@ -139,7 +139,8 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
   const kind = rawPosition === "won" ? "additional_payment" : "payment_win";
   const settings = tenant.resultAutomation;
   if (tenant.status !== "active" || !settings || !modeAtLeastAsk(effectiveKindMode(tenant, kind))) return refuse("kind_off");
-  if (isSideDeal(deal) || rawPosition === "call_held") return refuse("side_deal");
+  const sideDeal = isSideDeal(deal);
+  if (rawPosition === "call_held" || (kind === "payment_win" && sideDeal)) return refuse("side_deal");
   if (rawPosition === "qualified") return refuse("qualified_only");
   const systemLoss = systemLossReasonOf(deal);
   // An automatic call refusal is a loss no person recorded. Only a person's
@@ -184,8 +185,8 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
         q.eq("opportunityId", opportunityId).eq("status", "pending")).take(FINGERPRINT_TASK_LIMIT + 1),
       ctx.db.query("meetings").withIndex("by_opportunityId", (q) =>
         q.eq("opportunityId", opportunityId)).take(FINGERPRINT_MEETING_LIMIT + 1),
-      ctx.db.query("paymentProviderBindings").withIndex("by_tenantId_and_opportunityId_and_kind", (q) =>
-        q.eq("tenantId", tenantId).eq("opportunityId", opportunityId).eq("kind", "membership_deal"))
+      ctx.db.query("paymentProviderBindings").withIndex("by_tenantId_and_opportunityId_and_enabled_and_kind", (q) =>
+        q.eq("tenantId", tenantId).eq("opportunityId", opportunityId).eq("enabled", true).eq("kind", "membership_deal"))
         .take(FINGERPRINT_BINDING_LIMIT + 1),
       readBinding(ctx, payment, "product_program", payment.productId),
       readBinding(ctx, payment, "variant_type", payment.variantId),
@@ -258,7 +259,7 @@ async function prepareApply(ctx: ReadCtx, args: PreviewArgs) {
     autoImportAfter: connection.autoImportAfter, connectionEpoch: connection.connectedAt,
     target,
     deal: {
-      _id: deal._id, position: rawPosition, isSideDeal: false, systemLoss, callRefusal, createdAt: deal.createdAt,
+      _id: deal._id, position: rawPosition, isSideDeal: sideDeal, systemLoss, callRefusal, createdAt: deal.createdAt,
       assignedCloserId: attributedCloserId, humanResultRevision: deal.humanResultRevision ?? 0,
       storedPaymentCount: payments.length, personDealCount: personDeals.length, firstCountingCreditCloserId: firstCredit,
       blockingManualPaymentIds, currentMeeting: position === "booked" ? scheduled[0] : undefined,
@@ -353,9 +354,10 @@ export async function previewProviderApply(ctx: ReadCtx, args: PreviewArgs, deci
   return { ok: true, alreadyApplied: false, fingerprint, allocationRevision, position, kind, proposal };
 }
 
-export type ProviderConfirmSubject =
+export type ProviderConfirmSubject = { role: CrmRole } & (
   | { kind: "meeting"; meetingId: Id<"meetings"> }
-  | { kind: "reminder"; followUpId: Id<"followUps"> };
+  | { kind: "reminder"; followUpId: Id<"followUps"> }
+);
 
 /** The proposal a closer can record, from the same preflight as Billing. */
 export async function readEligibleProviderProposal(
@@ -366,10 +368,14 @@ export async function readEligibleProviderProposal(
 ) {
   const prepared = await prepareApply(ctx, args);
   if (!prepared.ok) return null;
-  if (decision && (!decisionMatchesPrepared(prepared, decision) ||
-      (subject?.kind === "meeting" && decision.meetingId !== subject.meetingId) ||
-      (subject?.kind === "reminder" && paymentProposalOf(decision)?.completesFollowUpId !== subject.followUpId))) return null;
-  return prepared.derived.proposal ?? null;
+  if (decision && !decisionMatchesPrepared(prepared, decision)) return null;
+  const { derived } = prepared;
+  // Admins can still use the manual result path without a Whop decision.
+  if (subject && (subject.role === "closer" || decision)) {
+    if (subject.kind === "meeting" && derived.meetingId !== subject.meetingId) return null;
+    if (subject.kind === "reminder" && derived.proposal?.completesFollowUpId !== subject.followUpId) return null;
+  }
+  return derived.proposal ?? null;
 }
 
 async function readRetry(ctx: MutationCtx, args: ApplyArgs, payment: Payment, decision: Decision | null): Promise<ApplyResult> {

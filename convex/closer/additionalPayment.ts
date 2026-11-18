@@ -3,6 +3,7 @@ import { noteHumanResult } from "../automation/humanResult";
 import {
   allocateReconciledPayment,
   attachReconciledPayment,
+  checkPaymentReconciliation,
   finishReconciledPayment,
   providerIntentValidator,
   providerWaivesProof,
@@ -19,6 +20,7 @@ import {
   syncPersonEnrollments,
 } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { expectedError } from "../lib/observability/errors";
 import { insertRecordedPayment } from "../lib/paymentWrite";
 import {
   assertPaymentRow,
@@ -75,6 +77,18 @@ export const recordAdditionalPayment = mutation({
       throw new Error("You are not the assigned closer for this opportunity.");
     }
     const dealPayments = await readReconciliationDealPayments(ctx, opportunity._id);
+    if (!canReconcile) {
+      const conflicts = await checkPaymentReconciliation(ctx, {
+        tenantId,
+        leadId: opportunity.leadId,
+        opportunityId: opportunity._id,
+        writer: "additional",
+        dealPayments,
+      });
+      if (conflicts.length) {
+        throw expectedError("payment.billing_review_required", "Billing needs to check this payment first.");
+      }
+    }
     const reconciliation = canReconcile
       ? await reconcilePaymentWrite(ctx, opportunity, "additional", dealPayments, args.provider)
       : { action: "insert" as const, distinctFrom: [] };

@@ -67,8 +67,8 @@ export async function paymentStateFingerprint(
   }
 
   const bindings = await ctx.db.query("paymentProviderBindings")
-    .withIndex("by_tenantId_and_opportunityId_and_kind", (q) =>
-      q.eq("tenantId", tenantId).eq("opportunityId", opportunityId).eq("kind", "membership_deal"))
+    .withIndex("by_tenantId_and_opportunityId_and_enabled_and_kind", (q) =>
+      q.eq("tenantId", tenantId).eq("opportunityId", opportunityId).eq("enabled", true).eq("kind", "membership_deal"))
     .take(FINGERPRINT_BINDING_LIMIT + 1);
   if (bindings.length > FINGERPRINT_BINDING_LIMIT) throw overflow("membership bindings", opportunityId, FINGERPRINT_BINDING_LIMIT);
 
@@ -94,7 +94,7 @@ export async function paymentStateFingerprint(
     meetings: byId(meetings.map((meeting) => [meeting._id, meeting.status, meeting.heldMarkedAt ?? null] as const)),
     tasks: byId([...tasks].map(([taskId, task]) =>
       [taskId, task?.status ?? null, task?.reminderScheduledAt ?? null] as const)),
-    bindings: byId(bindings.flatMap((binding) => binding.enabled ? [[binding._id, binding.version] as const] : [])),
+    bindings: byId(bindings.map((binding) => [binding._id, binding.version] as const)),
     extra: args.extra ?? [],
   };
   return await sha256Hex(stableJson(pinned));

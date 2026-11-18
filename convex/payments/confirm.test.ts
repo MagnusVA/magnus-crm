@@ -146,6 +146,49 @@ describe("confirmWhopPayment", () => {
     await invariant(f);
   });
 
+  it.each(["meeting", "reminder"] as const)("requires the live %s even without a decision ID", async (route) => {
+    const f = await paymentConfirmationFixture({ dealPosition: route === "meeting" ? "booked" : "follow_up" });
+    const [first, second] = await f.t.run(async (ctx) => {
+      if (route === "meeting") {
+        const meeting = (scheduledAt: number) => insertProviderMeeting(ctx, {
+          ...f, opportunityId: f.dealId, scheduledAt,
+        });
+        return [
+          { kind: route, meetingId: await meeting(FIXTURE_NOW - 120_000) },
+          { kind: route, meetingId: await meeting(FIXTURE_NOW - 60_000) },
+        ];
+      }
+      const reminder = () => insertTask(ctx, {
+        opportunityId: f.dealId, type: "manual_reminder", reason: "closer_initiated",
+        status: "pending", reminderScheduledAt: FIXTURE_NOW,
+      });
+      const ids = [await reminder(), await reminder()].sort((a, b) => a.localeCompare(b));
+      return ids.map((followUpId) => ({ kind: route, followUpId }));
+    });
+    const { decisionId } = await evaluate(f);
+    if (!decisionId) throw new Error("Expected a ready Whop decision");
+    const args = {
+      programId: f.programId, paymentType: "pif" as const, amount: 100, currency: "USD",
+    };
+    const provider = { kind: "confirm" as const, providerPaymentId: f.providerPaymentId, expectedAllocationRevision: 0 };
+    const save = (target: typeof first, intent: typeof provider & { decisionId?: typeof decisionId }) =>
+      target.kind === "meeting"
+        ? f.closer.mutation(api.closer.payments.logPayment, {
+          ...args, provider: intent, opportunityId: f.dealId, meetingId: target.meetingId,
+        })
+        : f.closer.mutation(api.closer.reminderOutcomes.logReminderPayment, {
+          ...args, provider: intent, followUpId: target.followUpId,
+        });
+
+    await expect(save(second, { ...provider, decisionId })).rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    await expect(save(second, provider)).rejects.toMatchObject({ data: { code: "payment.stale_preview" } });
+    expect(await f.t.run((ctx) => ctx.db.query("paymentRecords").take(1))).toEqual([]);
+
+    const paymentRecordId = await save(first, provider);
+    expect(await f.t.run((ctx) => ctx.db.get("providerPayments", f.providerPaymentId))).toMatchObject({ paymentRecordId });
+    await invariant(f);
+  });
+
   it("routes the closer's own reminder to the reminder writer and completes it with the payment", async () => {
     const f = await paymentConfirmationFixture({ dealPosition: "follow_up" });
     const followUpId = await f.t.run((ctx) => insertTask(ctx, {
