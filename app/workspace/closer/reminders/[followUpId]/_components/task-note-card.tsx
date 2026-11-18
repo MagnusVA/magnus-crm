@@ -1,7 +1,17 @@
 import { Card } from "@/components/ui/card";
-import type { BusinessDaySetting } from "@/lib/businessDay";
-import { formatShortDate } from "@/app/workspace/closer/_components/today-time";
-import type { TaskDetail, TaskDetailMode } from "./task-detail-types";
+import { businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
+import { formatAmountMinor } from "@/lib/format-currency";
+import {
+  formatBusinessDate,
+  formatShortDate,
+} from "@/app/workspace/closer/_components/today-time";
+import {
+  declineWords,
+  isSetFromCall,
+  taskPurposeLabel,
+  type TaskDetail,
+  type TaskDetailMode,
+} from "./task-detail-types";
 
 type Meeting = TaskDetail["dealMeetings"][number];
 
@@ -38,6 +48,17 @@ export function taskOrigin(
   if (followUp.reason === "stale_opportunity_nudge") {
     return `Automatic nudge · set ${day}, when the deal went quiet`;
   }
+  if (isSetFromCall(followUp)) {
+    const call = previous ? `the ${formatShortDate(previous.scheduledAt, setting.timeZone)} call` : "the call";
+    if (followUp.createdSource === "system") return `Set automatically from ${call} · ${day}`;
+    const by =
+      followUp.createdSource === "admin"
+        ? "an admin"
+        : mode === "closer"
+          ? "you"
+          : (closerName ?? "the closer");
+    return `Set from ${call} · confirmed by ${by} ${day}`;
+  }
   if (followUp.createdSource === "admin" || followUp.reason === "admin_initiated") {
     return `Set by an admin · ${when}`;
   }
@@ -58,6 +79,11 @@ function reasonLine(detail: TaskDetail, firstName: string, setting: BusinessDayS
   // A closed task is described, not handed out as an instruction.
   if (detail.followUp.status !== "pending") {
     const kind = detail.followUp.contactMethod === "text" ? "text-back" : "call-back";
+    if (isSetFromCall(detail.followUp)) {
+      return detail.followUp.purpose === "payment_owed"
+        ? `A task to check on ${firstName}’s payment, set from the call.`
+        : `A ${kind} task for ${firstName}, set from the call.`;
+    }
     switch (detail.followUp.reason) {
       case "no_show_follow_up":
         return callDay
@@ -72,6 +98,12 @@ function reasonLine(detail: TaskDetail, firstName: string, setting: BusinessDayS
       default:
         return `A ${kind} task for ${firstName}. No note was left.`;
     }
+  }
+  if (isSetFromCall(detail.followUp)) {
+    const reach = detail.followUp.contactMethod === "text" ? "Text" : "Call";
+    return detail.followUp.purpose === "payment_owed"
+      ? `${firstName} said they would pay. ${reach} to check the payment came through.`
+      : `${reach} ${firstName} back, as agreed on the call.`;
   }
   switch (detail.followUp.reason) {
     case "no_show_follow_up":
@@ -109,8 +141,18 @@ export function TaskNoteCard({
   closerName: string | null;
 }) {
   const note = detail.followUp.reminderNote?.trim();
+  const purpose = taskPurposeLabel(detail.followUp);
+  const fromCall = isSetFromCall(detail.followUp);
+  const promise = promiseLine(detail.followUp, setting);
+  const declineCode = detail.followUp.declineCode;
   return (
     <Card className="gap-1.5 px-4 py-3.5" aria-label="Why this task">
+      {purpose ? (
+        <p className="flex flex-wrap items-center gap-x-1.5 text-[0.8125rem] text-muted-foreground">
+          <span className={PURPOSE_CHIP}>{purpose}</span>
+          {fromCall ? <span>set from the call</span> : null}
+        </p>
+      ) : null}
       {note ? (
         <blockquote className="text-[1.0625rem] leading-relaxed font-medium text-pretty whitespace-pre-wrap">
           &ldquo;{note}&rdquo;
@@ -120,9 +162,42 @@ export function TaskNoteCard({
           {reasonLine(detail, firstName, setting)}
         </p>
       )}
+      {promise ? <p className="font-medium tabular-nums">{promise}</p> : null}
+      {declineCode ? (
+        <p className="text-[0.9375rem]">
+          Last payment attempt: <span className="font-medium">{declineWords(declineCode)}</span>
+        </p>
+      ) : null}
       <p className="text-[0.8125rem] text-muted-foreground">
         {taskOrigin(detail, mode, setting, closerName)}
       </p>
     </Card>
   );
+}
+
+const PURPOSE_CHIP =
+  "shrink-0 rounded-[4px] bg-secondary px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-secondary-foreground uppercase";
+
+/**
+ * A payment-owed task's promise: "Promised $500.00 by Fri, Nov 20", or the
+ * part of it the call gave. Null for any other task.
+ */
+function promiseLine(followUp: TaskDetail["followUp"], setting: BusinessDaySetting): string | null {
+  if (followUp.purpose !== "payment_owed") return null;
+  const amount =
+    followUp.expectedAmountMinor !== undefined && followUp.expectedCurrency
+      ? formatAmountMinor(followUp.expectedAmountMinor, followUp.expectedCurrency)
+      : null;
+  const by =
+    followUp.promisedPaymentAt !== undefined
+      ? formatBusinessDate(businessDateForInstant(followUp.promisedPaymentAt, setting), {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        })
+      : null;
+  if (amount && by) return `Promised ${amount} by ${by}`;
+  if (amount) return `Promised ${amount}`;
+  if (by) return `Promised by ${by}`;
+  return null;
 }

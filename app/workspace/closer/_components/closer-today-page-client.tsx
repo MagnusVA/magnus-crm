@@ -26,8 +26,9 @@ import { UnmatchedBanner } from "./unmatched-banner";
  * the calls still owed an outcome and today's tasks on the right. The page
  * is a container: narrower than 56rem (a half-screen window, a zoomed-in
  * browser) the columns stack in the order a closer works them: calls,
- * outcomes, tasks, then performance. Changes others made to the closer's
- * numbers, when there are any, sit between the outcomes and the tasks.
+ * outcomes, tasks, then performance. What is waiting on the closer (pending
+ * losses, payment checks, changes others made to their numbers), when there
+ * is any, sits between the outcomes and the tasks.
  */
 export function CloserTodayPageClient() {
   usePageTitle("Today");
@@ -96,14 +97,14 @@ export function CloserTodayPageClient() {
             <NeedsOutcomeCard result={needsOutcome} now={now} timeZone={setting.timeZone} />
           </SectionErrorBoundary>
           <SectionErrorBoundary
-            sectionName="changes to your numbers"
+            sectionName="waiting on you"
             fallback={
               <div className="rounded-xl border bg-card">
-                <SectionError what="changes to your numbers" />
+                <SectionError what="what’s waiting on you" />
               </div>
             }
           >
-            <PinnedGroupCard />
+            <PinnedGroupCard setting={setting} now={now} />
           </SectionErrorBoundary>
           <SectionErrorBoundary
             sectionName="tasks"

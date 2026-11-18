@@ -78,23 +78,27 @@ const viewFields = {
   personName: v.union(v.string(), v.null()),
   createdAt: v.number(),
   ageMs: v.number(),
+  noticeHours: v.number(),
+  callAt: v.number(),
   acknowledgedAt: v.optional(v.number()),
   dueAt: v.optional(v.number()),
 };
 const adminView = v.object({ ...viewFields, closerName: v.union(v.string(), v.null()) });
 
-async function readNotice(ctx: QueryCtx, row: Decision, now: number) {
+async function readNotice(ctx: QueryCtx, row: Decision, now: number, noticeHours: number) {
   const { opportunityId, meetingId, leadId, noticeUserId } = row;
   if (row.kind !== "refusal_loss" || !opportunityId || !meetingId || !leadId || !noticeUserId) return null;
-  const [deal, lead] = await Promise.all([
-    ctx.db.get("opportunities", opportunityId), ctx.db.get("leads", leadId),
+  const [deal, lead, meeting] = await Promise.all([
+    ctx.db.get("opportunities", opportunityId), ctx.db.get("leads", leadId), ctx.db.get("meetings", meetingId),
   ]);
   if (deal?.tenantId !== row.tenantId || deal.assignedCloserId !== noticeUserId ||
-      deal.leadId !== leadId || lead?.tenantId !== row.tenantId) return null;
+      deal.leadId !== leadId || lead?.tenantId !== row.tenantId ||
+      meeting?.tenantId !== row.tenantId || meeting.opportunityId !== opportunityId) return null;
   return {
     decisionId: row._id, opportunityId, meetingId, leadId, noticeUserId,
     personName: lead.fullName?.trim() || null,
     createdAt: row.createdAt, ageMs: Math.max(0, now - row.createdAt),
+    noticeHours, callAt: meeting.scheduledAt,
     acknowledgedAt: row.acknowledgedAt, dueAt: row.dueAt,
   };
 }
@@ -108,12 +112,17 @@ export const listMyNotices = query({
   returns: v.object({ notices: v.array(v.object(viewFields)), capped: v.boolean() }),
   handler: async (ctx) => {
     const { tenantId, userId } = await requireTenantUser(ctx, ["closer"]);
-    const rows = await ctx.db.query("resultAutomationDecisions")
-      .withIndex("by_tenantId_and_noticeUserId_and_state", (q) =>
-        q.eq("tenantId", tenantId).eq("noticeUserId", userId).eq("state", "notice"))
-      .take(QUEUE_LIMIT + 1);
+    const [tenant, rows] = await Promise.all([
+      ctx.db.get("tenants", tenantId),
+      ctx.db.query("resultAutomationDecisions")
+        .withIndex("by_tenantId_and_noticeUserId_and_state", (q) =>
+          q.eq("tenantId", tenantId).eq("noticeUserId", userId).eq("state", "notice"))
+        .take(QUEUE_LIMIT + 1),
+    ]);
+    const noticeHours = tenant?.resultAutomation?.refusalNoticeHours ?? DEFAULT_REFUSAL_NOTICE_HOURS;
     const now = Date.now();
-    const notices = await Promise.all(rows.slice(0, QUEUE_LIMIT).sort(noticeOrder).map((row) => readNotice(ctx, row, now)));
+    const notices = await Promise.all(rows.slice(0, QUEUE_LIMIT).sort(noticeOrder).map((row) =>
+      readNotice(ctx, row, now, noticeHours)));
     return { notices: notices.filter((row) => row !== null), capped: rows.length > QUEUE_LIMIT };
   },
 });
@@ -123,12 +132,16 @@ export const listNotices = query({
   returns: v.object({ notices: v.array(adminView), capped: v.boolean() }),
   handler: async (ctx) => {
     const { tenantId } = await requireTenantUser(ctx, [...adminRoles]);
-    const rows = await ctx.db.query("resultAutomationDecisions")
-      .withIndex("by_tenantId_and_state_and_dueAt", (q) => q.eq("tenantId", tenantId).eq("state", "notice"))
-      .take(QUEUE_LIMIT + 1);
+    const [tenant, rows] = await Promise.all([
+      ctx.db.get("tenants", tenantId),
+      ctx.db.query("resultAutomationDecisions")
+        .withIndex("by_tenantId_and_state_and_dueAt", (q) => q.eq("tenantId", tenantId).eq("state", "notice"))
+        .take(QUEUE_LIMIT + 1),
+    ]);
+    const noticeHours = tenant?.resultAutomation?.refusalNoticeHours ?? DEFAULT_REFUSAL_NOTICE_HOURS;
     const now = Date.now();
     const notices = await Promise.all(rows.slice(0, QUEUE_LIMIT).sort(noticeOrder).map(async (row) => {
-      const notice = await readNotice(ctx, row, now);
+      const notice = await readNotice(ctx, row, now, noticeHours);
       if (!notice) return null;
       const closer = await ctx.db.get("users", notice.noticeUserId);
       return { ...notice, closerName: closer?.tenantId === tenantId ? closer.fullName?.trim() || null : null };

@@ -203,7 +203,9 @@ async function collect(ctx: QueryCtx, scope: AutomationInvariantScope): Promise<
         }
         if (task.reminderNote !== undefined) fail("A2", `task ${task._id} from decision ${task.automationDecisionId} holds a note`);
       }
-      if (task.purpose === "payment_owed" && !(
+      // A task the system set carries the whole promise. One a person set by
+      // hand may leave the amount, currency or date out.
+      if (task.purpose === "payment_owed" && task.automationDecisionId !== undefined && !(
         task.expectedAmountMinor !== undefined && task.expectedAmountMinor > 0 &&
         task.expectedCurrency !== undefined && /^[A-Z]{3}$/.test(task.expectedCurrency) &&
         task.promisedPaymentAt !== undefined)) {

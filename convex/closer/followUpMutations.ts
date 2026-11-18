@@ -1,9 +1,10 @@
 import { blockBooking } from "../pipeline/blocked";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
 import { noteHumanResult } from "../automation/humanResult";
+import { validateCurrency } from "../lib/formatMoney";
 import { insertManualReminder } from "../lib/reminderInsert";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
@@ -328,6 +329,12 @@ export const cancelPendingFollowUp = mutation({
   },
 });
 
+const paymentOwedValidator = v.object({
+  expectedAmountMinor: v.optional(v.number()),
+  expectedCurrency: v.optional(v.string()),
+  promisedPaymentAt: v.optional(v.number()),
+});
+
 export const createManualReminderFollowUpPublic = mutation({
   args: {
     opportunityId: v.id("opportunities"),
@@ -336,7 +343,9 @@ export const createManualReminderFollowUpPublic = mutation({
     reminderScheduledAt: v.number(),
     reminderNote: v.optional(v.string()),
     fromSuggestion: v.optional(fromSuggestionValidator),
+    paymentOwed: v.optional(paymentOwedValidator),
   },
+  returns: v.object({ followUpId: v.id("followUps") }),
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["closer"]);
     return await createCallbackTask(ctx, actor, args, WEB);
@@ -351,6 +360,7 @@ export type CallbackTaskArgs = {
   reminderScheduledAt: number;
   reminderNote?: string;
   fromSuggestion?: FromSuggestion;
+  paymentOwed?: Infer<typeof paymentOwedValidator>;
 };
 
 /**
@@ -448,6 +458,19 @@ export async function createCallbackTask(
   if (automation && (await loadDealOpenTasks(ctx, opportunity._id)).hasOpenTask) {
     throw new Error("The deal already has a pending task");
   }
+  const paymentOwed = args.paymentOwed;
+  if (paymentOwed && automation) throw new Error("A manual payment promise requires a human result");
+  const { expectedAmountMinor, expectedCurrency, promisedPaymentAt } = paymentOwed ?? {};
+  if ((expectedAmountMinor === undefined) !== (expectedCurrency === undefined)) {
+    throw new Error("Enter the expected amount and currency together");
+  }
+  if (expectedAmountMinor !== undefined && (!Number.isSafeInteger(expectedAmountMinor) || expectedAmountMinor <= 0)) {
+    throw new Error("Expected amount in minor units must be a positive integer");
+  }
+  if (promisedPaymentAt !== undefined && !Number.isFinite(new Date(promisedPaymentAt).getTime())) {
+    throw new Error("Invalid promised payment date");
+  }
+  const currency = expectedCurrency === undefined ? undefined : validateCurrency(expectedCurrency);
   const suggestion = automation && meeting
     ? actor && await liveOutcomeSuggestion(ctx, meeting, now).catch(() => null)
     : args.fromSuggestion && meeting
@@ -473,8 +496,18 @@ export async function createCallbackTask(
     automationDecisionId: automation?.decisionId,
     now,
     ...writer,
-    metadata: provenanceMetadata(provenance),
+    metadata: paymentOwed ? { ...provenanceMetadata(provenance), purpose: "payment_owed" } : provenanceMetadata(provenance),
   });
+  // The insert helper requires all promise fields on automation tasks. A
+  // closer can save a payment-owed reminder with a partial or unknown promise.
+  if (paymentOwed) {
+    await ctx.db.patch("followUps", followUpId, {
+      purpose: "payment_owed",
+      expectedAmountMinor,
+      expectedCurrency: currency,
+      promisedPaymentAt,
+    });
+  }
 
   const landTask = () => landFollowUp(ctx, args.opportunityId, start, {
     ...writer,

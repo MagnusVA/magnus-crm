@@ -1,6 +1,10 @@
 "use client";
 
-import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
+import { lossReasonLabel, refusalByline } from "@/convex/lib/lossReasonLabel";
+import {
+  RESERVED_LOSS_REASONS,
+  RESERVED_LOSS_REASON_LABELS,
+} from "@/convex/opportunities/stages";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -54,6 +58,10 @@ import {
   type MeetingDetail,
   type MeetingDetailMode,
 } from "./meeting-detail-types";
+import { CallAskCard } from "./call-ask";
+import { CallResultSummary } from "./call-result-summary";
+import { callAskReplacesSuggestion, noOneTapLine } from "./call-result-words";
+import { RefusalNoticeCard } from "./refusal-notice-banner";
 
 const PaymentFormDialog = dynamic(() =>
   import("./payment-form-dialog").then((m) => ({ default: m.PaymentFormDialog })),
@@ -106,8 +114,11 @@ type OutcomeSectionProps = {
  * - on a deal a Whop payment won, the attendance question for the call, or
  * - a one-line summary once the outcome is recorded.
  *
- * A Whop payment waiting for the closer's confirmation takes the place of
- * the suggested result above the question.
+ * One card sits above the question, in this order: a Whop payment waiting
+ * for the closer's confirmation, else a one-tap ask or a pending-loss notice
+ * read from the call, else the suggested result. Once a call sets the result
+ * by itself or with a tap, the summary shows what it set ("Set from the
+ * call") in place of the one-line summary.
  *
  * Eligibility is unchanged from the old action bar: a scheduled meeting on a
  * deal awaiting its outcome, no pending follow-up, and for a closer, the
@@ -165,6 +176,29 @@ export function OutcomeSection({
   );
   // The ask as it was when "Record payment · call attended" opened the dialog.
   const [whopConfirm, setWhopConfirm] = useState<WhopConfirmPrefill | null>(null);
+  // A one-tap ask or a pending-loss notice read from the call.
+  const callAsk = useQuery(
+    api.automation.confirmCall.getCallAsk,
+    canRecord ? { meetingId: meeting._id } : "skip",
+  );
+  // What a call set on this meeting, once it is held.
+  const callResult = useQuery(
+    api.automation.confirmCall.getCallResultSummary,
+    meeting.status === "held" && (viewerIsCloser || viewerIsAdmin)
+      ? { meetingId: meeting._id }
+      : "skip",
+  );
+  // "The call was read again": kept here, since the ask that refused reloads.
+  const [staleNote, setStaleNote] = useState<string | null>(null);
+  // After an action on a result card, focus follows to the card that replaces
+  // it, for a few seconds while the queries settle.
+  const areaRef = useRef<HTMLDivElement>(null);
+  const focusUntil = useRef(0);
+  const onActed = () => {
+    focusUntil.current = Date.now() + 3000;
+    setStaleNote(null);
+  };
+  const onStale = () => setStaleNote("The call was read again. Check the new proposal.");
 
   const showDialog = (next: OutcomeDialog) => {
     setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
@@ -202,6 +236,8 @@ export function OutcomeSection({
   });
 
   let body: React.ReactNode;
+  // Which result card shows, so focus can follow a change after an action.
+  let areaKey = "question";
   if (rescheduleLinkUrl) {
     body = (
       <RescheduleLinkDisplay
@@ -263,23 +299,73 @@ export function OutcomeSection({
       />
     );
   } else if (canRecord) {
+    // Exactly one card: the Whop ask, else the call's ask or notice, else the
+    // suggestion. The call's ask waits for its query so the suggestion
+    // never flashes before it.
+    let card: React.ReactNode = null;
+    if (whopAsk) {
+      areaKey = `whop:${whopAsk.decisionId}`;
+      card = (
+        <MeetingWhopAsk
+          ask={whopAsk}
+          meetingId={meeting._id}
+          leadName={leadName}
+          onRecordAttended={openWhopConfirm}
+          onRecorded={onStatusChanged}
+        />
+      );
+    } else if (whopAsk === null && callAsk !== undefined) {
+      if (callAsk && callAsk.state === "notice") {
+        areaKey = `notice:${callAsk.decisionId}`;
+        card = (
+          <RefusalNoticeCard
+            ask={callAsk}
+            firstName={firstName}
+            viewerIsAdmin={viewerIsAdmin}
+            onChanged={onStatusChanged}
+            onActed={onActed}
+            onStale={onStale}
+          />
+        );
+      } else if (callAsk && callAskReplacesSuggestion(callAsk)) {
+        areaKey = `ask:${callAsk.decisionId}`;
+        card = (
+          <CallAskCard
+            ask={callAsk}
+            firstName={firstName}
+            onChanged={onStatusChanged}
+            onActed={onActed}
+            onStale={onStale}
+          />
+        );
+      } else if (suggestion) {
+        // Today's card, unchanged; at most one quiet line on why the call
+        // offers no one tap.
+        const quietLine = callAsk ? noOneTapLine(callAsk) : null;
+        areaKey = `suggestion:${suggestion.stateId}`;
+        card = (
+          <>
+            <SuggestionCard
+              suggestion={suggestion}
+              onUse={openFromSuggestion}
+              onOpenEmpty={openDialog}
+              replacedByCallAsk={callAskReplacesSuggestion(callAsk)}
+            />
+            {quietLine ? (
+              <p className="-mt-1 text-[0.8125rem] text-muted-foreground">{quietLine}</p>
+            ) : null}
+          </>
+        );
+      }
+    }
     body = (
       <>
-        {whopAsk ? (
-          <MeetingWhopAsk
-            ask={whopAsk}
-            meetingId={meeting._id}
-            leadName={leadName}
-            onRecordAttended={openWhopConfirm}
-            onRecorded={onStatusChanged}
-          />
-        ) : whopAsk === null && suggestion ? (
-          <SuggestionCard
-            suggestion={suggestion}
-            onUse={openFromSuggestion}
-            onOpenEmpty={openDialog}
-          />
+        {staleNote ? (
+          <p role="status" className="text-sm font-medium text-warning-ink">
+            {staleNote}
+          </p>
         ) : null}
+        {card}
         <OutcomeQuestion
           firstName={firstName}
           mode={mode}
@@ -289,7 +375,21 @@ export function OutcomeSection({
     );
   } else if (meeting.status === "scheduled" && awaiting && !hasActiveFollowUp) {
     body = <OutcomeOpensNote scheduledAt={meeting.scheduledAt} />;
+  } else if (
+    callResult &&
+    opportunity.position === (callResult.kind === "refusal_loss" ? "lost" : "follow_up")
+  ) {
+    // What the call set, while the deal still stands where the call left it.
+    areaKey = `result:${callResult.decisionId}`;
+    body = (
+      <CallResultSummary
+        summary={callResult}
+        onChanged={onStatusChanged}
+        onActed={onActed}
+      />
+    );
   } else {
+    areaKey = "summary";
     const adminActions =
       mode === "admin" ? adminMeetingActions(opportunity, meeting.status) : null;
     body = (
@@ -316,7 +416,10 @@ export function OutcomeSection({
 
   return (
     <>
-      {body}
+      <ResultAreaFocus areaKey={areaKey} areaRef={areaRef} focusUntil={focusUntil} />
+      <div ref={areaRef} className="contents">
+        {body}
+      </div>
 
       {/* A dialog suspends on its first render; this boundary keeps that wait
           to the dialog instead of the page's loading skeleton. */}
@@ -737,6 +840,17 @@ function OutcomeSummary({
       );
     }
     const closer = assignedCloser?.fullName ?? assignedCloser?.email;
+    // A refusal read from a call: "Recorded automatically" or "Confirmed by
+    // Dee". The page's DTO carries the reserved reason as its label.
+    const refusalReason =
+      opportunity.lostReason === RESERVED_LOSS_REASON_LABELS.call_refusal
+        ? RESERVED_LOSS_REASONS.call_refusal
+        : opportunity.lostReason;
+    const refused = refusalByline(refusalReason, {
+      lostByUserId: opportunity.lostByUserId,
+      lostByName:
+        opportunity.lostByUserId === opportunity.assignedCloserId ? closer : undefined,
+    });
     const by =
       opportunity.lostByUserId === undefined
         ? null
@@ -744,9 +858,12 @@ function OutcomeSummary({
           ? `by ${closer}`
           : "by an admin";
     const at = missed === "canceled" ? meeting.canceledAt : opportunity.lostAt;
-    byline = [by ? `Closed ${by}` : "Closed", at ? when(at) : null]
-      .filter(Boolean)
-      .join(" · ");
+    const closedBy = refused
+      ? refused.charAt(0).toUpperCase() + refused.slice(1)
+      : by
+        ? `Closed ${by}`
+        : "Closed";
+    byline = [closedBy, at ? when(at) : null].filter(Boolean).join(" · ");
   } else if (opportunity.position === "follow_up") {
     if (isWaitingOnRescheduleLink(opportunity)) {
       headline = `Reschedule link sent. Waiting for ${firstName ?? "the lead"} to book.`;
@@ -786,4 +903,30 @@ function OutcomeSummary({
       ) : null}
     </section>
   );
+}
+
+// ─── Focus after a result changes ────────────────────────────────────────────
+
+/**
+ * After someone acts on a result card, moves focus to the heading of the
+ * card that takes its place (or to the outcome question), for each change
+ * within a few seconds while the queries settle. Nothing moves on load.
+ */
+function ResultAreaFocus({
+  areaKey,
+  areaRef,
+  focusUntil,
+}: {
+  areaKey: string;
+  areaRef: React.RefObject<HTMLDivElement | null>;
+  focusUntil: React.RefObject<number>;
+}) {
+  useEffect(() => {
+    if (Date.now() > focusUntil.current) return;
+    const target =
+      areaRef.current?.querySelector<HTMLElement>("[data-result-heading]") ??
+      document.getElementById("outcome-heading");
+    target?.focus();
+  }, [areaKey, areaRef, focusUntil]);
+  return null;
 }

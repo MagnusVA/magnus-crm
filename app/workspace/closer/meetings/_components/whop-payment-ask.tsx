@@ -160,6 +160,14 @@ export function WhopPaymentFoundCard({
             {ask.paidAt !== null ? `${dayTime(ask.paidAt)}, by Whop` : "Collection time unavailable"}
           </dd>
         </div>
+        {ask.recordsAutomaticallyAt !== null ? (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <dt className={LABEL}>Records automatically</dt>
+            <dd className="text-sm tabular-nums">
+              {dayTime(ask.recordsAutomaticallyAt)}, unless you record it first
+            </dd>
+          </div>
+        ) : null}
         <div className="flex min-w-0 flex-col gap-0.5">
           <dt className={LABEL}>Mapped to</dt>
           <dd className="text-sm break-words" translate="no">

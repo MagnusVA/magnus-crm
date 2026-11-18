@@ -20,7 +20,9 @@ import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import { Button } from "@/components/ui/button";
 import type { BusinessDaySetting } from "@/lib/businessDay";
 import { isReminderDealFinished } from "@/lib/deal-controls";
-import { formatDateTime } from "@/app/workspace/closer/_components/today-time";
+import { formatAmountMinor } from "@/lib/format-currency";
+import { useRole } from "@/components/auth/role-context";
+import { formatDateTime, formatShortDate } from "@/app/workspace/closer/_components/today-time";
 import {
   ChoiceButton,
   OutcomeHeading,
@@ -433,6 +435,9 @@ function TaskSummary({ detail, setting }: { detail: TaskDetail; setting: Busines
     : note;
   const quoted = displayNote ? <>&ldquo;{displayNote}&rdquo;</> : null;
 
+  const paidBy = detail.completedByPayment;
+  if (paidBy) return <PaymentCompletion detail={detail} paidBy={paidBy} setting={setting} />;
+
   let headline: React.ReactNode;
   switch (followUp.completionOutcome) {
     case "payment_received":
@@ -476,6 +481,62 @@ function TaskSummary({ detail, setting }: { detail: TaskDetail; setting: Busines
       <p className="min-w-0 flex-1 basis-56 font-medium">{headline}</p>
       {followUp.completedAt ? (
         <p className="text-[0.8125rem] text-muted-foreground tabular-nums">
+          Closed {formatDateTime(followUp.completedAt, setting.timeZone)}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * A payment-owed task a payment closed: "Completed by a payment of $500.00
+ * on Nov 20", how it compares with the promise, and a link to the payment
+ * for roles that can open Billing.
+ */
+function PaymentCompletion({
+  detail,
+  paidBy,
+  setting,
+}: {
+  detail: TaskDetail;
+  paidBy: NonNullable<TaskDetail["completedByPayment"]>;
+  setting: BusinessDaySetting;
+}) {
+  const { hasPermission } = useRole();
+  const { followUp, opportunity } = detail;
+  const amount = formatAmountMinor(paidBy.amountMinor, paidBy.currency);
+  const difference =
+    paidBy.differenceMinor === null || paidBy.differenceMinor === 0
+      ? null
+      : `${formatAmountMinor(Math.abs(paidBy.differenceMinor), paidBy.currency)} ${
+          paidBy.differenceMinor < 0 ? "less" : "more"
+        } than promised`;
+
+  return (
+    <section
+      aria-label="Outcome"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card px-4 py-3"
+    >
+      <StageChip position={opportunity.position} systemLoss={opportunity.systemLoss} />
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="font-medium tabular-nums">
+          Completed by a payment of {amount} on{" "}
+          {formatShortDate(paidBy.recordedAt, setting.timeZone)}.
+        </p>
+        {difference ? (
+          <p className="text-[0.8125rem] text-muted-foreground tabular-nums">{difference}</p>
+        ) : null}
+      </div>
+      {hasPermission("billing:view") ? (
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/workspace/billing/${paidBy.paymentRecordId}`}>
+            Open payment
+            <ArrowRightIcon data-icon="inline-end" aria-hidden />
+          </Link>
+        </Button>
+      ) : null}
+      {followUp.completedAt ? (
+        <p className="w-full text-[0.8125rem] text-muted-foreground tabular-nums">
           Closed {formatDateTime(followUp.completedAt, setting.timeZone)}
         </p>
       ) : null}

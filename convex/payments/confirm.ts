@@ -105,6 +105,9 @@ export const getWhopAsk = query({
     paidAt: v.union(v.number(), v.null()),
     productTitle: v.union(v.string(), v.null()),
     variantTitle: v.union(v.string(), v.null()),
+    // Set while the kind is automatic: when the CRM records this by itself
+    // unless a person records it first.
+    recordsAutomaticallyAt: v.union(v.number(), v.null()),
     preview: providerApplyPreviewValidator,
   })),
   handler: async (ctx, { target }) => {
@@ -140,6 +143,7 @@ export const getWhopAsk = query({
       return {
         decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id, createdAt: decision.createdAt,
         paidAt: payment.paidAt ?? null, productTitle: payment.productTitle ?? null, variantTitle: payment.variantTitle ?? null,
+        recordsAutomaticallyAt: decision.mode === "automatic" ? decision.dueAt ?? null : null,
         preview,
       };
     }

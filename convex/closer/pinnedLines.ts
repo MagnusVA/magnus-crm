@@ -13,6 +13,9 @@ export const listMyPinnedLines = query({
     _creationTime: v.number(),
     leadId: v.union(v.id("leads"), v.null()),
     personName: v.union(v.string(), v.null()),
+    taskPurpose: v.union(v.literal("call_back"), v.literal("payment_owed"), v.null()),
+    taskContactMethod: v.union(v.literal("call"), v.literal("text"), v.null()),
+    taskScheduledAt: v.union(v.number(), v.null()),
   })),
   handler: async (ctx) => {
     const { tenantId, userId } = await requireTenantUser(ctx, ["closer"]);
@@ -21,14 +24,25 @@ export const listMyPinnedLines = query({
         q.eq("tenantId", tenantId).eq("userId", userId).eq("dismissedAt", undefined))
       .order("desc").take(20);
     return await Promise.all(lines.map(async (line) => {
-      const deal = await ctx.db.get("opportunities", line.opportunityId);
+      const [deal, followUp] = await Promise.all([
+        ctx.db.get("opportunities", line.opportunityId),
+        line.kind === "call_result_set" && line.followUpId
+          ? ctx.db.get("followUps", line.followUpId)
+          : null,
+      ]);
       const lead = deal?.tenantId === tenantId ? await ctx.db.get("leads", deal.leadId) : null;
+      const task = followUp?.tenantId === tenantId && followUp.opportunityId === line.opportunityId
+        ? followUp
+        : null;
       return {
         ...line,
         leadId: lead?.tenantId === tenantId ? lead._id : null,
         personName: lead?.tenantId === tenantId
           ? leadDisplayFromShape({ fullName: lead.fullName, leadId: lead._id })
           : null,
+        taskPurpose: task?.purpose ?? null,
+        taskContactMethod: task?.contactMethod ?? null,
+        taskScheduledAt: task?.reminderScheduledAt ?? null,
       };
     }));
   },

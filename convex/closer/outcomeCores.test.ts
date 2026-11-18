@@ -239,6 +239,68 @@ async function eventsOf(harness: EnrollmentHarness, eventType: string) {
   );
 }
 
+describe("a closer's manual payment-owed reminder", () => {
+  const promise = {
+    expectedAmountMinor: 25050,
+    expectedCurrency: " eur ",
+    promisedPaymentAt: CALL_LOGGED + 2 * DAY_MS,
+  };
+
+  it.each([
+    { label: "with no promise details", paymentOwed: {} },
+    { label: "with only a date", paymentOwed: { promisedPaymentAt: promise.promisedPaymentAt } },
+    { label: "with only money", paymentOwed: { expectedAmountMinor: promise.expectedAmountMinor, expectedCurrency: promise.expectedCurrency } },
+    { label: "with all details", paymentOwed: promise },
+  ])("stores a human-created payment task $label", async ({ paymentOwed }) => {
+    const harness = await enrollmentHarness();
+    const deal = await bookedDeal(harness);
+    const { followUpId } = await harness.closer.mutation(api.closer.followUpMutations.createManualReminderFollowUpPublic, {
+      opportunityId: deal.opportunityId,
+      meetingId: deal.meetingId,
+      contactMethod: "text",
+      reminderScheduledAt: CALL_LOGGED + DAY_MS,
+      reminderNote: "Check in after lunch",
+      paymentOwed,
+    });
+    const task = await harness.t.run((ctx) => ctx.db.get("followUps", followUpId));
+    expect(task).toMatchObject({
+      reason: "closer_initiated", purpose: "payment_owed", createdSource: "closer",
+      createdByUserId: harness.closerId, reminderNote: "Check in after lunch",
+    });
+    expect(task).not.toHaveProperty("automationDecisionId");
+    expect(task?.expectedAmountMinor).toBe(paymentOwed.expectedAmountMinor);
+    expect(task?.expectedCurrency).toBe(paymentOwed.expectedCurrency ? "EUR" : undefined);
+    expect(task?.promisedPaymentAt).toBe(paymentOwed.promisedPaymentAt);
+    expect(await eventsOf(harness, "followUp.created")).toEqual([
+      {
+        source: "closer", actorUserId: harness.closerId,
+        metadata: { opportunityId: deal.opportunityId, type: "manual_reminder", purpose: "payment_owed" },
+      },
+    ]);
+  });
+
+  it("rejects invalid amounts, currencies and dates before creating a reminder", async () => {
+    const harness = await enrollmentHarness();
+    const deal = await bookedDeal(harness);
+    const create = (paymentOwed: Partial<typeof promise>) =>
+      harness.closer.mutation(api.closer.followUpMutations.createManualReminderFollowUpPublic, {
+        opportunityId: deal.opportunityId,
+        contactMethod: "call",
+        reminderScheduledAt: CALL_LOGGED + DAY_MS,
+        paymentOwed,
+      });
+    await expect(create({ expectedAmountMinor: 50 })).rejects.toThrow("amount and currency together");
+    await expect(create({ expectedCurrency: "USD" })).rejects.toThrow("amount and currency together");
+    for (const expectedAmountMinor of [0, -1, 12.5, Number.POSITIVE_INFINITY]) {
+      await expect(create({ ...promise, expectedAmountMinor })).rejects.toThrow("positive integer");
+    }
+    await expect(create({ ...promise, expectedCurrency: "not-a-currency" })).rejects.toThrow("3-letter");
+    await expect(create({ ...promise, promisedPaymentAt: Number.NaN })).rejects.toThrow("Invalid promised payment date");
+    expect(await harness.t.run((ctx) => ctx.db.query("followUps").take(1))).toEqual([]);
+    expect(await eventsOf(harness, "followUp.created")).toEqual([]);
+  });
+});
+
 describe("an agent's write through a core", () => {
   it("tags the meeting payment's event, and only that event", async () => {
     const harness = await enrollmentHarness();

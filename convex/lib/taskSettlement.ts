@@ -18,8 +18,11 @@ type Settlement = Actor & {
 
 type TaskMetadata = Record<string, string | number | undefined>;
 
+// A promise with a stated currency is met only by a payment in that currency.
+// One a person set by hand with no currency is met by the next payment.
 function qualifies(task: Task, currency: string): boolean {
-  return task.purpose === "payment_owed" && task.expectedCurrency === currency;
+  return task.purpose === "payment_owed" &&
+    (task.expectedCurrency === undefined || task.expectedCurrency === currency);
 }
 
 function differenceMinor(task: Task, payment: Pick<Payment, "amountMinor" | "currency">) {

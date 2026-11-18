@@ -498,9 +498,11 @@ it("15: a reprojection changing the fingerprint supersedes the pending notice", 
 
 it("the queues carry names and times, and only acknowledgment schedules a deadline", async () => {
   const f = await fixture();
+  const callAt = await f.t.run(async (ctx) => (await ctx.db.get("meetings", f.meetingId))!.scheduledAt);
   const expected = {
     ...f.args, opportunityId: f.opportunityId, meetingId: f.meetingId, leadId: f.leadId,
     noticeUserId: f.closerId, personName: "Grace", createdAt: FIXTURE_NOW, ageMs: 0,
+    noticeHours: 48, callAt,
   };
   await expect(f.closer.query(notice.listMyNotices, {})).resolves.toEqual({ notices: [expected], capped: false });
   await expect(f.other.query(notice.listMyNotices, {})).resolves.toEqual({ notices: [], capped: false });
@@ -509,12 +511,18 @@ it("the queues carry names and times, and only acknowledgment schedules a deadli
   expect((await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").take(30)))
     .filter((job) => job.name === "automation/notice:finalizeRefusal")).toEqual([]);
   await f.owner.mutation(api.automation.settings.setRefusalNoticeHours, { hours: 72 });
+  await expect(f.closer.query(notice.listMyNotices, {})).resolves.toEqual({
+    notices: [{ ...expected, noticeHours: 72 }], capped: false,
+  });
+  await expect(f.admin.query(notice.listNotices, {})).resolves.toEqual({
+    notices: [{ ...expected, noticeHours: 72, closerName: "Kim" }], capped: false,
+  });
   await acknowledge(f, "owner");
   vi.setSystemTime(FIXTURE_NOW + HOUR_MS);
   await expect(f.closer.mutation(notice.acknowledgeNotice, f.args)).resolves.toEqual({ ok: true, alreadyApplied: true });
   const dueAt = FIXTURE_NOW + 72 * HOUR_MS;
   await expect(f.closer.query(notice.listMyNotices, {})).resolves.toEqual({
-    notices: [{ ...expected, ageMs: HOUR_MS, acknowledgedAt: FIXTURE_NOW, dueAt }], capped: false,
+    notices: [{ ...expected, noticeHours: 72, ageMs: HOUR_MS, acknowledgedAt: FIXTURE_NOW, dueAt }], capped: false,
   });
   expect((await state(f)).row).toMatchObject({
     acknowledgedAs: "admin", acknowledgedByUserId: f.ownerId, noticeHours: 72, dueAt,

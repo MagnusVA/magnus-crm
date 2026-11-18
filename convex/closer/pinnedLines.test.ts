@@ -36,3 +36,55 @@ it("lists the closer's newest 20 lines and dismisses only their own line", async
   expect((await f.closer.query(listMyPinnedLines, {})).map((line) => line._id)).toEqual(own.slice(0, 20).reverse());
   await expect(f.admin.query(listMyPinnedLines, {})).rejects.toThrow();
 });
+
+it("returns the named task even after completion and hides a foreign-tenant task", async () => {
+  const f = await paymentConfirmationFixture();
+  const scheduledAt = FIXTURE_NOW + 60_000;
+  const { payment, callback, foreign, missing } = await f.t.run(async (ctx) => {
+    const otherTenantId = await ctx.db.insert("tenants", {
+      companyName: "Other tenant",
+      contactEmail: "other@example.com",
+      workosOrgId: "org_other",
+      status: "active",
+      inviteExpiresAt: 0,
+      createdBy: "seed",
+    });
+    const task = {
+      tenantId: f.tenantId, opportunityId: f.dealId, leadId: f.personId, closerId: f.closerId,
+      type: "manual_reminder" as const, reason: "closer_initiated" as const,
+      reminderScheduledAt: scheduledAt, createdAt: FIXTURE_NOW,
+    };
+    const line = {
+      tenantId: f.tenantId, opportunityId: f.dealId, userId: f.closerId,
+      kind: "call_result_set" as const, createdAt: FIXTURE_NOW,
+    };
+    const paymentId = await ctx.db.insert("followUps", {
+      ...task, purpose: "payment_owed", contactMethod: "text", status: "completed",
+    });
+    const callbackId = await ctx.db.insert("followUps", {
+      ...task, purpose: "call_back", contactMethod: "call", status: "pending",
+    });
+    const foreignId = await ctx.db.insert("followUps", {
+      ...task, tenantId: otherTenantId, purpose: "call_back", contactMethod: "call", status: "pending",
+    });
+    return {
+      payment: await addPinnedLine(ctx, { ...line, followUpId: paymentId }),
+      callback: await addPinnedLine(ctx, { ...line, followUpId: callbackId }),
+      foreign: await addPinnedLine(ctx, { ...line, followUpId: foreignId }),
+      missing: await addPinnedLine(ctx, line),
+    };
+  });
+  const lines = await f.closer.query(listMyPinnedLines, {});
+  expect(lines).toHaveLength(4);
+  expect(lines).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      _id: payment, taskPurpose: "payment_owed", taskContactMethod: "text", taskScheduledAt: scheduledAt,
+    }),
+    expect.objectContaining({
+      _id: callback, taskPurpose: "call_back", taskContactMethod: "call", taskScheduledAt: scheduledAt,
+    }),
+    ...[foreign, missing].map((_id) => expect.objectContaining({
+      _id, taskPurpose: null, taskContactMethod: null, taskScheduledAt: null,
+    })),
+  ]));
+});
