@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
 import { earliestCountingPayment } from "../lib/enrollments";
-import { isSideDealOrigin, normalizeOpportunitySource } from "../lib/sideDeals";
+import { isSideDealPayment, normalizeOpportunitySource } from "../lib/sideDeals";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadDealNextStepFor } from "../lib/dealNextStep";
 import { canMarkLost, loadDealTasks } from "./dealGuards";
@@ -127,7 +127,7 @@ export const getOpportunityDetail = query({
     const isWon = label.position === "won";
     const activeSideDealPayment = payments.find(
       (payment) =>
-        payment.status !== "disputed" && isSideDealOrigin(payment.origin),
+        payment.status !== "disputed" && isSideDealPayment(payment, opportunity),
     );
     const hasOnlyStaleNudgeFollowUps =
       attachedFollowUps.length < 50 &&

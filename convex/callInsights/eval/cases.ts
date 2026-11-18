@@ -24,6 +24,8 @@ import {
   incomePeriodValidator,
   incomeScenarioValidator,
   resolutionValidator,
+  evidenceLabelFields,
+  evidenceLabelValues,
 } from "../validators";
 
 export const splitValidator = v.union(
@@ -43,6 +45,10 @@ export const itemClassValidator = v.union(
   itemKindValidator,
   v.literal("result"),
   v.literal("attendance"),
+);
+export const evalItemClassValidator = v.union(
+  itemClassValidator,
+  v.literal("evidence"),
 );
 export const verdictValidator = v.union(
   v.literal("right"),
@@ -66,9 +72,15 @@ export const labelValueFields = {
 };
 export const safeLabelValidator = v.object({
   labelId: v.id("callInsightEvalLabels"),
-  itemClass: itemClassValidator,
+  itemClass: evalItemClassValidator,
   itemKey: v.optional(v.string()),
   ...labelValueFields,
+  ...evidenceLabelFields,
+  recordingScope: v.optional(evidenceLabelFields.recordingScope),
+  prospectStance: v.optional(evidenceLabelFields.prospectStance),
+  closerStance: v.optional(evidenceLabelFields.closerStance),
+  nextStep: v.optional(evidenceLabelFields.nextStep),
+  evidenceBlind: v.optional(v.boolean()),
   adminVerdict: v.optional(verdictValidator),
   wrongFields: v.optional(v.array(v.string())),
   matchedLabelId: v.optional(v.id("callInsightEvalLabels")),
@@ -152,21 +164,18 @@ export function safeLabel(row: Doc<"callInsightEvalLabels">) {
     itemClass: row.itemClass,
     itemKey: row.itemKey,
     ...labelValues(row),
+    ...evidenceLabelValues(row),
+    evidenceBlind: row.evidenceBlind,
     adminVerdict: row.adminVerdict,
     wrongFields: row.wrongFields,
     matchedLabelId: row.matchedLabelId,
   };
 }
 export function assertCategory(
-  kind: Doc<"callInsightEvalLabels">["itemClass"],
+  kind: Infer<typeof itemKindValidator>,
   category?: string,
 ) {
-  if (
-    kind === "result" ||
-    kind === "attendance" ||
-    !category ||
-    !isCategory(kind, category)
-  )
+  if (!category || !isCategory(kind, category))
     throw rejectRequest(
       "call_insights.eval_category",
       "Choose a category for this item.",
@@ -196,7 +205,7 @@ async function caseView(
     labelRevision: row.labelRevision,
     listSkipped:
       row.listCommittedAt !== undefined &&
-      !labels.some((l) => l.source === "admin"),
+      !labels.some((l) => l.source === "admin" && l.itemClass !== "evidence"),
     leadName:
       lead?.tenantId === row.tenantId
         ? (lead.fullName ?? "Unknown person")

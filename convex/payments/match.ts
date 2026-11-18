@@ -7,6 +7,7 @@ import { isSideDeal } from "../lib/sideDeals";
 import { awaitsCallResult, isOpenDeal, isQualifiedDeal, isSideDealAtCallHeld, isWonDeal } from "../opportunities/dealGuards";
 import { dealStageOf, systemLossReasonOf } from "../opportunities/stages";
 import { findEnabledBinding } from "./bindingLookup";
+import { checkPaymentCapacity, PAYMENT_ROWS_PER_DEAL_HOLD } from "./capacity";
 import { MAX_PROVIDER_PAYMENT_AGE_MS } from "./reviewTiming";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -320,15 +321,21 @@ async function dealPaymentHold(
   }
   if (payment.totalMinor === undefined) return "unsupported_currency";
 
+  // The hold every writer applies (capacity.ts): 40 stored rows on the deal, or 100 deals for the person.
+  if (!(await checkPaymentCapacity(ctx, { opportunityId: deal._id, leadId: deal.leadId })).ok) return "capacity_hold";
   const records = await ctx.db.query("paymentRecords").withIndex("by_opportunityId_and_recordedAt", (q) =>
-    q.eq("opportunityId", deal._id)).take(PAYMENT_SCAN_LIMIT);
-  if (records.length >= PAYMENT_SCAN_LIMIT) return "capacity_hold";
+    q.eq("opportunityId", deal._id)).take(PAYMENT_ROWS_PER_DEAL_HOLD);
   if (records.some((row) => row.tenantId === payment.tenantId && row._id !== bound?.anchor?._id &&
       row.status !== "disputed" && row.providerPaymentId === undefined)) {
     return "unlinked_manual_payment";
   }
   if (!deal.assignedCloserId) return "no_closer";
   return null;
+}
+
+/** A deal a person took this payment off as a wrong match: never proposed again (contract §1.2). */
+function isVetoed(payment: Pick<Payment, "excludedOpportunityIds">, deal: Pick<Deal, "_id">) {
+  return payment.excludedOpportunityIds?.includes(deal._id) ?? false;
 }
 
 function openDealHold(deal: Deal): ReviewReason | null {
@@ -369,6 +376,7 @@ export async function findPaymentTarget(
   if (bound === "ambiguous") return needsPerson("binding_conflict");
   if (bound) {
     const { deal, lead, binding } = bound;
+    if (isVetoed(payment, deal)) return needsPerson("excluded_wrong_match", lead._id);
     if (deal.outcome === "lost" && !systemLossReasonOf(deal)) return needsPerson("lost_by_person", lead._id, [deal]);
     const positionHold = openDealHold(deal);
     if (positionHold) return needsPerson(positionHold, lead._id, [deal]);
@@ -405,11 +413,15 @@ export async function findPaymentTarget(
   }
 
   const deals = await openDeals(ctx, tenantId, person._id);
-  if (deals.length > 1) return needsPerson("several_open_deals", person._id, deals);
+  // Every open deal counts, a vetoed one included; a vetoed deal is never a candidate.
+  if (deals.length > 1) {
+    return needsPerson("several_open_deals", person._id, deals.filter((deal) => !isVetoed(payment, deal)));
+  }
   const [deal] = deals;
+  if (deal && isVetoed(payment, deal)) return needsPerson("excluded_wrong_match", person._id);
   if (!deal) {
     const closed = await personDeals(ctx, tenantId, person._id);
-    return needsPerson(closedDealReason(closed), person._id, closed);
+    return needsPerson(closedDealReason(closed), person._id, closed.filter((closedDeal) => !isVetoed(payment, closedDeal)));
   }
   const positionHold = openDealHold(deal);
   if (positionHold) return needsPerson(positionHold, person._id, deals);

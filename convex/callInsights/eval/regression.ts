@@ -10,8 +10,18 @@ import {
 } from "../../_generated/server";
 import { rejectRequest } from "../../lib/observability/errors";
 import { effectiveSettings, servingConfig } from "../settings";
-import type { RunConfig } from "../validators";
-import { caseLabels, itemClassValidator, requireAdminContext } from "./cases";
+import {
+  EVIDENCE_PROMPT_VERSION,
+  PROMPT_VERSION,
+  evidenceLabelValues,
+  type EvidenceLabelValues,
+  type RunConfig,
+} from "../validators";
+import {
+  caseLabels,
+  evalItemClassValidator,
+  requireAdminContext,
+} from "./cases";
 import {
   assertNoRunningJob,
   campaignCases,
@@ -20,11 +30,18 @@ import {
   liveCase,
 } from "./judge";
 import { type Candidate } from "./judgePrompt";
-import { computeMetrics, type MetricCase } from "./metrics";
+import {
+  computeMetrics,
+  evidenceDifferences,
+  hasWrongObjection,
+  type MetricCase,
+} from "./metrics";
 
 type Label = Doc<"callInsightEvalLabels">;
+type RegressionCandidate = Omit<Candidate, "itemClass"> &
+  Partial<EvidenceLabelValues> & { itemClass: Label["itemClass"] };
 export type Match = {
-  candidate: Candidate;
+  candidate: RegressionCandidate;
   label: Label;
   wrongFields: string[];
 };
@@ -32,12 +49,12 @@ export type Matches = {
   matched: Match[];
   missing: Label[];
   changed: Match[];
-  new: Candidate[];
+  new: RegressionCandidate[];
 };
 
-function samePosition(c: Candidate, l: Label) {
+function samePosition(c: RegressionCandidate, l: Label) {
   if (c.itemClass !== l.itemClass) return false;
-  if (c.itemClass === "result" || c.itemClass === "attendance") return true;
+  if (["result", "attendance", "evidence"].includes(c.itemClass)) return true;
   if (c.category !== l.category) return false;
   return (
     c.lineStart !== undefined &&
@@ -46,7 +63,8 @@ function samePosition(c: Candidate, l: Label) {
     l.lineStart <= (c.lineEnd ?? c.lineStart) + 2
   );
 }
-function differences(c: Candidate, l: Label): string[] {
+function differences(c: RegressionCandidate, l: Label): string[] {
+  if (c.itemClass === "evidence") return evidenceDifferences(c, l);
   if (c.itemClass === "income")
     return (
       ["scenario", "period", "currency", "minMinor", "maxMinor"] as const
@@ -84,13 +102,25 @@ function differences(c: Candidate, l: Label): string[] {
 }
 /** Admin inventory and its matched extractor label describe one reference item, not two. */
 function referenceLabels(labels: Label[]): Label[] {
-  const admin = labels.filter((l) => l.source === "admin");
+  const extracted = labels.filter((l) => l.source === "extractor");
+  // Preserve a baseline result the grader explicitly accepted.
+  const acceptedResult = extracted.some(
+    (l) => l.itemClass === "result" && l.adminVerdict === "right",
+  );
+  // Compare the readings when the baseline had evidence. For p1, use any
+  // blind truth captured for the case as the evidence reference.
+  const baselineEvidence = extracted.some((l) => l.itemClass === "evidence");
+  const admin = labels.filter(
+    (l) =>
+      l.source === "admin" &&
+      !(acceptedResult && l.itemClass === "result") &&
+      !(baselineEvidence && l.itemClass === "evidence"),
+  );
   const linked = new Set(admin.map((l) => l.matchedLabelId).filter(Boolean));
   return [
     ...admin,
-    ...labels.filter(
+    ...extracted.filter(
       (l) =>
-        l.source === "extractor" &&
         !linked.has(l._id) &&
         !(
           ["result", "attendance"].includes(l.itemClass) &&
@@ -101,7 +131,7 @@ function referenceLabels(labels: Label[]): Label[] {
 }
 /** Match globally nearest spans first, using each reference and each candidate once. */
 export function matchToLabels(
-  candidates: readonly Candidate[],
+  candidates: readonly RegressionCandidate[],
   labels: Label[],
 ): Matches {
   const refs = referenceLabels(labels);
@@ -138,7 +168,9 @@ export function matchToLabels(
   result.missing = refs.filter(
     (l, i) =>
       !usedLabels.has(i) &&
-      (l.source === "admin" || l.adminVerdict === "right"),
+      (l.source === "admin" ||
+        l.adminVerdict === "right" ||
+        l.itemClass === "evidence"),
   );
   result.new = candidates.filter((_, i) => !usedCandidates.has(i));
   return result;
@@ -159,23 +191,29 @@ export const startRegression = mutation({
     const tenant = await ctx.db.get("tenants", me.tenantId);
     const settings = effectiveSettings(tenant);
     if (!settings || settings.evalMonthlyUsd <= 0) return null;
+    const base = servingConfig(settings);
+    const { model, itemCheck } = args.candidate;
+    const promptVersion = args.candidate.promptVersion ?? base.promptVersion;
     if (
-      (args.candidate.model !== undefined &&
+      (model !== undefined &&
         !["anthropic/claude-sonnet-5.5", "anthropic/claude-opus-5.5"].includes(
-          args.candidate.model,
+          model,
         )) ||
-      (args.candidate.promptVersion !== undefined &&
-        args.candidate.promptVersion !== servingConfig(settings).promptVersion)
+      (promptVersion !== PROMPT_VERSION &&
+        promptVersion !== EVIDENCE_PROMPT_VERSION)
     )
       throw rejectRequest(
         "call_insights.eval_candidate",
         "Choose a supported candidate configuration.",
       );
     const candidateConfig: RunConfig = {
-      ...servingConfig(settings),
-      ...Object.fromEntries(
-        Object.entries(args.candidate).filter(([, v]) => v !== undefined),
-      ),
+      ...base,
+      model: model ?? base.model,
+      itemCheck: itemCheck ?? base.itemCheck,
+      promptVersion,
+      ...(promptVersion === EVIDENCE_PROMPT_VERSION
+        ? { callEvidence: true }
+        : {}),
     };
     const rows = await campaignCases(ctx, me.tenantId, args.campaign),
       eligible = [];
@@ -185,6 +223,11 @@ export const startRegression = mutation({
         (await liveCase(ctx, row))
       )
         eligible.push(row);
+    if (eligible.length > 60)
+      throw rejectRequest(
+        "call_insights.eval_limit",
+        "A regression can read at most 60 cases.",
+      );
     return await createEvalJob(ctx, {
       tenantId: me.tenantId,
       userId: me.userId,
@@ -268,7 +311,7 @@ type Evaluated = {
   row: Doc<"callInsightEvalCases">;
   labels: Label[];
   run: Doc<"callInsightRuns">;
-  candidates: Candidate[];
+  candidates: RegressionCandidate[];
   matches: Matches;
 };
 async function evaluatedCases(
@@ -304,7 +347,16 @@ async function evaluatedCases(
     )
       continue;
     const labels = await caseLabels(ctx, row._id);
-    const candidates = candidatesFromRun(run, settings?.noShowWaitMinutes);
+    const candidates: RegressionCandidate[] = candidatesFromRun(
+      run,
+      settings?.noShowWaitMinutes,
+    );
+    if (run.evidence)
+      candidates.push({
+        key: "evidence",
+        itemClass: "evidence",
+        ...evidenceLabelValues(run.evidence),
+      });
     results.push({
       row,
       labels,
@@ -350,9 +402,17 @@ function metricCase(e: Evaluated): MetricCase {
       resultTier: c.resultTier,
       resultValues: c.resultValues,
       noShowTier: c.noShowTier,
+      ...evidenceLabelValues(c),
     };
   });
-  return { case: e.row, labels: [...admin, ...extracted], items: e.run.items };
+  return {
+    case: e.row,
+    labels: [...admin, ...extracted],
+    items: e.run.items,
+    evidenceExpected:
+      e.run.kind === "full" &&
+      e.run.config.promptVersion === EVIDENCE_PROMPT_VERSION,
+  };
 }
 export const buildReport = internalMutation({
   args: { jobId: v.id("callInsightJobs") },
@@ -371,6 +431,7 @@ export const buildReport = internalMutation({
     const prior = existing.find((r) => r.jobId === job._id);
     if (prior) return prior._id;
     const evaluated = await evaluatedCases(ctx, job);
+    const complete = evaluated.length === job.total;
     const people = new Set<string>();
     const independent = evaluated
       .sort((a, b) => a.row.createdAt - b.row.createdAt)
@@ -386,17 +447,54 @@ export const buildReport = internalMutation({
           ["income", "result"].includes(l.itemClass) &&
           (l.source === "admin" || l.adminVerdict === "right"),
       ).length;
-    const bars = computeMetrics(independent.map(metricCase), "quality").map(
-      (b) => ({
-        ...b,
+    const candidateMetrics = independent.map(metricCase);
+    const bars = computeMetrics(candidateMetrics, "quality").map((b) => ({
+      ...b,
+      result:
+        independent.length < 15 ||
+        (["income_right", "invented_income"].includes(b.key) && moneyItems < 10)
+          ? ("inconclusive" as const)
+          : b.result,
+    }));
+    if (job.candidateConfig?.promptVersion === EVIDENCE_PROMPT_VERSION) {
+      let calls = 0;
+      let added = 0;
+      for (const [index, e] of independent.entries()) {
+        const baseline = e.row.candidateRunId
+          ? await ctx.db.get("callInsightRuns", e.row.candidateRunId)
+          : null;
+        if (
+          !baseline ||
+          baseline.tenantId !== job.tenantId ||
+          baseline.recordingId !== e.row.recordingId
+        )
+          continue;
+        calls++;
+        added +=
+          Number(hasWrongObjection(candidateMetrics[index])) -
+          Number(
+            hasWrongObjection({
+              case: e.row,
+              labels: e.labels,
+              items: baseline.items,
+            }),
+          );
+      }
+      bars.push({
+        key: "regression_objection_precision",
+        n: calls,
+        wrong: Math.max(0, added),
+        calls,
+        floor: 15,
+        rule: "at most one additional call with a wrong objection",
         result:
-          independent.length < 15 ||
-          (["income_right", "invented_income"].includes(b.key) &&
-            moneyItems < 10)
-            ? ("inconclusive" as const)
-            : b.result,
-      }),
-    );
+          added > 1
+            ? "fail"
+            : !complete || calls < 15
+              ? "inconclusive"
+              : "pass",
+      });
+    }
     let flags = 0,
       moneyN = 0;
     for (const e of independent) {
@@ -426,7 +524,7 @@ export const buildReport = internalMutation({
       rule: "a person reviews every missing or changed money label and new income item",
       result: flags
         ? "fail"
-        : independent.length < 15 || moneyItems < 10
+        : !complete || independent.length < 15 || moneyItems < 10
           ? "inconclusive"
           : "pass",
     });
@@ -445,7 +543,7 @@ export const buildReport = internalMutation({
 });
 const detailItemValidator = v.object({
   key: v.string(),
-  itemClass: itemClassValidator,
+  itemClass: evalItemClassValidator,
   category: v.optional(v.string()),
   lineStart: v.optional(v.number()),
   lineEnd: v.optional(v.number()),
@@ -457,7 +555,12 @@ export const regressionDetail = query({
       caseId: v.id("callInsightEvalCases"),
       recordingId: v.id("callRecordings"),
       missing: v.array(detailItemValidator),
-      changed: v.array(detailItemValidator),
+      changed: v.array(
+        v.object({
+          ...detailItemValidator.fields,
+          wrongFields: v.array(v.string()),
+        }),
+      ),
       new: v.array(detailItemValidator),
     }),
   ),
@@ -478,7 +581,7 @@ export const regressionDetail = query({
     if (!job || job.tenantId !== me.tenantId) return [];
     const safe = (
       c: Pick<
-        Candidate,
+        RegressionCandidate,
         "key" | "itemClass" | "category" | "lineStart" | "lineEnd"
       >,
     ) => ({
@@ -494,7 +597,10 @@ export const regressionDetail = query({
       missing: e.matches.missing.map((l) =>
         safe({ ...l, key: l.itemKey ?? String(l._id) }),
       ),
-      changed: e.matches.changed.map((m) => safe(m.candidate)),
+      changed: e.matches.changed.map((m) => ({
+        ...safe(m.candidate),
+        wrongFields: m.wrongFields,
+      })),
       new: e.matches.new.map(safe),
     }));
   },

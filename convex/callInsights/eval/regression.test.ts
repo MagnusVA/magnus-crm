@@ -2,10 +2,12 @@ import { anyApi, type ApiFromModules } from "convex/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
+  api as evalApi,
   evalHarness,
   addCall,
   createCase,
 } from "../../../tests/callInsights/synthetic/evalHarness";
+import { evidenceAnswer } from "../../../tests/callInsights/synthetic/fixtures";
 import {
   gatewayFetch,
   PAID_EXTRACTION,
@@ -15,6 +17,8 @@ import * as regressionModule from "./regression";
 import { matchToLabels } from "./regression";
 import { candidatesFromRun } from "./judge";
 import { measureAttendance } from "../noShow/measures";
+import { extractionSchema, extractionSystem } from "../prompt";
+import type { EvidenceLabelValues } from "../validators";
 const api = (
   anyApi as unknown as ApiFromModules<{
     "callInsights/eval/regression": typeof regressionModule;
@@ -114,6 +118,80 @@ describe("candidate result projection", () => {
   });
 });
 describe("value matching", () => {
+  const evidence: EvidenceLabelValues = {
+    recordingScope: "whole",
+    prospectStance: "yes",
+    closerStance: "continues",
+    nextStep: "payment_owed",
+    nextStepAt: 1_800_000_000_000,
+    nextStepMethod: "text",
+    quotedAmountMinor: 10000,
+    quotedCurrency: "USD",
+  };
+  it.each([
+    ["recordingScope", "fragment"],
+    ["prospectStance", "undecided"],
+    ["closerStance", "disqualified"],
+    ["nextStep", "call_back"],
+    ["nextStepAt", undefined],
+    ["nextStepMethod", "call"],
+    ["quotedAmountMinor", 11000],
+    ["quotedCurrency", "CAD"],
+  ] as const)("detects a changed evidence field %s", (field, value) => {
+    const baseline = label(1, objection, {
+      itemClass: "evidence",
+      itemKey: "evidence",
+      ...evidence,
+    });
+    const candidate = {
+      key: "evidence",
+      itemClass: "evidence" as const,
+      ...evidence,
+    };
+    expect(matchToLabels([candidate], [baseline]).matched).toHaveLength(1);
+    expect(
+      matchToLabels([{ ...candidate, [field]: value }], [baseline]).changed[0]
+        .wrongFields,
+    ).toEqual([field]);
+  });
+  it("compares to a p2 baseline reading when the blind truth has a different value", () => {
+    const candidate = {
+      key: "evidence",
+      itemClass: "evidence" as const,
+      ...evidence,
+    };
+    const truth = label(1, objection, {
+      ...candidate,
+      source: "admin",
+      evidenceBlind: true,
+    });
+    const baseline = label(2, objection, {
+      ...candidate,
+      recordingScope: "cut_off",
+      adminVerdict: "wrong",
+    });
+    expect(matchToLabels([candidate], [truth, baseline]).changed).toMatchObject(
+      [{ label: { _id: baseline._id }, wrongFields: ["recordingScope"] }],
+    );
+    expect(matchToLabels([], [truth, baseline]).missing).toEqual([baseline]);
+  });
+  it("keeps the graded-right p1 result as the reference if the typed result differs", () => {
+    const result: Candidate = {
+      key: "result",
+      itemClass: "result",
+      resultKind: "lost",
+    };
+    const baseline = label(1, result);
+    const truth = label(2, result, {
+      source: "admin",
+      resultKind: "no_decision",
+    });
+    const candidate: Candidate = { ...result, resultKind: "no_decision" };
+    expect(matchToLabels([candidate], [truth, baseline]).changed).toMatchObject(
+      [{ label: { _id: baseline._id }, wrongFields: ["resultKind"] }],
+    );
+    expect(matchToLabels([], [truth, baseline]).missing).toEqual([baseline]);
+  });
   it("classifies matched, missing, changed and new", () => {
     const result = matchToLabels(
       [
@@ -199,6 +277,91 @@ describe("value matching", () => {
   });
 });
 describe("regression jobs", () => {
+  it.each(["p1", "p2"] as const)(
+    "sends the %s prompt, schema and applicable checks",
+    async (promptVersion) => {
+      const f = await evalHarness();
+      const { caseId, campaign } = await createCase(f);
+      await f.owner.mutation(evalApi.labels.setAdminEvidence, {
+        caseId,
+        evidence: {
+          recordingScope: "cut_off",
+          prospectStance: "unknown",
+          closerStance: "unknown",
+          nextStep: "unknown",
+        },
+      });
+      await f.owner.mutation(evalApi.labels.commitList, {
+        caseId,
+        skipped: true,
+      });
+      const view = await f.owner.query(evalApi.cases.caseForGrading, {
+        caseId,
+      });
+      for (const item of view.candidates ?? [])
+        await f.owner.mutation(evalApi.labels.gradeItem, {
+          labelId: item.labelId,
+          verdict: "right",
+        });
+      await f.owner.mutation(evalApi.labels.commitLabels, { caseId });
+      const gateway = gatewayFetch({
+        extraction:
+          promptVersion === "p2"
+            ? {
+                ...PAID_EXTRACTION,
+                evidence: evidenceAnswer({
+                  recordingScope: "whole",
+                  nextStep: "unknown",
+                }),
+              }
+            : PAID_EXTRACTION,
+      });
+      const fetch = vi.fn(gateway.fetchImpl);
+      vi.stubGlobal("fetch", fetch);
+      const jobId = await f.owner.mutation(api.startRegression, {
+        campaign,
+        candidate: { promptVersion },
+      });
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      const sent = fetch.mock.calls.filter(([url]) =>
+        String(url).endsWith("/v1/messages"),
+      );
+      expect(sent).toHaveLength(1);
+      expect(JSON.parse(String(sent[0][1]?.body))).toMatchObject({
+        system: extractionSystem(promptVersion),
+        output_config: { format: { schema: extractionSchema(promptVersion) } },
+      });
+      const checks = fetch.mock.calls.filter(([, init]) =>
+        String(init?.body).includes('"whole_call"'),
+      );
+      expect(checks).toHaveLength(promptVersion === "p2" ? 1 : 0);
+      const job = await f.t.run((ctx) => ctx.db.get("callInsightJobs", jobId!));
+      expect(job).toMatchObject({ status: "done", done: 1, failed: 0 });
+      expect(job?.candidateConfig?.callEvidence).toBe(
+        promptVersion === "p2" ? true : undefined,
+      );
+      const report = await f.t.run((ctx) =>
+        ctx.db.query("callInsightEvalReports").first(),
+      );
+      expect(report?.bars.find((b) => b.key === "call_evidence")).toMatchObject(
+        {
+          calls: promptVersion === "p2" ? 1 : 0,
+          wrong: promptVersion === "p2" ? 1 : 0,
+          result: "inconclusive",
+        },
+      );
+      if (promptVersion === "p2") {
+        const [detail] = await f.owner.query(api.regressionDetail, {
+          reportId: report!._id,
+        });
+        expect(
+          detail.changed.find((l) => l.itemClass === "evidence"),
+        ).toMatchObject({
+          wrongFields: ["recordingScope"],
+        });
+      }
+    },
+  );
   it("re-extracts without publishing and fails objection recall when every objection disappears", async () => {
     const f = await evalHarness({
       settings: { monthlyCapUsd: 100, evalMonthlyUsd: 25 },

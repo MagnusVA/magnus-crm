@@ -447,3 +447,62 @@ it("labels a mismatch between the provider payment and its connection tenant", a
   });
   expect(await match(fixture)).toMatchObject({ reason: "connection_mismatch" });
 });
+
+describe("a deal a person took the payment off", () => {
+  it("is never the ready target; when it is the only candidate the reason says so", async () => {
+    const fixture = await providerPaymentFixture({ fact: { excludedOpportunityIds: [] } });
+    await fixture.t.run((ctx) => ctx.db.patch("providerPayments", fixture.providerPaymentId, {
+      excludedOpportunityIds: [fixture.dealId!],
+    }));
+    expect(await match(fixture)).toEqual({
+      kind: "needs_person", reason: "excluded_wrong_match", candidateLeadId: fixture.personId, candidateOpportunityIds: [],
+    });
+    // A redelivered read stores the same answer and proposes nothing.
+    const stored = await refresh(fixture);
+    expect(stored).toMatchObject({ reviewState: "needs_person", reviewReason: "excluded_wrong_match", candidateLeadId: fixture.personId });
+    expect(stored.candidateOpportunityId).toBeUndefined();
+  });
+
+  it("still counts among open deals but is never offered as a candidate", async () => {
+    const fixture = await providerPaymentFixture();
+    const other = await fixture.t.run(async (ctx) => {
+      const other = await insertProviderDeal(ctx, { tenantId: fixture.tenantId, leadId: fixture.personId, position: "follow_up" });
+      await ctx.db.patch("providerPayments", fixture.providerPaymentId, { excludedOpportunityIds: [fixture.dealId!] });
+      return other;
+    });
+    expect(await match(fixture)).toEqual({
+      kind: "needs_person", reason: "several_open_deals", candidateLeadId: fixture.personId, candidateOpportunityIds: [other],
+    });
+  });
+
+  it("overrides a checkout binding that names it", async () => {
+    const fixture = await providerPaymentFixture();
+    await fixture.t.run(async (ctx) => {
+      await insertProviderBinding(ctx, {
+        ...fixture, externalId: "checkout_fixture",
+        binding: { kind: "checkout_deal", leadId: fixture.personId, opportunityId: fixture.dealId! },
+      });
+      await ctx.db.patch("providerPayments", fixture.providerPaymentId, {
+        checkoutConfigurationId: "checkout_fixture", excludedOpportunityIds: [fixture.dealId!],
+      });
+    });
+    expect(await match(fixture)).toMatchObject({ reason: "excluded_wrong_match", candidateOpportunityIds: [] });
+  });
+});
+
+it("holds a bound payment for a person at 100 deals, the writers' capacity rule", async () => {
+  const fixture = await providerPaymentFixture();
+  await fixture.t.run(async (ctx) => {
+    await insertProviderBinding(ctx, {
+      ...fixture, externalId: "checkout_fixture",
+      binding: { kind: "checkout_deal", leadId: fixture.personId, opportunityId: fixture.dealId! },
+    });
+    await ctx.db.patch("providerPayments", fixture.providerPaymentId, { checkoutConfigurationId: "checkout_fixture" });
+    for (let index = 0; index < 98; index++) {
+      await insertProviderDeal(ctx, { tenantId: fixture.tenantId, leadId: fixture.personId, position: "lost" });
+    }
+  });
+  expect(await match(fixture)).toMatchObject({ kind: "ready" });
+  await fixture.t.run((ctx) => insertProviderDeal(ctx, { tenantId: fixture.tenantId, leadId: fixture.personId, position: "lost" }));
+  expect(await match(fixture)).toMatchObject({ reason: "capacity_hold" });
+});

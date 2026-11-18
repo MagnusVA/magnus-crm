@@ -7,8 +7,10 @@ import { paymentTypeValidator } from "../lib/paymentTypes";
  * `resultSuggestionStates` or the eval tables and never on `callInsightFacts`.
  */
 
-/** Bumped whenever the extraction prompt or its JSON schema changes. */
+/** The serving prompt without call evidence. */
 export const PROMPT_VERSION = "p1";
+export const EVIDENCE_PROMPT_VERSION = "p2";
+export const CALL_CHECKS_VERSION = "cc1";
 /** Bumped whenever a Jev threshold or a no-show threshold changes. */
 export const THRESHOLDS_VERSION = "t1";
 export const DEFAULT_EXTRACTION_MODEL = "anthropic/claude-sonnet-5.5";
@@ -76,6 +78,139 @@ export const quoteValidator = v.object({
   ),
 });
 export type FoundQuote = Infer<typeof quoteValidator>;
+
+export const recordingScopeValidator = v.union(
+  v.literal("whole"),
+  v.literal("fragment"),
+  v.literal("cut_off"),
+  v.literal("multiple_calls"),
+  v.literal("not_sales_call"),
+  v.literal("unknown"),
+);
+export const statementKindValidator = v.union(
+  v.literal("agrees_to_buy"),
+  v.literal("declines"),
+  v.literal("defers"),
+  v.literal("asks_call_back"),
+  v.literal("promises_payment"),
+  v.literal("disqualifies"),
+  v.literal("states_price"),
+  v.literal("payment_attempt"),
+  v.literal("payment_seen"),
+  v.literal("payment_failed"),
+);
+export const statementAmountRoleValidator = v.union(
+  v.literal("this_payment"),
+  v.literal("full_price"),
+  v.literal("balance"),
+  v.literal("instalment"),
+);
+export const prospectStanceValidator = v.union(
+  v.literal("refused"),
+  v.literal("yes"),
+  v.literal("undecided"),
+  v.literal("unknown"),
+);
+export const closerStanceValidator = v.union(
+  v.literal("continues"),
+  v.literal("disqualified"),
+  v.literal("unknown"),
+);
+export const nextStepValidator = v.union(
+  v.literal("call_back"),
+  v.literal("payment_owed"),
+  v.literal("none"),
+  v.literal("unknown"),
+);
+export const nextStepMethodValidator = v.union(
+  v.literal("call"),
+  v.literal("text"),
+);
+
+/** A matched line citation. Only callInsightRuns may hold these quotes. */
+export const callStatementValidator = v.object({
+  kind: statementKindValidator,
+  ...quoteValidator.fields,
+  amountRole: v.optional(statementAmountRoleValidator),
+  amountMinor: v.optional(v.number()),
+  currency: v.optional(v.string()),
+  currencyAssumed: v.optional(v.boolean()),
+});
+export const callEvidenceValidator = v.object({
+  recordingScope: recordingScopeValidator,
+  scopeLines: v.array(v.number()),
+  statements: v.array(callStatementValidator),
+  prospectStance: prospectStanceValidator,
+  closerStance: closerStanceValidator,
+  nextStep: nextStepValidator,
+  nextStepAt: v.optional(v.number()),
+  nextStepMethod: v.optional(nextStepMethodValidator),
+  quotedAmountMinor: v.optional(v.number()),
+  quotedCurrency: v.optional(v.string()),
+  quotedCurrencyAssumed: v.optional(v.boolean()),
+  dropped: v.object({
+    quoteNotFound: v.number(),
+    amountNotInQuote: v.number(),
+    cardNumber: v.number(),
+    overLimit: v.number(),
+  }),
+});
+export type CallEvidence = Infer<typeof callEvidenceValidator>;
+export const evidenceLabelFields = {
+  recordingScope: recordingScopeValidator,
+  prospectStance: prospectStanceValidator,
+  closerStance: closerStanceValidator,
+  nextStep: nextStepValidator,
+  nextStepAt: callEvidenceValidator.fields.nextStepAt,
+  nextStepMethod: callEvidenceValidator.fields.nextStepMethod,
+  quotedAmountMinor: callEvidenceValidator.fields.quotedAmountMinor,
+  quotedCurrency: callEvidenceValidator.fields.quotedCurrency,
+};
+export type EvidenceLabelValues = Pick<
+  CallEvidence,
+  keyof typeof evidenceLabelFields
+>;
+export const EVIDENCE_LABEL_KEYS = Object.keys(evidenceLabelFields) as Array<
+  keyof EvidenceLabelValues
+>;
+
+/** Keep the eval projection text-free even when the input is the full reading. */
+export function evidenceLabelValues(evidence: Partial<EvidenceLabelValues>) {
+  const {
+    recordingScope,
+    prospectStance,
+    closerStance,
+    nextStep,
+    nextStepAt,
+    nextStepMethod,
+    quotedAmountMinor,
+    quotedCurrency,
+  } = evidence;
+  return {
+    recordingScope,
+    prospectStance,
+    closerStance,
+    nextStep,
+    nextStepAt,
+    nextStepMethod,
+    quotedAmountMinor,
+    quotedCurrency,
+  };
+}
+export const evidenceFailureValidator = v.union(
+  v.literal("missing_evidence"),
+  v.literal("malformed_evidence"),
+);
+
+export const callChecksValidator = v.object({
+  version: v.string(),
+  wholeCall: v.optional(v.number()),
+  refused: v.optional(v.number()),
+  disqualified: v.optional(v.number()),
+  nextStep: v.optional(v.number()),
+  incomplete: v.boolean(),
+});
+export type CallChecks = Infer<typeof callChecksValidator>;
 
 /** One extracted item after code validation, with Jev's check once it ran. Private. */
 export const insightItemValidator = v.object({
@@ -380,6 +515,7 @@ export const runConfigValidator = v.object({
   taxonomyVersion: v.string(),
   thresholdsVersion: v.string(),
   itemCheck: v.boolean(),
+  callEvidence: v.optional(v.boolean()),
 });
 export type RunConfig = Infer<typeof runConfigValidator>;
 

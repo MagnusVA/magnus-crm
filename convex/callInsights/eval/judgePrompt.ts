@@ -13,7 +13,6 @@ import { CURRENCIES_AS_SAID, FormatError } from "../parse";
 
 export type Candidate = Pick<
   Doc<"callInsightEvalLabels">,
-  | "itemClass"
   | "category"
   | "lineStart"
   | "lineEnd"
@@ -30,6 +29,7 @@ export type Candidate = Pick<
   | "plantedDefect"
 > & {
   key: string;
+  itemClass: Exclude<Doc<"callInsightEvalLabels">["itemClass"], "evidence">;
   labelId?: Id<"callInsightEvalLabels">;
   originalKey?: string;
   resolutionLineIndex?: number;

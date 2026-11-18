@@ -1,16 +1,17 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
-import { emitDomainEvent } from "../lib/domainEvents";
-import { syncPersonEnrollments } from "../lib/enrollments";
-import { correctLeadLifecycle } from "../lib/leadLifecycle";
-import { transitionOpportunity } from "../lib/opportunityActivity";
-import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
-import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
+import { expectedError } from "../lib/observability/errors";
+import { isSideDeal, isSideDealPayment } from "../lib/sideDeals";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
-import { clearActiveAllocation } from "../payments/allocation";
+import { excludePaymentCore } from "../payments/exclude";
 import { requireTenantUser } from "../requireTenantUser";
-import { replacePaymentAggregate } from "../reporting/writeHooks";
 
+/**
+ * Voids a side deal's payment through the shared exclusion
+ * (convex/payments/exclude.ts, cause `voided`). Another payment that still
+ * counts keeps the deal won; with none, the deal closes lost as
+ * `payment_excluded`. The typed reason is kept on the `payment.voided` event.
+ */
 export const voidPayment = mutation({
   args: {
     paymentId: v.id("paymentRecords"),
@@ -18,11 +19,10 @@ export const voidPayment = mutation({
   },
   returns: v.null(),
   handler: async (ctx, { paymentId, reason }) => {
-    const { userId, tenantId } = await requireTenantUser(ctx, [
+    const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-    const now = Date.now();
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
       throw new Error("Void reason is required.");
@@ -41,15 +41,13 @@ export const voidPayment = mutation({
     if (!payment.opportunityId) {
       throw new Error("Only opportunity payments can be voided here.");
     }
-    if (!isSideDealOrigin(payment.origin)) {
-      throw new Error("Only side-deal payments can be voided via this mutation.");
-    }
 
     const opportunity = await ctx.db.get("opportunities", payment.opportunityId);
     if (
       !opportunity ||
       opportunity.tenantId !== tenantId ||
-      !isSideDeal(opportunity)
+      !isSideDeal(opportunity) ||
+      !isSideDealPayment(payment, opportunity)
     ) {
       throw new Error("Only side-deal payments can be voided via this mutation.");
     }
@@ -59,70 +57,15 @@ export const voidPayment = mutation({
       );
     }
 
-    await ctx.db.patch("paymentRecords", paymentId, {
-      status: "disputed",
-      statusChangedAt: now,
-    });
-    await refreshSoldProgramCachesForOpportunity(ctx, {
-      tenantId,
-      opportunityId: payment.opportunityId,
-    });
-
-    await transitionOpportunity(ctx, payment.opportunityId, {
-      to: { stage: "closed", outcome: "lost" },
-      fields: {
-        lostAt: now,
-        lostByUserId: userId,
-        lostReason: `Payment voided: ${trimmedReason}`,
-        paymentReceivedAt: undefined,
-        updatedAt: now,
-      },
-      exception: "payment_voided",
-      source: "admin",
-      actorUserId: userId,
-      reason: `Payment voided: ${trimmedReason}`,
-      occurredAt: now,
-      metadata: {
-        source: "side_deal",
-        paymentId,
-      },
-    });
-
-    await replacePaymentAggregate(ctx, payment, paymentId);
-    await clearActiveAllocation(ctx, payment);
-
-    // A disputed payment no longer counts: the enrollment it held moves to
-    // the earliest payment left for its program, or goes, and a person left
-    // with none is no longer a customer (§4.3).
-    await syncPersonEnrollments(ctx, {
-      tenantId,
-      leadId: opportunity.leadId,
-      now,
-      source: "admin",
-      actorUserId: userId,
-    });
-    // Voiding corrects a payment that shouldn't count, so the person's stage
-    // follows what is left (docs/plans/phase-1-foundations.md §4.3).
-    await correctLeadLifecycle(ctx, opportunity.leadId, "payment_voided", userId);
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "payment",
-      entityId: paymentId,
-      eventType: "payment.voided",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: payment.status,
-      toStatus: "disputed",
-      reason: trimmedReason,
-      occurredAt: now,
-      metadata: {
-        opportunityId: payment.opportunityId,
-        origin: payment.origin,
-        sideDeal: true,
-      },
-    });
-
+    const result = await excludePaymentCore(
+      ctx,
+      { userId, tenantId, role },
+      { paymentRecordId: paymentId, cause: "voided", level: "reviewed", voidReason: trimmedReason },
+      "side_deal",
+    );
+    if (!result.ok) {
+      throw expectedError(`payment.${result.code}`, "This payment can't be voided right now. Reload and try again.");
+    }
     return null;
   },
 });

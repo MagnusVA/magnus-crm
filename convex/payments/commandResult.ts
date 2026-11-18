@@ -1,4 +1,4 @@
-import { v, type Validator } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 // What a payment command returns (build contract §2.1). A command returns a
 // refusal, and writes nothing, when the state or the request rules it out; it
@@ -44,7 +44,7 @@ export type PaymentCommandResult<T extends object = object> =
   | ({ ok: true; alreadyApplied: boolean } & T)
   | PaymentCommandRefusal;
 
-export const paymentCommandCodeValidator: Validator<PaymentCommandCode> = v.union(
+export const paymentCommandCodeValidator = v.union(
   v.literal("stale_preview"),
   v.literal("kind_off"),
   v.literal("needs_review"),
@@ -71,10 +71,16 @@ export const paymentCommandCodeValidator: Validator<PaymentCommandCode> = v.unio
   v.literal("enrollment_status_changed"),
 );
 
-export const paymentCommandRefusalValidator: Validator<PaymentCommandRefusal> = v.object({
+export const paymentCommandRefusalValidator = v.object({
   ok: v.literal(false),
   code: paymentCommandCodeValidator,
 });
+
+// The validators and the types say the same thing.
+const _codesMatch: [Infer<typeof paymentCommandCodeValidator>] extends [PaymentCommandCode]
+  ? [PaymentCommandCode] extends [Infer<typeof paymentCommandCodeValidator>] ? true : false
+  : false = true;
+void _codesMatch;
 
 export function refuse(code: PaymentCommandCode): PaymentCommandRefusal {
   return { ok: false, code };

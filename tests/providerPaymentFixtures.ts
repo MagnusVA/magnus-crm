@@ -315,3 +315,195 @@ export async function automationPaymentFixture(
   const owner = fixture.t.withIdentity({ subject: "user_owner", org_id: "org_test" });
   return { ...fixture, owner, ownerId };
 }
+
+// ─── Taking a payment out and putting it back (package X) ───────────────
+// Imports for the helpers below; ES modules hoist them.
+import { api as xApi } from "../convex/_generated/api";
+import { syncPersonEnrollments as xSyncPersonEnrollments } from "../convex/lib/enrollments";
+import {
+  computeLatestActivityAt as xComputeLatestActivityAt,
+  transitionOpportunity as xTransitionOpportunity,
+} from "../convex/lib/opportunityActivity";
+import { refreshSoldProgramCachesForOpportunity as xRefreshSoldProgramCaches } from "../convex/lib/soldProgramCache";
+import { systemLossReasonOf as xSystemLossReasonOf } from "../convex/opportunities/stages";
+import { setActiveAllocation as xSetActiveAllocation } from "../convex/payments/allocation";
+import { markAttendanceOwed as xMarkAttendanceOwed } from "../convex/payments/attendanceDebt";
+import { insertMeetingAggregate as xInsertMeetingAggregate } from "../convex/reporting/writeHooks";
+import { insertCloserMeeting as xInsertCloserMeeting } from "./closerPipelineFixtures";
+import { seedProviderRow as xSeedProviderRow } from "./providerRowFixtures";
+
+/** A meeting on the deal, counted by the meeting aggregate, that becomes its current booking. */
+export async function insertProviderMeeting(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    opportunityId: Id<"opportunities">;
+    closerId: Id<"users">;
+    status?: Doc<"meetings">["status"];
+    scheduledAt: number;
+  },
+) {
+  const meetingId = await xInsertCloserMeeting(ctx, { ...args, status: args.status ?? "scheduled" });
+  await xInsertMeetingAggregate(ctx, meetingId);
+  return meetingId;
+}
+
+/**
+ * A Whop payment a person confirmed in Billing on the deal, written the way
+ * the apply core writes it: the provider row, the move to won (from a system
+ * loss through `provider_payment_after_system_loss`), the active allocation,
+ * the sold program, enrollments, attendance owed, the tasks it expired, and
+ * its apply receipt with the before-fields one-tap undo reads and the
+ * human-result revision the confirmation left.
+ */
+export async function seedBillingWin(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    opportunityId: Id<"opportunities">;
+    providerPaymentId: Id<"providerPayments">;
+    programId: Id<"tenantPrograms">;
+    closerId: Id<"users">;
+    approverId: Id<"users">;
+    recordedAt: number;
+    expireTaskIds?: Id<"followUps">[];
+  },
+): Promise<{ paymentRecordId: Id<"paymentRecords">; decisionId: Id<"resultAutomationDecisions"> }> {
+  const deal = (await ctx.db.get("opportunities", args.opportunityId))!;
+  const payment = (await ctx.db.get("providerPayments", args.providerPaymentId))!;
+  const systemLoss = xSystemLossReasonOf(deal);
+  const position = systemLoss ? "system_loss" : deal.outcome === "won" ? "won" : deal.stage === "follow_up" ? "follow_up" : "booked";
+  const meetings = await ctx.db.query("meetings")
+    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", deal._id)).take(20);
+  const tasks: Array<{ followUpId: Id<"followUps">; status: Doc<"followUps">["status"] }> = [];
+  for (const followUpId of args.expireTaskIds ?? []) {
+    const task = (await ctx.db.get("followUps", followUpId))!;
+    tasks.push({ followUpId, status: task.status });
+    await ctx.db.patch("followUps", followUpId, { status: "expired" });
+  }
+  const before = {
+    position,
+    systemLossReason: systemLoss ?? undefined,
+    lostAt: deal.lostAt,
+    latestActivityAt: deal.latestActivityAt ?? xComputeLatestActivityAt(deal),
+    meetings: meetings.map((meeting) => ({ meetingId: meeting._id, status: meeting.status })),
+    tasks,
+  } as const;
+
+  const paymentRecordId = await xSeedProviderRow(ctx, {
+    tenantId: args.tenantId,
+    opportunityId: args.opportunityId,
+    closerId: args.closerId,
+    programId: args.programId,
+    amountMinor: payment.totalMinor ?? 0,
+    currency: payment.currency,
+    recordedAt: args.recordedAt,
+    recorder: args.approverId,
+    providerPaymentId: payment._id,
+    providerPaidAt: payment.paidAt,
+  });
+  if (deal.outcome !== "won") {
+    await xTransitionOpportunity(ctx, args.opportunityId, {
+      to: { stage: "closed", outcome: "won" },
+      fields: { paymentReceivedAt: args.recordedAt, updatedAt: args.recordedAt },
+      exception: systemLoss ? "provider_payment_after_system_loss" : undefined,
+      source: "admin",
+      actorUserId: args.approverId,
+      occurredAt: args.recordedAt,
+    });
+  }
+  await xSetActiveAllocation(ctx, {
+    payment,
+    record: (await ctx.db.get("paymentRecords", paymentRecordId))!,
+    expectedAllocationRevision: payment.allocationRevision,
+    reviewState: "recorded",
+    matchMethod: "person",
+    actorUserId: args.approverId,
+    now: args.recordedAt,
+  });
+  await xRefreshSoldProgramCaches(ctx, { tenantId: args.tenantId, opportunityId: args.opportunityId });
+  await xSyncPersonEnrollments(ctx, {
+    tenantId: args.tenantId, leadId: deal.leadId, now: args.recordedAt, source: "admin", actorUserId: args.approverId,
+  });
+  if (deal.outcome !== "won") await xMarkAttendanceOwed(ctx, args.opportunityId);
+
+  const revision = deal.humanResultRevision ?? 0;
+  const decisionId = await seedAppliedReceipt(ctx, {
+    tenantId: args.tenantId,
+    providerPaymentId: payment._id,
+    opportunityId: args.opportunityId,
+    leadId: deal.leadId,
+    assignedCloserId: deal.assignedCloserId,
+    appliedPaymentRecordId: paymentRecordId,
+    resolvedByUserId: args.approverId,
+    humanResultRevision: revision,
+    humanResultRevisionAfter: revision + 1,
+    createdAt: args.recordedAt,
+    before,
+  });
+  await ctx.db.patch("paymentRecords", paymentRecordId, { automationDecisionId: decisionId });
+  // The confirmation's own human result, as noteHumanResult writes it.
+  await ctx.db.patch("opportunities", args.opportunityId, { humanResultRevision: revision + 1 });
+  return { paymentRecordId, decisionId };
+}
+
+/**
+ * The closer confirms the fixture's Whop payment on its deal with "Record
+ * payment · call attended" (`logPayment` with the confirm intent): a
+ * scheduled meeting that started half an hour ago becomes held.
+ */
+export async function confirmAttendedWhopWin(
+  fixture: Awaited<ReturnType<typeof providerPaymentFixture>>,
+  options: { paymentType?: Doc<"paymentRecords">["paymentType"] } = {},
+) {
+  const { t, tenantId, closerId, providerPaymentId, personId } = fixture;
+  const opportunityId = fixture.dealId!;
+  const { meetingId, decisionId } = await t.run(async (ctx) => {
+    await setPaymentFixtureModes(ctx, fixture);
+    await ctx.db.patch("providerPayments", providerPaymentId, { reviewState: "needs_person" });
+    const meetingId = await insertProviderMeeting(ctx, {
+      tenantId, opportunityId, closerId, scheduledAt: FIXTURE_NOW - 1_800_000,
+    });
+    const decisionId = await seedReadyDecision(ctx, {
+      tenantId, providerPaymentId, opportunityId, meetingId, leadId: personId, confirmRoute: "meeting",
+    });
+    return { meetingId, decisionId };
+  });
+  const payment = (await t.run((ctx) => ctx.db.get("providerPayments", providerPaymentId)))!;
+  const paymentRecordId = await fixture.closer.mutation(xApi.closer.payments.logPayment, {
+    opportunityId,
+    meetingId,
+    programId: fixture.programId,
+    amount: (payment.totalMinor ?? 0) / 100,
+    currency: payment.currency,
+    paymentType: options.paymentType ?? "pif",
+    provider: { kind: "confirm", providerPaymentId, decisionId, expectedAllocationRevision: payment.allocationRevision },
+  });
+  return { paymentRecordId, meetingId, decisionId };
+}
+
+import { insertPaymentAggregate as xInsertPaymentAggregate } from "../convex/reporting/writeHooks";
+
+/** A manual later payment on a won deal, through the payment, sold-program and enrollment hooks. */
+export async function seedManualPayment(
+  ctx: MutationCtx,
+  f: { tenantId: Id<"tenants">; closerId: Id<"users">; personId: Id<"leads"> },
+  args: {
+    opportunityId: Id<"opportunities">;
+    programId: Id<"tenantPrograms">;
+    recordedAt: number;
+    amountMinor?: number;
+    origin?: Doc<"paymentRecords">["origin"];
+  },
+) {
+  const id = await ctx.db.insert("paymentRecords", {
+    tenantId: f.tenantId, opportunityId: args.opportunityId, attributedCloserId: f.closerId,
+    recordedByUserId: f.closerId, amountMinor: args.amountMinor ?? 5000, currency: "USD",
+    programId: args.programId, programName: "Program", paymentType: "split", status: "recorded",
+    statusChangedAt: args.recordedAt, recordedAt: args.recordedAt, origin: args.origin ?? "closer_additional",
+  });
+  await xInsertPaymentAggregate(ctx, id);
+  await xRefreshSoldProgramCaches(ctx, { tenantId: f.tenantId, opportunityId: args.opportunityId });
+  await xSyncPersonEnrollments(ctx, { tenantId: f.tenantId, leadId: f.personId, source: "closer", actorUserId: f.closerId });
+  return id;
+}
