@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
+import { sha256Hex, stableJson } from "../convex/lib/stableHash";
 import { stageOfPosition, type DealPosition, type SystemLossReason } from "../convex/opportunities/stages";
 import { bookingHarness, qualifiedLifecycle } from "./bookingHarness";
 import { insertProgram } from "./enrollmentFixtures";
@@ -122,6 +123,62 @@ export async function insertProviderBinding(
     tenantId, connectionId, externalId, kind: binding.kind, binding, enabled,
     opportunityId: "opportunityId" in binding ? binding.opportunityId : undefined,
     version: 1, setByUserId: adminId, setAt: FIXTURE_NOW - 1000,
+  });
+}
+
+type DecisionFixture = Pick<Doc<"resultAutomationDecisions">, "tenantId"> & Partial<Omit<
+  Doc<"resultAutomationDecisions">,
+  "_id" | "_creationTime" | "tenantId" | "mode" | "state"
+>>;
+
+async function seedDecision(
+  ctx: MutationCtx,
+  state: "ready" | "applied",
+  args: DecisionFixture,
+) {
+  const {
+    kind = "payment_win",
+    createdAt = FIXTURE_NOW,
+    humanResultRevision = 0,
+    inputKey,
+    vetoKey,
+    ...fields
+  } = args;
+  const subject = [kind, fields.providerPaymentId, fields.opportunityId];
+  return await ctx.db.insert("resultAutomationDecisions", {
+    kind,
+    mode: "ask",
+    state,
+    inputKey: inputKey ?? await sha256Hex(stableJson(["fixture", state, ...subject, humanResultRevision, createdAt])),
+    vetoKey: vetoKey ?? await sha256Hex(stableJson(subject)),
+    ruleVersion: "payment-rule@1",
+    policyVersion: 1,
+    activationVersion: 1,
+    humanResultRevision,
+    wouldWrite: true,
+    gates: [],
+    confirmRoute: "billing",
+    evidence: {
+      allocationRevision: 0,
+      sourceUpdatedAt: FIXTURE_PAID_AT,
+      bindingIds: [],
+      bindingVersions: [],
+    },
+    createdAt,
+    ...fields,
+  });
+}
+
+export async function seedReadyDecision(ctx: MutationCtx, args: DecisionFixture) {
+  return await seedDecision(ctx, "ready", args);
+}
+
+export async function seedAppliedReceipt(ctx: MutationCtx, args: DecisionFixture) {
+  return await seedDecision(ctx, "applied", {
+    resolvedAt: args.createdAt ?? FIXTURE_NOW,
+    appliedVia: "billing",
+    humanResultRevisionAfter: (args.humanResultRevision ?? 0) + 1,
+    ...args,
   });
 }
 

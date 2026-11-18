@@ -49,6 +49,7 @@ export const PROVIDER_REASON_SENTENCES: Record<ProviderReviewReason, string> = {
   binding_conflict: "Two Whop mappings are active for the same item.",
   program_mismatch: "The Whop payment and the deal point to different programs.",
   read_limit: "There is too much history to check this payment automatically.",
+  excluded_wrong_match: "The only matching deal is one this payment was already taken off.",
   connection_mismatch: "This payment belongs to a different Whop connection.",
   refund: "Whop reports a refund on this payment.",
   dispute: "Whop reports a dispute on this payment.",

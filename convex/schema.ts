@@ -63,6 +63,7 @@ import { endOfDayTables } from "./closer/endOfDaySchema";
 import { leadGenShiftTables } from "./leadGen/endOfShiftSchema";
 import { contactAgainValidator } from "./lib/contactAgain";
 import { paymentProviderTables } from "./payments/schema";
+import { automationTables, resultAutomationSettingsValidator } from "./automation/schema";
 
 export default defineSchema({
   ...pipelineTables,
@@ -75,6 +76,7 @@ export default defineSchema({
   ...fathomTables,
   ...secondOpinionTables,
   ...callInsightTables,
+  ...automationTables,
   ...endOfDayTables,
   ...leadGenShiftTables,
   ...paymentProviderTables,
@@ -178,6 +180,7 @@ export default defineSchema({
     // Call insights: Claude's reading of recorded calls. Unset means off.
     // Its own key, so Second opinion's settings dialog never overwrites it.
     callInsights: v.optional(callInsightsSettingsValidator),
+    resultAutomation: v.optional(resultAutomationSettingsValidator),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
@@ -1146,6 +1149,8 @@ export default defineSchema({
     lostAt: v.optional(v.number()),
     paymentReceivedAt: v.optional(v.number()),
     lostByUserId: v.optional(v.id("users")),
+    // Bumped by noteHumanResult for each human result. Absent means zero.
+    humanResultRevision: v.optional(v.number()),
     // Denormalized cross-source activity timestamp for entity-browse sorting.
     // Backfilled for legacy rows before this becomes required.
     latestActivityAt: v.optional(v.number()),
@@ -1500,6 +1505,8 @@ export default defineSchema({
     createdAt: v.number(),
     heldMarkedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
+    // The meeting's end, when attendance is owed on a deal won by a Whop payment.
+    attendanceOwedSince: v.optional(v.number()),
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
@@ -1587,6 +1594,17 @@ export default defineSchema({
       "assignedCloserId",
       "status",
       "scheduledAt",
+    ])
+    .index("by_tenantId_assignedCloserId_status_attendanceOwedSince", [
+      "tenantId",
+      "assignedCloserId",
+      "status",
+      "attendanceOwedSince",
+    ])
+    .index("by_tenantId_and_status_and_attendanceOwedSince", [
+      "tenantId",
+      "status",
+      "attendanceOwedSince",
     ])
     .index("by_tenantId_and_bookingProgramId_and_scheduledAt", [
       "tenantId",
@@ -1845,6 +1863,9 @@ export default defineSchema({
     providerPaymentId: v.optional(v.id("providerPayments")),
     // When the provider collected the money. Reports keep using `recordedAt`.
     providerPaidAt: v.optional(v.number()),
+    automationDecisionId: v.optional(v.id("resultAutomationDecisions")),
+    // Whop payments a person declared different money from this row. At most 10.
+    distinctFromProviderPaymentIds: v.optional(v.array(v.id("providerPayments"))),
   })
     .index("by_tenantId_and_proofSha256", ["tenantId", "proofSha256"])
     .index("by_tenantId_and_providerPaymentId", [
@@ -1947,6 +1968,8 @@ export default defineSchema({
     reminderNote: v.optional(v.string()),
     completedAt: v.optional(v.number()),
     completionNote: v.optional(v.string()),
+    // The manual or Whop payment that completed this reminder.
+    completionPaymentId: v.optional(v.id("paymentRecords")),
     // Structured completion tag for reminder-driven outcomes.
     // Legacy follow-ups remain valid without backfill during the rollout.
     completionOutcome: v.optional(

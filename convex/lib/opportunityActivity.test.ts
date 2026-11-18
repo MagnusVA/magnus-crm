@@ -6,7 +6,7 @@ import { rebuildQualificationRow } from "../operations/projections";
 import { opportunityByStage } from "../reporting/aggregates";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
-import { stageFields } from "../../tests/dealStageFixtures";
+import { harnessCloserId, stageFields } from "../../tests/dealStageFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { migrations } from "../migrations";
 import {
@@ -200,6 +200,10 @@ describe("transitionOpportunity", () => {
     ["a no-show to Follow-up", "no_show", { lostReason: "no_show" }, { stage: "follow_up" }],
     ["a no-show to Booked", "no_show", { lostReason: "no_show" }, { stage: "booked" }],
     ["Booked to Booked", "scheduled", {}, { stage: "booked" }],
+    ["Closed won to Booked", "payment_received", {}, { stage: "booked" }],
+    ["Closed won to Follow-up", "payment_received", {}, { stage: "follow_up" }],
+    ["a no-show to Closed won", "no_show", { lostReason: "no_show" }, { stage: "closed", outcome: "won" }],
+    ["an exclusion's loss to Closed won", "lost", { lostReason: "payment_excluded" }, { stage: "closed", outcome: "won" }],
   ] as const)(
     "rejects %s without a named exception and writes nothing",
     async (_label, from, fields, to) => {
@@ -225,6 +229,13 @@ describe("transitionOpportunity", () => {
     ["no_show", { lostReason: "no_show" }, { stage: "follow_up" }, "missed_meeting_next_step", "follow_up_scheduled"],
     ["canceled", { lostReason: "canceled" }, { stage: "follow_up" }, "missed_meeting_next_step", "follow_up_scheduled"],
     ["no_show", { lostReason: "no_show" }, { stage: "booked" }, "no_show_withdrawn", "scheduled"],
+    ["payment_received", {}, { stage: "booked" }, "provider_win_undone_to_booked", "scheduled"],
+    ["payment_received", {}, { stage: "follow_up" }, "provider_win_undone_to_follow_up", "follow_up_scheduled"],
+    ["payment_received", {}, { stage: "follow_up" }, "provider_win_corrected_to_follow_up", "follow_up_scheduled"],
+    ["no_show", { lostReason: "no_show" }, { stage: "closed", outcome: "won" }, "provider_payment_after_system_loss", "payment_received"],
+    ["canceled", { lostReason: "canceled" }, { stage: "closed", outcome: "won" }, "provider_payment_after_system_loss", "payment_received"],
+    ["lost", { lostReason: "stale" }, { stage: "closed", outcome: "won" }, "provider_payment_after_system_loss", "payment_received"],
+    ["lost", { lostReason: "payment_excluded" }, { stage: "closed", outcome: "won" }, "payment_exclusion_restored", "payment_received"],
   ] as const)(
     "allows %s -> %j only for the %s exception, to the stage PR 7's %s names",
     async (from, fields, to, exception, status) => {
@@ -237,14 +248,114 @@ describe("transitionOpportunity", () => {
 
       const { opportunity } = await readState(harness, opportunityId);
       expect(dealStageOf(opportunity!)).toEqual(stageForStatus(status, "slack_qualified"));
-      // Reopening clears the loss it reopened.
-      if (to.stage !== "closed") {
+      // Reopening, or winning, clears the loss it reopened.
+      if ("lostReason" in fields && (to.stage !== "closed" || to.outcome === "won")) {
         expect([opportunity?.lostReason, opportunity?.lostAt, opportunity?.lostByUserId]).toEqual([
           undefined,
           undefined,
           undefined,
         ]);
       }
+    },
+  );
+
+  it("restores an exclusion's loss a person approved, clearing the three loss fields", async () => {
+    const harness = await bookingHarness();
+    const approverId = await harness.t.run((ctx) => harnessCloserId(ctx));
+    const { opportunityId, closerId } = await slackOpportunity(harness, "lost", {
+      lostReason: "payment_excluded",
+      lostAt: 500,
+      lostByUserId: approverId,
+    });
+
+    await harness.t.run(async (ctx) => {
+      await transitionOpportunity(ctx, opportunityId, {
+        to: { stage: "closed", outcome: "won" },
+        fields: { paymentReceivedAt: 700 },
+        source: "admin",
+        actorUserId: closerId,
+        exception: "payment_exclusion_restored",
+      });
+    });
+
+    const { opportunity, wonCount, lostCount } = await readState(harness, opportunityId);
+    expect(opportunity).toMatchObject({ stage: "closed", outcome: "won", paymentReceivedAt: 700 });
+    expect([opportunity?.lostReason, opportunity?.lostAt, opportunity?.lostByUserId]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect([wonCount, lostCount]).toEqual([1, 0]);
+  });
+
+  it.each(["lost", "no_show"] as const)(
+    "refuses to restore a %s deal whose loss isn't the exclusion's code",
+    async (status) => {
+      const harness = await bookingHarness();
+      const { opportunityId } = await slackOpportunity(harness, status, {
+        lostReason: status === "lost" ? "PAYMENT_EXCLUDED" : "no_show",
+        lostAt: 500,
+      });
+      await expect(
+        harness.t.run(async (ctx) => {
+          await transitionOpportunity(ctx, opportunityId, {
+            to: { stage: "closed", outcome: "won" },
+            source: "admin",
+            exception: "payment_exclusion_restored",
+          });
+        }),
+      ).rejects.toThrow('Cannot move deal from "closed lost" to "closed won" with "payment_exclusion_restored"');
+    },
+  );
+
+  it("refuses a Whop payment after a loss a person recorded", async () => {
+    const harness = await bookingHarness();
+    const closerId = await harness.t.run((ctx) => harnessCloserId(ctx));
+    const { opportunityId } = await slackOpportunity(harness, "no_show", {
+      lostReason: "no_show",
+      lostAt: 500,
+      lostByUserId: closerId,
+    });
+    await expect(
+      harness.t.run(async (ctx) => {
+        await transitionOpportunity(ctx, opportunityId, {
+          to: { stage: "closed", outcome: "won" },
+          source: "admin",
+          exception: "provider_payment_after_system_loss",
+        });
+      }),
+    ).rejects.toThrow("Cannot move deal from");
+  });
+
+  it.each([
+    ["provider_win_undone_to_booked", { stage: "booked" }],
+    ["provider_win_undone_to_follow_up", { stage: "follow_up" }],
+    ["provider_win_corrected_to_follow_up", { stage: "follow_up" }],
+    ["payment_voided", { stage: "closed", outcome: "lost" }],
+  ] as const)(
+    "%s clears paymentReceivedAt when the caller passes undefined",
+    async (exception, to) => {
+      const harness = await bookingHarness();
+      const { opportunityId, closerId } = await slackOpportunity(harness, "payment_received", {
+        paymentReceivedAt: 900,
+      });
+
+      await harness.t.run(async (ctx) => {
+        await transitionOpportunity(ctx, opportunityId, {
+          to,
+          fields: { paymentReceivedAt: undefined, updatedAt: 1_000 },
+          source: "admin",
+          actorUserId: closerId,
+          exception,
+          metadata: { exception },
+        });
+      });
+
+      const { opportunity, events, wonCount } = await readState(harness, opportunityId);
+      expect(opportunity).toMatchObject({ stage: to.stage, updatedAt: 1_000 });
+      expect(opportunity && "paymentReceivedAt" in opportunity).toBe(false);
+      expect(wonCount).toBe(0);
+      expect(JSON.parse(events.at(-1)!.metadata!)).toMatchObject({ exception, fromOutcome: "won" });
     },
   );
 

@@ -4,6 +4,10 @@ type EventLabel = {
 };
 
 export const EVENT_LABELS: Record<string, EventLabel> = {
+  "automation.settings_changed": {
+    verb: "changed automatic results settings",
+    iconHint: "settings",
+  },
   "customer.conversion_rolled_back": {
     verb: "rolled back a customer conversion",
     iconHint: "undo-2",
@@ -121,6 +125,14 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "corrected payment details",
     iconHint: "pencil",
   },
+  "payment.flagged_not_my_sale": {
+    verb: "flagged a payment as not their sale",
+    iconHint: "flag",
+  },
+  "payment.not_my_sale_cleared": {
+    verb: "cleared a not-my-sale flag",
+    iconHint: "flag-off",
+  },
   "payment.proof_attached": {
     verb: "attached a payment receipt",
     iconHint: "paperclip",
@@ -144,6 +156,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
   "payment.recorded": {
     verb: "recorded a payment",
     iconHint: "dollar-sign",
+  },
+  "payment.restored": {
+    verb: "restored a payment",
+    iconHint: "undo-2",
   },
   "payment.verified": {
     verb: "marked payment reviewed",

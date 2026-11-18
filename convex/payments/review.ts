@@ -10,9 +10,9 @@ import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { dealOutcomeValidator, dealStageValidator } from "../opportunities/stages";
-import { allocationChanged, clearActiveAllocation } from "./allocation";
+import { allocationChanged, clearActiveAllocation, setActiveAllocation } from "./allocation";
 import { findConnection } from "./connection";
-import { adverseReviewRequired, releasePaymentFence } from "./intake";
+import { releasePaymentFence } from "./intake";
 import { findPaymentTarget, refreshProviderPaymentReview, type PaymentTarget } from "./match";
 import { payerDetailsDeadline } from "./payerRetention";
 import {
@@ -539,27 +539,16 @@ export const linkToPaymentRecord = mutation({
     if (!deal || deal.tenantId !== actor.tenantId || !lead || lead.tenantId !== actor.tenantId || lead.status === "merged") {
       throw expectedError("provider_payment.invalid_record_target", "The CRM payment needs a deal with a current person.");
     }
-    await ctx.db.patch("paymentRecords", paymentRecordId, {
-      providerPaymentId,
-      providerPaidAt: payment.paidAt,
-    });
-    const resolvedAt = Date.now();
-    const allocationRevision = payment.allocationRevision + 1;
-    const reviewAdverse = adverseReviewRequired(payment);
-    await ctx.db.patch("providerPayments", providerPaymentId, {
-      paymentRecordId,
-      allocationRevision,
-      adverseReviewAt: reviewAdverse ? resolvedAt : undefined,
-      adverseReviewRevision: payment.adverseReviewRevision + (reviewAdverse ? 1 : 0),
-      opportunityId: deal._id,
-      leadId: lead._id,
-      matchMethod: "person",
+    await setActiveAllocation(ctx, {
+      payment,
+      record,
+      expectedAllocationRevision,
       reviewState: "linked",
-      reviewReason: undefined,
-      resolvedAt,
-      payerDetailsExpireAt: payerDetailsDeadline(payment, "needs_person", resolvedAt),
-      resolvedByUserId: actor.userId,
+      matchMethod: "person",
+      actorUserId: actor.userId,
+      now: Date.now(),
     });
+    const allocationRevision = payment.allocationRevision + 1;
     await emitLinkEvent(ctx, "payment.provider_linked", actor, paymentRecordId, providerPaymentId);
     return { allocationRevision, paymentRecordId };
   },

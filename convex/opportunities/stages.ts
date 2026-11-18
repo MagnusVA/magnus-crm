@@ -241,14 +241,28 @@ export const VALID_STAGE_TRANSITIONS: Record<DealPosition, readonly DealPosition
   lost: [],
 };
 
+/** One named exception: the move it allows, and the closed deals it may reopen. */
+type StageExceptionRule = {
+  from: DealPosition;
+  to: DealPosition;
+  loss: readonly SystemLossReason[] | null;
+  reserved?: { reason: ReservedLossReason; actor: "any" | "none" };
+};
+
 /**
  * Moves the stage machine doesn't allow, permitted only for the caller that
- * names them. Each reopens, or recloses, only the deal it was written for:
- * `loss` lists the codes the system must have closed the deal with (no
+ * names them. Each reopens, or recloses, only the deal it was written for.
+ * `loss` lists the system codes the deal must have been closed with (no
  * `lostByUserId`), so a person's loss never reopens, whatever its text.
+ * `reserved` names a code only a core writes and every typed loss refuses;
+ * `actor` says whether a person may have approved it. The machine sees only
+ * stage, outcome and loss fields, so the core that names an exception proves
+ * from its receipt that the deal is the one it wrote.
  */
 export const STAGE_TRANSITION_EXCEPTIONS = {
-  // Voiding a side deal's payment closes the deal as lost.
+  // Voiding a side deal's payment, an exclusion that leaves no payment that
+  // counts, and an undone Whop win returning to its system loss close the
+  // deal as lost.
   payment_voided: { from: "won", to: "lost", loss: null },
   // A booking that happened inside the Slack join window but was processed
   // after the stale expiry closed the deal (a retried blocked delivery)
@@ -263,10 +277,26 @@ export const STAGE_TRANSITION_EXCEPTIONS = {
   },
   // Calendly withdraws the no-show it reported.
   no_show_withdrawn: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.no_show] },
-} as const satisfies Record<
-  string,
-  { from: DealPosition; to: DealPosition; loss: readonly SystemLossReason[] | null }
->;
+  // Undo of a Whop win confirmed in Billing returns the deal to where the
+  // win found it. Cores refuse side deals, which are never Booked.
+  provider_win_undone_to_booked: { from: "won", to: "booked", loss: null },
+  provider_win_undone_to_follow_up: { from: "won", to: "follow_up", loss: null },
+  // A reviewed correction reopens the deal at Follow-up with one next step.
+  provider_win_corrected_to_follow_up: { from: "won", to: "follow_up", loss: null },
+  // A person confirms a Whop payment on a deal the system closed.
+  provider_payment_after_system_loss: {
+    from: "lost",
+    to: "won",
+    loss: [SYSTEM_LOSS_REASONS.no_show, SYSTEM_LOSS_REASONS.canceled, SYSTEM_LOSS_REASONS.stale],
+  },
+  // Restoring an exclusion that closed the deal re-wins it.
+  payment_exclusion_restored: {
+    from: "lost",
+    to: "won",
+    loss: null,
+    reserved: { reason: RESERVED_LOSS_REASONS.payment_excluded, actor: "any" },
+  },
+} as const satisfies Record<string, StageExceptionRule>;
 
 export type StageTransitionException = keyof typeof STAGE_TRANSITION_EXCEPTIONS;
 
@@ -293,11 +323,17 @@ export function exceptionAllows(
   deal: StageMachineDeal,
   to: DealPosition,
 ): boolean {
-  const rule: { from: DealPosition; to: DealPosition; loss: readonly SystemLossReason[] | null } =
-    STAGE_TRANSITION_EXCEPTIONS[exception];
+  const rule: StageExceptionRule = STAGE_TRANSITION_EXCEPTIONS[exception];
   const { stage, outcome } = dealStageOf(deal);
   if (!isAllowedStageOutcome(stage, outcome)) return false;
   if (dealPosition(stage, outcome) !== rule.from || to !== rule.to) return false;
+  if (rule.reserved) {
+    return (
+      outcome === "lost" &&
+      deal.lostReason === rule.reserved.reason &&
+      (rule.reserved.actor === "any" || deal.lostByUserId === undefined)
+    );
+  }
   if (rule.loss === null) return true;
   const loss = systemLossReasonOf(deal);
   return loss !== null && rule.loss.includes(loss);

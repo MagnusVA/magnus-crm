@@ -51,6 +51,11 @@ export const PERMISSIONS = {
   "billing:correct": ["tenant_master", "tenant_admin"],
   "billing:export": ["tenant_master", "tenant_admin"],
   // === End Billing Ops ===
+  "result-automation:view": ["tenant_master", "tenant_admin"],
+  "result-automation:raise": ["tenant_master"],
+  "result-automation:lower": ["tenant_master", "tenant_admin"],
+  "result-automation:grade": ["tenant_master", "tenant_admin"],
+  "result-automation:resolve-unsure": ["tenant_master"],
   // === AI assistants (docs/plans/closer-assistant.md) ===
   // Connect an AI client over MCP. A role also needs a toolset and the
   // tenant's switch (§6.1). Admins have their own toolset

@@ -181,6 +181,9 @@ const TIMELINE_LABELS: Record<string, string> = {
   "payment.corrected": "Payment corrected",
   "payment.disputed": "Payment disputed",
   "payment.voided": "Payment voided",
+  "payment.restored": "Payment restored",
+  "payment.flagged_not_my_sale": "Flagged: not my sale",
+  "payment.not_my_sale_cleared": "Not-my-sale flag cleared",
 };
 
 /**

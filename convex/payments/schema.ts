@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { enrollmentStatusValidator } from "../enrollments/validators";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 
 /**
@@ -107,6 +108,8 @@ export const providerPaymentReviewReasonValidator = v.union(
   v.literal("dispute"),
   v.literal("not_my_sale"),
   v.literal("covers_several"),
+  // The only candidate deal is one a person took this payment off.
+  v.literal("excluded_wrong_match"),
 );
 
 /** How the CRM payment was tied to the provider payment. */
@@ -182,6 +185,37 @@ export const paymentProviderBindingValidator = v.union(
     opportunityId: v.id("opportunities"),
     leadId: v.id("leads"),
   }),
+);
+
+export const exclusionCauseValidator = v.union(
+  v.literal("wrong_match"),
+  v.literal("refund"),
+  v.literal("chargeback"),
+  v.literal("voided"),
+);
+
+export const correctionResultValidator = v.union(
+  // Another payment counts. The first-payment time moved.
+  v.literal("kept_won"),
+  v.literal("undo_booked"),
+  v.literal("undo_follow_up"),
+  v.literal("undo_system_loss"),
+  // Undo found that Calendly had canceled the meeting or marked it a no-show.
+  v.literal("system_loss_on_undo"),
+  v.literal("lost"),
+  v.literal("follow_up"),
+  v.literal("restored_kept_won"),
+  v.literal("restored_won"),
+);
+
+// Matches DEAL_POSITIONS.
+export const dealPositionValidator = v.union(
+  v.literal("qualified"),
+  v.literal("booked"),
+  v.literal("call_held"),
+  v.literal("follow_up"),
+  v.literal("won"),
+  v.literal("lost"),
 );
 
 export const paymentProviderTables = {
@@ -325,6 +359,12 @@ export const paymentProviderTables = {
     dismissReason: v.optional(providerPaymentDismissReasonValidator),
     resolvedAt: v.optional(v.number()),
     resolvedByUserId: v.optional(v.id("users")),
+    // Wrong-match deals the matcher skips. A person choosing one in Billing
+    // removes it from this list. At most 20.
+    excludedOpportunityIds: v.optional(v.array(v.id("opportunities"))),
+    // A closer's "This isn't my sale" flag, until Billing resolves it.
+    notMySaleAt: v.optional(v.number()),
+    notMySaleByUserId: v.optional(v.id("users")),
   })
     .index("by_tenantId_and_connectionId_and_externalPaymentId", [
       "tenantId",
@@ -340,6 +380,7 @@ export const paymentProviderTables = {
     ])
     .index("by_connectionId_and_tenantId_and_reviewState_and_firstSeenAt", ["connectionId", "tenantId", "reviewState", "firstSeenAt"])
     .index("by_tenantId_and_adverseReviewAt", ["tenantId", "adverseReviewAt"])
+    .index("by_tenantId_and_notMySaleAt", ["tenantId", "notMySaleAt"])
     .index("by_connectionId_and_tenantId_and_adverseReviewAt", ["connectionId", "tenantId", "adverseReviewAt"])
     .index("by_tenantId_and_opportunityId", ["tenantId", "opportunityId"])
     .index("by_tenantId_and_candidateOpportunityId", ["tenantId", "candidateOpportunityId"])
@@ -438,4 +479,57 @@ export const paymentProviderTables = {
     .index("by_connectionId_and_externalPaymentId_and_adversePending", [
       "connectionId", "externalPaymentId", "adversePending",
     ]),
+
+  // One exclusion or restore receipt for retries and restoration.
+  paymentCorrections: defineTable({
+    tenantId: v.id("tenants"),
+    operation: v.union(v.literal("exclude"), v.literal("restore")),
+    // SHA-256 of (operation, subject id, expectedFingerprint, disposition).
+    requestKey: v.string(),
+    level: v.optional(v.union(v.literal("undo"), v.literal("reviewed"))), // Exclude only.
+    cause: v.optional(exclusionCauseValidator), // Exclude only.
+    result: correctionResultValidator,
+    paymentRecordId: v.id("paymentRecords"),
+    providerPaymentId: v.optional(v.id("providerPayments")),
+    opportunityId: v.id("opportunities"),
+    leadId: v.id("leads"),
+    decisionId: v.optional(v.id("resultAutomationDecisions")),
+    restoresCorrectionId: v.optional(v.id("paymentCorrections")),
+    restoredByCorrectionId: v.optional(v.id("paymentCorrections")),
+    before: v.object({
+      paymentStatus: v.union(v.literal("recorded"), v.literal("verified"), v.literal("disputed")),
+      providerReviewState: v.optional(providerPaymentReviewStateValidator),
+      allocationRevision: v.optional(v.number()),
+      dealPosition: dealPositionValidator,
+      paymentReceivedAt: v.optional(v.number()),
+      lostAt: v.optional(v.number()),
+    }),
+    after: v.object({
+      dealPosition: dealPositionValidator,
+      paymentReceivedAt: v.optional(v.number()),
+      lostAt: v.optional(v.number()),
+      allocationRevision: v.optional(v.number()),
+      humanResultRevision: v.number(),
+    }),
+    tasks: v.array(v.object({ // At most 20.
+      followUpId: v.id("followUps"),
+      change: v.union(
+        v.literal("reopened"),
+        v.literal("created"),
+        v.literal("expired"),
+        v.literal("completed"),
+        v.literal("repointed"),
+      ),
+    })),
+    removedEnrollments: v.array(v.object({ // At most 20.
+      programId: v.id("tenantPrograms"),
+      status: enrollmentStatusValidator,
+    })),
+    vetoedOpportunityId: v.optional(v.id("opportunities")),
+    actorUserId: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_requestKey", ["tenantId", "requestKey"])
+    .index("by_tenantId_and_paymentRecordId_and_createdAt", ["tenantId", "paymentRecordId", "createdAt"])
+    .index("by_tenantId_and_opportunityId_and_createdAt", ["tenantId", "opportunityId", "createdAt"]),
 };
