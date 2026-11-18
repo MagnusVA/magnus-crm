@@ -1,3 +1,4 @@
+import { maskReservedLossReason } from "../lossReasonLabel";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { timelineEventLabel } from "../../leadCustomers/timeline";
@@ -115,6 +116,7 @@ export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = crea
   const capture = captures.sort((a, b) => a.firstCapturedAt - b.firstCapturedAt)[0];
   const worker = capture ? await ctx.db.get("leadGenWorkers", capture.firstCapturedByWorkerId) : null;
   const newestDeal = deals.sort((a, b) => b.createdAt - a.createdAt)[0];
+  const lossLabel = maskReservedLossReason(newestDeal?.lostReason);
   const history = await personEvents(ctx, lead.tenantId, ids, 20, state);
   return {
     handle: instagramHandle(lead), stage: lead.lifecycleStage, disposition: lead.disposition,
@@ -126,7 +128,7 @@ export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = crea
     newestDeal: newestDeal ? { opportunityId: newestDeal._id, stage: newestDeal.stage,
       outcome: newestDeal.outcome,
       // Closers write loss reasons by hand; they can hold contact details.
-      lostReason: newestDeal.lostReason ? maskContactText(newestDeal.lostReason, [lead]) : null,
+      lostReason: lossLabel ? maskContactText(lossLabel, [lead]) : null,
       createdAt: newestDeal.createdAt } : null,
     timeZone: null,
     lastTouches: history.events.filter(event => eventIsTouch(event) && (!mcp || (event.entityType !== "payment" && !event.eventType.startsWith("payment.")))).slice(0, 3).map(touchSummary),

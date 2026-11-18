@@ -1,3 +1,4 @@
+import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -122,6 +123,7 @@ async function checkMeetingLoss(
   if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunityId))) {
     throw new Error(`Cannot mark as lost: the deal is "${describeDealState(opportunity)}"`);
   }
+  assertTypedLossReason(args.reason);
   return { userId, opportunity, meeting, now };
 }
 

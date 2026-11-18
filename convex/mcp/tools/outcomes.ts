@@ -1,3 +1,5 @@
+import { maskReservedLossReason } from "../../lib/lossReasonLabel";
+import { assertTypedLossReason } from "../../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../../_generated/server";
@@ -30,6 +32,15 @@ export async function withAgentErrors<T>(run: () => Promise<T>): Promise<T> {
     if (error instanceof Error && error.name === "Error") {
       throw rejectRequest("outcome.refused", error.message);
     }
+    throw error;
+  }
+}
+
+export function assertMcpTypedLossReason(reason: string) {
+  try {
+    assertTypedLossReason(reason);
+  } catch (error) {
+    if (isExpectedError(error)) throw rejectRequest(error.data.code, error.data.message);
     throw error;
   }
 }
@@ -240,12 +251,14 @@ export const markLost = internalMutation({
       throw rejectRequest("loss.target_required", "Pass the meetingId of the call, or the taskId of the call-back.");
     }
     const detail = args.reason?.trim() ?? "";
+    assertMcpTypedLossReason(detail);
     // Unlike the web, a loss from an agent needs a reason of a few words.
     if (detail.split(/\s+/).filter(Boolean).length < 2) {
       throw rejectRequest("loss.reason_required", "A loss needs a reason. Ask why the deal was lost.");
     }
     const category = args.category ?? "other";
     const lostReason = `${LOSS_CATEGORIES[category]}: ${detail}`.slice(0, 500);
+    const lossLabel = maskReservedLossReason(lostReason);
     const hashed = { meetingId: args.meetingId, taskId: args.taskId, lostReason };
 
     if (args.meetingId) {
@@ -260,7 +273,7 @@ export const markLost = internalMutation({
           me,
           "magnus_mark_lost",
           hashed,
-          `Mark ${personOf(meeting)}'s deal lost: "${lostReason}". The ${when} call counts as held. This can't be undone.`,
+          `Mark ${personOf(meeting)}'s deal lost: "${lossLabel}". The ${when} call counts as held. This can't be undone.`,
         );
       }
       const redeemed = await redeemConfirmation(ctx, me, "magnus_mark_lost", args.confirmToken, hashed);
@@ -268,7 +281,7 @@ export const markLost = internalMutation({
       await withAgentErrors(() => recordMeetingLoss(ctx, me, coreArgs, { via: "mcp", agentClient: me.agentClient }));
       const result = {
         ok: true as const,
-        message: `Done. ${personOf(meeting)}'s deal is lost, with the reason "${lostReason}". The ${when} call counts as held.`,
+        message: `Done. ${personOf(meeting)}'s deal is lost, with the reason "${lossLabel}". The ${when} call counts as held.`,
         meeting: "held",
         deal: "Closed · lost",
         alreadyDone: false,
@@ -288,7 +301,7 @@ export const markLost = internalMutation({
         me,
         "magnus_mark_lost",
         hashed,
-        `Mark ${lead?.fullName ?? "this person"}'s deal lost from their call-back: "${lostReason}". The call-back is completed. This can't be undone.`,
+        `Mark ${lead?.fullName ?? "this person"}'s deal lost from their call-back: "${lossLabel}". The call-back is completed. This can't be undone.`,
       );
     }
     const redeemed = await redeemConfirmation(ctx, me, "magnus_mark_lost", args.confirmToken, hashed);
@@ -296,7 +309,7 @@ export const markLost = internalMutation({
     await withAgentErrors(() => recordTaskLoss(ctx, me, coreArgs, { via: "mcp", agentClient: me.agentClient }));
     const result = {
       ok: true as const,
-      message: `Done. The deal is lost, with the reason "${lostReason}", and the call-back is completed.`,
+      message: `Done. The deal is lost, with the reason "${lossLabel}", and the call-back is completed.`,
       deal: "Closed · lost",
       alreadyDone: false,
     };

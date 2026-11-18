@@ -1,3 +1,4 @@
+import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx, type QueryCtx } from "../_generated/server";
@@ -108,6 +109,7 @@ async function checkAdminMarkLost(
       `Cannot mark as lost: the deal is "${describeDealState(opportunity)}"`,
     );
   }
+  assertTypedLossReason(args.reason);
   return { opportunity, meeting, now };
 }
 

@@ -1,3 +1,5 @@
+import { paymentRecorderId, providerPaymentByline } from "./meetingDetail";
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
@@ -8,12 +10,18 @@ import {
 } from "../lib/memberIdentity";
 import {
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
 import { loadFollowedMeeting } from "../lib/followedMeeting";
 import { loadTaskDealContext } from "../lib/taskDealContext";
 import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
+
+export function reminderWithLossLabel(followUp: Doc<"followUps">) {
+  if (followUp.completionOutcome !== "lost" && followUp.completionOutcome !== "no_response_given_up") {
+    return followUp;
+  }
+  return { ...followUp, completionNote: maskReservedLossReason(followUp.completionNote) ?? undefined };
+}
 
 type EnrichedPayment = Omit<
   Doc<"paymentRecords">,
@@ -24,6 +32,7 @@ type EnrichedPayment = Omit<
   attributedCloserName: string | null;
   attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
+  providerByline: string | null;
   recordedBy: MemberAvatarIdentity | null;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
@@ -46,7 +55,7 @@ async function loadPaymentUserMaps(
       payments.flatMap((payment) => {
         const ids: Id<"users">[] = [];
         const attributedCloserId = resolveAttributedCloserId(payment);
-        const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(payment);
+        const recordedByUserId = paymentRecorderId(payment);
         if (attributedCloserId) {
           ids.push(attributedCloserId);
         }
@@ -149,9 +158,10 @@ export const getReminderDetail = query({
           let proofFileContentType: string | null = null;
           let proofFileSize: number | null = null;
           const attributedCloserId = resolveAttributedCloserId(payment);
-          const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
-            payment,
-          );
+          const recordedByUserId = paymentRecorderId(payment);
+          const recordedByName = recordedByUserId
+            ? (paymentUserNameById.get(recordedByUserId) ?? null)
+            : null;
 
           if (payment.proofFileId) {
             const [url, fileMeta] = await Promise.all([
@@ -175,9 +185,8 @@ export const getReminderDetail = query({
             attributedCloser: attributedCloserId
               ? (paymentUserIdentityById.get(attributedCloserId) ?? null)
               : null,
-            recordedByName: recordedByUserId
-              ? (paymentUserNameById.get(recordedByUserId) ?? null)
-              : null,
+            recordedByName,
+            providerByline: providerPaymentByline(payment, recordedByName),
             recordedBy: recordedByUserId
               ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
               : null,
@@ -204,10 +213,14 @@ export const getReminderDetail = query({
       : null;
 
     return {
-      followUp,
+      followUp: reminderWithLossLabel(followUp),
       // The deal badge and the page's analytics read the stage and outcome
       // (docs/plans/phase-5-deal-status.md §6.1).
-      opportunity: { ...opportunity, ...dealLabelOf(opportunity) },
+      opportunity: {
+        ...opportunity,
+        ...dealLabelOf(opportunity),
+        lostReason: maskReservedLossReason(opportunity.lostReason) ?? undefined,
+      },
       lead,
       latestMeeting:
         latestMeeting && latestMeeting.tenantId === tenantId

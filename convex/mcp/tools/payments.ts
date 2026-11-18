@@ -11,7 +11,7 @@ import { checkMeetingPaymentAllowed, recordMeetingPayment } from "../../closer/p
 import { checkTaskPaymentAllowed, recordTaskPayment } from "../../closer/reminderOutcomes";
 import { emitDomainEvent } from "../../lib/domainEvents";
 import { checkPaymentProof, newPaymentFields } from "../../lib/paymentProof";
-import { paymentTypeValidator, type PaymentType } from "../../lib/paymentTypes";
+import { paymentEntryOf, paymentTypeValidator, type PaymentType } from "../../lib/paymentTypes";
 import { rejectRequest } from "../../lib/observability/errors";
 import { normalizeProgramName } from "../../tenantPrograms/shared";
 import { buildPaymentLink } from "../../../lib/paymentLink";
@@ -434,7 +434,12 @@ export const logPayment = internalAction({
 
 // ── magnus_attach_proof (decision 12a) ──────────────────────────────
 
-const attachResult = v.object({ ok: v.literal(true), message: v.string(), reused: v.boolean() });
+const attachResult = v.object({
+  ok: v.literal(true),
+  message: v.string(),
+  reused: v.boolean(),
+  via: v.optional(v.literal("whop")),
+});
 
 export const attachProofToPayment = internalMutation({
   args: {
@@ -503,6 +508,7 @@ export const attachProofToPayment = internalMutation({
     return {
       ok: true as const,
       reused: Boolean(fields.proofReused),
+      ...(paymentEntryOf(payment) === "person" ? {} : { via: "whop" as const }),
       message: fields.proofReused
         ? "Attached. This file also backs another payment, so Billing will flag it for the reviewer."
         : "Attached. The payment shows its proof in Billing now.",

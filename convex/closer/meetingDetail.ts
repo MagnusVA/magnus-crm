@@ -1,3 +1,4 @@
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import { meetingDetailValidator } from "./meetingDetailValidator";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -11,6 +12,7 @@ import {
   userMemberIdentity,
 } from "../lib/memberIdentity";
 import {
+  paymentEntryOf,
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
@@ -36,8 +38,29 @@ type EnrichedPayment = Omit<
   attributedCloserName: string | null;
   attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
+  providerByline: string | null;
   recordedBy: MemberAvatarIdentity | null;
 };
+
+export function paymentRecorderId(payment: Doc<"paymentRecords">) {
+  return payment.origin === "provider"
+    ? payment.recordedByUserId
+    : resolveLegacyCompatibleRecordedByUserId(payment);
+}
+
+export function providerPaymentByline(
+  payment: Doc<"paymentRecords">,
+  recordedByName: string | null,
+): string | null {
+  switch (paymentEntryOf(payment)) {
+    case "provider_auto":
+      return "Recorded automatically from Whop";
+    case "provider_confirmed":
+      return recordedByName ? `Confirmed from Whop by ${recordedByName}` : "Confirmed from Whop";
+    case "person":
+      return null;
+  }
+}
 
 /**
  * Get all data for the meeting detail page.
@@ -199,7 +222,7 @@ export async function buildMeetingDetail(
         paymentRecordsRaw.flatMap((payment) =>
           [
             resolveLegacyCompatibleAttributedCloserId(payment),
-            resolveLegacyCompatibleRecordedByUserId(payment),
+            paymentRecorderId(payment),
           ].filter((userId): userId is Id<"users"> => userId !== undefined),
         ),
       ),
@@ -247,9 +270,10 @@ export async function buildMeetingDetail(
           let proofFileSize: number | null = null;
           const attributedCloserId =
             resolveLegacyCompatibleAttributedCloserId(payment) ?? null;
-          const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
-            payment,
-          );
+          const recordedByUserId = paymentRecorderId(payment);
+          const recordedByName = recordedByUserId
+            ? (paymentUserNameById.get(recordedByUserId) ?? null)
+            : null;
 
           if (payment.proofFileId) {
             const [url, fileMeta] = await Promise.all([
@@ -278,9 +302,8 @@ export async function buildMeetingDetail(
               attributedCloserId !== null
                 ? (paymentUserIdentityById.get(attributedCloserId) ?? null)
                 : null,
-            recordedByName: recordedByUserId
-              ? (paymentUserNameById.get(recordedByUserId) ?? null)
-              : null,
+            recordedByName,
+            providerByline: providerPaymentByline(payment, recordedByName),
             recordedBy: recordedByUserId
               ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
               : null,
@@ -362,6 +385,7 @@ export async function buildMeetingDetail(
       opportunity: {
         ...opportunity,
         ...dealLabelOf(opportunity),
+        lostReason: maskReservedLossReason(opportunity.lostReason) ?? undefined,
         rescheduleLinkPending: rescheduleLink.count > 0,
       },
       lead,

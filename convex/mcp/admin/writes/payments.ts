@@ -1,3 +1,4 @@
+import { paymentVia } from "../reads/common";
 import { v } from "convex/values";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import { internalMutation, type MutationCtx, type QueryCtx } from "../../../_generated/server";
@@ -117,7 +118,12 @@ export const prepareCorrectPayment = internalMutation({
       target: { kind: "payment", id: payment._id, label: `${who} · ${money(payment)}` },
       summary,
       preview: {
-        payment: { person: { text: who, by: "person" }, amount: money(payment), recorded: payment.status },
+        payment: {
+          person: { text: who, by: "person" },
+          amount: money(payment),
+          recorded: payment.status,
+          via: paymentVia(payment),
+        },
         changes,
         alsoChanges: effects,
         reason: args.reason.trim(),
@@ -224,7 +230,12 @@ export const prepareReviewPayments = internalMutation({
       rows,
       footnote: excluded.length ? `Left out: ${excluded.map((e) => e.why).join(", ")}` : undefined,
       preview: {
-        payments: included.map((p, i) => ({ paymentRecordId: p._id, person: { text: rows[i][0], by: "person" }, amount: rows[i][1] })),
+        payments: included.map((p, i) => ({
+          paymentRecordId: p._id,
+          person: { text: rows[i][0], by: "person" },
+          amount: rows[i][1],
+          via: paymentVia(p),
+        })),
         excluded,
         total: totalText,
       },

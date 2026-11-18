@@ -49,6 +49,7 @@ type EnrichedPayment = {
   attributedCloser?: MemberAvatarIdentity | null;
   recordedByUserId?: string;
   recordedByName?: string | null;
+  providerByline: string | null;
   recordedBy?: MemberAvatarIdentity | null;
 };
 
@@ -183,6 +184,12 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </dd>
                 </div>
               </dl>
+
+              {payment.providerByline && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {payment.providerByline}
+                </p>
+              )}
 
               {payment.origin === "admin_meeting" &&
                 payment.attributedCloserId &&

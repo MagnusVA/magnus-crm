@@ -1,5 +1,6 @@
 "use client";
 
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -379,7 +380,10 @@ function AdminPaymentPanel({
 function TaskSummary({ detail, setting }: { detail: TaskDetail; setting: BusinessDaySetting }) {
   const { followUp, opportunity } = detail;
   const note = followUp.completionNote?.trim();
-  const quoted = note ? <>&ldquo;{note}&rdquo;</> : null;
+  const displayNote = followUp.completionOutcome === "lost" || followUp.completionOutcome === "no_response_given_up"
+    ? lossReasonLabel(note)
+    : note;
+  const quoted = displayNote ? <>&ldquo;{displayNote}&rdquo;</> : null;
 
   let headline: React.ReactNode;
   switch (followUp.completionOutcome) {

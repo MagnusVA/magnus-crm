@@ -1,3 +1,4 @@
+import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { transitionOpportunity } from "../lib/opportunityActivity";
@@ -36,6 +37,7 @@ export const markLost = mutation({
     }
 
     const trimmedReason = reason?.trim() || undefined;
+    assertTypedLossReason(trimmedReason);
     await transitionOpportunity(ctx, opportunityId, {
       to: { stage: "closed", outcome: "lost" },
       fields: {

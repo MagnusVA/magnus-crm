@@ -1,3 +1,4 @@
+import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -120,6 +121,7 @@ export const markLinkTaskLost = mutation({
 
     const now = Date.now();
     const trimmedReason = normalizeOptionalString(reason);
+    assertTypedLossReason(trimmedReason);
 
     await ctx.db.patch("followUps", followUpId, {
       status: "completed",

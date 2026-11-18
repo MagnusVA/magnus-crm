@@ -1,3 +1,4 @@
+import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -445,6 +446,7 @@ async function checkTaskLoss(
   if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
     throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
   }
+  assertTypedLossReason(args.reason);
   return { opportunity, tenantId, userId, followUp };
 }
 
@@ -586,6 +588,7 @@ export const markReminderNoResponse = mutation({
       if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
         throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
       }
+      assertTypedLossReason(trimmedNote);
       const lostReason = trimmedNote ?? "No response to outreach";
 
       await transitionOpportunity(ctx, opportunity._id, {

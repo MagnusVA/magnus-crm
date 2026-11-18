@@ -17,7 +17,7 @@ import {
 	OpportunityPaymentsList,
 	dealPaidTotals,
 } from "@/app/workspace/opportunities/[opportunityId]/_components/opportunity-payments-list";
-import { SYSTEM_LOSS_REASON_LABELS } from "@/convex/opportunities/stages";
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import type { AttributionTouch } from "@/convex/lib/attribution/detailPayload";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
@@ -66,9 +66,7 @@ export function DealModalBody({
 	const paidTotals = dealPaidTotals(detail.payments);
 	const isWon = opportunity.position === "won";
 	const isLost = opportunity.position === "lost";
-	const lostReason = opportunity.systemLoss
-		? SYSTEM_LOSS_REASON_LABELS[opportunity.systemLoss]
-		: opportunity.lostReason?.trim() || null;
+	const lostReason = lossReasonLabel(opportunity.systemLoss ?? opportunity.lostReason?.trim());
 
 	return (
 		<>

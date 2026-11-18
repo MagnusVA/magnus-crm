@@ -1,7 +1,6 @@
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import {
   DEAL_STAGE_CONFIG,
-  isSystemLossReason,
-  SYSTEM_LOSS_REASON_LABELS,
   type DealOutcome,
   type DealStage,
 } from "@/convex/opportunities/stages";
@@ -53,8 +52,7 @@ export function formatDay(ms: number, timeZone: string, now = Date.now()) {
 }
 
 export function lossReasonText(reason: string | null) {
-  if (!reason) return "no reason given";
-  return isSystemLossReason(reason) ? SYSTEM_LOSS_REASON_LABELS[reason] : reason;
+  return lossReasonLabel(reason) ?? "no reason given";
 }
 
 /** "Lost: No-show", "Won", or the open stage's label. */

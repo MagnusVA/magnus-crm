@@ -54,6 +54,7 @@ export const meetingDetailValidator = v.object({
       attributedCloserName: text,
       attributedCloser: v.union(member, v.null()),
       recordedByName: text,
+      providerByline: text,
       recordedBy: v.union(member, v.null()),
     }),
   ),

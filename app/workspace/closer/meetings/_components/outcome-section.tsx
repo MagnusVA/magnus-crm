@@ -1,5 +1,6 @@
 "use client";
 
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -659,7 +660,7 @@ function OutcomeSummary({
       </>
     );
     byline = [
-      first.recordedByName ? `Logged by ${first.recordedByName}` : "Logged",
+      first.providerByline ?? (first.recordedByName ? `Logged by ${first.recordedByName}` : "Logged"),
       when(first.recordedAt),
     ].join(" · ");
     trailing = (
@@ -675,8 +676,9 @@ function OutcomeSummary({
     if (opportunity.systemLoss) {
       headline = SYSTEM_LOSS_SUMMARY[opportunity.systemLoss];
     } else {
-      headline = opportunity.lostReason ? (
-        <>&ldquo;{opportunity.lostReason}&rdquo;</>
+      const lossLabel = lossReasonLabel(opportunity.lostReason);
+      headline = lossLabel ? (
+        <>&ldquo;{lossLabel}&rdquo;</>
       ) : (
         "Closed as lost, no reason given."
       );

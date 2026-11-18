@@ -1,5 +1,7 @@
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import type { Doc, Id } from "../_generated/dataModel";
 import { dealSearchWords } from "../opportunities/stageLabels";
+import { isReservedLossReason } from "../opportunities/stages";
 
 function pushValue(parts: string[], value: string | undefined) {
   const trimmed = value?.trim();
@@ -48,6 +50,9 @@ export function buildLeadCustomerSearchText(input: {
     // closed (docs/plans/phase-5-deal-status.md §4.8).
     for (const word of dealSearchWords(opportunity)) {
       pushValue(parts, word);
+    }
+    if (isReservedLossReason(opportunity.lostReason)) {
+      pushValue(parts, maskReservedLossReason(opportunity.lostReason) ?? undefined);
     }
     pushValue(parts, opportunity.source);
     pushValue(parts, opportunity.firstBookingProgramName);

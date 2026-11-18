@@ -1,3 +1,4 @@
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import { loadStaffRedactor, type StaffRedactor } from "../leadGen/assistantText";
 import { projectContactAgain } from "../leadGen/contactAgain";
 import { contactAgainForbidden, contactAgainWaitReason } from "../lib/contactAgain";
@@ -264,8 +265,11 @@ export async function getResparkPersonPanelCore(ctx: QueryCtx, access: TenantUse
     timeZone: timeZone ? safe(timeZone) : null,
     timeline: history.events.filter((event) => event.entityType !== "payment" &&
       !event.eventType.startsWith("payment.")).map(touchSummary),
-    deals: deals.map((deal) => ({ opportunityId: deal._id, stage: deal.stage, outcome: deal.outcome,
-      lostReason: deal.lostReason ? safe(deal.lostReason) : null, createdAt: deal.createdAt })),
+    deals: deals.map((deal) => {
+      const lossLabel = maskReservedLossReason(deal.lostReason);
+      return { opportunityId: deal._id, stage: deal.stage, outcome: deal.outcome,
+        lostReason: lossLabel ? safe(lossLabel) : null, createdAt: deal.createdAt };
+    }),
     calls,
     notes: notes.filter((note) => note.deletedAt === undefined).map((note) => ({ noteId: note._id,
       content: safe(note.content), createdAt: note.createdAt })),

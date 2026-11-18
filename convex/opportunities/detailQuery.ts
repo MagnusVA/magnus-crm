@@ -1,3 +1,4 @@
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
@@ -153,7 +154,7 @@ export const getOpportunityDetail = query({
         latestActivityAt: opportunity.latestActivityAt,
         paymentReceivedAt: opportunity.paymentReceivedAt,
         lostAt: opportunity.lostAt,
-        lostReason: opportunity.lostReason,
+        lostReason: maskReservedLossReason(opportunity.lostReason) ?? undefined,
       },
       lead:
         lead && lead.tenantId === tenantId
@@ -187,24 +188,32 @@ export const getOpportunityDetail = query({
         programName: payment.programName,
         paymentType: payment.paymentType,
         origin: payment.origin,
+        recordedVia: payment.recordedVia,
         status: payment.status,
         recordedAt: payment.recordedAt,
         fathomLink: payment.fathomLink ?? null,
         hasProofFile: payment.proofFileId !== undefined,
       })),
-      events: events.map((event) => ({
-        _id: event._id,
-        eventType: event.eventType,
-        source: event.source,
-        occurredAt: event.occurredAt,
-        actorUserId: event.actorUserId,
-        fromStatus: event.fromStatus,
-        toStatus: event.toStatus,
+      events: events.map((event) => {
         // A new deal event holds stages in fromStatus and toStatus, with the
         // outcomes in its metadata (§4.7).
-        ...parseDealEventOutcomes(event.metadata),
-        reason: event.reason,
-      })),
+        const outcomes = parseDealEventOutcomes(event.metadata);
+        const isLoss = outcomes.toOutcome === "lost" ||
+          event.eventType === "opportunity.marked_lost";
+        return {
+          _id: event._id,
+          eventType: event.eventType,
+          source: event.source,
+          occurredAt: event.occurredAt,
+          actorUserId: event.actorUserId,
+          fromStatus: event.fromStatus,
+          toStatus: event.toStatus,
+          ...outcomes,
+          reason: isLoss
+            ? maskReservedLossReason(event.reason) ?? undefined
+            : event.reason,
+        };
+      }),
       pendingStaleNudge: pendingStaleNudge
         ? {
             _id: pendingStaleNudge._id,
