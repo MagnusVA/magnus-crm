@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "../_generated/dataModel";
 import { assertPaymentInvariants } from "../../tests/paymentInvariants";
 import {
-  automationFixtureApi, automationPaymentFixture, FIXTURE_NOW, insertProviderPerson,
+  automationFixtureApi, automationPaymentFixture, FIXTURE_NOW, FIXTURE_PAID_AT, insertProviderPerson, PAYER_EMAIL,
   seedReadyDecision, setPaymentFixtureModes,
 } from "../../tests/providerPaymentFixtures";
 
@@ -31,6 +31,7 @@ async function sample(f: Fixture, options: {
   return await f.t.run(async (ctx) => {
     const id = await seedReadyDecision(ctx, {
       tenantId: f.tenantId, leadId: f.personId, opportunityId: f.dealId, providerPaymentId: f.providerPaymentId,
+      noticeUserId: f.closerId,
       proposal: {
         amountMinor: 10000, currency: "USD", paymentType: "pif",
         programId: f.programId, attributedCloserId: f.closerId, expiresFollowUpIds: [],
@@ -46,8 +47,20 @@ const invariant = (f: Fixture) => assertPaymentInvariants(f.t, { tenantId: f.ten
 const getDecision = (f: Fixture, id: Id<"resultAutomationDecisions">) =>
   f.t.run((ctx) => ctx.db.get("resultAutomationDecisions", id));
 
+const evidence = {
+  amountMinor: 10000,
+  currency: "USD",
+  paidAt: FIXTURE_PAID_AT,
+  productTitle: "Sales training",
+  variantTitle: "Pay in full",
+  payerEmail: PAYER_EMAIL,
+  billingReason: "one_time",
+  hasMembership: false,
+  environment: "sandbox",
+};
+
 describe("grade capture", () => {
-  it("shows one case per person, oldest first, and reveals a proposal only after commitment", async () => {
+  it("shows one case per person, oldest first, and keeps the grade blind after commitment", async () => {
     const f = await gradingFixture();
     const oldest = await sample(f);
     await sample(f, { createdAt: FIXTURE_NOW + 20 });
@@ -57,8 +70,8 @@ describe("grade capture", () => {
     const view = await f.admin.query(grading.listToGrade, args);
     expect(view).toEqual({
       cases: [
-        { decisionId: oldest, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW, answerCommitted: false },
-        { decisionId: second, providerPaymentId: f.providerPaymentId, createdAt: FIXTURE_NOW + 10, answerCommitted: false },
+        { decisionId: oldest, createdAt: FIXTURE_NOW, answerCommitted: false, evidence },
+        { decisionId: second, createdAt: FIXTURE_NOW + 10, answerCommitted: false, evidence },
       ],
       capped: false,
     });
@@ -66,24 +79,79 @@ describe("grade capture", () => {
     await expect(f.admin.mutation(grading.recordGrade, {
       decisionId: oldest, verdict: "correct", wrongFields: [],
     })).rejects.toThrow("Commit your answer");
-    await f.admin.mutation(grading.commitAnswer, { decisionId: oldest, answer: {
+    const answer = {
       abstain: false, amountMinor: 10000, currency: "USD", opportunityId: f.dealId,
-    } });
-    expect(await f.admin.mutation(grading.reveal, { decisionId: oldest })).toMatchObject({ amountMinor: 10000 });
+    };
+    await f.admin.mutation(grading.commitAnswer, { decisionId: oldest, answer });
+    expect(await f.admin.mutation(grading.reveal, { decisionId: oldest })).toMatchObject({
+      kind: "payment_win", proposal: { amountMinor: 10000 }, leadId: f.personId,
+      opportunityId: f.dealId, wouldWrite: true, gates: [],
+    });
+    expect(await f.admin.query(grading.getMyAnswer, { decisionId: oldest })).toEqual({ answer, blind: true });
+    expect(await f.owner.query(grading.getMyAnswer, { decisionId: oldest })).toBeNull();
     await f.admin.mutation(grading.recordGrade, { decisionId: oldest, verdict: "correct", wrongFields: [] });
     expect((await getDecision(f, oldest))?.grade).toMatchObject({ gradedBeforeSeeing: true, gradedByUserId: f.adminId });
     expect((await f.admin.query(grading.listToGrade, args)).cases.map((row) => row.decisionId)).toEqual([second]);
     await invariant(f);
   });
 
+  it("keeps all proposal and match fields out of the pre-commit JSON with Billing off", async () => {
+    const f = await gradingFixture();
+    const decisionId = await sample(f);
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", f.tenantId, { billingOpsEnabled: false });
+      await ctx.db.patch("tenantPaymentConnections", f.connectionId, { status: "disconnected" });
+      await ctx.db.patch("providerPayments", f.providerPaymentId, {
+        candidateLeadId: f.personId,
+        candidateOpportunityId: f.dealId,
+        leadId: f.personId,
+        opportunityId: f.dealId,
+        reviewReason: "ready",
+        membershipId: "mem_fixture",
+      });
+      await ctx.db.patch("resultAutomationDecisions", decisionId, { gates: ["refund"] });
+    });
+
+    const queue = await f.admin.query(grading.listToGrade, { kind: "payment_win", sample: "writes" });
+    const answer = await f.admin.query(grading.getMyAnswer, { decisionId });
+    expect(queue.cases).toEqual([
+      { decisionId, createdAt: FIXTURE_NOW, answerCommitted: false, evidence: { ...evidence, hasMembership: true } },
+    ]);
+    expect(answer).toBeNull();
+    const forbidden = [
+      "leadId", "opportunityId", "proposal", "gates", "wouldWrite", "confirmRoute", "noticeUserId",
+      "candidateLeadId", "candidateOpportunityId", "reviewReason", f.personId, f.dealId,
+    ];
+    JSON.parse(JSON.stringify([queue, answer]), (key, value: unknown) => {
+      expect(forbidden).not.toContain(key);
+      if (typeof value === "string") {
+        for (const field of forbidden) expect(value).not.toContain(field);
+      }
+      return value;
+    });
+    await f.t.run((ctx) =>
+      ctx.db.patch("providerPayments", f.providerPaymentId, { payerDetailsExpireAt: FIXTURE_NOW }),
+    );
+    const expired = await f.admin.query(grading.listToGrade, { kind: "payment_win", sample: "writes" });
+    expect(expired.cases[0].evidence?.payerEmail).toBeUndefined();
+  });
+
   it.each(["prior exposure", "confirmation"] as const)("does not count %s as a blind grade", async (reason) => {
     const f = await gradingFixture();
     const decisionId = await sample(f, { resolvedByUserId: reason === "confirmation" ? f.adminId : undefined });
     if (reason === "prior exposure") {
-      expect(await f.admin.mutation(grading.reveal, { decisionId })).toBeNull();
+      const revealed = await f.admin.mutation(grading.reveal, { decisionId });
+      expect(revealed).toMatchObject({
+        kind: "payment_win", proposal: { amountMinor: 10000 }, leadId: f.personId,
+        opportunityId: f.dealId, wouldWrite: true, gates: [],
+      });
+      expect(await f.admin.mutation(grading.reveal, { decisionId })).toEqual(revealed);
       expect((await getDecision(f, decisionId))?.revealedToUserIds).toEqual([f.adminId]);
     }
     await f.admin.mutation(grading.commitAnswer, { decisionId, answer: { abstain: false } });
+    expect(await f.admin.query(grading.getMyAnswer, { decisionId })).toEqual({
+      answer: { abstain: false }, blind: false,
+    });
     await f.admin.mutation(grading.recordGrade, { decisionId, verdict: "correct", wrongFields: [] });
     expect((await getDecision(f, decisionId))?.grade?.gradedBeforeSeeing).toBe(false);
     expect((await f.admin.query(grading.getGradeTally, { kind: "payment_win" })).writes).toMatchObject({
@@ -97,10 +165,24 @@ describe("grade capture", () => {
     const decisionId = await sample(f);
     await f.admin.mutation(grading.commitAnswer, { decisionId, answer: { abstain: false } });
     await f.admin.mutation(grading.recordGrade, { decisionId, verdict: "unsure", wrongFields: ["type"] });
+    const args = { kind: "payment_win" } as const;
+    await expect(f.admin.query(grading.listUnsure, args)).rejects.toThrow("Insufficient permissions");
     await expect(f.admin.mutation(grading.resolveUnsure, { decisionId, verdict })).rejects.toThrow("Insufficient permissions");
-    const tally = () => f.admin.query(grading.getGradeTally, { kind: "payment_win" });
+    const tally = () => f.admin.query(grading.getGradeTally, args);
     expect((await tally()).writes).toMatchObject({ cleanBlind: 0, unsure: 1, wrong: 0 });
+    expect(await f.owner.query(grading.listUnsure, args)).toEqual([{
+      decisionId, createdAt: FIXTURE_NOW, gradedAt: FIXTURE_NOW,
+      gradedByName: await f.t.run(async (ctx) => {
+        const admin = (await ctx.db.get("users", f.adminId))!;
+        return admin.fullName?.trim() || admin.email;
+      }),
+      wrongFields: ["type"],
+      evidence,
+      proposal: await f.admin.mutation(grading.reveal, { decisionId }),
+      answer: { abstain: false },
+    }]);
     await f.owner.mutation(grading.resolveUnsure, { decisionId, verdict });
+    expect(await f.owner.query(grading.listUnsure, args)).toEqual([]);
     expect((await getDecision(f, decisionId))?.grade).toMatchObject({
       verdict: "unsure", wrongFields: ["type"], secondLook: { verdict, byUserId: f.ownerId },
     });

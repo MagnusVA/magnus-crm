@@ -6,7 +6,9 @@ import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { expectedError } from "../lib/observability/errors";
 import { paymentTypeValidator } from "../lib/paymentTypes";
+import { providerEnvironmentValidator } from "../payments/schema";
 import { PAYMENT_RULE_VERSION } from "./derive";
+import { automationGateValidator } from "./schema";
 import { paymentDecisionKindValidator } from "./settings";
 
 type Decision = Doc<"resultAutomationDecisions">;
@@ -29,6 +31,33 @@ const answerValidator = v.object({
   attributedCloserId: v.optional(v.id("users")),
 });
 type GradeAnswer = Infer<typeof answerValidator>;
+
+const evidenceValidator = v.union(v.null(), v.object({
+  amountMinor: v.optional(v.number()),
+  currency: v.string(),
+  paidAt: v.optional(v.number()),
+  productTitle: v.optional(v.string()),
+  variantTitle: v.optional(v.string()),
+  payerEmail: v.optional(v.string()),
+  billingReason: v.optional(v.string()),
+  hasMembership: v.boolean(),
+  environment: v.union(providerEnvironmentValidator, v.null()),
+}));
+
+const proposalValidator = v.object({
+  amountMinor: v.number(), currency: v.string(), paymentType: paymentTypeValidator,
+  programId: v.id("tenantPrograms"), attributedCloserId: v.id("users"),
+  completesFollowUpId: v.optional(v.id("followUps")), expiresFollowUpIds: v.array(v.id("followUps")),
+});
+
+const revealedDecisionValidator = v.object({
+  proposal: v.optional(proposalValidator),
+  leadId: v.optional(v.id("leads")),
+  opportunityId: v.optional(v.id("opportunities")),
+  wouldWrite: v.boolean(),
+  gates: v.array(automationGateValidator),
+  kind: paymentDecisionKindValidator,
+});
 
 const gradingScanLimit = 500;
 const maxCaseAgeMs = 365 * 86_400_000;
@@ -57,14 +86,34 @@ async function personIds(ctx: QueryCtx, tenantId: Id<"tenants">, rows: Decision[
   return people;
 }
 
+async function getEvidence(ctx: QueryCtx, row: Decision) {
+  if (!row.providerPaymentId) return null;
+  const payment = await ctx.db.get("providerPayments", row.providerPaymentId);
+  if (payment?.tenantId !== row.tenantId) return null;
+  const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
+  return {
+    amountMinor: payment.totalMinor,
+    currency: payment.currency,
+    paidAt: payment.paidAt,
+    productTitle: payment.productTitle,
+    variantTitle: payment.variantTitle,
+    payerEmail: payment.payerDetailsExpireAt === undefined || payment.payerDetailsExpireAt > Date.now()
+      ? payment.payerEmail
+      : undefined,
+    billingReason: payment.billingReason,
+    hasMembership: Boolean(payment.membershipId),
+    environment: connection?.tenantId === row.tenantId ? connection.environment : null,
+  };
+}
+
 export const listToGrade = query({
   args: { kind: paymentDecisionKindValidator, sample: sampleValidator },
   returns: v.object({
     cases: v.array(v.object({
       decisionId: v.id("resultAutomationDecisions"),
-      providerPaymentId: v.id("providerPayments"),
       createdAt: v.number(),
       answerCommitted: v.boolean(),
+      evidence: evidenceValidator,
     })),
     capped: v.boolean(),
   }),
@@ -79,22 +128,60 @@ export const listToGrade = query({
       if (!person || !row.providerPaymentId || row.wouldWrite !== (sample === "writes") || seen.has(person)) continue;
       seen.add(person);
       if (row.grade || (row.answer && row.answer.committedByUserId !== userId)) continue;
-      cases.push({
-        decisionId: row._id, providerPaymentId: row.providerPaymentId, createdAt: row.createdAt,
-        answerCommitted: row.answer?.committedByUserId === userId,
-      });
+      cases.push(row);
+      if (cases.length > pageSize) break;
     }
-    return { cases: cases.slice(0, pageSize), capped: capped || cases.length > pageSize };
+    return {
+      cases: await Promise.all(cases.slice(0, pageSize).map(async (row) => ({
+        decisionId: row._id,
+        createdAt: row.createdAt,
+        answerCommitted: row.answer?.committedByUserId === userId,
+        evidence: await getEvidence(ctx, row),
+      }))),
+      capped: capped || cases.length > pageSize,
+    };
   },
 });
 
-async function gradeCase(ctx: MutationCtx, tenantId: Id<"tenants">, decisionId: Id<"resultAutomationDecisions">) {
+type PaymentDecision = Decision & { kind: Infer<typeof paymentDecisionKindValidator> };
+
+async function gradeCase(
+  ctx: QueryCtx, tenantId: Id<"tenants">, decisionId: Id<"resultAutomationDecisions">,
+): Promise<PaymentDecision> {
   const row = await ctx.db.get("resultAutomationDecisions", decisionId);
   if (row?.tenantId !== tenantId || row.ruleVersion !== PAYMENT_RULE_VERSION ||
       (row.kind !== "payment_win" && row.kind !== "additional_payment")) {
     throw expectedError("automation.decision_not_found", "Decision not found.");
   }
-  return row;
+  return { ...row, kind: row.kind };
+}
+
+function submittedAnswer(answer: NonNullable<Decision["answer"]>): GradeAnswer {
+  const { abstain, leadId, opportunityId, amountMinor, currency, paymentType, programId, attributedCloserId } = answer;
+  return { abstain, leadId, opportunityId, amountMinor, currency, paymentType, programId, attributedCloserId };
+}
+
+function canGradeBlind(row: Decision, userId: Id<"users">) {
+  return row.resolvedByUserId !== userId && !row.revealedToUserIds?.includes(userId);
+}
+
+export const getMyAnswer = query({
+  args: decisionArgs,
+  returns: v.union(v.null(), v.object({ answer: answerValidator, blind: v.boolean() })),
+  handler: async (ctx, { decisionId }) => {
+    const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
+    const row = await gradeCase(ctx, tenantId, decisionId);
+    if (row.answer?.committedByUserId !== userId) return null;
+    const blind = row.grade
+      ? row.grade.gradedBeforeSeeing && row.resolvedByUserId !== userId
+      : canGradeBlind(row, userId);
+    return { answer: submittedAnswer(row.answer), blind };
+  },
+});
+
+function revealedDecision(row: Decision, kind: Infer<typeof paymentDecisionKindValidator>) {
+  const { proposal, leadId, opportunityId, wouldWrite, gates } = row;
+  return { proposal, leadId, opportunityId, wouldWrite, gates, kind };
 }
 
 async function verifyAnswer(ctx: MutationCtx, tenantId: Id<"tenants">, answer: GradeAnswer) {
@@ -128,25 +215,20 @@ export const commitAnswer = mutation({
   },
 });
 
-const proposalValidator = v.object({
-  amountMinor: v.number(), currency: v.string(), paymentType: paymentTypeValidator,
-  programId: v.id("tenantPrograms"), attributedCloserId: v.id("users"),
-  completesFollowUpId: v.optional(v.id("followUps")), expiresFollowUpIds: v.array(v.id("followUps")),
-});
-
 export const reveal = mutation({
   args: decisionArgs,
-  returns: v.union(v.null(), proposalValidator),
+  returns: revealedDecisionValidator,
   handler: async (ctx, { decisionId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:grade"]]);
     const row = await gradeCase(ctx, tenantId, decisionId);
-    if (row.answer?.committedByUserId === userId) return row.proposal ?? null;
-    const exposed = row.revealedToUserIds ?? [];
-    if (!exposed.includes(userId)) {
-      if (exposed.length >= 10) throw expectedError("automation.exposure_limit", "This case has reached its exposure limit.");
-      await ctx.db.patch("resultAutomationDecisions", decisionId, { revealedToUserIds: [...exposed, userId] });
+    if (row.answer?.committedByUserId !== userId) {
+      const exposed = row.revealedToUserIds ?? [];
+      if (!exposed.includes(userId)) {
+        if (exposed.length >= 10) throw expectedError("automation.exposure_limit", "This case has reached its exposure limit.");
+        await ctx.db.patch("resultAutomationDecisions", decisionId, { revealedToUserIds: [...exposed, userId] });
+      }
     }
-    return null;
+    return revealedDecision(row, row.kind);
   },
 });
 
@@ -166,10 +248,47 @@ export const recordGrade = mutation({
     await ctx.db.patch("resultAutomationDecisions", decisionId, {
       grade: {
         verdict, wrongFields: [...new Set(wrongFields)], gradedByUserId: userId, gradedAt: Date.now(),
-        gradedBeforeSeeing: row.resolvedByUserId !== userId && !row.revealedToUserIds?.includes(userId),
+        gradedBeforeSeeing: canGradeBlind(row, userId),
       },
     });
     return null;
+  },
+});
+
+export const listUnsure = query({
+  args: { kind: paymentDecisionKindValidator },
+  returns: v.array(v.object({
+    decisionId: v.id("resultAutomationDecisions"),
+    createdAt: v.number(),
+    gradedAt: v.number(),
+    gradedByName: v.union(v.string(), v.null()),
+    wrongFields: v.array(wrongFieldValidator),
+    evidence: evidenceValidator,
+    proposal: revealedDecisionValidator,
+    answer: v.union(answerValidator, v.null()),
+  })),
+  handler: async (ctx, { kind }) => {
+    const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["result-automation:resolve-unsure"]]);
+    const { rows } = await scopedDecisions(ctx, tenantId, kind);
+    const unsure = rows.flatMap((row) =>
+      row.grade?.verdict === "unsure" && !row.grade.secondLook ? [{ row, grade: row.grade }] : [],
+    );
+    return await Promise.all(unsure.slice(0, pageSize).map(async ({ row, grade }) => {
+      const [evidence, grader] = await Promise.all([
+        getEvidence(ctx, row),
+        ctx.db.get("users", grade.gradedByUserId),
+      ]);
+      return {
+        decisionId: row._id,
+        createdAt: row.createdAt,
+        gradedAt: grade.gradedAt,
+        gradedByName: grader?.tenantId === tenantId ? grader.fullName?.trim() || grader.email : null,
+        wrongFields: grade.wrongFields,
+        evidence,
+        proposal: revealedDecision(row, kind),
+        answer: row.answer ? submittedAnswer(row.answer) : null,
+      };
+    }));
   },
 });
 
