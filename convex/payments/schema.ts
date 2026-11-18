@@ -8,11 +8,15 @@ import { paymentTypeValidator } from "../lib/paymentTypes";
  * provider payment counts as money only through a `paymentRecords` row.
  */
 
+export const RAW_RECEIPT_BATCH = 20;
+
 export const paymentProviderValidator = v.literal("whop");
 export const providerEnvironmentValidator = v.union(
   v.literal("live"),
   v.literal("sandbox"),
 );
+
+export const disputeAccessValidator = v.union(v.literal("ok"), v.literal("forbidden"));
 
 export const paymentConnectionStatusValidator = v.union(
   v.literal("connected"),
@@ -62,10 +66,11 @@ export const providerPaymentReviewStateValidator = v.union(
   v.literal("historical"),
 );
 
-/** Why a payment waits for a person. One fixed code; the screen has the words. */
+/** The matcher outcome. One fixed code; the screen has the words. */
 export const providerPaymentReviewReasonValidator = v.union(
   // The rule found one person with exactly one open deal: ready to confirm.
   v.literal("ready"),
+  v.literal("not_paid"),
   v.literal("unknown_payer"),
   v.literal("no_payer_email"),
   v.literal("phone_only"),
@@ -80,6 +85,8 @@ export const providerPaymentReviewReasonValidator = v.union(
   v.literal("won_deal_no_membership"),
   v.literal("deal_newer_than_payment"),
   v.literal("stale_payment"),
+  v.literal("historical"),
+  v.literal("dismissed"),
   v.literal("unmapped_product"),
   v.literal("multi_item"),
   v.literal("financing"),
@@ -92,6 +99,10 @@ export const providerPaymentReviewReasonValidator = v.union(
   v.literal("no_closer"),
   v.literal("credit_conflict"),
   v.literal("capacity_hold"),
+  v.literal("binding_conflict"),
+  v.literal("program_mismatch"),
+  v.literal("read_limit"),
+  v.literal("connection_mismatch"),
   v.literal("refund"),
   v.literal("dispute"),
   v.literal("not_my_sale"),
@@ -139,6 +150,7 @@ export const webhookFailureCodeValidator = v.union(
   v.literal("provider_read_failed"),
   v.literal("account_mismatch"),
   v.literal("attempts_exhausted"),
+  v.literal("connection_unavailable"),
 );
 
 /** One confirmed relationship between something in Whop and something here. */
@@ -190,6 +202,8 @@ export const paymentProviderTables = {
     previousWebhookSecretUntil: v.optional(v.number()),
     // The dated API version every request pins (`Api-Version-Date`).
     apiVersionDate: v.string(),
+    disputeAccess: disputeAccessValidator,
+    lastInvalidSignatureWarningAt: v.optional(v.number()),
     status: paymentConnectionStatusValidator,
     // Payments collected before this are history: shown, never proposed.
     autoImportAfter: v.number(),
@@ -199,8 +213,12 @@ export const paymentProviderTables = {
     lastWebhookAt: v.optional(v.number()),
     lastSuccessfulSweepAt: v.optional(v.number()),
     lastFullScanAt: v.optional(v.number()),
+    unreadablePaymentIds: v.optional(v.array(v.string())),
     // The newest `created_at` the recent sweep has covered.
     sweepCreatedThrough: v.optional(v.number()),
+    recentSweepProgress: v.optional(v.object({
+      through: v.number(), stage: v.number(), cursor: v.union(v.string(), v.null()),
+    })),
     // A full scan in progress: Whop's cursor for the next page.
     fullScanCursor: v.optional(v.string()),
     fullScanStartedAt: v.optional(v.number()),
@@ -217,10 +235,12 @@ export const paymentProviderTables = {
       "provider",
       "environment",
     ])
+    // The status suffix lets ownership checks skip disconnected history.
     .index("by_provider_and_environment_and_accountId", [
       "provider",
       "environment",
       "accountId",
+      "status",
     ])
     .index("by_status", ["status"]),
 
@@ -241,6 +261,7 @@ export const paymentProviderTables = {
     // if its generation is still the newest.
     refreshGeneration: v.number(),
     refreshedAt: v.optional(v.number()),
+    storedRefreshGeneration: v.optional(v.number()),
     firstSeenAt: v.number(),
     paidAt: v.optional(v.number()),
     // `total`: after discounts, with tax, without the buyer's fees. Exact
@@ -256,6 +277,8 @@ export const paymentProviderTables = {
     // Set the moment a refund or dispute delivery arrives, before the read
     // that explains it. Nothing financial is written while it is set.
     adverseFencedAt: v.optional(v.number()),
+    sourceAdverseState: v.optional(providerAdverseStateValidator),
+    adverseReviewAt: v.optional(v.number()),
     refundedAt: v.optional(v.number()),
     disputeCreatedAt: v.optional(v.number()),
     membershipId: v.optional(v.string()),
@@ -272,11 +295,13 @@ export const paymentProviderTables = {
     failedAttemptCount: v.number(),
     // From a fixed list; anything else is stored as `other`.
     declineCode: v.optional(v.string()),
-    // Normalized. Cleared 90 days after the payment is resolved.
+    // Normalized. Contact details have an absolute retention deadline.
     payerEmail: v.optional(v.string()),
     // Only when it arrived with a country code. Cleared with the email.
     payerPhone: v.optional(v.string()),
     payerDetailsClearedAt: v.optional(v.number()),
+    payerDetailsExpireAt: v.optional(v.number()),
+    hasPayerDetails: v.optional(v.boolean()),
 
     // What the matcher last found. A hint for the screen; every write
     // repeats the checks.
@@ -290,6 +315,7 @@ export const paymentProviderTables = {
     leadId: v.optional(v.id("leads")),
     opportunityId: v.optional(v.id("opportunities")),
     paymentRecordId: v.optional(v.id("paymentRecords")),
+    allocationRevision: v.number(),
     matchMethod: v.optional(providerPaymentMatchMethodValidator),
     reviewState: providerPaymentReviewStateValidator,
     reviewReason: v.optional(providerPaymentReviewReasonValidator),
@@ -303,13 +329,18 @@ export const paymentProviderTables = {
       "connectionId",
       "externalPaymentId",
     ])
+    // Phase 2 checks the reciprocal active allocation through this index.
     .index("by_tenantId_and_paymentRecordId", ["tenantId", "paymentRecordId"])
     .index("by_tenantId_and_reviewState_and_firstSeenAt", [
       "tenantId",
       "reviewState",
       "firstSeenAt",
     ])
+    .index("by_connectionId_and_tenantId_and_reviewState_and_firstSeenAt", ["connectionId", "tenantId", "reviewState", "firstSeenAt"])
+    .index("by_tenantId_and_adverseReviewAt", ["tenantId", "adverseReviewAt"])
+    .index("by_connectionId_and_tenantId_and_adverseReviewAt", ["connectionId", "tenantId", "adverseReviewAt"])
     .index("by_tenantId_and_opportunityId", ["tenantId", "opportunityId"])
+    .index("by_tenantId_and_candidateOpportunityId", ["tenantId", "candidateOpportunityId"])
     .index("by_tenantId_and_leadId_and_paidAt", ["tenantId", "leadId", "paidAt"])
     .index("by_tenantId_and_candidateLeadId_and_paidAt", [
       "tenantId",
@@ -321,18 +352,33 @@ export const paymentProviderTables = {
       "payerEmail",
       "paidAt",
     ])
-    .index("by_tenantId_and_membershipId_and_paidAt", [
-      "tenantId",
-      "membershipId",
-      "paidAt",
-    ])
+    .index("by_connectionId_and_leadId_and_paidAt", ["connectionId", "leadId", "paidAt"])
+    .index("by_connectionId_and_candidateLeadId_and_paidAt", ["connectionId", "candidateLeadId", "paidAt"])
+    .index("by_connectionId_and_payerEmail_and_paidAt", ["connectionId", "payerEmail", "paidAt"])
     .index("by_connectionId_and_status_and_sourceCreatedAt", [
       "connectionId",
       "status",
       "sourceCreatedAt",
     ])
     .index("by_connectionId_and_adverseState", ["connectionId", "adverseState"])
-    .index("by_resolvedAt", ["resolvedAt"]),
+    .index("by_hasPayerDetails_and_payerDetailsExpireAt", ["hasPayerDetails", "payerDetailsExpireAt"]),
+
+  // Applied commands remain idempotent even after a later allocation change.
+  providerPaymentAllocationCommands: defineTable({
+    tenantId: v.id("tenants"),
+    providerPaymentId: v.id("providerPayments"),
+    expectedAllocationRevision: v.number(),
+    command: v.union(
+      v.object({
+        kind: v.literal("link"),
+        paymentRecordId: v.id("paymentRecords"),
+        acknowledgeAmountDifference: v.boolean(),
+      }),
+      v.object({ kind: v.literal("unlink"), paymentRecordId: v.id("paymentRecords") }),
+    ),
+  }).index("by_tenantId_and_providerPaymentId_and_expectedAllocationRevision", [
+    "tenantId", "providerPaymentId", "expectedAllocationRevision",
+  ]),
 
   paymentProviderBindings: defineTable({
     tenantId: v.id("tenants"),
@@ -366,6 +412,9 @@ export const paymentProviderTables = {
       "kind",
       "externalId",
     ])
+    .index("by_tenantId_and_kind_and_enabled_and_anchorPaymentRecordId", [
+      "tenantId", "kind", "enabled", "binding.anchorPaymentRecordId",
+    ])
     .index("by_tenantId_and_opportunityId_and_kind", [
       "tenantId",
       "opportunityId",
@@ -382,7 +431,9 @@ export const paymentProviderTables = {
     externalPaymentId: v.optional(v.string()),
     externalObjectId: v.optional(v.string()),
     bodySha256: v.string(),
-    rawBodyStorageId: v.optional(v.id("_storage")),
+    rawBody: v.optional(v.string()),
+    hasRawBody: v.optional(v.boolean()),
+    adversePending: v.optional(v.boolean()),
     rawBodyDeletedAt: v.optional(v.number()),
     status: webhookReceiptStatusValidator,
     attempts: v.number(),
@@ -397,8 +448,8 @@ export const paymentProviderTables = {
       "webhookId",
     ])
     .index("by_status_and_retryAt", ["status", "retryAt"])
-    .index("by_rawBodyDeletedAt_and_receivedAt", [
-      "rawBodyDeletedAt",
-      "receivedAt",
+    .index("by_hasRawBody_and_receivedAt", ["hasRawBody", "receivedAt"])
+    .index("by_connectionId_and_externalPaymentId_and_adversePending", [
+      "connectionId", "externalPaymentId", "adversePending",
     ]),
 };

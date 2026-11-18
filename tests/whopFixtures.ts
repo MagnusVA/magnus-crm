@@ -5,7 +5,7 @@ import type { Doc } from "../convex/_generated/dataModel";
 export const TEST_TIME = Date.parse("2026-11-17T12:00:00.000Z");
 export const ACCOUNT_ID = "biz_intake_fixture";
 export const PAYMENT_ID = "pay_intake_fixture";
-export const SIGNING_SECRET = "ws_intake_fixture";
+export const SIGNING_SECRET = "ws_intake_synthetic_signing_fixture";
 export const TEST_DAY_MS = 86_400_000;
 
 export function iso(time: number) {
@@ -49,6 +49,7 @@ export async function whopFixture(overrides: Partial<Doc<"tenantPaymentConnectio
       connectedByUserId: users[0]._id,
       webhookSecret: SIGNING_SECRET,
       status: "connected",
+      disputeAccess: "ok",
       apiVersionDate: WHOP_API_VERSION_DATE,
       connectedAt: TEST_TIME - 60_000,
       autoImportAfter: TEST_TIME - 60_000,

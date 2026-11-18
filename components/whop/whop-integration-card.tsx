@@ -16,6 +16,8 @@ import {
 } from "@/app/workspace/settings/_components/settings-ui";
 import { whopState } from "@/app/workspace/settings/_components/integrations/integration-status";
 import {
+  ScopeList,
+  WHOP_DISPUTE_SCOPES,
   WHOP_SETTINGS_HREF,
   WhopConnectForm,
   dayTimeFormat,
@@ -84,7 +86,14 @@ function WhopSummary({ quiet }: { quiet: boolean }) {
               )}
             </Fact>
           </Facts>
-          {errorSentence ? (
+          {connection.disputeAccess === "forbidden" ? (
+            <div className="border-b border-border px-4 py-2.5">
+              <NoteLine tone="warning" role="alert">
+                To read disputes, add <ScopeList scopes={WHOP_DISPUTE_SCOPES} /> to the Whop key and reconnect.
+              </NoteLine>
+            </div>
+          ) : null}
+          {errorSentence && !(connection.disputeAccess === "forbidden" && connection.lastErrorCode === "forbidden") ? (
             <div className="border-b border-border px-4 py-2.5">
               <NoteLine tone={state.tone === "danger" ? "danger" : "warning"} role="alert">
                 {errorSentence}

@@ -7,30 +7,43 @@ import { followMergeChain } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { leadDisplayString } from "../lib/leadDisplay";
 import { expectedError } from "../lib/observability/errors";
+import { log } from "../lib/observability/log";
 import { paymentTypeValidator } from "../lib/paymentTypes";
 import { dealOutcomeValidator, dealStageValidator } from "../opportunities/stages";
-import { findPaymentTarget, refreshProviderPaymentReview } from "./match";
+import { allocationChanged, clearActiveAllocation, isAllocationRetry, rememberAllocationCommand } from "./allocation";
+import { findConnection } from "./connection";
+import { findPaymentTarget, refreshProviderPaymentReview, type PaymentTarget } from "./match";
+import { payerDetailsDeadline } from "./payerRetention";
 import {
   paymentProviderTables,
+  providerAdverseStateValidator,
+  providerEnvironmentValidator,
   providerPaymentMatchMethodValidator,
   providerPaymentReviewReasonValidator,
   providerPaymentDismissReasonValidator,
 } from "./schema";
 
-const PAGE_LIMIT = 50;
+const PAGE_LIMIT = 25;
 const COUNT_LIMIT = 500;
 const PERSON_DEAL_LIMIT = 100;
 const MANUAL_PAYMENT_LIMIT = 50;
 const MANUAL_PAYMENT_SCAN_LIMIT = 200;
 const ALLOCATION_HISTORY_LIMIT = 40;
-const MEMBERSHIP_BINDING_LIMIT = 100;
-const SWEEP_FRESHNESS_MS = 15 * 60 * 1000;
 
 const providerPaymentIdValidator = v.id("providerPayments");
 const paymentRecordIdValidator = v.id("paymentRecords");
 const providerPaymentArgs = { providerPaymentId: providerPaymentIdValidator };
 const nullableNumber = v.union(v.number(), v.null());
 const nullableString = v.union(v.string(), v.null());
+
+function reviewPageOptions(paginationOpts: typeof paginationOptsValidator.type) {
+  return {
+    ...paginationOpts,
+    numItems: Math.min(PAGE_LIMIT, Math.max(1, Math.floor(paginationOpts.numItems) || 1)),
+    maximumRowsRead: Math.min(PAGE_LIMIT, paginationOpts.maximumRowsRead ?? PAGE_LIMIT),
+    maximumBytesRead: Math.min(2_000_000, paginationOpts.maximumBytesRead ?? 2_000_000),
+  };
+}
 
 const providerPaymentValidator = v.object({
   ...paymentProviderTables.providerPayments.validator.fields,
@@ -89,11 +102,56 @@ const targetValidator = v.union(
   }),
 );
 
-function exceptionQueue(ctx: QueryCtx, tenantId: Id<"tenants">) {
+const exceptionState = v.union(
+  v.literal("needs_person"), v.literal("linked"), v.literal("dismissed"), v.literal("historical"),
+);
+
+function exceptionQueue(
+  ctx: QueryCtx,
+  connection: Doc<"tenantPaymentConnections">,
+  state: typeof exceptionState.type,
+) {
   return ctx.db.query("providerPayments")
-    .withIndex("by_tenantId_and_reviewState_and_firstSeenAt", (q) =>
-      q.eq("tenantId", tenantId).eq("reviewState", "needs_person"))
+    .withIndex("by_connectionId_and_tenantId_and_reviewState_and_firstSeenAt", (q) => q
+      .eq("connectionId", connection._id).eq("tenantId", connection.tenantId).eq("reviewState", state))
     .order("asc");
+}
+
+function adverseQueue(ctx: QueryCtx, connection: Doc<"tenantPaymentConnections">) {
+  return ctx.db.query("providerPayments")
+    .withIndex("by_connectionId_and_tenantId_and_adverseReviewAt", (q) => q
+      .eq("connectionId", connection._id).eq("tenantId", connection.tenantId).gt("adverseReviewAt", undefined));
+}
+
+async function billingConnection(ctx: QueryCtx, tenantId: Id<"tenants">) {
+  const connections = await Promise.all([
+    findConnection(ctx, tenantId, "live"), findConnection(ctx, tenantId, "sandbox"),
+  ]);
+  return connections.find((connection) => connection?.status === "connected") ?? null;
+}
+
+async function connectedPaymentSource(ctx: QueryCtx | MutationCtx, payment: Doc<"providerPayments">) {
+  const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
+  return connection?.tenantId === payment.tenantId && connection.status === "connected"
+    ? connection : null;
+}
+
+function targetIds(target: PaymentTarget) {
+  return target.kind === "needs_person"
+    ? { leadId: target.candidateLeadId, dealIds: target.candidateOpportunityIds }
+    : { leadId: target.leadId, dealIds: target.opportunityId ? [target.opportunityId] : [] };
+}
+
+function paymentForReview(payment: Doc<"providerPayments">, now: number) {
+  if (payment.payerDetailsExpireAt === undefined || payment.payerDetailsExpireAt > now) return payment;
+  return { ...payment, payerEmail: undefined, payerPhone: undefined };
+}
+
+async function canClassifyPageRow(ctx: QueryCtx) {
+  const { bytesRead, databaseQueries, documentsRead } = await ctx.meta.getTransactionMetrics();
+  // Leave room for one bounded matcher pass and for the returned row summaries.
+  return bytesRead.remaining >= 4 * 1024 * 1024 &&
+    databaseQueries.remaining >= 700 && documentsRead.remaining >= 2000;
 }
 
 function personSummary(lead: Doc<"leads"> | null | undefined) {
@@ -116,20 +174,12 @@ function dealSummary(deal: Doc<"opportunities">) {
   };
 }
 
-async function connectionFreshness(ctx: QueryCtx, payment: Doc<"providerPayments">, now: number) {
-  const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
-  const lastSuccessfulSweepAt = connection?.tenantId === payment.tenantId
-    ? connection.lastSuccessfulSweepAt
-    : undefined;
-  return {
-    sweepFresh: connection?.status === "connected" && lastSuccessfulSweepAt !== undefined &&
-      now - lastSuccessfulSweepAt <= SWEEP_FRESHNESS_MS,
-    lastSuccessfulSweepAt: lastSuccessfulSweepAt ?? null,
-  };
-}
-
 export const listProviderExceptions = query({
-  args: { paginationOpts: paginationOptsValidator },
+  args: {
+    paginationOpts: paginationOptsValidator,
+    state: v.optional(exceptionState),
+    asOf: v.optional(v.number()),
+  },
   returns: v.object({
     page: v.array(v.object({
       providerPaymentId: providerPaymentIdValidator,
@@ -143,8 +193,92 @@ export const listProviderExceptions = query({
       payerEmail: nullableString,
       candidatePerson: v.union(personSummaryValidator, v.null()),
       candidateDeal: v.union(dealSummaryValidator, v.null()),
-      sweepFresh: v.boolean(),
+      environment: providerEnvironmentValidator,
+      classificationDeferred: v.boolean(),
       lastSuccessfulSweepAt: nullableNumber,
+    })),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+    splitCursor: v.optional(nullableString),
+    pageStatus: v.optional(v.union(v.literal("SplitRecommended"), v.literal("SplitRequired"), v.null())),
+  }),
+  handler: async (ctx, { paginationOpts, state = "needs_person", asOf = Date.now() }) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:view");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const connection = await billingConnection(ctx, tenantId);
+    if (!connection) return { page: [], isDone: true, continueCursor: "" };
+    const page = await exceptionQueue(ctx, connection, state).paginate(reviewPageOptions(paginationOpts));
+    const rows = [];
+    for (const stored of page.page) {
+      const payment = paymentForReview(stored, Date.now());
+      const classificationDeferred = !(await canClassifyPageRow(ctx));
+      const target = classificationDeferred ? null : await findPaymentTarget(ctx, payment, asOf);
+      const ids = target ? targetIds(target) : {
+        leadId: payment.candidateLeadId,
+        dealIds: payment.candidateOpportunityId ? [payment.candidateOpportunityId] : [],
+      };
+      const [lead, deals] = await Promise.all([
+        loadPerson(ctx, tenantId, ids.leadId),
+        Promise.all(ids.dealIds.map((id) => ctx.db.get("opportunities", id))),
+      ]);
+      const deal = deals.find((deal) => lead && deal?.tenantId === tenantId && deal.leadId === lead._id);
+      rows.push({
+        providerPaymentId: payment._id,
+        totalMinor: payment.totalMinor ?? null,
+        currency: payment.currency,
+        paidAt: payment.paidAt ?? null,
+        firstSeenAt: payment.firstSeenAt,
+        productTitle: payment.productTitle ?? null,
+        variantTitle: payment.variantTitle ?? null,
+        reviewReason: target?.kind === "ready" ? "ready" as const
+          : target?.kind === "needs_person" ? target.reason : payment.reviewReason ?? null,
+        payerEmail: payment.payerEmail ?? null,
+        candidatePerson: personSummary(lead),
+        candidateDeal: deal ? dealSummary(deal) : null,
+        environment: connection.environment,
+        classificationDeferred,
+        lastSuccessfulSweepAt: connection.lastSuccessfulSweepAt ?? null,
+      });
+    }
+    return { ...page, page: rows };
+  },
+});
+
+export const getProviderExceptionCounts = query({
+  args: {},
+  returns: v.object({
+    count: v.number(), capped: v.boolean(),
+    adverseCount: v.number(), adverseCapped: v.boolean(), connected: v.boolean(),
+    environment: v.union(providerEnvironmentValidator, v.null()),
+    lastSuccessfulSweepAt: nullableNumber,
+  }),
+  handler: async (ctx) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:view");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const connection = await billingConnection(ctx, tenantId);
+    const [rows, adverse] = connection ? await Promise.all([
+      exceptionQueue(ctx, connection, "needs_person").take(COUNT_LIMIT + 1),
+      adverseQueue(ctx, connection).take(COUNT_LIMIT + 1),
+    ]) : [[], []];
+    return {
+      count: Math.min(rows.length, COUNT_LIMIT), capped: rows.length > COUNT_LIMIT,
+      adverseCount: Math.min(adverse.length, COUNT_LIMIT), adverseCapped: adverse.length > COUNT_LIMIT,
+      connected: connection !== null, environment: connection?.environment ?? null,
+      lastSuccessfulSweepAt: connection?.lastSuccessfulSweepAt ?? null,
+    };
+  },
+});
+
+export const listAdverseOnResolved = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(v.object({
+      providerPaymentId: providerPaymentIdValidator,
+      paymentRecordId: paymentRecordIdValidator,
+      totalMinor: nullableNumber,
+      currency: v.string(),
+      adverseState: providerAdverseStateValidator,
+      environment: providerEnvironmentValidator,
     })),
     isDone: v.boolean(),
     continueCursor: v.string(),
@@ -154,48 +288,17 @@ export const listProviderExceptions = query({
   handler: async (ctx, { paginationOpts }) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
-    const now = Date.now();
-    const page = await exceptionQueue(ctx, tenantId).paginate({
-      ...paginationOpts,
-      numItems: Math.min(PAGE_LIMIT, Math.max(1, Math.floor(paginationOpts.numItems) || 1)),
-      maximumRowsRead: Math.min(PAGE_LIMIT, paginationOpts.maximumRowsRead ?? PAGE_LIMIT),
-      maximumBytesRead: Math.min(2_000_000, paginationOpts.maximumBytesRead ?? 2_000_000),
-    });
-    return {
-      ...page,
-      page: await Promise.all(page.page.map(async (payment) => {
-        const [lead, deal, freshness] = await Promise.all([
-          loadPerson(ctx, tenantId, payment.candidateLeadId),
-          payment.candidateOpportunityId && ctx.db.get("opportunities", payment.candidateOpportunityId),
-          connectionFreshness(ctx, payment, now),
-        ]);
-        return {
-          providerPaymentId: payment._id,
-          totalMinor: payment.totalMinor ?? null,
-          currency: payment.currency,
-          paidAt: payment.paidAt ?? null,
-          firstSeenAt: payment.firstSeenAt,
-          productTitle: payment.productTitle ?? null,
-          variantTitle: payment.variantTitle ?? null,
-          reviewReason: payment.reviewReason ?? null,
-          payerEmail: payment.payerEmail ?? null,
-          candidatePerson: personSummary(lead),
-          candidateDeal: lead && deal?.tenantId === tenantId && deal.leadId === lead._id ? dealSummary(deal) : null,
-          ...freshness,
-        };
-      })),
-    };
-  },
-});
-
-export const getProviderExceptionCounts = query({
-  args: {},
-  returns: v.object({ count: v.number(), capped: v.boolean() }),
-  handler: async (ctx) => {
-    const { tenantId } = await requireBillingPermission(ctx, "billing:view");
-    await requireBillingOpsEnabled(ctx, tenantId);
-    const rows = await exceptionQueue(ctx, tenantId).take(COUNT_LIMIT + 1);
-    return { count: Math.min(rows.length, COUNT_LIMIT), capped: rows.length > COUNT_LIMIT };
+    const connection = await billingConnection(ctx, tenantId);
+    if (!connection) return { page: [], isDone: true, continueCursor: "" };
+    const page = await adverseQueue(ctx, connection).paginate(reviewPageOptions(paginationOpts));
+    return { ...page, page: page.page.flatMap((payment) => payment.paymentRecordId ? [{
+      providerPaymentId: payment._id,
+      paymentRecordId: payment.paymentRecordId,
+      totalMinor: payment.totalMinor ?? null,
+      currency: payment.currency,
+      adverseState: payment.adverseState,
+      environment: connection.environment,
+    }] : []) };
   },
 });
 
@@ -241,7 +344,7 @@ async function listManualPayments(ctx: QueryCtx, tenantId: Id<"tenants">, leadId
 }
 
 export const getProviderPayment = query({
-  args: { ...providerPaymentArgs, leadId: v.optional(v.id("leads")) },
+  args: { ...providerPaymentArgs, leadId: v.optional(v.id("leads")), asOf: v.optional(v.number()) },
   returns: v.union(v.null(), v.object({
     payment: providerPaymentValidator,
     classification: targetValidator,
@@ -249,24 +352,25 @@ export const getProviderPayment = query({
     candidateDeals: v.array(dealSummaryValidator),
     manualPayments: v.array(manualPaymentValidator),
     manualPaymentsCapped: v.boolean(),
-    sweepFresh: v.boolean(),
+    environment: providerEnvironmentValidator,
+    resolvedByName: nullableString,
+    allocationRevision: v.number(),
     lastSuccessfulSweepAt: nullableNumber,
   })),
-  handler: async (ctx, { providerPaymentId, leadId }) => {
+  handler: async (ctx, { providerPaymentId, leadId, asOf = Date.now() }) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
-    const payment = await ctx.db.get("providerPayments", providerPaymentId);
-    if (payment?.tenantId !== tenantId) return null;
-
-    const classification = await findPaymentTarget(ctx, payment);
-    const candidateLeadId = classification.kind === "needs_person" ? classification.candidateLeadId : classification.leadId;
-    const dealIds = classification.kind === "needs_person"
-      ? classification.candidateOpportunityIds
-      : classification.opportunityId ? [classification.opportunityId] : [];
-    const [lead, deals, freshness, selectedPerson] = await Promise.all([
-      loadPerson(ctx, tenantId, candidateLeadId),
-      Promise.all(dealIds.map((id) => ctx.db.get("opportunities", id))),
-      connectionFreshness(ctx, payment, Date.now()),
+    const stored = await ctx.db.get("providerPayments", providerPaymentId);
+    if (stored?.tenantId !== tenantId) return null;
+    const connection = await connectedPaymentSource(ctx, stored);
+    if (!connection) return null;
+    const payment = paymentForReview(stored, Date.now());
+    const classification = await findPaymentTarget(ctx, payment, asOf);
+    const ids = targetIds(classification);
+    const [lead, deals, resolver, selectedPerson] = await Promise.all([
+      loadPerson(ctx, tenantId, ids.leadId),
+      Promise.all(ids.dealIds.map((id) => ctx.db.get("opportunities", id))),
+      payment.resolvedByUserId ? ctx.db.get("users", payment.resolvedByUserId) : null,
       leadId ? loadPerson(ctx, tenantId, leadId) : undefined,
     ]);
     const candidateDeals = deals.flatMap((deal) =>
@@ -277,7 +381,10 @@ export const getProviderPayment = query({
       candidatePerson: personSummary(lead),
       candidateDeals,
       ...await listManualPayments(ctx, tenantId, leadId ? selectedPerson?._id : lead?._id),
-      ...freshness,
+      environment: connection.environment,
+      allocationRevision: payment.allocationRevision,
+      lastSuccessfulSweepAt: connection.lastSuccessfulSweepAt ?? null,
+      resolvedByName: resolver?.tenantId === tenantId ? resolver.fullName?.trim() || resolver.email : null,
     };
   },
 });
@@ -285,14 +392,16 @@ export const getProviderPayment = query({
 /** The evidence attached to a CRM payment, including retained provenance. */
 export const getLinkedProviderPayment = query({
   args: { paymentRecordId: paymentRecordIdValidator },
-  returns: v.union(providerPaymentValidator, v.null()),
+  returns: v.union(v.object({ ...providerPaymentValidator.fields, environment: providerEnvironmentValidator }), v.null()),
   handler: async (ctx, { paymentRecordId }) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
     const record = await ctx.db.get("paymentRecords", paymentRecordId);
     if (record?.tenantId !== tenantId || !record.providerPaymentId) return null;
     const payment = await ctx.db.get("providerPayments", record.providerPaymentId);
-    return payment?.tenantId === tenantId ? payment : null;
+    if (payment?.tenantId !== tenantId) return null;
+    const connection = await connectedPaymentSource(ctx, payment);
+    return connection ? { ...paymentForReview(payment, Date.now()), environment: connection.environment } : null;
   },
 });
 
@@ -308,7 +417,7 @@ async function requiredProviderPayment(
 
 async function emitLinkEvent(
   ctx: MutationCtx,
-  eventType: "payment.provider_linked" | "payment.provider_unlinked",
+  eventType: "payment.provider_linked" | "payment.provider_unlinked" | "payment.provider_adverse_acknowledged",
   actor: { tenantId: Id<"tenants">; userId: Id<"users"> },
   paymentRecordId: Id<"paymentRecords">,
   providerPaymentId: Id<"providerPayments">,
@@ -329,16 +438,21 @@ export const linkToPaymentRecord = mutation({
     ...providerPaymentArgs,
     paymentRecordId: paymentRecordIdValidator,
     acknowledgeAmountDifference: v.boolean(),
+    expectedAllocationRevision: v.number(),
   },
   returns: v.null(),
-  handler: async (ctx, { providerPaymentId, paymentRecordId, acknowledgeAmountDifference }) => {
+  handler: async (ctx, { providerPaymentId, paymentRecordId, acknowledgeAmountDifference, expectedAllocationRevision }) => {
     const actor = await requireBillingPermission(ctx, "billing:review");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
+    const command = { kind: "link" as const, paymentRecordId, acknowledgeAmountDifference };
+    if (await isAllocationRetry(ctx, payment, expectedAllocationRevision, command)) return null;
+    if (!await connectedPaymentSource(ctx, payment)) {
+      throw expectedError("provider_payment.connection_unavailable", "The Whop connection is unavailable.");
+    }
     const record = await ctx.db.get("paymentRecords", paymentRecordId);
     if (record?.tenantId !== actor.tenantId) throw expectedError("provider_payment.record_not_found", "CRM payment not found.");
 
-    if (payment.paymentRecordId === paymentRecordId && record.providerPaymentId === providerPaymentId) return null;
     if (payment.paymentRecordId || payment.reviewState === "linked" || payment.reviewState === "recorded") {
       throw expectedError("provider_payment.already_allocated", "This provider payment has an active allocation.");
     }
@@ -374,14 +488,18 @@ export const linkToPaymentRecord = mutation({
       providerPaymentId,
       providerPaidAt: payment.paidAt,
     });
+    const resolvedAt = Date.now();
+    await rememberAllocationCommand(ctx, payment, command);
     await ctx.db.patch("providerPayments", providerPaymentId, {
       paymentRecordId,
+      allocationRevision: payment.allocationRevision + 1,
       opportunityId: deal._id,
       leadId: lead._id,
       matchMethod: "person",
       reviewState: "linked",
       reviewReason: undefined,
-      resolvedAt: Date.now(),
+      resolvedAt,
+      payerDetailsExpireAt: payerDetailsDeadline(payment, "needs_person", resolvedAt),
       resolvedByUserId: actor.userId,
     });
     await emitLinkEvent(ctx, "payment.provider_linked", actor, paymentRecordId, providerPaymentId);
@@ -389,64 +507,53 @@ export const linkToPaymentRecord = mutation({
   },
 });
 
-async function disableMembershipBindings(
-  ctx: MutationCtx,
-  payment: Doc<"providerPayments">,
-  record: Doc<"paymentRecords">,
-) {
-  const opportunityId = record.opportunityId;
-  if (!opportunityId) return;
-  const rows = await ctx.db.query("paymentProviderBindings")
-    .withIndex("by_tenantId_and_opportunityId_and_kind", (q) =>
-      q.eq("tenantId", payment.tenantId).eq("opportunityId", opportunityId).eq("kind", "membership_deal"))
-    .take(MEMBERSHIP_BINDING_LIMIT + 1);
-  if (rows.length > MEMBERSHIP_BINDING_LIMIT) {
-    throw expectedError("provider_payment.binding_limit", "Too many membership bindings to verify.");
-  }
-  for (const row of rows) {
-    if (row.enabled && row.binding.kind === "membership_deal" && row.binding.anchorPaymentRecordId === record._id) {
-      await ctx.db.patch("paymentProviderBindings", row._id, {
-        enabled: false,
-        disabledReason: "anchor_undone",
-        version: row.version + 1,
-      });
-    }
-  }
-}
-
 export const unlinkPaymentRecord = mutation({
-  args: providerPaymentArgs,
+  args: {
+    ...providerPaymentArgs,
+    expectedPaymentRecordId: paymentRecordIdValidator,
+    expectedAllocationRevision: v.number(),
+  },
   returns: v.null(),
-  handler: async (ctx, { providerPaymentId }) => {
+  handler: async (ctx, { providerPaymentId, expectedPaymentRecordId, expectedAllocationRevision }) => {
     const actor = await requireBillingPermission(ctx, "billing:correct");
     await requireBillingOpsEnabled(ctx, actor.tenantId);
     const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
-    if (!payment.paymentRecordId && payment.reviewState !== "linked") return null;
-    if (payment.reviewState !== "linked" || !payment.paymentRecordId) {
+    const command = { kind: "unlink" as const, paymentRecordId: expectedPaymentRecordId };
+    if (await isAllocationRetry(ctx, payment, expectedAllocationRevision, command)) return null;
+    if (payment.paymentRecordId !== expectedPaymentRecordId) throw allocationChanged();
+    if (payment.reviewState !== "linked") {
       throw expectedError("provider_payment.not_manually_linked", "This provider payment has no manual link to remove.");
     }
 
-    const record = await ctx.db.get("paymentRecords", payment.paymentRecordId);
+    const record = await ctx.db.get("paymentRecords", expectedPaymentRecordId);
     if (record?.tenantId !== actor.tenantId || record.providerPaymentId !== providerPaymentId) {
       throw expectedError("provider_payment.link_inconsistent", "The provider payment and CRM payment no longer refer to each other.");
     }
-    await disableMembershipBindings(ctx, payment, record);
+    await rememberAllocationCommand(ctx, payment, command);
+    // A manual unlink corrects the provenance itself.
     await ctx.db.patch("paymentRecords", record._id, {
       providerPaymentId: undefined,
       providerPaidAt: undefined,
     });
-    await ctx.db.patch("providerPayments", providerPaymentId, {
-      paymentRecordId: undefined,
-      opportunityId: undefined,
-      leadId: undefined,
-      matchMethod: undefined,
-      reviewState: "needs_person",
-      dismissReason: undefined,
-      resolvedAt: undefined,
-      resolvedByUserId: undefined,
-    });
-    await refreshProviderPaymentReview(ctx, providerPaymentId);
+    await clearActiveAllocation(ctx, record);
     await emitLinkEvent(ctx, "payment.provider_unlinked", actor, record._id, providerPaymentId);
+    return null;
+  },
+});
+
+export const acknowledgeAdverse = mutation({
+  args: providerPaymentArgs,
+  returns: v.null(),
+  handler: async (ctx, { providerPaymentId }) => {
+    const actor = await requireBillingPermission(ctx, "billing:review");
+    await requireBillingOpsEnabled(ctx, actor.tenantId);
+    const payment = await requiredProviderPayment(ctx, actor.tenantId, providerPaymentId);
+    if (!payment.paymentRecordId || payment.adverseReviewAt === undefined) return null;
+    if (!await connectedPaymentSource(ctx, payment)) {
+      throw expectedError("provider_payment.connection_unavailable", "The Whop connection is unavailable.");
+    }
+    await ctx.db.patch("providerPayments", payment._id, { adverseReviewAt: undefined });
+    await emitLinkEvent(ctx, "payment.provider_adverse_acknowledged", actor, payment.paymentRecordId, providerPaymentId);
     return null;
   },
 });
@@ -462,12 +569,15 @@ export const dismissProviderPayment = mutation({
     if (payment.paymentRecordId || payment.reviewState !== "needs_person") {
       throw expectedError("provider_payment.not_reviewable", "This provider payment is not waiting for review.");
     }
+    const resolvedAt = Date.now();
     await ctx.db.patch("providerPayments", providerPaymentId, {
       reviewState: "dismissed",
       dismissReason: reason,
-      resolvedAt: Date.now(),
+      resolvedAt,
+      payerDetailsExpireAt: payerDetailsDeadline(payment, "needs_person", resolvedAt),
       resolvedByUserId: actor.userId,
     });
+    log.info("whop.payment.dismissed", { tenantId: actor.tenantId, providerPaymentId, userId: actor.userId, reason });
     return null;
   },
 });
@@ -490,6 +600,7 @@ export const reopenProviderPayment = mutation({
       resolvedByUserId: undefined,
     });
     await refreshProviderPaymentReview(ctx, providerPaymentId);
+    log.info("whop.payment.reopened", { tenantId: actor.tenantId, providerPaymentId, userId: actor.userId });
     return null;
   },
 });

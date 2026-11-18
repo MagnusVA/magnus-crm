@@ -25,6 +25,7 @@ export const WHOP_SETTINGS_HREF = "/workspace/settings/whop";
 
 /** The scopes the connection needs, and the two more the product and price mapping reads with. */
 export const WHOP_REQUIRED_SCOPES = ["payment:basic:read", "member:email:read"] as const;
+export const WHOP_DISPUTE_SCOPES = ["payment:dispute:read", "payment:dispute_alert:read"] as const;
 export const WHOP_CATALOG_SCOPES = ["plan:basic:read", "access_pass:basic:read"] as const;
 
 type Environment = WhopConnection["environment"];
@@ -37,8 +38,10 @@ export function useWhopConnection(enabled = true): WhopConnection | null | undef
   const live = useQuery(api.payments.connection.getConnection, enabled ? { environment: "live" } : "skip");
   const sandbox = useQuery(api.payments.connection.getConnection, enabled ? { environment: "sandbox" } : "skip");
   if (live === undefined || sandbox === undefined) return undefined;
-  if (live && live.status !== "disconnected") return live;
-  if (sandbox && sandbox.status !== "disconnected") return sandbox;
+  if (live?.status === "connected") return live;
+  if (sandbox?.status === "connected") return sandbox;
+  if (live?.status === "invalid_key") return live;
+  if (sandbox?.status === "invalid_key") return sandbox;
   return live ?? sandbox;
 }
 
@@ -87,6 +90,10 @@ function connectErrorSentence(error: unknown) {
       return "This key is missing a permission. Add payment:basic:read and member:email:read to it in Whop, then try again.";
     case "whop.account_mismatch":
       return "The key and the account id don't match, or this workspace is already tied to a different Whop account.";
+    case "whop.account_in_use":
+      return "This Whop account is already connected to another workspace.";
+    case "whop.other_environment_connected":
+      return "Disconnect the other Whop environment first.";
     case "whop.provider_unavailable":
       return "Magnus couldn't reach Whop. Try again in a minute.";
     default:
@@ -210,7 +217,8 @@ export function WhopConnectForm({
               />
               <FieldDescription className="text-[13px] leading-[1.45]">
                 A company API key with <ScopeList scopes={WHOP_REQUIRED_SCOPES} />. Mapping products and prices also
-                needs <ScopeList scopes={WHOP_CATALOG_SCOPES} />. Magnus keeps the key server-side and shows only its
+                needs <ScopeList scopes={WHOP_CATALOG_SCOPES} />. To read disputes, add{" "}
+                <ScopeList scopes={WHOP_DISPUTE_SCOPES} />. Magnus keeps the key server-side and shows only its
                 last four characters.
               </FieldDescription>
               <FieldError className="text-[13px] text-danger-ink" errors={[fieldState.error]} />

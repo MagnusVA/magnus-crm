@@ -1,8 +1,36 @@
 import { internal } from "../_generated/api";
 import { httpAction } from "../_generated/server";
 import { log, logRequestContext, reportError } from "../lib/observability/log";
-import { verifyWhopSignature } from "./signature";
+import { INVALID_SIGNATURE_WARNING_INTERVAL_MS } from "./connectionState";
+import { prepareWhopSignature, verifyPreparedWhopSignature } from "./signature";
 import { webhookEnvelopeSchema, webhookObject, whopEventType, whopId } from "./whop/normalize";
+
+const MAX_WEBHOOK_BYTES = 256 * 1024;
+
+async function readCappedBody(request: Request) {
+  const length = request.headers.get("content-length");
+  if (length !== null && Number(length) > MAX_WEBHOOK_BYTES) return null;
+  const bytes = new Uint8Array(MAX_WEBHOOK_BYTES);
+  const reader = request.body?.getReader();
+  let offset = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        if (chunk.value.byteLength > bytes.length - offset) {
+          await reader.cancel();
+          return null;
+        }
+        bytes.set(chunk.value, offset);
+        offset += chunk.value.byteLength;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  return bytes.subarray(0, offset);
+}
 
 export const handleWhopWebhook = httpAction(async (ctx, request) => {
   const connectionParam = new URL(request.url).searchParams.get("c");
@@ -12,25 +40,41 @@ export const handleWhopWebhook = httpAction(async (ctx, request) => {
   });
   if (!connection || connection.status === "disconnected")
     return new Response("Unknown connection", { status: 404 });
-  logRequestContext({ tenantId: connection.tenantId });
   const attrs = { connectionId: connection._id, tenantId: connection.tenantId };
 
-  const rawBody = new Uint8Array(await request.arrayBuffer());
-  if (!(await verifyWhopSignature(connection, request.headers, rawBody))) {
-    log.warn("whop.webhook.rejected", { ...attrs, reason: "invalid_signature", httpStatus: 401 });
+  const invalidSignature = async () => {
+    if (Date.now() - (connection.lastInvalidSignatureWarningAt ?? -Infinity) >=
+        INVALID_SIGNATURE_WARNING_INTERVAL_MS) {
+      const sampled = await ctx.runMutation(internal.payments.connectionState.sampleInvalidSignature, {
+        connectionId: connection._id,
+      });
+      if (sampled) {
+        log.warn("whop.webhook.rejected", { ...attrs, reason: "invalid_signature", httpStatus: 401 });
+      }
+    }
     return new Response("Invalid signature", { status: 401 });
-  }
+  };
+  const signature = prepareWhopSignature(connection, request.headers);
+  if (!signature) return invalidSignature();
+  const rawBody = await readCappedBody(request);
+  if (!rawBody) return new Response("Webhook too large", { status: 413 });
+  if (!(await verifyPreparedWhopSignature(signature, rawBody))) return invalidSignature();
+  logRequestContext({ tenantId: connection.tenantId });
 
-  const webhookId = whopId.safeParse(request.headers.get("webhook-id")).data;
+  const webhookId = whopId.safeParse(signature.id).data;
   let body: unknown;
+  let rawText: string;
   try {
-    body = JSON.parse(new TextDecoder().decode(rawBody));
+    rawText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(rawBody);
+    body = JSON.parse(rawText);
   } catch {
     return new Response("Invalid webhook", { status: 400 });
   }
   const envelope = webhookEnvelopeSchema.safeParse(body);
   if (!webhookId || !envelope.success) return new Response("Invalid webhook", { status: 400 });
-  if (envelope.data.account_id !== connection.accountId) {
+  const { account_id: accountId, company_id: companyId } = envelope.data;
+  if ((accountId === undefined ? companyId : accountId) !== connection.accountId ||
+      (companyId !== undefined && companyId !== connection.accountId)) {
     log.warn("whop.webhook.rejected", { ...attrs, reason: "account_mismatch", httpStatus: 401 });
     return new Response("Account mismatch", { status: 401 });
   }
@@ -43,7 +87,6 @@ export const handleWhopWebhook = httpAction(async (ctx, request) => {
   const eventType = whopEventType.safeParse(envelope.data.type).data ?? "unknown";
   const bodySha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", rawBody)),
     (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const rawBodyStorageId = await ctx.storage.store(new Blob([rawBody], { type: "application/json" }));
   try {
     const result = await ctx.runMutation(internal.payments.intake.receiveWebhook, {
       ...attrs,
@@ -53,13 +96,12 @@ export const handleWhopWebhook = httpAction(async (ctx, request) => {
       eventType,
       ...webhookObject(eventType, envelope.data.data),
       bodySha256,
-      rawBodyStorageId,
+      rawBody: rawText,
     });
     if (result === "unavailable") return new Response("Unknown connection", { status: 404 });
     log.info("whop.webhook.received", { ...attrs, webhookId, eventType, result });
     return new Response("OK", { status: 200 });
   } catch {
-    await ctx.storage.delete(rawBodyStorageId);
     reportError("whop.webhook.intake_failed", new Error("Whop webhook intake failed"), {
       ...attrs, webhookId, integration: "whop",
     });

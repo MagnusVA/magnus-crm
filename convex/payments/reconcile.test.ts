@@ -1,9 +1,9 @@
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   ACCOUNT_ID, PAYMENT_ID, TEST_DAY_MS, TEST_TIME, iso, paymentFixture, whopFixture,
 } from "../../tests/whopFixtures";
-import { SWEEP_OVERLAP_MS } from "./reconcile";
+import { SWEEP_OVERLAP_MS, SWEEP_PAGE_BUDGET } from "./reconcile";
 import { normalizePayment, paymentSchema } from "./whop/normalize";
 
 type Fixture = Awaited<ReturnType<typeof whopFixture>>;
@@ -59,12 +59,12 @@ async function seedRead(fixture: Fixture, overrides: Record<string, unknown> = {
   });
 }
 
-test("pages a recent sweep with independent overlapping windows and rereads old open rows", async () => {
+test("pages a recent sweep with independent overlapping windows and rereads old draft rows", async () => {
   const previousThrough = TEST_TIME - 15 * 60_000;
   const fixture = await whopFixture({ sweepCreatedThrough: previousThrough });
   const { t, connectionId } = fixture;
   const known = await seedRead(fixture, {
-    id: "pay_old_fixture", status: "open", created_at: iso(TEST_TIME - 5 * TEST_DAY_MS),
+    id: "pay_old_fixture", status: "draft", created_at: iso(TEST_TIME - 5 * TEST_DAY_MS),
   });
   const requests = stubApi((url) => {
     if (url.pathname !== "/api/v1/payments") {
@@ -172,46 +172,40 @@ test("persists the request clock and honors a provider pause and invalid key", a
   expect(await connection(fixture)).toMatchObject({ status: "invalid_key", lastErrorCode: "unauthorized" });
 });
 
-test("purges expired raw files and payer details while retaining receipts and fresh facts", async () => {
+test("purges expired raw bodies and payer details while retaining receipts and fresh facts", async () => {
   const fixture = await whopFixture();
   const { t, connectionId, tenantId } = fixture;
   const expiredPayment = await seedRead(fixture);
   const freshPayment = await seedRead(fixture, { id: "pay_fresh_fixture" });
-  const { oldReceipt, freshReceipt, oldBody, freshBody } = await t.run(async (ctx) => {
-    const oldBody = await ctx.storage.store(new Blob(["expired fixture"]));
-    const freshBody = await ctx.storage.store(new Blob(["fresh fixture"]));
+  const { oldReceipt, freshReceipt } = await t.run(async (ctx) => {
     const common = {
       tenantId, connectionId, eventType: "payment.succeeded",
-      bodySha256: "fixture_hash", status: "processed", attempts: 1,
+      bodySha256: "fixture_hash", hasRawBody: true, status: "processed", attempts: 1,
     } as const;
     const oldReceipt = await ctx.db.insert("paymentWebhookReceipts", {
-      ...common, webhookId: "msg_expired_fixture", rawBodyStorageId: oldBody, receivedAt: TEST_TIME - 7 * TEST_DAY_MS,
+      ...common, webhookId: "msg_expired_fixture", rawBody: "old fixture", receivedAt: TEST_TIME - 7 * TEST_DAY_MS,
     });
     const freshReceipt = await ctx.db.insert("paymentWebhookReceipts", {
-      ...common, webhookId: "msg_fresh_fixture", rawBodyStorageId: freshBody, receivedAt: TEST_TIME - 6 * TEST_DAY_MS,
+      ...common, webhookId: "msg_fresh_fixture", rawBody: "fresh fixture", receivedAt: TEST_TIME - 6 * TEST_DAY_MS,
     });
     await ctx.db.patch("providerPayments", expiredPayment._id, {
-      resolvedAt: TEST_TIME - 90 * TEST_DAY_MS, reviewState: "dismissed",
+      payerDetailsExpireAt: TEST_TIME, resolvedAt: TEST_TIME - 90 * TEST_DAY_MS, reviewState: "dismissed",
     });
     await ctx.db.patch("providerPayments", freshPayment._id, {
       resolvedAt: TEST_TIME - 89 * TEST_DAY_MS, reviewState: "dismissed",
     });
-    return { oldReceipt, freshReceipt, oldBody, freshBody };
+    return { oldReceipt, freshReceipt };
   });
   await t.mutation(internal.payments.reconcile.purge, {});
   const retention = await t.run(async (ctx) => ({
     oldReceipt: await ctx.db.get("paymentWebhookReceipts", oldReceipt),
     freshReceipt: await ctx.db.get("paymentWebhookReceipts", freshReceipt),
-    oldBody: await ctx.db.system.get("_storage", oldBody),
-    freshBody: await ctx.db.system.get("_storage", freshBody),
     freshPayment: await ctx.db.get("providerPayments", freshPayment._id),
     expiredPayment: await ctx.db.get("providerPayments", expiredPayment._id),
   }));
-  expect(retention.oldBody).toBeNull();
-  expect(retention.freshBody).not.toBeNull();
   expect(retention.oldReceipt).toMatchObject({ status: "processed", rawBodyDeletedAt: TEST_TIME });
-  expect(retention.oldReceipt?.rawBodyStorageId).toBeUndefined();
-  expect(retention.freshReceipt?.rawBodyStorageId).toBe(freshBody);
+  expect(retention.oldReceipt?.rawBody).toBeUndefined();
+  expect(retention.freshReceipt?.rawBody).toBe("fresh fixture");
   expect(retention.freshPayment?.payerEmail).toBe(freshPayment.payerEmail);
   expect(retention.expiredPayment?.payerEmail).toBeUndefined();
   expect(retention.expiredPayment?.payerPhone).toBeUndefined();
@@ -220,4 +214,165 @@ test("purges expired raw files and payer details while retaining receipts and fr
   expect(readAgain.payerEmail).toBeUndefined();
   expect(readAgain.payerPhone).toBeUndefined();
   expect(readAgain.payerDetailsClearedAt).toBe(TEST_TIME);
+});
+
+test.each(["recent", "full"] as const)("records unreadable details and finishes the rest of a %s sweep", async (kind) => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  const requests = stubApi((url) => {
+    if (url.pathname === "/api/v1/payments") {
+      return url.searchParams.has("created_before")
+        ? listPage(["pay_missing", "pay_bad", PAYMENT_ID]) : listPage([]);
+    }
+    if (url.pathname.endsWith("/pay_missing")) return new Response(null, { status: 404 });
+    if (url.pathname.endsWith("/pay_bad")) return Response.json({ synthetic: "invalid detail" });
+    return Response.json(paymentFixture());
+  });
+  if (kind === "recent") await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
+  else await t.action(internal.payments.reconcile.scanFull, { connectionId, startedAt: TEST_TIME });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const row = await connection(fixture);
+  expect(row?.unreadablePaymentIds).toEqual(["pay_missing", "pay_bad"]);
+  expect(kind === "recent" ? row?.lastSuccessfulSweepAt : row?.lastFullScanAt).toBeGreaterThanOrEqual(TEST_TIME);
+  expect(requests.some((url) => url.pathname.endsWith(`/${PAYMENT_ID}`))).toBe(true);
+  expect(await t.run((ctx) => ctx.db.query("providerPayments").take(10)))
+    .toContainEqual(expect.objectContaining({ externalPaymentId: PAYMENT_ID, status: "paid" }));
+});
+
+test.each([429, 503])("resumes a provider-wide HTTP %s failure at the same page and through timestamp", async (status) => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  let failed = false;
+  const requests = stubApi((url) => {
+    if (url.pathname !== "/api/v1/payments") return Response.json(paymentFixture());
+    if (!url.searchParams.has("created_after")) return listPage([]);
+    if (!url.searchParams.has("after")) return listPage([], "resume_here");
+    if (!failed) {
+      failed = true;
+      return new Response(null, { status, headers: { "Retry-After": "0" } });
+    }
+    return listPage([]);
+  });
+  await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await connection(fixture))?.recentSweepProgress)
+    .toMatchObject({ through: TEST_TIME, cursor: "resume_here" });
+  expect((await connection(fixture))?.lastSuccessfulSweepAt).toBeUndefined();
+  await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME + 60_000 });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await connection(fixture))?.sweepCreatedThrough).toBe(TEST_TIME);
+  const createdWindows = requests.filter((url) => url.searchParams.has("created_after"));
+  expect(createdWindows.map((url) => url.searchParams.get("after"))).toEqual([null, "resume_here", "resume_here"]);
+  expect(createdWindows.every((url) => url.searchParams.get("created_before") === iso(TEST_TIME))).toBe(true);
+});
+
+test.each(["recent", "full"] as const)("stops a %s sweep when the provider repeats a non-adjacent cursor", async (kind) => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  const requests = stubApi((url) => {
+    switch (url.searchParams.get("after")) {
+      case "a": return listPage([], "b");
+      case "b": return listPage([], "a");
+      default: return listPage([], "a");
+    }
+  });
+  if (kind === "recent") await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
+  else await t.action(internal.payments.reconcile.scanFull, { connectionId, startedAt: TEST_TIME });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(requests.map((url) => url.searchParams.get("after"))).toEqual([null, "a", "b"]);
+  const row = await connection(fixture);
+  expect(row?.sweepToken).toBeUndefined();
+  expect(row?.lastSuccessfulSweepAt).toBeUndefined();
+  expect(row?.lastFullScanAt).toBeUndefined();
+});
+
+test.each(["recent", "full"] as const)("shares a cumulative %s page budget across workpool continuations", async (kind) => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  let page = 0;
+  const requests = stubApi(() => listPage([], `cursor_${++page}`));
+  if (kind === "recent") await t.action(internal.payments.reconcile.sweepRecent, {
+    connectionId, through: TEST_TIME, pages: SWEEP_PAGE_BUDGET - 2,
+  });
+  else await t.action(internal.payments.reconcile.scanFull, {
+    connectionId, startedAt: TEST_TIME, pages: SWEEP_PAGE_BUDGET - 2,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(requests.map((url) => url.searchParams.get("after"))).toEqual([null, "cursor_1"]);
+  const row = await connection(fixture);
+  expect(row?.sweepToken).toBeUndefined();
+  expect(row?.lastSuccessfulSweepAt).toBeUndefined();
+  expect(row?.lastFullScanAt).toBeUndefined();
+  expect(kind === "recent" ? row?.recentSweepProgress?.cursor : row?.fullScanCursor).toBe("cursor_2");
+});
+
+test("a nightly full scan leaves a busy lease to the next cron", async () => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  const requests = stubApi(() => listPage([]));
+  await t.mutation(internal.payments.connectionState.takeSweepLease, { connectionId, token: "recent" });
+  await t.action(internal.payments.reconcile.scanFull, { connectionId, startedAt: TEST_TIME });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(requests).toHaveLength(0);
+  expect((await connection(fixture))?.sweepToken).toBe("recent");
+});
+
+test.each([
+  ["30", 30_000],
+  [new Date(TEST_TIME + 90_000).toUTCString(), 90_000],
+  ["9".repeat(350), 900_000],
+  [new Date(TEST_TIME + 2 * TEST_DAY_MS).toUTCString(), 900_000],
+])("parses and caps Retry-After %s before storing the request clock", async (header, delay) => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 429, headers: { "Retry-After": header } })));
+  await t.action(internal.payments.reconcile.sweepRecent, { connectionId, through: TEST_TIME });
+  expect(await connection(fixture)).toMatchObject({ lastErrorCode: "rate_limited", nextRequestAt: TEST_TIME + delay });
+});
+
+test("applies absolute payer deadlines to historical, non-actionable and waiting facts after disconnect", async () => {
+  const fixture = await whopFixture();
+  const { t, connectionId } = fixture;
+  const historical = await seedRead(fixture, { id: "pay_historic", paid_at: iso(TEST_TIME - TEST_DAY_MS) });
+  const pending = await seedRead(fixture, { id: "pay_pending", status: "open" });
+  const waiting = await seedRead(fixture, { id: "pay_waiting" });
+  expect(historical).toMatchObject({ reviewState: "historical", payerDetailsExpireAt: TEST_TIME + 90 * TEST_DAY_MS });
+  expect(pending).toMatchObject({ reviewState: "not_actionable", payerDetailsExpireAt: TEST_TIME + 90 * TEST_DAY_MS });
+  expect(waiting).toMatchObject({ reviewState: "needs_person", payerDetailsExpireAt: TEST_TIME + 180 * TEST_DAY_MS });
+  await fixture.admin.mutation(api.payments.connection.disconnect, { connectionId });
+
+  const get = (id: typeof historical._id) => t.run((ctx) => ctx.db.get("providerPayments", id));
+  vi.setSystemTime(TEST_TIME + 90 * TEST_DAY_MS);
+  await t.mutation(internal.payments.reconcile.purge, {});
+  expect((await get(historical._id))?.payerEmail).toBeUndefined();
+  expect((await get(pending._id))?.payerEmail).toBeUndefined();
+  expect((await get(waiting._id))?.payerEmail).toBe(waiting.payerEmail);
+  vi.setSystemTime(TEST_TIME + 180 * TEST_DAY_MS);
+  await t.mutation(internal.payments.reconcile.purge, {});
+  expect(await get(waiting._id)).toMatchObject({
+    externalPaymentId: "pay_waiting", payerDetailsClearedAt: Date.now(),
+  });
+  expect((await get(waiting._id))?.payerEmail).toBeUndefined();
+});
+
+test("counts and deletes inline receipt bodies in bounded operational reset pages", async () => {
+  const { t, tenantId, connectionId } = await whopFixture();
+  const rawBody = "x".repeat(256 * 1024);
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 21; index++) {
+      await ctx.db.insert("paymentWebhookReceipts", {
+        tenantId, connectionId, webhookId: `msg_cleanup_${index}`, eventType: "payment.succeeded",
+        bodySha256: "fixture", rawBody, hasRawBody: true, receivedAt: TEST_TIME, status: "processed", attempts: 1,
+      });
+    }
+  });
+  const ops = internal.testing.operationalData;
+  const first = await t.query(ops.countReceiptPage, { cursor: null });
+  expect(first.count).toBe(20);
+  expect(await t.query(ops.countReceiptPage, { cursor: first.nextCursor }))
+    .toEqual({ count: 1, nextCursor: null });
+  expect(await t.mutation(ops.deleteOperationalDataBatch, { tableName: "paymentWebhookReceipts" }))
+    .toMatchObject({ deleted: 20, hasMore: true });
+  expect(await t.mutation(ops.deleteOperationalDataBatch, { tableName: "paymentWebhookReceipts" }))
+    .toMatchObject({ deleted: 1, hasMore: false });
 });

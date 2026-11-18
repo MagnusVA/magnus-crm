@@ -20,7 +20,7 @@ import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { rejectWhopRequest, requireWhopConnection, whopRequestFailure } from "./connection";
 import { refreshProviderPaymentReview } from "./match";
-import { WhopRequestError } from "./whop/client";
+import { reportWhopRequestError, WhopRequestError } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
 
 const settingsRoles = [...PERMISSIONS["settings:manage"]];
@@ -258,17 +258,15 @@ export const refreshMappingPayments = internalMutation({
     const connection = await ctx.db.get("tenantPaymentConnections", args.connectionId);
     if (!connection || connection.provider !== "whop") return null;
 
-    // The schema indexes connection and external payment ID. This cursor
-    // stays stable when the matcher updates the review fields.
+    // Mappings affect payments waiting for review. History stays history.
     const payments = await ctx.db.query("providerPayments")
-      .withIndex("by_tenantId_and_connectionId_and_externalPaymentId", (q) =>
-        q.eq("tenantId", connection.tenantId).eq("connectionId", connection._id),
+      .withIndex("by_connectionId_and_tenantId_and_reviewState_and_firstSeenAt", (q) =>
+        q.eq("connectionId", connection._id).eq("tenantId", connection.tenantId).eq("reviewState", "needs_person"),
       )
       .paginate({ cursor: args.cursor, numItems: refreshPageSize, maximumBytesRead: 512 * 1024 });
     for (const payment of payments.page) {
       const externalId = args.kind === "product_program" ? payment.productId : payment.variantId;
-      if (externalId === args.externalId &&
-          (payment.reviewState === "needs_person" || payment.reviewState === "historical")) {
+      if (payment.tenantId === connection.tenantId && externalId === args.externalId) {
         await refreshProviderPaymentReview(ctx, payment._id);
       }
     }
@@ -415,7 +413,9 @@ async function loadCatalogPage<T extends { account: { id: string } | null }>(
       return { items: data, nextCursor: info.has_next_page ? info.end_cursor : null };
     });
   } catch (error) {
-    throw rejectWhopRequest(error instanceof WhopAccountMismatch ? "account_mismatch" : whopRequestFailure(error));
+    const code = error instanceof WhopAccountMismatch ? "account_mismatch" : whopRequestFailure(error);
+    if (code === "provider_unavailable") reportWhopRequestError("whop.catalog.read_failed", error, { connectionId });
+    throw rejectWhopRequest(code);
   }
 }
 

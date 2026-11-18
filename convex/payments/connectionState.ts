@@ -7,6 +7,23 @@ import {
   providerEnvironmentValidator,
 } from "./schema";
 
+import { MAX_RETRY_AFTER_MS } from "./whop/client";
+
+export const INVALID_SIGNATURE_WARNING_INTERVAL_MS = 60_000;
+
+export const sampleInvalidSignature = internalMutation({
+  args: { connectionId: v.id("tenantPaymentConnections") },
+  returns: v.boolean(),
+  handler: async (ctx, { connectionId }) => {
+    const row = await ctx.db.get("tenantPaymentConnections", connectionId);
+    const now = Date.now();
+    if (!row || row.status === "disconnected" ||
+        now - (row.lastInvalidSignatureWarningAt ?? -Infinity) < INVALID_SIGNATURE_WARNING_INTERVAL_MS) return false;
+    await ctx.db.patch("tenantPaymentConnections", row._id, { lastInvalidSignatureWarningAt: now });
+    return true;
+  },
+});
+
 const connectionFields = paymentProviderTables.tenantPaymentConnections.validator.fields;
 const connectionId = v.id("tenantPaymentConnections");
 const REQUEST_SPACING_MS = 150;
@@ -88,18 +105,25 @@ export const recordFailure = internalMutation({
     connectedAt: v.number(),
     code: paymentConnectionErrorValidator,
     retryAfterMs: v.optional(v.number()),
+    disputeForbidden: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get("tenantPaymentConnections", args.connectionId);
     if (row?.status !== "connected" || row.connectedAt !== args.connectedAt) return null;
     const now = Date.now();
+    if (args.disputeForbidden) {
+      if (row.disputeAccess !== "forbidden") {
+        await ctx.db.patch("tenantPaymentConnections", row._id, { disputeAccess: "forbidden" });
+      }
+      return null;
+    }
     await ctx.db.patch("tenantPaymentConnections", row._id, {
       lastErrorCode: args.code,
       lastErrorAt: now,
       ...(args.code === "unauthorized" ? { status: "invalid_key" } : {}),
       ...(args.retryAfterMs === undefined ? {} : {
-        nextRequestAt: Math.max(row.nextRequestAt ?? 0, now + args.retryAfterMs),
+        nextRequestAt: Math.max(row.nextRequestAt ?? 0, now + Math.min(Math.max(0, args.retryAfterMs), MAX_RETRY_AFTER_MS)),
       }),
     });
     return null;
@@ -117,16 +141,23 @@ export async function noteWebhook(
 }
 
 export const takeSweepLease = internalMutation({
-  args: { connectionId, token: v.string() },
+  args: {
+    connectionId, token: v.string(), continuation: v.optional(v.boolean()),
+    recentThrough: v.optional(v.number()),
+  },
   returns: v.union(v.literal("acquired"), v.literal("busy"), v.literal("unavailable")),
   handler: async (ctx, args) => {
     const row = await ctx.db.get("tenantPaymentConnections", args.connectionId);
     if (row?.status !== "connected") return "unavailable";
     const now = Date.now();
+    if (args.continuation && row.sweepToken !== args.token) return "unavailable";
     if ((row.sweepUntil ?? 0) > now && row.sweepToken !== args.token) return "busy";
     await ctx.db.patch("tenantPaymentConnections", row._id, {
       sweepToken: args.token,
       sweepUntil: now + SWEEP_LEASE_MS,
+      ...(args.recentThrough !== undefined && args.recentThrough > (row.sweepCreatedThrough ?? 0) &&
+          row.recentSweepProgress === undefined
+        ? { recentSweepProgress: { through: args.recentThrough, stage: 0, cursor: null } } : {}),
     });
     return "acquired";
   },
@@ -139,6 +170,7 @@ export const releaseSweepLease = internalMutation({
     connectedAt: v.number(),
     checkpoint: v.optional(v.union(
       v.object({ kind: v.literal("recent"), through: v.number() }),
+      v.object({ kind: v.literal("recent_reset") }),
       v.object({
         kind: v.literal("full"),
         startedAt: v.number(),
@@ -160,7 +192,10 @@ export const releaseSweepLease = internalMutation({
       await ctx.db.patch("tenantPaymentConnections", row._id, {
         sweepCreatedThrough: Math.max(row.sweepCreatedThrough ?? 0, checkpoint.through),
         lastSuccessfulSweepAt: Date.now(),
+        recentSweepProgress: undefined,
       });
+    } else if (checkpoint?.kind === "recent_reset") {
+      await ctx.db.patch("tenantPaymentConnections", row._id, { recentSweepProgress: undefined });
     } else if (checkpoint?.kind === "full") {
       await ctx.db.patch("tenantPaymentConnections", row._id, {
         fullScanCursor: checkpoint.cursor ?? undefined,

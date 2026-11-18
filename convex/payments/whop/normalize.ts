@@ -117,7 +117,8 @@ export const disputeAlertSchema = z.object({
 
 export const webhookEnvelopeSchema = z.object({
   type: z.string(),
-  account_id: z.unknown(),
+  account_id: z.unknown().optional(),
+  company_id: z.unknown().optional(),
   data: z.unknown(),
 });
 

@@ -8,8 +8,10 @@ import { CheckIcon, CopyIcon, LinkIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { isWhopSweepFresh, MAX_PROVIDER_PAYMENT_AGE_MS } from "@/convex/payments/reviewTiming";
 import { useRole } from "@/components/auth/role-context";
 import { TranslatableText } from "@/components/translatable-text";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -70,22 +72,25 @@ function currentReason(detail: Detail): ProviderReviewReason | null {
   return payment.reviewReason ?? null;
 }
 
-/** Who took the last review action, by name, from the team list. */
-function useResolverName(userId: Id<"users"> | undefined) {
-  const members = useQuery(api.users.queries.listTeamMembers, userId ? {} : "skip");
-  if (!userId) return null;
-  if (members === undefined) return undefined;
-  const member = members.find((row) => row._id === userId);
-  return member ? member.fullName?.trim() || member.email : null;
-}
-
 export function WhopPaymentPageClient({
   preloadedPayment,
 }: {
   preloadedPayment: Preloaded<typeof api.payments.review.getProviderPayment>;
 }) {
   const now = useNow();
-  const detail = usePreloadedQuery(preloadedPayment);
+  const preloadedDetail = usePreloadedQuery(preloadedPayment);
+  const currentPayment = preloadedDetail?.payment;
+  const cutoff = currentPayment?.paidAt === undefined ? undefined
+    : currentPayment.paidAt + MAX_PROVIDER_PAYMENT_AGE_MS;
+  const classification = preloadedDetail?.classification;
+  const alreadyStale = classification?.kind === "needs_person" && classification.reason === "stale_payment";
+  const agedDetail = useQuery(
+    api.payments.review.getProviderPayment,
+    currentPayment?.reviewState === "needs_person" && cutoff !== undefined && now > cutoff && !alreadyStale
+      ? { providerPaymentId: currentPayment._id, asOf: cutoff + 1 }
+      : "skip",
+  );
+  const detail = agedDetail === undefined ? preloadedDetail : agedDetail;
   const amount = detail ? (whopAmount(detail.payment) ?? detail.payment.currency.toUpperCase()) : null;
   usePageTitle(`Billing · Whop ${amount ?? "payment"}`);
 
@@ -129,6 +134,7 @@ export function WhopPaymentPageClient({
             ) : null}
             {" · "}
             {payment.paymentRecordId ? "Evidence for a CRM payment" : "Not a CRM payment, in no cash total"}
+            {detail.environment === "sandbox" ? <Badge variant="outline" className="ml-2">Sandbox</Badge> : null}
           </>
         }
       />
@@ -144,7 +150,7 @@ export function WhopPaymentPageClient({
             <WhopReportsCard payment={payment} now={now} />
           </div>
           <div className="order-4 min-w-0">
-            <NotCrmMoneyCard payment={payment} now={now} />
+            <NotCrmMoneyCard payment={payment} resolvedByName={detail.resolvedByName} now={now} />
           </div>
         </div>
         <div className="contents @4xl:col-start-1 @4xl:row-start-1 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-3.5 short:@4xl:gap-3">
@@ -269,7 +275,7 @@ function WhopReportsCard({ payment, now }: { payment: ProviderPayment; now: numb
               {payment.payerEmail}
             </span>
           ) : payment.payerDetailsClearedAt !== undefined ? (
-            <None>Cleared 90 days after review</None>
+            <None>Cleared under the retention policy</None>
           ) : (
             <None>Not sent</None>
           )}
@@ -340,13 +346,13 @@ function CandidateDeals({ detail, now }: { detail: Detail; now: number }) {
 function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
   const { payment } = detail;
   const state = STATE_WORDS[payment.reviewState];
-  const resolver = useResolverName(payment.resolvedByUserId);
+  const resolver = detail.resolvedByName;
   const reason = currentReason(detail);
 
   const byLine =
     payment.resolvedAt !== undefined ? (
       <p className="text-[13px] text-muted-foreground">
-        {resolver ? <span translate="no">{resolver}</span> : resolver === undefined ? "…" : "Someone"}
+        {resolver ? <span translate="no">{resolver}</span> : "Someone"}
         {" · "}
         <span className="font-condensed text-[14px] font-semibold tabular-nums">
           <PaidAt at={payment.resolvedAt} now={now} />
@@ -422,6 +428,13 @@ function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
   return (
     <DetailCard title="Where it stands" meta={<span className={cn(STATUS_WORD, state.ink)}>{state.word}</span>}>
       <div className="px-4 py-3">{body}</div>
+      {!isWhopSweepFresh(detail.lastSuccessfulSweepAt, now) ? (
+        <p className="border-t px-4 py-2 text-[13px] text-warning-ink">
+          {detail.lastSuccessfulSweepAt === null
+            ? "Whop has not been read yet."
+            : `Whop has not been read since ${formatPaidAt(detail.lastSuccessfulSweepAt, now)}.`}
+        </p>
+      ) : null}
       {payment.reviewState === "needs_person" ? <CandidateDeals detail={detail} now={now} /> : null}
     </DetailCard>
   );
@@ -431,19 +444,27 @@ function WhereItStandsCard({ detail, now }: { detail: Detail; now: number }) {
 function LinkedPaymentLine({ payment }: { payment: ProviderPayment }) {
   const { hasPermission } = useRole();
   const unlink = useMutation(api.payments.review.unlinkPaymentRecord);
-  const [confirming, setConfirming] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    expectedPaymentRecordId: Id<"paymentRecords">;
+    expectedAllocationRevision: number;
+  } | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!payment.paymentRecordId) return null;
   const canUnlink = payment.reviewState === "linked" && hasPermission("billing:correct");
+  const currentAllocation = {
+    expectedPaymentRecordId: payment.paymentRecordId,
+    expectedAllocationRevision: payment.allocationRevision,
+  };
 
   const submit = async () => {
+    if (!confirmation) return;
     setPending(true);
     setError(null);
     try {
-      await unlink({ providerPaymentId: payment._id });
+      await unlink({ providerPaymentId: payment._id, ...confirmation });
       toast.success("Unlinked. The CRM payment no longer has this Whop payment as evidence.");
-      setConfirming(false);
+      setConfirmation(null);
     } catch (caught) {
       setError(providerErrorMessage(caught, "Couldn't unlink. Try again."));
     } finally {
@@ -458,23 +479,23 @@ function LinkedPaymentLine({ payment }: { payment: ProviderPayment }) {
           <LinkIcon aria-hidden="true" className="size-3.5" />
           Open the CRM payment
         </Link>
-        {canUnlink && !confirming ? (
-          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setConfirming(true)}>
+        {canUnlink && !confirmation ? (
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setConfirmation(currentAllocation)}>
             Unlink
           </Button>
         ) : null}
       </div>
-      {canUnlink && confirming ? (
+      {canUnlink && confirmation ? (
         <div className="flex flex-col gap-2 rounded-[7px] border bg-muted/40 p-3">
           <p className="text-[13px]">
-            Unlinking changes no amount, date, credit or report. The CRM payment keeps counting, and this Whop payment goes back to the list.
+            Unlinking sends this Whop payment back to the list. The CRM payment still counts.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="destructive" disabled={pending} onClick={() => void submit()}>
               {pending ? <Spinner data-icon="inline-start" /> : null}
               <TranslatableText>Unlink</TranslatableText>
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setConfirming(false)}>
+            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setConfirmation(null)}>
               Cancel
             </Button>
           </div>
@@ -576,7 +597,10 @@ function ManualPaymentChoice({
   );
   const source = fromPage ? detail : picked;
   const link = useMutation(api.payments.review.linkToPaymentRecord);
-  const [selected, setSelected] = useState<Id<"paymentRecords"> | null>(null);
+  const [selected, setSelected] = useState<{
+    paymentRecordId: Id<"paymentRecords">;
+    allocationRevision: number;
+  } | null>(null);
   const [mismatch, setMismatch] = useState<ManualPayment | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -598,14 +622,19 @@ function ManualPaymentChoice({
   }
 
   const options = source.manualPayments;
-  const choice = options.find((row) => row.paymentRecordId === selected) ?? null;
+  const choice = options.find((row) => row.paymentRecordId === selected?.paymentRecordId) ?? null;
 
   const submit = async (acknowledgeAmountDifference: boolean) => {
-    if (!choice) return;
+    if (!choice || !selected) return;
     setPending(true);
     setError(null);
     try {
-      await link({ providerPaymentId: payment._id, paymentRecordId: choice.paymentRecordId, acknowledgeAmountDifference });
+      await link({
+        providerPaymentId: payment._id,
+        paymentRecordId: choice.paymentRecordId,
+        expectedAllocationRevision: selected.allocationRevision,
+        acknowledgeAmountDifference,
+      });
       setMismatch(null);
       toast.success("Linked. The CRM payment now has this Whop payment as its evidence.");
     } catch (caught) {
@@ -631,9 +660,10 @@ function ManualPaymentChoice({
   return (
     <div className="border-t">
       <RadioGroup
-        value={selected ?? ""}
+        value={selected?.paymentRecordId ?? ""}
         onValueChange={(value) => {
-          setSelected(value as Id<"paymentRecords">);
+          const record = options.find((row) => row.paymentRecordId === value);
+          setSelected(record ? { paymentRecordId: record.paymentRecordId, allocationRevision: source.allocationRevision } : null);
           setMismatch(null);
           setError(null);
         }}
@@ -708,7 +738,7 @@ function ManualPaymentChoice({
         ) : (
           <>
             <p className="text-[13px] text-muted-foreground">
-              Linking changes no amount, date, credit or report. It records that this Whop payment is the proof for that payment.
+              Linking adds Whop evidence to this CRM payment. The amount, date, and credit stay the same.
             </p>
             <Button
               type="button"
@@ -736,11 +766,10 @@ function ManualPaymentChoice({
 const DISMISS_REASONS = Object.keys(DISMISS_REASON_LABELS) as ProviderDismissReason[];
 
 /** (4) Not CRM money: dismiss it, or reopen a dismissed one. */
-function NotCrmMoneyCard({ payment, now }: { payment: ProviderPayment; now: number }) {
+function NotCrmMoneyCard({ payment, resolvedByName, now }: { payment: ProviderPayment; resolvedByName: string | null; now: number }) {
   const { hasPermission } = useRole();
   const dismiss = useMutation(api.payments.review.dismissProviderPayment);
   const reopen = useMutation(api.payments.review.reopenProviderPayment);
-  const resolver = useResolverName(payment.reviewState === "dismissed" ? payment.resolvedByUserId : undefined);
   const [reason, setReason] = useState<ProviderDismissReason | "">("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -774,7 +803,7 @@ function NotCrmMoneyCard({ payment, now }: { payment: ProviderPayment; now: numb
             <p className="text-[14px]">
               Dismissed by{" "}
               <span className="font-medium" translate="no">
-                {resolver ?? (resolver === undefined ? "…" : "someone")}
+                {resolvedByName ?? "someone"}
               </span>
               {payment.resolvedAt !== undefined ? (
                 <>

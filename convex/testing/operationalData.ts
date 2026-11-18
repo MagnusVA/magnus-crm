@@ -1,3 +1,4 @@
+import { RAW_RECEIPT_BATCH } from "../payments/schema";
 import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { v } from "convex/values";
@@ -6,6 +7,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
@@ -21,10 +23,11 @@ const BATCH_SIZE = 64;
 const DOMAIN_EVENT_BATCH_SIZE = 40;
 
 const OPERATIONAL_TABLES = [
-  // Stop Whop intake and reconciliation before deleting their rows and files.
+  // Stop Whop intake and reconciliation before deleting provider rows.
   "tenantPaymentConnections",
   "paymentWebhookReceipts",
   "paymentProviderBindings",
+  "providerPaymentAllocationCommands",
   "providerPayments",
 
   "secondOpinions",
@@ -200,8 +203,8 @@ async function deletePaymentRecordsBatch(ctx: MutationCtx) {
 }
 
 export const getSnapshot = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<SnapshotResult> => {
+  args: { paymentWebhookReceiptCount: v.optional(v.number()) },
+  handler: async (ctx, args): Promise<SnapshotResult> => {
     const counts: Record<TableName, number> = {
       users: await countTableDocuments(ctx, "users"),
       teamMembers: await countTableDocuments(ctx, "teamMembers"),
@@ -252,8 +255,10 @@ export const getSnapshot = internalQuery({
       endOfDayReports: await countTableDocuments(ctx, "endOfDayReports"),
       callRecordings: await countTableDocuments(ctx, "callRecordings"),
       fathomWebhookEvents: await countTableDocuments(ctx, "fathomWebhookEvents"),
-      paymentWebhookReceipts: await countTableDocuments(ctx, "paymentWebhookReceipts"),
+      paymentWebhookReceipts: args.paymentWebhookReceiptCount ??
+        await countTableDocuments(ctx, "paymentWebhookReceipts"),
       paymentProviderBindings: await countTableDocuments(ctx, "paymentProviderBindings"),
+      providerPaymentAllocationCommands: await countTableDocuments(ctx, "providerPaymentAllocationCommands"),
       providerPayments: await countTableDocuments(ctx, "providerPayments"),
       tenantPaymentConnections: await countTableDocuments(ctx, "tenantPaymentConnections"),
       fathomOrgMembers: await countTableDocuments(ctx, "fathomOrgMembers"),
@@ -442,6 +447,7 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("fathomWebhookEvents"),
       v.literal("paymentWebhookReceipts"),
       v.literal("paymentProviderBindings"),
+      v.literal("providerPaymentAllocationCommands"),
       v.literal("providerPayments"),
       v.literal("tenantPaymentConnections"),
       v.literal("fathomOrgMembers"),
@@ -468,9 +474,8 @@ export const deleteOperationalDataBatch = internalMutation({
         deleted = await deletePaymentRecordsBatch(ctx);
         break;
       case "paymentWebhookReceipts": {
-        const rows = await ctx.db.query("paymentWebhookReceipts").take(BATCH_SIZE);
+        const rows = await ctx.db.query("paymentWebhookReceipts").take(RAW_RECEIPT_BATCH);
         for (const row of rows) {
-          if (row.rawBodyStorageId) await ctx.storage.delete(row.rawBodyStorageId);
           await ctx.db.delete("paymentWebhookReceipts", row._id);
         }
         deleted = rows.length;
@@ -514,10 +519,34 @@ export const deleteOperationalDataBatch = internalMutation({
       deleted,
       hasMore:
         deleted ===
-        (args.tableName === "domainEvents" ? DOMAIN_EVENT_BATCH_SIZE : BATCH_SIZE),
+        (args.tableName === "domainEvents" ? DOMAIN_EVENT_BATCH_SIZE
+          : args.tableName === "paymentWebhookReceipts" ? RAW_RECEIPT_BATCH : BATCH_SIZE),
     };
   },
 });
+
+export const countReceiptPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  returns: v.object({ count: v.number(), nextCursor: v.union(v.string(), v.null()) }),
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("paymentWebhookReceipts")
+      .paginate({ cursor, numItems: RAW_RECEIPT_BATCH });
+    return { count: page.page.length, nextCursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+async function resetSnapshot(ctx: ActionCtx): Promise<SnapshotResult> {
+  let cursor: string | null = null;
+  let paymentWebhookReceiptCount = 0;
+  do {
+    const page: { count: number; nextCursor: string | null } = await ctx.runQuery(
+      internal.testing.operationalData.countReceiptPage, { cursor },
+    );
+    paymentWebhookReceiptCount += page.count;
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return ctx.runQuery(internal.testing.operationalData.getSnapshot, { paymentWebhookReceiptCount });
+}
 
 export const resetOperationalData = internalAction({
   args: {
@@ -531,10 +560,7 @@ export const resetOperationalData = internalAction({
       );
     }
 
-    const before: SnapshotResult = await ctx.runQuery(
-      internal.testing.operationalData.getSnapshot,
-      {},
-    );
+    const before = await resetSnapshot(ctx);
 
     if (args.dryRun !== false) {
       return {
@@ -566,6 +592,7 @@ export const resetOperationalData = internalAction({
       fathomWebhookEvents: 0,
       paymentWebhookReceipts: 0,
       paymentProviderBindings: 0,
+      providerPaymentAllocationCommands: 0,
       providerPayments: 0,
       tenantPaymentConnections: 0,
       fathomOrgMembers: 0,
@@ -645,10 +672,7 @@ export const resetOperationalData = internalAction({
       }
     }
 
-    const after: SnapshotResult = await ctx.runQuery(
-      internal.testing.operationalData.getSnapshot,
-      {},
-    );
+    const after = await resetSnapshot(ctx);
 
     return {
       mode: "executed",

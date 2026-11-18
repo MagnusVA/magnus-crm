@@ -77,6 +77,10 @@ export function whopState(connection: WhopConnection | null): IntegrationState {
   if (!connection) return { word: "Not connected", tone: "muted", connected: false };
   if (connection.status === "disconnected") return { word: "Disconnected", tone: "muted", connected: false };
   if (connection.status === "invalid_key") return { word: "Key rejected", tone: "danger", connected: false };
+  if (connection.disputeAccess === "forbidden" &&
+      (connection.lastErrorCode === undefined || connection.lastErrorCode === "forbidden")) {
+    return { word: "Missing permission: disputes", tone: "warning", connected: true };
+  }
   switch (connection.lastErrorCode) {
     case "unauthorized":
       return { word: "Key rejected", tone: "danger", connected: true };

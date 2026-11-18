@@ -61,6 +61,7 @@ export type LeadRowsMoveResult = {
   copyEvents: number;
   /** More prospects or copy events than one page; continue with `moveTouchRowsPage`. */
   hasMoreTouches: boolean;
+  hasMoreProviderPayments: boolean;
   boundsHit: string[];
 };
 
@@ -137,8 +138,8 @@ export async function moveOpportunityToLead(
           q.eq("tenantId", tenantId).eq("opportunityId", opportunityId))
         .take(ROW_LIMIT),
       ctx.db.query("providerPayments")
-        .withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
-          q.eq("tenantId", tenantId).eq("candidateLeadId", opportunity.leadId))
+        .withIndex("by_tenantId_and_candidateOpportunityId", (q) =>
+          q.eq("tenantId", tenantId).eq("candidateOpportunityId", opportunityId))
         .take(ROW_LIMIT),
     ]);
     noteBound(result.boundsHit, "provider_payments", allocated);
@@ -149,7 +150,7 @@ export async function moveOpportunityToLead(
       }
     }
     for (const payment of candidates) {
-      if (payment.candidateOpportunityId === opportunityId) {
+      if (payment.candidateLeadId !== toLeadId) {
         await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
       }
     }
@@ -423,6 +424,34 @@ export async function moveMeetingToOpportunity(
   return result;
 }
 
+/** Drains one page from each provider payment index for the merged person. */
+export async function moveProviderPaymentsPage(
+  ctx: MutationCtx,
+  { tenantId, fromLeadId, toLeadId }: {
+    tenantId: Id<"tenants">;
+    fromLeadId: Id<"leads">;
+    toLeadId: Id<"leads">;
+  },
+): Promise<boolean> {
+  const [allocated, candidates] = await Promise.all([
+    ctx.db.query("providerPayments")
+      .withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", fromLeadId))
+      .take(ROW_LIMIT + 1),
+    ctx.db.query("providerPayments")
+      .withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
+        q.eq("tenantId", tenantId).eq("candidateLeadId", fromLeadId))
+      .take(ROW_LIMIT + 1),
+  ]);
+  for (const payment of allocated.slice(0, ROW_LIMIT)) {
+    await ctx.db.patch("providerPayments", payment._id, { leadId: toLeadId });
+  }
+  for (const payment of candidates.slice(0, ROW_LIMIT)) {
+    await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
+  }
+  return allocated.length > ROW_LIMIT || candidates.length > ROW_LIMIT;
+}
+
 /**
  * Moves every remaining row in a lead-indexed table from `fromLeadId` to
  * `toLeadId`: lead notes, the DM portal's edit history, Slack qualification
@@ -448,6 +477,7 @@ export async function moveRemainingLeadRows(
     prospects: 0,
     copyEvents: 0,
     hasMoreTouches: false,
+    hasMoreProviderPayments: false,
     boundsHit: [],
   };
 
@@ -512,24 +542,9 @@ export async function moveRemainingLeadRows(
   }
   result.followUps = followUps.length;
 
-  const [allocated, candidates] = await Promise.all([
-    ctx.db.query("providerPayments")
-      .withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", fromLeadId))
-      .take(ROW_LIMIT),
-    ctx.db.query("providerPayments")
-      .withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
-        q.eq("tenantId", tenantId).eq("candidateLeadId", fromLeadId))
-      .take(ROW_LIMIT),
-  ]);
-  noteBound(result.boundsHit, "provider_payments", allocated);
-  noteBound(result.boundsHit, "provider_payment_candidates", candidates);
-  for (const payment of allocated) {
-    await ctx.db.patch("providerPayments", payment._id, { leadId: toLeadId });
-  }
-  for (const payment of candidates) {
-    await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
-  }
+  result.hasMoreProviderPayments = await moveProviderPaymentsPage(ctx, {
+    tenantId, fromLeadId, toLeadId,
+  });
 
   // Lead gen prospects and DM portal copies are the person's touches
   // (docs/plans/phase-2-person-first.md §5). A person can have more than one

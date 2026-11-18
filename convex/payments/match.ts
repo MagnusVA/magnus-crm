@@ -1,10 +1,13 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { followMergeChain } from "../leads/identityResolution";
-import { isPlaceholderEmail, normalizeEmail, normalizePhone } from "../lib/normalization";
+import { mergedLeadIds } from "../lib/mergedLeads";
+import { isPlaceholderEmail, isPlaceholderPhone, normalizeEmail, normalizePhone } from "../lib/normalization";
 import { isSideDeal } from "../lib/sideDeals";
-import { isWonDeal } from "../opportunities/dealGuards";
-import { systemLossReasonOf } from "../opportunities/stages";
+import { awaitsCallResult, isOpenDeal, isQualifiedDeal, isSideDealAtCallHeld, isWonDeal } from "../opportunities/dealGuards";
+import { dealStageOf, systemLossReasonOf } from "../opportunities/stages";
+import { findEnabledBinding } from "./bindingLookup";
+import { MAX_PROVIDER_PAYMENT_AGE_MS } from "./reviewTiming";
 
 type ReadCtx = QueryCtx | MutationCtx;
 type Payment = Doc<"providerPayments">;
@@ -17,6 +20,7 @@ type BoundTarget = {
   lead: Doc<"leads">;
   binding: DealBinding;
   expectedProgramId?: Id<"tenantPrograms">;
+  anchor?: Doc<"paymentRecords">;
 };
 
 export type PaymentTarget =
@@ -44,13 +48,15 @@ const IDENTITY_LIMIT = 16;
 export const PROVIDER_CANDIDATE_DEAL_LIMIT = 20;
 const DEAL_SCAN_LIMIT = 100;
 const PAYMENT_SCAN_LIMIT = 40;
-const MAX_PAYMENT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 // https://docs.whop.com/api-reference/payments/retrieve-payment
-const BILLING_REASONS = new Set([
-  "subscription_create", "subscription_cycle", "subscription_update",
-  "one_time", "manual", "subscription",
-]);
+const INITIAL_BILLING_REASONS = new Set(["subscription_create", "one_time", "manual"]);
+const KNOWN_RENEWAL_REASONS = new Set(["subscription_cycle", "subscription_update"]);
+
+function couldBeRenewal(reason?: string) {
+  // Unknown and legacy reasons cannot establish a first charge by email.
+  return !INITIAL_BILLING_REASONS.has(reason ?? "");
+}
 const FINANCING_METHODS = new Set([
   "addi", "affirm", "afterpay", "afterpay_clearpay", "alma", "billie",
   "capchase_pay", "card_installments_three", "card_installments_six",
@@ -133,25 +139,6 @@ async function openDeals(ctx: ReadCtx, tenantId: Id<"tenants">, leadId: Id<"lead
     q.eq("tenantId", tenantId).eq("leadId", leadId).eq("outcome", "open")).take(DEAL_SCAN_LIMIT + 1);
 }
 
-async function bindingByExternalId<K extends Binding["kind"]>(
-  ctx: ReadCtx,
-  payment: Pick<Payment, "tenantId" | "connectionId">,
-  kind: K,
-  externalId?: string,
-): Promise<Extract<Binding, { kind: K }> | null | "ambiguous"> {
-  if (!externalId) return null;
-  // Mapping changes append a version and disable the previous one. Only the
-  // newest version can apply; an enabled predecessor indicates a conflict.
-  const rows = await ctx.db.query("paymentProviderBindings")
-    .withIndex("by_tenantId_and_connectionId_and_kind_and_externalId", (q) =>
-      q.eq("tenantId", payment.tenantId).eq("connectionId", payment.connectionId)
-        .eq("kind", kind).eq("externalId", externalId)).order("desc").take(2);
-  const [current, previous] = rows;
-  if ((current && current.binding.kind !== kind) || previous?.enabled) return "ambiguous";
-  if (!current?.enabled) return null;
-  return current.binding as Extract<Binding, { kind: K }>;
-}
-
 async function membershipAnchor(
   ctx: ReadCtx,
   payment: Pick<Payment, "tenantId" | "connectionId" | "membershipId">,
@@ -187,7 +174,7 @@ async function dealForBinding(
   if (binding.kind === "membership_deal") {
     const anchor = await membershipAnchor(ctx, payment, binding);
     if (!anchor) return null;
-    return { deal, lead: survivor, binding, expectedProgramId: anchor.programId };
+    return { deal, lead: survivor, binding, anchor, expectedProgramId: deal.soldProgramId ?? anchor.programId };
   }
   return {
     deal,
@@ -202,11 +189,11 @@ async function findBoundTarget(ctx: ReadCtx, payment: Payment) {
   // renewal even when that checkout still has a binding of its own.
   const checkout = ["checkout_deal", payment.checkoutConfigurationId] as const;
   const membership = ["membership_deal", payment.membershipId] as const;
-  const orderedKeys = payment.billingReason === "subscription_cycle"
+  const orderedKeys = couldBeRenewal(payment.billingReason)
     ? [membership, checkout]
     : [checkout, membership];
   for (const [kind, externalId] of orderedKeys) {
-    const binding = await bindingByExternalId(ctx, payment, kind, externalId);
+    const binding = await findEnabledBinding(ctx, payment, kind, externalId);
     if (binding === "ambiguous") return binding;
     const target = binding && await dealForBinding(ctx, payment, binding);
     if (target) return target;
@@ -229,68 +216,60 @@ async function personEmails(
     if (usable) emails.add(usable);
   };
   add(payerEmail);
-  const people = new Map([[person._id, person]]);
-  let cursor = 0;
-  for (const lead of people.values()) {
-    // Add to the map as we walk, so nested merge history is visited as well.
-    if (++cursor > IDENTITY_LIMIT) return null;
+  const leadIds = await mergedLeadIds(ctx, person.tenantId, person._id);
+  // This matcher must hold before the shared merge walk can truncate.
+  if (leadIds.length > IDENTITY_LIMIT) return null;
+  for (const leadId of leadIds) {
+    const lead = leadId === person._id ? person : await ctx.db.get("leads", leadId);
+    if (lead?.tenantId !== person.tenantId ||
+        (leadId !== person._id && lead.status !== "merged")) return null;
     add(lead.email);
-    const [identifiers, merges] = await Promise.all([
-      ctx.db.query("leadIdentifiers").withIndex("by_leadId", (q) =>
-        q.eq("leadId", lead._id)).take(IDENTITY_LIMIT + 1),
-      ctx.db.query("leadMergeHistory").withIndex("by_targetLeadId", (q) =>
-        q.eq("targetLeadId", lead._id)).take(IDENTITY_LIMIT + 1),
-    ]);
-    if (identifiers.length > IDENTITY_LIMIT || merges.length > IDENTITY_LIMIT) return null;
+    const identifiers = await ctx.db.query("leadIdentifiers").withIndex("by_leadId", (q) =>
+      q.eq("leadId", leadId)).take(IDENTITY_LIMIT + 1);
+    if (identifiers.length > IDENTITY_LIMIT) return null;
     for (const identifier of identifiers) {
       if (identifier.tenantId !== person.tenantId) return null;
       if (identifier.type === "email" && identifier.confidence !== "suggested") add(identifier.value);
     }
     if (emails.size > IDENTITY_LIMIT) return null;
-    for (const merge of merges) {
-      if (merge.tenantId !== person.tenantId || people.has(merge.sourceLeadId)) continue;
-      const source = await ctx.db.get("leads", merge.sourceLeadId);
-      if (source?.tenantId !== person.tenantId || source.status !== "merged") return null;
-      if (people.size >= IDENTITY_LIMIT) return null;
-      people.set(source._id, source);
-    }
   }
-  return { emails, leadIds: [...people.keys()] };
+  return { emails, leadIds };
 }
 
 async function hasUnboundMembership(ctx: ReadCtx, payment: Payment, person: Doc<"leads">) {
   const identity = await personEmails(ctx, person, payment.payerEmail);
-  if (!identity) return "capacity_hold";
+  if (!identity) return "read_limit";
 
-  const { tenantId } = payment;
+  const { connectionId } = payment;
   const payments = new Map<Id<"providerPayments">, Payment>();
   for (const leadId of identity.leadIds) {
     const [resolved, candidates] = await Promise.all([
-      ctx.db.query("providerPayments").withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", leadId)).take(PAYMENT_SCAN_LIMIT + 1),
-      ctx.db.query("providerPayments").withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
-        q.eq("tenantId", tenantId).eq("candidateLeadId", leadId)).take(PAYMENT_SCAN_LIMIT + 1),
+      ctx.db.query("providerPayments").withIndex("by_connectionId_and_leadId_and_paidAt", (q) =>
+        q.eq("connectionId", connectionId).eq("leadId", leadId)).take(PAYMENT_SCAN_LIMIT + 1),
+      ctx.db.query("providerPayments").withIndex("by_connectionId_and_candidateLeadId_and_paidAt", (q) =>
+        q.eq("connectionId", connectionId).eq("candidateLeadId", leadId)).take(PAYMENT_SCAN_LIMIT + 1),
     ]);
-    if (resolved.length > PAYMENT_SCAN_LIMIT || candidates.length > PAYMENT_SCAN_LIMIT) return "unbound_membership";
+    if (resolved.length > PAYMENT_SCAN_LIMIT || candidates.length > PAYMENT_SCAN_LIMIT) return "read_limit";
     for (const row of [...resolved, ...candidates]) payments.set(row._id, row);
-    if (payments.size > PAYMENT_SCAN_LIMIT) return "unbound_membership";
+    if (payments.size > PAYMENT_SCAN_LIMIT) return "read_limit";
   }
   for (const email of identity.emails) {
-    const rows = await ctx.db.query("providerPayments").withIndex("by_tenantId_and_payerEmail_and_paidAt", (q) =>
-      q.eq("tenantId", tenantId).eq("payerEmail", email)).take(PAYMENT_SCAN_LIMIT + 1);
-    if (rows.length > PAYMENT_SCAN_LIMIT) return "unbound_membership";
+    const rows = await ctx.db.query("providerPayments").withIndex("by_connectionId_and_payerEmail_and_paidAt", (q) =>
+      q.eq("connectionId", connectionId).eq("payerEmail", email)).take(PAYMENT_SCAN_LIMIT + 1);
+    if (rows.length > PAYMENT_SCAN_LIMIT) return "read_limit";
     for (const row of rows) payments.set(row._id, row);
-    if (payments.size > PAYMENT_SCAN_LIMIT) return "unbound_membership";
+    if (payments.size > PAYMENT_SCAN_LIMIT) return "read_limit";
   }
 
   const checked = new Set<string>();
   for (const row of payments.values()) {
-    if (row._id === payment._id || row.status !== "paid" || !row.membershipId || row.totalMinor === 0) continue;
-    const key = `${row.connectionId}:${row.membershipId}`;
+    if (row.tenantId !== payment.tenantId || row._id === payment._id || row.status !== "paid" || !row.membershipId || row.totalMinor === 0) continue;
+    const key = row.membershipId;
     if (checked.has(key)) continue;
     checked.add(key);
-    const binding = await bindingByExternalId(ctx, row, "membership_deal", row.membershipId);
-    if (!binding || binding === "ambiguous") return "unbound_membership";
+    const binding = await findEnabledBinding(ctx, row, "membership_deal", row.membershipId);
+    if (binding === "ambiguous") return "binding_conflict";
+    if (!binding) return "unbound_membership";
     if ((await dealForBinding(ctx, row, binding))?.lead._id !== person._id) return "unbound_membership";
   }
   return null;
@@ -302,48 +281,67 @@ async function dealPaymentHold(
   person: Doc<"leads">,
   deal: Deal,
   autoImportAfter: number,
+  now: number,
   bound?: BoundTarget,
 ): Promise<ReviewReason | null> {
   if (payment.paidAt !== undefined && deal.createdAt > payment.paidAt) return "deal_newer_than_payment";
   if (payment.paidAt === undefined || payment.paidAt < autoImportAfter ||
-      Date.now() - payment.paidAt > MAX_PAYMENT_AGE_MS) return "stale_payment";
+      now - payment.paidAt > MAX_PROVIDER_PAYMENT_AGE_MS) return "stale_payment";
   if (payment.lineItemCount !== 1) return "multi_item";
+  if (payment.adverseState.startsWith("dispute_")) return "dispute";
+  if (payment.adverseState !== "none" || payment.refundedMinor > 0) return "refund";
+  if (payment.adverseFencedAt !== undefined) return "dispute";
 
-  const [product, variant] = await Promise.all([
-    bindingByExternalId(ctx, payment, "product_program", payment.productId),
-    bindingByExternalId(ctx, payment, "variant_type", payment.variantId),
-  ]);
-  if (!product || product === "ambiguous" || !variant || variant === "ambiguous") return "unmapped_product";
-  const program = await ctx.db.get("tenantPrograms", product.programId);
-  if (program?.tenantId !== payment.tenantId) return "unmapped_product";
-
-  if (bound?.expectedProgramId && bound.expectedProgramId !== program._id) return "unmapped_product";
+  const renewal = couldBeRenewal(payment.billingReason);
+  if (renewal && !bound?.anchor) {
+    return KNOWN_RENEWAL_REASONS.has(payment.billingReason ?? "") ? "renewal_unbound" : "unknown_billing_reason";
+  }
+  if (renewal && bound?.anchor) {
+    // A confirmed renewal inherits the sold program even after mappings are removed.
+    const program = bound.expectedProgramId && await ctx.db.get("tenantPrograms", bound.expectedProgramId);
+    if (program?.tenantId !== payment.tenantId || program._id !== bound.anchor.programId) return "program_mismatch";
+  } else {
+    const [product, variant] = await Promise.all([
+      findEnabledBinding(ctx, payment, "product_program", payment.productId),
+      findEnabledBinding(ctx, payment, "variant_type", payment.variantId),
+    ]);
+    if (product === "ambiguous" || variant === "ambiguous") return "binding_conflict";
+    if (!product || !variant) return "unmapped_product";
+    const program = await ctx.db.get("tenantPrograms", product.programId);
+    if (program?.tenantId !== payment.tenantId) return "unmapped_product";
+    if (bound?.expectedProgramId && bound.expectedProgramId !== program._id) return "program_mismatch";
+  }
   if ((payment.financingInstallmentsCount ?? 0) > 1 ||
       FINANCING_METHODS.has(payment.paymentMethodType ?? "")) return "financing";
-  if (payment.billingReason === "subscription_cycle" && bound?.binding.kind !== "membership_deal") return "renewal_unbound";
-  if (!BILLING_REASONS.has(payment.billingReason ?? "")) return "unknown_billing_reason";
 
-  const membershipHold = await hasUnboundMembership(ctx, payment, person);
-  if (membershipHold) return membershipHold;
+  if (!bound) {
+    const membershipHold = await hasUnboundMembership(ctx, payment, person);
+    if (membershipHold) return membershipHold;
+  }
   if (payment.totalMinor === undefined) return "unsupported_currency";
 
   const records = await ctx.db.query("paymentRecords").withIndex("by_opportunityId_and_recordedAt", (q) =>
-    q.eq("opportunityId", deal._id)).take(PAYMENT_SCAN_LIMIT + 1);
-  if (records.some((row) => row.tenantId === payment.tenantId &&
+    q.eq("opportunityId", deal._id)).take(PAYMENT_SCAN_LIMIT);
+  if (records.length >= PAYMENT_SCAN_LIMIT) return "capacity_hold";
+  if (records.some((row) => row.tenantId === payment.tenantId && row._id !== bound?.anchor?._id &&
       row.status !== "disputed" && row.providerPaymentId === undefined)) {
     return "unlinked_manual_payment";
   }
-  if (records.length > PAYMENT_SCAN_LIMIT) return "capacity_hold";
   if (!deal.assignedCloserId) return "no_closer";
-  if (payment.adverseState.startsWith("dispute_")) return "dispute";
-  if (payment.adverseState !== "none" || payment.refundedMinor > 0) return "refund";
-  // Until the refresh describes the adverse delivery, review the pending signal.
-  if (payment.adverseFencedAt !== undefined) return "dispute";
+  return null;
+}
+
+function openDealHold(deal: Deal): ReviewReason | null {
+  if (isQualifiedDeal(deal)) return "qualified_only";
+  if (isSideDealAtCallHeld(deal) || (isOpenDeal(deal) && isSideDeal(deal)) ||
+      (awaitsCallResult(deal) && dealStageOf(deal).stage === "call_held")) return "side_deal";
+  // Plan §2.3 makes provider money an exception to canTakePayment for a
+  // Follow-up deal with a pending reschedule link. The Phase 2 win expires it.
   return null;
 }
 
 function closedDealReason(deals: Deal[]): ReviewReason {
-  if (deals.length > DEAL_SCAN_LIMIT) return "capacity_hold";
+  if (deals.length > DEAL_SCAN_LIMIT) return "read_limit";
   if (deals.some(isWonDeal)) return "won_deal_no_membership";
   if (deals.some((deal) => deal.outcome === "lost" && !systemLossReasonOf(deal))) return "lost_by_person";
   if (deals.some(systemLossReasonOf)) return "system_loss";
@@ -351,7 +349,11 @@ function closedDealReason(deals: Deal[]): ReviewReason {
 }
 
 /** Reads the CRM target and any reason a reviewer must decide. */
-export async function findPaymentTarget(ctx: ReadCtx, payment: Payment): Promise<PaymentTarget> {
+export async function findPaymentTarget(
+  ctx: ReadCtx, payment: Payment, now = Date.now(),
+): Promise<PaymentTarget> {
+  if (payment.reviewState === "historical") return needsPerson("historical");
+  if (payment.reviewState === "dismissed") return needsPerson("dismissed");
   if (payment.paymentRecordId) return {
     kind: "resolved",
     paymentRecordId: payment.paymentRecordId,
@@ -360,19 +362,20 @@ export async function findPaymentTarget(ctx: ReadCtx, payment: Payment): Promise
     matchMethod: payment.matchMethod,
   };
 
+  if (payment.status !== "paid" || payment.totalMinor === 0) return needsPerson("not_paid");
   const connection = await ctx.db.get("tenantPaymentConnections", payment.connectionId);
-  if (connection?.tenantId !== payment.tenantId) return needsPerson("ambiguous_person");
+  if (connection?.tenantId !== payment.tenantId) return needsPerson("connection_mismatch");
   const bound = await findBoundTarget(ctx, payment);
-  if (bound === "ambiguous") return needsPerson("capacity_hold");
+  if (bound === "ambiguous") return needsPerson("binding_conflict");
   if (bound) {
     const { deal, lead, binding } = bound;
     if (deal.outcome === "lost" && !systemLossReasonOf(deal)) return needsPerson("lost_by_person", lead._id, [deal]);
-    if (deal.stage === "qualified") return needsPerson("qualified_only", lead._id, [deal]);
-    if (deal.outcome === "open" && isSideDeal(deal)) return needsPerson("side_deal", lead._id, [deal]);
+    const positionHold = openDealHold(deal);
+    if (positionHold) return needsPerson(positionHold, lead._id, [deal]);
     if (isWonDeal(deal) && binding.kind !== "membership_deal") {
       return needsPerson("won_deal_no_membership", lead._id, [deal]);
     }
-    const hold = await dealPaymentHold(ctx, payment, lead, deal, connection.autoImportAfter, bound);
+    const hold = await dealPaymentHold(ctx, payment, lead, deal, connection.autoImportAfter, now, bound);
     if (hold) return needsPerson(hold, lead._id, [deal]);
     return {
       kind: "ready", leadId: lead._id, opportunityId: deal._id,
@@ -382,7 +385,9 @@ export async function findPaymentTarget(ctx: ReadCtx, payment: Payment): Promise
 
   const { tenantId } = payment;
   const email = usableEmail(payment.payerEmail);
-  const phone = payment.payerPhone?.trim().startsWith("+") ? normalizePhone(payment.payerPhone) : undefined;
+  const rawPhone = payment.payerPhone?.trim();
+  const phone = rawPhone?.startsWith("+") && !isPlaceholderPhone(rawPhone)
+    ? normalizePhone(rawPhone) : undefined;
   const emailPeople = await identifierPeople(ctx, tenantId, "email", email);
   if (!emailPeople || emailPeople.size > 1) return needsPerson("ambiguous_person");
   const [person] = emailPeople.values();
@@ -406,11 +411,10 @@ export async function findPaymentTarget(ctx: ReadCtx, payment: Payment): Promise
     const closed = await personDeals(ctx, tenantId, person._id);
     return needsPerson(closedDealReason(closed), person._id, closed);
   }
-  if (deal.stage === "qualified") return needsPerson("qualified_only", person._id, deals);
-  if (isSideDeal(deal) || deal.stage === "call_held") return needsPerson("side_deal", person._id, deals);
-  if (deal.stage !== "booked" && deal.stage !== "follow_up") return needsPerson("no_open_deal", person._id, deals);
+  const positionHold = openDealHold(deal);
+  if (positionHold) return needsPerson(positionHold, person._id, deals);
 
-  const hold = await dealPaymentHold(ctx, payment, person, deal, connection.autoImportAfter);
+  const hold = await dealPaymentHold(ctx, payment, person, deal, connection.autoImportAfter, now);
   if (hold) return needsPerson(hold, person._id, deals);
   return { kind: "ready", leadId: person._id, opportunityId: deal._id, matchMethod: "email_one_open_deal" };
 }

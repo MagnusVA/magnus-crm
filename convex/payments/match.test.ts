@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { insertDealTask, insertOtherTenant } from "../../tests/dealStateFixtures";
-import { insertPayment } from "../../tests/enrollmentFixtures";
+import { insertPayment, insertProgram } from "../../tests/enrollmentFixtures";
 import {
   FIXTURE_NOW,
   FIXTURE_PAID_AT,
   PAYER_EMAIL,
+  PRODUCT_ID,
   insertProviderBinding,
   insertProviderDeal,
   insertProviderFact,
@@ -52,7 +53,7 @@ describe("provider payment matching", () => {
   });
 
   it("finds a single Follow-up deal with a reschedule link", async () => {
-    const fixture = await providerPaymentFixture({ dealStatus: "follow_up_scheduled" });
+    const fixture = await providerPaymentFixture({ dealPosition: "follow_up" });
     await fixture.t.run((ctx) => insertDealTask(ctx, fixture.dealId!));
     expect(await match(fixture)).toMatchObject({ kind: "ready", opportunityId: fixture.dealId });
   });
@@ -60,10 +61,10 @@ describe("provider payment matching", () => {
   it("counts Qualified among open deals and presents candidates by latest meeting", async () => {
     const fixture = await providerPaymentFixture();
     const [qualified, newer] = await fixture.t.run(async (ctx) => [
-      await insertProviderDeal(ctx, { tenantId: fixture.tenantId, leadId: fixture.personId, status: "qualified_pending" }),
+      await insertProviderDeal(ctx, { tenantId: fixture.tenantId, leadId: fixture.personId, position: "qualified" }),
       await insertProviderDeal(ctx, {
         tenantId: fixture.tenantId, leadId: fixture.personId,
-        status: "follow_up_scheduled", latestMeetingAt: FIXTURE_NOW + 1000,
+        position: "follow_up", latestMeetingAt: FIXTURE_NOW + 1000,
       }),
     ]);
     expect(await match(fixture)).toEqual({
@@ -75,15 +76,15 @@ describe("provider payment matching", () => {
   });
 
   it.each([
-    [null, "no_open_deal"],
-    ["qualified_pending", "qualified_only"],
-    ["payment_received", "won_deal_no_membership"],
-    ["lost", "lost_by_person"],
-    ["no_show", "system_loss"],
-    ["canceled", "system_loss"],
-  ] as const)("classifies %s when it is the person's only deal", async (dealStatus, reason) => {
-    const fixture = await providerPaymentFixture({ dealStatus });
-    if (dealStatus === "lost") {
+    { dealPosition: null, reason: "no_open_deal" },
+    { dealPosition: "qualified", reason: "qualified_only" },
+    { dealPosition: "won", reason: "won_deal_no_membership" },
+    { dealPosition: "lost", reason: "lost_by_person" },
+    { dealPosition: "lost", lostReason: "no_show", reason: "system_loss" },
+    { dealPosition: "lost", lostReason: "canceled", reason: "system_loss" },
+  ] as const)("classifies $reason when it is the person's only deal", async ({ dealPosition, lostReason, reason }) => {
+    const fixture = await providerPaymentFixture({ dealPosition, lostReason });
+    if (reason === "lost_by_person") {
       await fixture.t.run((ctx) => ctx.db.patch("opportunities", fixture.dealId!, {
         lostReason: "no_show", lostByUserId: fixture.adminId,
       }));
@@ -100,7 +101,7 @@ describe("provider payment matching", () => {
   });
 
   it("recognizes an expired Slack qualification as a system loss", async () => {
-    const fixture = await providerPaymentFixture({ dealStatus: "lost", source: "slack_qualified" });
+    const fixture = await providerPaymentFixture({ dealPosition: "lost", source: "slack_qualified" });
     await fixture.t.run((ctx) => ctx.db.patch("opportunities", fixture.dealId!, { lostReason: "stale" }));
     expect(await match(fixture)).toMatchObject({ reason: "system_loss" });
   });
@@ -203,15 +204,18 @@ describe("provider payment matching", () => {
   const evidenceCases = [
     ["multi_item", { lineItemCount: 2 }],
     ["unmapped_product", { productId: "prod_unmapped" }],
-    ["unmapped_product", { variantId: "var_unmapped" }],
+    ["unmapped_product", { variantId: "plan_unmapped" }],
     ["financing", { financingInstallmentsCount: 2 }],
     ["financing", { paymentMethodType: "klarna" }],
     ["renewal_unbound", { billingReason: "subscription_cycle" }],
+    ["renewal_unbound", { billingReason: "subscription_update" }],
+    ["unknown_billing_reason", { billingReason: "subscription" }],
     ["unknown_billing_reason", { billingReason: "new_reason" }],
     ["unknown_billing_reason", { billingReason: undefined }],
     ["stale_payment", { paidAt: FIXTURE_NOW - 8 * 86_400_000 }],
     ["unsupported_currency", { totalMinor: undefined, currency: "JPY", decimals: 0 }],
     ["refund", { adverseState: "partially_refunded", refundedMinor: 1000 }],
+    ["refund", { adverseState: "refund_pending", adverseFencedAt: FIXTURE_NOW }],
     ["dispute", { adverseState: "dispute_open" }],
   ] as const satisfies ReadonlyArray<[string, Partial<Doc<"providerPayments">>]>;
   it.each(evidenceCases)("holds %s", async (reason, fact) => {
@@ -302,10 +306,16 @@ describe("binding precedence and persisted review", () => {
 
   it("uses a valid membership anchor on a won deal before the person's new deal and rejects a disputed anchor", async () => {
     const fixture = await providerPaymentFixture({
-      dealStatus: "payment_received",
-      fact: { membershipId: "mem_fixture", checkoutConfigurationId: "ch_fixture", billingReason: "subscription_cycle" },
+      dealPosition: "won",
+      fact: { membershipId: "mem_fixture", checkoutConfigurationId: "ch_fixture", billingReason: "subscription_update" },
     });
     const anchor = await fixture.t.run(async (ctx) => {
+      await ctx.db.patch("opportunities", fixture.dealId!, { soldProgramId: fixture.programId });
+      await ctx.db.patch("paymentProviderBindings", fixture.productBindingId, { enabled: false });
+      await ctx.db.patch("paymentProviderBindings", fixture.variantBindingId, { enabled: false });
+      await insertProviderFact(ctx, fixture.tenantId, fixture.connectionId, {
+        externalPaymentId: "pay_other_membership", membershipId: "mem_unbound",
+      });
       const newDeal = await insertProviderDeal(ctx, { ...fixture, leadId: fixture.personId, assignedCloserId: fixture.closerId });
       await insertProviderBinding(ctx, {
         ...fixture, externalId: "ch_fixture",
@@ -355,4 +365,85 @@ describe("binding precedence and persisted review", () => {
     const before = await fixture.t.run((ctx) => ctx.db.get("providerPayments", fixture.providerPaymentId));
     expect(await refresh(fixture)).toEqual(before);
   });
+});
+
+it("scopes membership history to the payment's own connection", async () => {
+  const fixture = await providerPaymentFixture();
+  const { t, tenantId, connectionId, personId } = fixture;
+  await t.run(async (ctx) => {
+    const source = (await ctx.db.get("tenantPaymentConnections", connectionId))!;
+    const { _id, _creationTime, ...fields } = source;
+    expect(_id).toBe(connectionId);
+    expect(_creationTime).toBeDefined();
+    const inactive = await ctx.db.insert("tenantPaymentConnections", {
+      ...fields, environment: "live", status: "disconnected",
+    });
+    await insertProviderFact(ctx, tenantId, inactive, {
+      externalPaymentId: "pay_other_environment", membershipId: "mem_other_environment",
+      leadId: personId, candidateLeadId: personId,
+    });
+  });
+  expect(await match(fixture)).toMatchObject({ kind: "ready" });
+});
+
+it("ignores a conflicting placeholder identifier and a phone saved only on another profile", async () => {
+  const fixture = await providerPaymentFixture({ fact: { payerPhone: "+12342342342" } });
+  const profileOnlyPhone = "+17789559253";
+  await fixture.t.run(async (ctx) => {
+    const other = await insertProviderPerson(ctx, fixture.tenantId, {
+      email: "different@example.invalid", phone: profileOnlyPhone,
+    });
+    await insertProviderIdentifier(ctx, fixture.tenantId, other, "phone", "+12342342342");
+  });
+  expect(await match(fixture)).toMatchObject({ kind: "ready" });
+  await fixture.t.run((ctx) => ctx.db.patch("providerPayments", fixture.providerPaymentId, { payerPhone: profileOnlyPhone }));
+  expect(await match(fixture)).toMatchObject({ kind: "ready" });
+});
+
+it("holds the next payment at exactly 40 stored rows including disputed ones", async () => {
+  const fixture = await providerPaymentFixture();
+  const { t, dealId } = fixture;
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 39; index++) {
+      await insertPayment(ctx, { ...fixture, opportunityId: dealId!, recordedAt: index, status: "disputed" });
+    }
+  });
+  expect(await match(fixture)).toMatchObject({ kind: "ready" });
+  await t.run((ctx) => insertPayment(ctx, { ...fixture, opportunityId: dealId!, recordedAt: 39, status: "disputed" }));
+  expect(await match(fixture)).toMatchObject({ reason: "capacity_hold" });
+});
+
+it("reports a binding conflict, a program mismatch, and a membership history read limit separately", async () => {
+  const fixture = await providerPaymentFixture();
+  const { t, providerPaymentId, tenantId, connectionId, dealId, personId } = fixture;
+  const duplicate = await t.run((ctx) => insertProviderBinding(ctx, {
+    ...fixture, externalId: PRODUCT_ID, binding: { kind: "product_program", programId: fixture.programId },
+  }));
+  expect(await match(fixture)).toMatchObject({ reason: "binding_conflict" });
+  await t.run(async (ctx) => {
+    await ctx.db.delete("paymentProviderBindings", duplicate);
+    const anotherProgram = await insertProgram(ctx, tenantId, "Different fixture program");
+    await ctx.db.patch("opportunities", dealId!, { soldProgramId: anotherProgram });
+    await insertProviderBinding(ctx, {
+      ...fixture, externalId: "checkout_fixture", binding: { kind: "checkout_deal", leadId: personId, opportunityId: dealId! },
+    });
+    await ctx.db.patch("providerPayments", providerPaymentId, { checkoutConfigurationId: "checkout_fixture" });
+  });
+  expect(await match(fixture)).toMatchObject({ reason: "program_mismatch" });
+  await t.run(async (ctx) => {
+    await ctx.db.patch("providerPayments", providerPaymentId, { checkoutConfigurationId: undefined });
+    for (let index = 0; index < 41; index++) {
+      await insertProviderFact(ctx, tenantId, connectionId, { externalPaymentId: `pay_prior_${index}` });
+    }
+  });
+  expect(await match(fixture)).toMatchObject({ reason: "read_limit" });
+});
+
+it("labels a mismatch between the provider payment and its connection tenant", async () => {
+  const fixture = await providerPaymentFixture();
+  await fixture.t.run(async (ctx) => {
+    const other = await insertOtherTenant(ctx);
+    await ctx.db.patch("tenantPaymentConnections", fixture.connectionId, { tenantId: other });
+  });
+  expect(await match(fixture)).toMatchObject({ reason: "connection_mismatch" });
 });

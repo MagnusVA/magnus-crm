@@ -1,3 +1,4 @@
+import { reportError, type ObsAttributes } from "../../lib/observability/log";
 import { timeoutSignal } from "../../lib/timeoutSignal";
 
 /**
@@ -12,6 +13,17 @@ export const WHOP_API_BASE = {
 
 /** The dated API version every request pins. Change it on purpose, with tests. */
 export const WHOP_API_VERSION_DATE = "2026-11-16-2";
+
+export const MAX_RETRY_AFTER_MS = 15 * 60_000;
+
+function retryAfterDelay(value: string | null): number {
+  if (!value) return 60_000;
+  if (/^\d+$/.test(value)) return Math.min(Number(value) * 1000, MAX_RETRY_AFTER_MS);
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    ? Math.min(Math.max(timestamp - Date.now(), 0), MAX_RETRY_AFTER_MS)
+    : 60_000;
+}
 
 export type WhopEnvironment = keyof typeof WHOP_API_BASE;
 
@@ -35,8 +47,15 @@ export class WhopRequestError extends Error {
     public status?: number,
     public retryAfterMs?: number,
   ) {
-    super(`Whop request failed: ${code}${status ? ` (HTTP ${status})` : ""}`);
+    super(status ? `Whop request failed: HTTP ${status} ${code}` : `Whop request failed: request error ${code}`);
   }
+}
+
+export function reportWhopRequestError(event: string, error: unknown, attrs: ObsAttributes) {
+  const failure = error instanceof WhopRequestError ? error : new WhopRequestError("unexpected_response");
+  reportError(event, failure, {
+    ...attrs, integration: "whop", fingerprint: `integration:whop:${failure.status ?? failure.code}`,
+  });
 }
 
 export type WhopQuery = Record<string, string | number | string[] | undefined>;
@@ -95,11 +114,10 @@ export async function whopRequest(
     throw new WhopRequestError("unauthorized", 401);
   if (response.status === 403) throw new WhopRequestError("forbidden", 403);
   if (response.status === 429) {
-    const seconds = Number(response.headers.get("Retry-After"));
     throw new WhopRequestError(
       "rate_limited",
       429,
-      Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 60_000,
+      retryAfterDelay(response.headers.get("Retry-After")),
     );
   }
   if (response.status >= 500)

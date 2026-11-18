@@ -17,6 +17,7 @@ export const WHOP_SETTINGS_HREF = "/workspace/settings/whop";
 /** One plain sentence per reason a Whop payment waits for a person. */
 export const PROVIDER_REASON_SENTENCES: Record<ProviderReviewReason, string> = {
   ready: "Matches one person with one open deal.",
+  not_paid: "Whop has not reported a positive payment.",
   unknown_payer: "The payer's email matches no one.",
   no_payer_email: "Whop sent no email for the payer.",
   phone_only: "Whop sent only a phone number for the payer.",
@@ -30,6 +31,8 @@ export const PROVIDER_REASON_SENTENCES: Record<ProviderReviewReason, string> = {
   system_loss: "The system closed this deal as lost.",
   won_deal_no_membership: "This deal is already won, and no Whop membership is tied to it.",
   deal_newer_than_payment: "The open deal was created after Whop collected the money.",
+  historical: "Whop collected this before the account was connected.",
+  dismissed: "Someone dismissed this payment.",
   stale_payment: "Whop collected this more than 7 days ago.",
   unmapped_product: "The Whop product has no program mapped yet.",
   multi_item: "The checkout had more than one item.",
@@ -42,7 +45,11 @@ export const PROVIDER_REASON_SENTENCES: Record<ProviderReviewReason, string> = {
   amount_mismatch: "A payment a person recorded on this deal has a different amount.",
   no_closer: "The deal has no closer to credit.",
   credit_conflict: "Two closers have a claim on this deal.",
-  capacity_hold: "There are too many records to check this on its own, so a person decides.",
+  capacity_hold: "This deal already has 40 or more payment records.",
+  binding_conflict: "Two Whop mappings are active for the same item.",
+  program_mismatch: "The Whop payment and the deal point to different programs.",
+  read_limit: "There is too much history to check this payment automatically.",
+  connection_mismatch: "This payment belongs to a different Whop connection.",
   refund: "Whop reports a refund on this payment.",
   dispute: "Whop reports a dispute on this payment.",
   not_my_sale: "The deal's closer said this is not their sale.",
@@ -126,6 +133,8 @@ export function formatSince(at: number, now: number) {
 }
 
 const ERROR_SENTENCES: Record<string, string> = {
+  "provider_payment.changed": "Someone else changed this payment. Reload to see the current state.",
+  "provider_payment.connection_unavailable": "The Whop connection is unavailable.",
   "provider_payment.not_found": "This Whop payment is not in this workspace.",
   "provider_payment.record_not_found": "That CRM payment no longer exists.",
   "provider_payment.already_allocated": "This Whop payment is already tied to a CRM payment.",

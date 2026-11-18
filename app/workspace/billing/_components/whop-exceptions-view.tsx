@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { Fragment, useState } from "react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AlertTriangleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { isWhopSweepFresh, MAX_PROVIDER_PAYMENT_AGE_MS } from "@/convex/payments/reviewTiming";
+import { useRole } from "@/components/auth/role-context";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
@@ -13,11 +17,13 @@ import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/det
 import { FIGURE, formatPaidAt } from "./billing-format";
 import { QueueRowsSkeleton } from "./billing-queue-rows";
 import {
+  ADVERSE_STATE_LABELS,
   dealStageLabel,
   formatSince,
   INTEGRATIONS_HREF,
   MAPPING_REASONS,
   NOT_CASH_NOTE,
+  providerErrorMessage,
   reasonAction,
   reasonSentence,
   UNKNOWN_PAYER_NOTE,
@@ -26,28 +32,25 @@ import {
 } from "./whop-format";
 
 const PAGE_SIZE = 25;
-const SWEEP_FRESHNESS_MS = 15 * 60 * 1000;
 
 type ExceptionRow = FunctionReturnType<typeof api.payments.review.listProviderExceptions>["page"][number];
 
+type Counts = FunctionReturnType<typeof api.payments.review.getProviderExceptionCounts>;
+type AdverseRow = FunctionReturnType<typeof api.payments.review.listAdverseOnResolved>["page"][number];
+
+const FILTERS = [
+  { state: "needs_person", label: "Waiting", empty: "No Whop payments are waiting for review." },
+  { state: "linked", label: "Linked", empty: "No Whop payments are linked." },
+  { state: "dismissed", label: "Dismissed", empty: "No Whop payments have been dismissed." },
+  { state: "historical", label: "History", empty: "No historical Whop payments." },
+] as const;
+
 /** "500+" when the count reached the cap. */
-export function formatExceptionCount(counts: { count: number; capped: boolean }) {
-  return counts.capped ? `${counts.count.toLocaleString("en-US")}+` : counts.count.toLocaleString("en-US");
+export function formatExceptionCount(counts: Pick<Counts, "count" | "capped"> & Partial<Pick<Counts, "adverseCount" | "adverseCapped">>) {
+  const count = (counts.count + (counts.adverseCount ?? 0)).toLocaleString("en-US");
+  return counts.capped || counts.adverseCapped ? `${count}+` : count;
 }
 
-/**
- * Whether a Whop account is connected, in either environment. Undefined while
- * it loads.
- */
-function useWhopConnected() {
-  const live = useQuery(api.payments.connection.getConnection, { environment: "live" });
-  const sandbox = useQuery(api.payments.connection.getConnection, { environment: "sandbox" });
-  if (live === undefined || sandbox === undefined) return { connected: undefined, connection: null };
-  const connection = [live, sandbox].find((row) => row && row.status !== "disconnected") ?? null;
-  return { connected: connection !== null, connection };
-}
-
-/** The Whop payments with no CRM payment yet, oldest first. */
 export function WhopExceptionsView({
   id,
   labelledBy,
@@ -57,85 +60,174 @@ export function WhopExceptionsView({
   labelledBy: string;
   now: number;
 }) {
-  const queue = usePaginatedQuery(api.payments.review.listProviderExceptions, {}, { initialNumItems: PAGE_SIZE });
   const counts = useQuery(api.payments.review.getProviderExceptionCounts, {});
-  const { connected, connection } = useWhopConnected();
-
-  const rows = queue.status === "LoadingFirstPage" ? undefined : queue.results;
-  // Every row carries its connection's freshness; with none, ask the connection.
-  const first = rows?.[0];
-  const lastRead = first ? first.lastSuccessfulSweepAt : (connection?.lastSuccessfulSweepAt ?? null);
-  const fresh = first
-    ? first.sweepFresh
-    : connection?.status === "connected" && lastRead !== null && now - lastRead <= SWEEP_FRESHNESS_MS;
-  const showFreshness = rows !== undefined && (rows.length > 0 || connected === true);
 
   return (
-    <section
-      id={id}
-      role="tabpanel"
-      aria-labelledby={labelledBy}
-      className="min-w-0 overflow-hidden rounded-xl border border-border bg-card"
-    >
-      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
-        <h2 className="mr-auto text-[15px] font-semibold">From Whop, not yet in the CRM</h2>
-        {showFreshness ? (
-          fresh ? (
-            <span className="text-[13px] text-muted-foreground">
-              Oldest first · Whop read {lastRead !== null ? formatSince(lastRead, now) : "just now"}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-warning-ink">
-              <AlertTriangleIcon aria-hidden="true" className="size-3.5 shrink-0" />
-              {lastRead !== null ? `Whop has not been read since ${formatPaidAt(lastRead, now)}` : "Whop has not been read yet"}
-            </span>
-          )
-        ) : null}
-      </div>
-
-      {rows === undefined || (rows.length === 0 && connected === undefined) ? (
-        <QueueRowsSkeleton rows={4} />
-      ) : rows.length === 0 ? (
-        connected ? (
-          <SectionEmpty title="Every Whop payment has a CRM payment or was dismissed.">
-            Whop payments that need a person appear here.
-          </SectionEmpty>
-        ) : (
+    <section id={id} role="tabpanel" aria-labelledby={labelledBy} className="flex min-w-0 flex-col gap-3.5">
+      {counts === undefined ? (
+        <div className="overflow-hidden rounded-xl border border-border bg-card"><QueueRowsSkeleton rows={4} /></div>
+      ) : counts.connected ? (
+        <Fragment key={counts.environment}>
+          <PaymentQueue counts={counts} now={now} />
+          <AdverseQueue counts={counts} />
+        </Fragment>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
           <SectionEmpty title="No Whop account is connected.">
             <Link href={INTEGRATIONS_HREF} className={cn(detailLinkClass, "mt-1 text-[13px]")}>
               Connect Whop in Settings › Integrations
             </Link>
           </SectionEmpty>
-        )
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PaymentQueue({ counts, now }: { counts: Counts; now: number }) {
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>(FILTERS[0]);
+  const [asOf, setAsOf] = useState(now);
+  const queue = usePaginatedQuery(api.payments.review.listProviderExceptions, { state: filter.state, asOf }, { initialNumItems: PAGE_SIZE });
+  const rows = queue.results;
+  // Keep the loaded pages while the clock ticks. Refresh them when a
+  // visible payment actually crosses the age cutoff.
+  if (filter.state === "needs_person" && rows.some(({ paidAt }) =>
+    paidAt !== null && asOf - paidAt <= MAX_PROVIDER_PAYMENT_AGE_MS &&
+    now - paidAt > MAX_PROVIDER_PAYMENT_AGE_MS
+  )) {
+    setAsOf(now);
+  }
+  const lastRead = rows[0]?.lastSuccessfulSweepAt ?? counts.lastSuccessfulSweepAt;
+  const fresh = isWhopSweepFresh(lastRead, now);
+
+  return (
+    <section aria-label="Whop payments" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+        <h2 className="mr-auto text-[15px] font-semibold">Whop payments</h2>
+        {fresh && lastRead !== null ? (
+          <span className="text-[13px] text-muted-foreground">Oldest first · Whop read {formatSince(lastRead, now)}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-warning-ink">
+            <AlertTriangleIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            {lastRead !== null ? `Whop has not been read since ${formatPaidAt(lastRead, now)}` : "Whop has not been read yet"}
+          </span>
+        )}
+      </div>
+      <div role="group" aria-label="Filter Whop payments" className="flex flex-wrap gap-1 border-b px-4 py-2">
+        {FILTERS.map((option) => (
+          <Button
+            key={option.state}
+            type="button"
+            size="sm"
+            variant={filter === option ? "secondary" : "ghost"}
+            aria-pressed={filter === option}
+            className="h-7"
+            onClick={() => setFilter(option)}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+      {queue.status === "LoadingFirstPage" ? (
+        <QueueRowsSkeleton rows={4} />
+      ) : rows.length === 0 ? (
+        <SectionEmpty title={filter.empty} />
       ) : (
-        <ul aria-label="Whop payments not yet in the CRM">
-          {rows.map((row) => (
-            <ExceptionRowItem key={row.providerPaymentId} row={row} now={now} />
-          ))}
+        <ul aria-label={`${filter.label} Whop payments`}>
+          {rows.map((row) => <ExceptionRowItem key={row.providerPaymentId} row={row} now={now} linked={filter.state === "linked"} />)}
         </ul>
       )}
-
-      {rows !== undefined && (rows.length > 0 || connected) ? (
+      {filter.state === "needs_person" || queue.status === "CanLoadMore" || queue.status === "LoadingMore" ? (
         <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-1.5 text-[13px] text-muted-foreground">
-          <span>{NOT_CASH_NOTE}</span>
-          <span role="status" className="ml-auto font-condensed text-[14px] font-semibold tabular-nums">
-            {counts ? `${formatExceptionCount(counts)} open` : "Counting…"}
-          </span>
+          {filter.state === "needs_person" ? (
+            <>
+              <span>{NOT_CASH_NOTE}</span>
+              <span role="status" className="ml-auto font-condensed text-[14px] font-semibold tabular-nums">
+                {formatExceptionCount({ count: counts.count, capped: counts.capped })} open
+              </span>
+            </>
+          ) : null}
           {queue.status === "CanLoadMore" || queue.status === "LoadingMore" ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7"
-              disabled={queue.status === "LoadingMore"}
-              onClick={() => queue.loadMore(PAGE_SIZE)}
-            >
-              {queue.status === "LoadingMore" ? "Loading…" : `Show ${PAGE_SIZE} more`}
+            <Button type="button" size="sm" variant="outline" className="h-7" disabled={queue.isLoading} onClick={() => queue.loadMore(PAGE_SIZE)}>
+              {queue.isLoading ? "Loading…" : `Show ${PAGE_SIZE} more`}
             </Button>
           ) : null}
         </div>
       ) : null}
     </section>
+  );
+}
+
+function AdverseQueue({ counts }: { counts: Counts }) {
+  const queue = usePaginatedQuery(api.payments.review.listAdverseOnResolved, {}, { initialNumItems: PAGE_SIZE });
+  return (
+    <section aria-labelledby="whop-adverse-heading" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+        <h2 id="whop-adverse-heading" className="mr-auto text-[15px] font-semibold">Refunds and disputes on linked payments</h2>
+        <span className="text-[13px] text-muted-foreground">
+          {formatExceptionCount({ count: counts.adverseCount, capped: counts.adverseCapped })} to review
+        </span>
+      </div>
+      {queue.status === "LoadingFirstPage" ? (
+        <QueueRowsSkeleton rows={2} />
+      ) : queue.results.length === 0 ? (
+        <SectionEmpty title="No refunds or disputes to review." />
+      ) : (
+        <ul aria-label="Refunds and disputes to review">
+          {queue.results.map((row) => <AdverseRowItem key={row.providerPaymentId} row={row} />)}
+        </ul>
+      )}
+      {queue.status === "CanLoadMore" || queue.status === "LoadingMore" ? (
+        <div className="flex justify-end border-t px-4 py-2">
+          <Button type="button" size="sm" variant="outline" className="h-7" disabled={queue.isLoading} onClick={() => queue.loadMore(PAGE_SIZE)}>
+            {queue.isLoading ? "Loading…" : `Show ${PAGE_SIZE} more`}
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AdverseRowItem({ row }: { row: AdverseRow }) {
+  const { hasPermission } = useRole();
+  const acknowledge = useMutation(api.payments.review.acknowledgeAdverse);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const amount = row.totalMinor !== null
+    ? formatAmountMinor(row.totalMinor, row.currency)
+    : `${row.currency.toUpperCase()}, amount not readable`;
+
+  async function markSeen() {
+    setPending(true);
+    setError(null);
+    try {
+      await acknowledge({ providerPaymentId: row.providerPaymentId });
+    } catch (caught) {
+      setError(providerErrorMessage(caught, "Couldn't mark this as seen. Try again."));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-4 py-2.5 last:border-b-0">
+      <div className="min-w-0">
+        <p className="flex flex-wrap items-baseline gap-x-2 leading-6">
+          <span className={FIGURE}>{amount}</span>
+          {row.environment === "sandbox" ? <Badge variant="outline">Sandbox</Badge> : null}
+        </p>
+        <p className="text-[14px] font-medium">{ADVERSE_STATE_LABELS[row.adverseState]}</p>
+        {error ? <p role="alert" className="text-[13px] text-danger-ink">{error}</p> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link href={`/workspace/billing/${row.paymentRecordId}`} className={detailLinkClass}>Open CRM payment</Link>
+        {hasPermission("billing:review") ? (
+          <Button type="button" size="sm" variant="outline" className="h-8" disabled={pending} onClick={() => void markSeen()}>
+            {pending ? "Saving…" : "Seen"}
+          </Button>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
@@ -187,7 +279,7 @@ function decideLine(row: ExceptionRow, now: number) {
   ) : null;
 }
 
-function ExceptionRowItem({ row, now }: { row: ExceptionRow; now: number }) {
+function ExceptionRowItem({ row, now, linked }: { row: ExceptionRow; now: number; linked: boolean }) {
   const amount =
     row.totalMinor !== null ? formatAmountMinor(row.totalMinor, row.currency) : `${row.currency.toUpperCase()}, amount not readable`;
   const when = row.paidAt !== null ? `collected ${formatPaidAt(row.paidAt, now)}` : `reported ${formatPaidAt(row.firstSeenAt, now)}`;
@@ -201,6 +293,7 @@ function ExceptionRowItem({ row, now }: { row: ExceptionRow; now: number }) {
         <p className="leading-6">
           <span className={FIGURE}>{amount}</span>
           <span className="text-muted-foreground"> · {when}</span>
+          {row.environment === "sandbox" ? <Badge variant="outline" className="ml-2">Sandbox</Badge> : null}
           {product ? (
             <span className="text-muted-foreground">
               {" · "}
@@ -209,7 +302,7 @@ function ExceptionRowItem({ row, now }: { row: ExceptionRow; now: number }) {
           ) : null}
         </p>
         <p className="text-[14px] font-medium">
-          {reasonSentence(row.reviewReason)}
+          {linked ? "Linked to a CRM payment." : reasonSentence(row.reviewReason)}
           {row.reviewReason && MAPPING_REASONS.has(row.reviewReason) ? (
             <>
               {" "}
@@ -219,6 +312,9 @@ function ExceptionRowItem({ row, now }: { row: ExceptionRow; now: number }) {
             </>
           ) : null}
         </p>
+        {row.classificationDeferred ? (
+          <p className="mt-0.5 text-[13px] text-muted-foreground">Open this payment to check its latest match.</p>
+        ) : null}
         {decide ? <p className="mt-0.5 text-[13px] text-muted-foreground">{decide}</p> : null}
       </div>
       <Button asChild size="sm" variant="outline" className="h-8 shrink-0">

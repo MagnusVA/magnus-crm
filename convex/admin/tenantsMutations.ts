@@ -1,3 +1,4 @@
+import { RAW_RECEIPT_BATCH } from "../payments/schema";
 import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { v } from "convex/values";
@@ -11,6 +12,12 @@ import { deleteResparkPoolEntry } from "../lib/respark/state";
 const CLEANUP_BATCH_SIZE = 128;
 // Each event deletes 5-6 aggregate entries, each requiring several index reads.
 const DOMAIN_EVENT_CLEANUP_BATCH_SIZE = 40;
+
+function cleanupBatchSize(table: string) {
+  if (table === "domainEvents") return DOMAIN_EVENT_CLEANUP_BATCH_SIZE;
+  if (table === "paymentWebhookReceipts") return RAW_RECEIPT_BATCH;
+  return CLEANUP_BATCH_SIZE;
+}
 
 // Each tenant-scoped table, with an index whose first field is tenantId.
 const TENANT_INDEX_BY_TABLE = {
@@ -30,6 +37,7 @@ const TENANT_INDEX_BY_TABLE = {
   opportunities: "by_tenantId",
   paymentRecords: "by_tenantId_and_recordedAt",
   paymentWebhookReceipts: "by_tenantId_and_connectionId_and_webhookId",
+  providerPaymentAllocationCommands: "by_tenantId_and_providerPaymentId_and_expectedAllocationRevision",
   providerPayments: "by_tenantId_and_connectionId_and_externalPaymentId",
   paymentProviderBindings: "by_tenantId_and_connectionId_and_kind_and_externalId",
   tenantPaymentConnections: "by_tenantId_and_provider_and_environment",
@@ -107,7 +115,7 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
     .withIndex(TENANT_INDEX_BY_TABLE[tableName], (q: any) =>
       q.eq("tenantId", tenantId),
     )
-    .take(CLEANUP_BATCH_SIZE);
+    .take(cleanupBatchSize(tableName));
 
   for (const row of rows) {
     if (tableName === "opportunities") {
@@ -124,11 +132,6 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
       const id = ctx.db.normalizeId("leads", row._id);
       const lead = id && await ctx.db.get("leads", id);
       if (lead) await deleteResparkPoolEntry(ctx, lead);
-    }
-    if (tableName === "paymentWebhookReceipts") {
-      const id = ctx.db.normalizeId("paymentWebhookReceipts", row._id);
-      const receipt = id && await ctx.db.get("paymentWebhookReceipts", id);
-      if (receipt?.rawBodyStorageId) await ctx.storage.delete(receipt.rawBodyStorageId);
     }
     if (tableName === "fathomWebhookEvents") {
       const id = ctx.db.normalizeId("fathomWebhookEvents", row._id);
@@ -251,10 +254,7 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     deletedCounts.eventTypeFieldCatalog = eventTypeFieldCatalog.length;
 
     const hasMore = Object.entries(deletedCounts).some(
-      ([table, count]) =>
-        count === (table === "domainEvents"
-          ? DOMAIN_EVENT_CLEANUP_BATCH_SIZE
-          : CLEANUP_BATCH_SIZE),
+      ([table, count]) => count === cleanupBatchSize(table),
     );
 
     return {

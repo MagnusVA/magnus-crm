@@ -4,14 +4,16 @@ import { v } from "convex/values";
 import { z } from "zod";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
-import { log, reportError } from "../lib/observability/log";
+import { log } from "../lib/observability/log";
 import { providerPool } from "../pipeline/workpools";
-import { refreshWhopPayment } from "./intake";
-import { WhopRequestError, type WhopQuery } from "./whop/client";
+import { refreshWhopPaymentForSweep } from "./intake";
+import { RAW_RECEIPT_BATCH } from "./schema";
+import { reportWhopRequestError, WhopRequestError, type WhopQuery } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
 import { whopId } from "./whop/normalize";
 
 const PAGE_SIZE = 20;
+export const SWEEP_PAGE_BUDGET = 64;
 const DAY_MS = 86_400_000;
 export const SWEEP_OVERLAP_MS = 30 * 60_000;
 const connectionId = v.id("tenantPaymentConnections");
@@ -45,12 +47,12 @@ export const sweep = internalMutation({
   },
 });
 
-const KNOWN_STATUSES = ["open", "pending", "authorized", "unresolved"] as const;
+const KNOWN_STATUSES = ["draft", "open", "pending", "authorized", "unresolved"] as const;
 const KNOWN_ADVERSE_STATES = [
   "refund_pending", "dispute_open", "partially_refunded", "refunded", "dispute_won", "dispute_lost",
 ] as const;
 const knownStatus = v.union(
-  v.literal("open"), v.literal("pending"), v.literal("authorized"), v.literal("unresolved"),
+  v.literal("draft"), v.literal("open"), v.literal("pending"), v.literal("authorized"), v.literal("unresolved"),
 );
 const knownAdverseState = v.union(
   v.literal("refund_pending"), v.literal("dispute_open"), v.literal("partially_refunded"),
@@ -119,7 +121,7 @@ async function listPayments(
     if (page.data.some((payment) => payment.account_id !== connection.accountId))
       throw new WhopAccountMismatch();
     const nextCursor = page.page_info.has_next_page ? page.page_info.end_cursor : null;
-    if (page.page_info.has_next_page && (!nextCursor || nextCursor === pageCursor))
+    if (page.page_info.has_next_page && !nextCursor)
       throw new WhopRequestError("unexpected_response");
     return { ids: page.data.map((payment) => payment.id), cursor: nextCursor };
   });
@@ -138,20 +140,42 @@ const RECENT_STAGES = [
   ...KNOWN_ADVERSE_STATES.map((value) => ({ kind: "adverse" as const, value })),
 ];
 
+export const recordUnreadablePayments = internalMutation({
+  args: { connectionId, connectedAt: v.number(), ids: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("tenantPaymentConnections", args.connectionId);
+    if (row?.connectedAt === args.connectedAt) {
+      const unreadable = new Set(args.ids);
+      const prior = row.unreadablePaymentIds?.filter((id) => !unreadable.has(id)) ?? [];
+      const ids = [...prior, ...unreadable].slice(-25);
+      await ctx.db.patch("tenantPaymentConnections", args.connectionId, { unreadablePaymentIds: ids });
+    }
+    return null;
+  },
+});
+
 async function refreshPage(
   ctx: ActionCtx,
   connection: Doc<"tenantPaymentConnections">,
   ids: string[],
-  known = false,
 ) {
-  for (const id of new Set(ids)) {
-    try {
-      await refreshWhopPayment(ctx, connection, id);
-    } catch (error) {
-      // A previously known payment may no longer be visible at the provider.
-      // Keep its last facts and continue refreshing the rest of the page.
-      if (known && error instanceof WhopRequestError && error.status === 404) continue;
-      throw error;
+  const unreadable: string[] = [];
+  try {
+    for (const id of new Set(ids)) {
+      try {
+        await refreshWhopPaymentForSweep(ctx, connection, id);
+      } catch (error) {
+        if (!(error instanceof WhopRequestError) || error.code !== "unexpected_response" ||
+            (error.status !== undefined && error.status !== 404 && error.status >= 300)) throw error;
+        unreadable.push(id);
+      }
+    }
+  } finally {
+    if (unreadable.length) {
+      await ctx.runMutation(internal.payments.reconcile.recordUnreadablePayments, {
+        connectionId: connection._id, connectedAt: connection.connectedAt, ids: unreadable,
+      });
     }
   }
 }
@@ -164,10 +188,57 @@ function reportSweepFailure(
   const code = error instanceof WhopAccountMismatch ? "account_mismatch"
     : error instanceof WhopRequestError ? error.code
     : "sweep_failed";
-  reportError("whop.reconcile.failed", new Error("Whop reconciliation failed"), {
-    integration: "whop", connectionId, kind, code,
-  });
+  reportWhopRequestError("whop.reconcile.failed", error, { connectionId, kind, code });
 }
+
+const progress = v.union(
+  v.object({ kind: v.literal("recent"), through: v.number(), stage: v.number(), cursor }),
+  v.object({ kind: v.literal("full"), startedAt: v.number(), cursor: v.string() }),
+);
+
+const runBudget = {
+  pages: v.optional(v.number()),
+  seenCursors: v.optional(v.array(v.string())),
+};
+
+export const checkpointPage = internalMutation({
+  args: {
+    connectionId, connectedAt: v.number(), token: v.string(),
+    progress, pages: v.number(), seenCursors: v.array(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("tenantPaymentConnections", args.connectionId);
+    if (row?.status !== "connected" || row.connectedAt !== args.connectedAt ||
+        row.sweepToken !== args.token) return null;
+    const { connectionId, token, progress, pages, seenCursors } = args;
+    const exhausted = pages >= SWEEP_PAGE_BUDGET;
+    const lease = exhausted ? { sweepToken: undefined, sweepUntil: undefined } : {};
+    if (progress.kind === "recent") {
+      const { through, stage, cursor } = progress;
+      await ctx.db.patch("tenantPaymentConnections", connectionId, {
+        ...lease, recentSweepProgress: { through, stage, cursor },
+      });
+      if (!exhausted) {
+        await providerPool.enqueueAction(ctx, internal.payments.reconcile.sweepRecent, {
+          connectionId, through, token, stage, cursor, pages, seenCursors,
+        });
+      }
+    } else {
+      const { startedAt, cursor } = progress;
+      await ctx.db.patch("tenantPaymentConnections", connectionId, {
+        ...lease, fullScanStartedAt: startedAt, fullScanCursor: cursor,
+      });
+      if (!exhausted) {
+        await providerPool.enqueueAction(ctx, internal.payments.reconcile.scanFull, {
+          connectionId, startedAt, token, pages, seenCursors,
+        });
+      }
+    }
+    if (exhausted) log.info("whop.reconcile.incomplete", { connectionId, code: "page_budget" });
+    return null;
+  },
+});
 
 export const sweepRecent = internalAction({
   args: {
@@ -176,12 +247,14 @@ export const sweepRecent = internalAction({
     token: v.optional(v.string()),
     stage: v.optional(v.number()),
     cursor: v.optional(cursor),
+    ...runBudget,
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     const token = args.token ?? crypto.randomUUID();
     const lease = await ctx.runMutation(internal.payments.connectionState.takeSweepLease, {
-      connectionId: args.connectionId, token,
+      connectionId: args.connectionId, token, continuation: args.token !== undefined,
+      recentThrough: args.token === undefined ? args.through : undefined,
     });
     if (lease !== "acquired") return null;
 
@@ -190,35 +263,47 @@ export const sweepRecent = internalAction({
     });
     if (!connection || connection.sweepToken !== token) return null;
     const leaseArgs = { connectionId: connection._id, connectedAt: connection.connectedAt, token };
-    if ((connection.sweepCreatedThrough ?? 0) >= args.through) {
+    const continuation = args.token ? undefined : connection.recentSweepProgress;
+    const through = continuation?.through ?? args.through;
+    const stageIndex = continuation?.stage ?? args.stage ?? 0;
+    const pageCursor = continuation?.cursor ?? args.cursor ?? null;
+    if ((connection.sweepCreatedThrough ?? 0) >= through) {
       await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, leaseArgs);
       return null;
     }
     try {
-      const stageIndex = args.stage ?? 0;
       const stage = RECENT_STAGES[stageIndex];
-      const pageCursor = args.cursor ?? null;
       const from = Math.max(0, (connection.sweepCreatedThrough ?? connection.connectedAt) - SWEEP_OVERLAP_MS);
       const page = stage.kind === "window"
         ? await listPayments(ctx, connection, {
           [stage.after]: new Date(from).toISOString(),
-          [stage.before]: new Date(args.through).toISOString(),
+          [stage.before]: new Date(through).toISOString(),
         }, pageCursor)
         : await ctx.runQuery(internal.payments.reconcile.listKnownPayments, {
           connectionId: connection._id,
           selector: stage,
           paginationOpts: { cursor: pageCursor, numItems: PAGE_SIZE },
         });
-      await refreshPage(ctx, connection, page.ids, stage.kind !== "window");
+      const seenCursors = args.seenCursors ?? (pageCursor ? [pageCursor] : []);
+      if (page.cursor && seenCursors.includes(page.cursor)) {
+        await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, {
+          ...leaseArgs, checkpoint: { kind: "recent_reset" },
+        });
+        log.warn("whop.reconcile.incomplete", { connectionId: connection._id, code: "cursor_cycle" });
+        return null;
+      }
+      await refreshPage(ctx, connection, page.ids);
       const nextStage = page.cursor ? stageIndex : stageIndex + 1;
       if (nextStage < RECENT_STAGES.length) {
-        await ctx.scheduler.runAfter(0, internal.payments.reconcile.sweepRecent, {
-          connectionId: connection._id, through: args.through,
-          token, stage: nextStage, cursor: page.cursor,
+        await ctx.runMutation(internal.payments.reconcile.checkpointPage, {
+          ...leaseArgs,
+          progress: { kind: "recent", through, stage: nextStage, cursor: page.cursor },
+          pages: (args.pages ?? 0) + 1,
+          seenCursors: page.cursor ? [...seenCursors, page.cursor] : [],
         });
       } else {
         const saved = await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, {
-          ...leaseArgs, checkpoint: { kind: "recent", through: args.through },
+          ...leaseArgs, checkpoint: { kind: "recent", through },
         });
         if (saved) log.info("whop.reconcile.sweep_completed", { connectionId: connection._id });
       }
@@ -231,17 +316,13 @@ export const sweepRecent = internalAction({
 });
 
 export const scanFull = internalAction({
-  args: { connectionId, startedAt: v.number() },
+  args: { connectionId, startedAt: v.number(), token: v.optional(v.string()), ...runBudget },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const token = crypto.randomUUID();
+    const token = args.token ?? crypto.randomUUID();
     const lease = await ctx.runMutation(internal.payments.connectionState.takeSweepLease, {
-      connectionId: args.connectionId, token,
+      connectionId: args.connectionId, token, continuation: args.token !== undefined,
     });
-    if (lease === "busy") {
-      await ctx.scheduler.runAfter(30_000, internal.payments.reconcile.scanFull, args);
-      return null;
-    }
     if (lease !== "acquired") return null;
     const connection = await ctx.runQuery(internal.payments.connectionState.connection, {
       connectionId: args.connectionId,
@@ -254,18 +335,30 @@ export const scanFull = internalAction({
     }
     try {
       const scanStartedAt = connection.fullScanStartedAt ?? args.startedAt;
+      const pageCursor = connection.fullScanCursor ?? null;
       const page = await listPayments(ctx, connection, {
         created_before: new Date(scanStartedAt).toISOString(),
-      }, connection.fullScanCursor ?? null);
+      }, pageCursor);
+      const seenCursors = args.seenCursors ?? (pageCursor ? [pageCursor] : []);
+      if (page.cursor && seenCursors.includes(page.cursor)) {
+        await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, leaseArgs);
+        log.warn("whop.reconcile.incomplete", { connectionId: connection._id, code: "cursor_cycle" });
+        return null;
+      }
       await refreshPage(ctx, connection, page.ids);
-      const saved = await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, {
-        ...leaseArgs,
-        checkpoint: { kind: "full", startedAt: scanStartedAt, cursor: page.cursor },
-      });
-      if (saved && page.cursor) {
-        await ctx.scheduler.runAfter(0, internal.payments.reconcile.scanFull, args);
-      } else if (saved) {
-        log.info("whop.reconcile.full_scan_completed", { connectionId: connection._id });
+      if (page.cursor) {
+        await ctx.runMutation(internal.payments.reconcile.checkpointPage, {
+          ...leaseArgs,
+          progress: { kind: "full", startedAt: scanStartedAt, cursor: page.cursor },
+          pages: (args.pages ?? 0) + 1,
+          seenCursors: [...seenCursors, page.cursor],
+        });
+      } else {
+        const saved = await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, {
+          ...leaseArgs,
+          checkpoint: { kind: "full", startedAt: scanStartedAt, cursor: null },
+        });
+        if (saved) log.info("whop.reconcile.full_scan_completed", { connectionId: connection._id });
       }
     } catch (error) {
       await ctx.runMutation(internal.payments.connectionState.releaseSweepLease, leaseArgs);
@@ -281,7 +374,6 @@ export const purge = internalMutation({
   args: {
     asOf: v.optional(v.number()),
     receiptsDone: v.optional(v.boolean()),
-    payerCursor: v.optional(cursor),
     payersDone: v.optional(v.boolean()),
   },
   returns: v.null(),
@@ -291,43 +383,36 @@ export const purge = internalMutation({
     let payerCount = 0;
     let receiptsDone = args.receiptsDone ?? false;
     let payersDone = args.payersDone ?? false;
-    let payerCursor = args.payerCursor ?? null;
     if (!receiptsDone) {
       const rows = await ctx.db.query("paymentWebhookReceipts")
-        .withIndex("by_rawBodyDeletedAt_and_receivedAt",
-          (q) => q.eq("rawBodyDeletedAt", undefined).lte("receivedAt", asOf - 7 * DAY_MS))
-        .take(RETENTION_BATCH);
+        .withIndex("by_hasRawBody_and_receivedAt",
+          (q) => q.eq("hasRawBody", true).lte("receivedAt", asOf - 7 * DAY_MS))
+        .take(RAW_RECEIPT_BATCH);
       for (const row of rows) {
-        if (row.rawBodyStorageId) {
-          await ctx.storage.delete(row.rawBodyStorageId);
-          bodyCount++;
-        }
         await ctx.db.patch("paymentWebhookReceipts", row._id, {
-          rawBodyStorageId: undefined,
-          rawBodyDeletedAt: asOf,
+          rawBody: undefined, hasRawBody: undefined, rawBodyDeletedAt: asOf,
         });
       }
-      receiptsDone = rows.length < RETENTION_BATCH;
+      bodyCount = rows.length;
+      receiptsDone = rows.length < RAW_RECEIPT_BATCH;
     }
     if (!payersDone) {
       const payments = await ctx.db.query("providerPayments")
-        .withIndex("by_resolvedAt",
-          (q) => q.gt("resolvedAt", undefined).lte("resolvedAt", asOf - 90 * DAY_MS))
-        .paginate({ cursor: payerCursor, numItems: RETENTION_BATCH });
-      for (const row of payments.page) {
-        if (row.payerDetailsClearedAt !== undefined) continue;
+        .withIndex("by_hasPayerDetails_and_payerDetailsExpireAt", (q) =>
+          q.eq("hasPayerDetails", true).gt("payerDetailsExpireAt", undefined).lte("payerDetailsExpireAt", asOf))
+        .take(RETENTION_BATCH);
+      for (const row of payments) {
         await ctx.db.patch("providerPayments", row._id, {
-          payerEmail: undefined, payerPhone: undefined, payerDetailsClearedAt: asOf,
+          payerEmail: undefined, payerPhone: undefined, hasPayerDetails: undefined, payerDetailsClearedAt: asOf,
         });
-        payerCount++;
       }
-      payersDone = payments.isDone;
-      payerCursor = payersDone ? null : payments.continueCursor;
+      payerCount = payments.length;
+      payersDone = payments.length < RETENTION_BATCH;
     }
     const continued = !receiptsDone || !payersDone;
     if (continued) {
       await ctx.scheduler.runAfter(0, internal.payments.reconcile.purge, {
-        asOf, receiptsDone, payerCursor, payersDone,
+        asOf, receiptsDone, payersDone,
       });
     }
     log.info("whop.retention.batch", { bodyCount, payerCount, continued });

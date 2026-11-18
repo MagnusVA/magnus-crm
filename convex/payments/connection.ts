@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { z } from "zod";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   action,
@@ -17,13 +17,16 @@ import { PERMISSIONS } from "../lib/permissions";
 import { requireTenantUser } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import {
+  disputeAccessValidator,
   paymentConnectionErrorValidator,
   paymentConnectionStatusValidator,
   providerEnvironmentValidator,
 } from "./schema";
+import { parseWebhookSecret } from "./signature";
 import {
   WHOP_API_VERSION_DATE,
   WhopRequestError,
+  reportWhopRequestError,
   whopRequest,
   type WhopCredentials,
 } from "./whop/client";
@@ -51,6 +54,7 @@ const connectionView = v.object({
   accountId: v.string(),
   accountTitle: v.optional(v.string()),
   keyLast4: v.string(),
+  disputeAccess: disputeAccessValidator,
   hasWebhookSecret: v.boolean(),
   webhookUrl: v.union(v.string(), v.null()),
   autoImportAfter: v.number(),
@@ -63,7 +67,7 @@ const connectionView = v.object({
   webhookEvents: v.array(v.string()),
 });
 
-async function findConnection(
+export async function findConnection(
   ctx: QueryCtx | MutationCtx,
   tenantId: Id<"tenants">,
   environment: WhopCredentials["environment"],
@@ -104,7 +108,8 @@ export const getConnection = query({
       accountId: row.accountId,
       accountTitle: row.accountTitle,
       keyLast4: row.keyLast4,
-      hasWebhookSecret: Boolean(row.webhookSecret),
+      disputeAccess: row.disputeAccess,
+      hasWebhookSecret: parseWebhookSecret(row.webhookSecret) !== null,
       webhookUrl: env.CONVEX_SITE_URL
         ? `${env.CONVEX_SITE_URL}/webhooks/whop?c=${row._id}`
         : null,
@@ -120,12 +125,24 @@ export const getConnection = query({
   },
 });
 
+function otherWhopEnvironment(environment: WhopCredentials["environment"]) {
+  return environment === "live" ? "sandbox" : "live";
+}
+
+function rejectOtherConnectedEnvironment(status?: Doc<"tenantPaymentConnections">["status"]) {
+  if (status === "connected") {
+    throw rejectRequest("whop.other_environment_connected", "Disconnect the other Whop environment first.");
+  }
+}
+
 const connectArgs = {
   apiKey: v.string(),
   accountId: v.string(),
   environment: providerEnvironmentValidator,
 };
-const saveConnectionArgs = { ...connectArgs, accountTitle: v.optional(v.string()) };
+const saveConnectionArgs = {
+  ...connectArgs, accountTitle: v.optional(v.string()), disputeAccess: disputeAccessValidator,
+};
 
 const paymentProbe = z.object({
   data: z.array(z.object({ account_id: z.string().nullable() })).max(1),
@@ -175,6 +192,10 @@ export const connect = action({
   returns: connectionIdValidator,
   handler: async (ctx, args): Promise<Id<"tenantPaymentConnections">> => {
     const { tenantId } = await requireTenantUserFromAction(ctx, settingsRoles);
+    const other = await ctx.runQuery(api.payments.connection.getConnection, {
+      environment: otherWhopEnvironment(args.environment),
+    });
+    rejectOtherConnectedEnvironment(other?.status);
     const apiKey = args.apiKey.trim();
     const accountId = args.accountId.trim();
     if (!/^[\x21-\x7e]{8,1024}$/.test(apiKey)) throw rejectWhopRequest("unauthorized");
@@ -195,6 +216,7 @@ export const connect = action({
       });
     } catch (error) {
       const code = whopRequestFailure(error);
+      if (code === "provider_unavailable") reportWhopRequestError("whop.connection.probe_failed", error, { tenantId });
       if (code === "forbidden") {
         const account = await readAccount(credentials, tenantId);
         if (account && account.id !== accountId) throw rejectWhopRequest("account_mismatch");
@@ -210,11 +232,32 @@ export const connect = action({
     const account = await readAccount(credentials, tenantId);
     if (account && account.id !== accountId) throw rejectWhopRequest("account_mismatch");
 
+    let disputeAccess: "ok" | "forbidden" = "ok";
+    for (const path of ["/disputes", "/dispute_alerts"]) {
+      try {
+        const result = await whopRequest(credentials, path, {
+          query: { account_id: accountId, first: 1 },
+          timeoutMs: 5_000,
+        });
+        if (!z.object({ data: z.array(z.unknown()).max(1) }).safeParse(result).success) {
+          throw new WhopRequestError("unexpected_response");
+        }
+      } catch (error) {
+        const code = whopRequestFailure(error);
+        if (code !== "forbidden") {
+          if (code === "provider_unavailable") reportWhopRequestError("whop.connection.dispute_probe_failed", error, { tenantId });
+          throw rejectWhopRequest(code);
+        }
+        disputeAccess = "forbidden";
+      }
+    }
+
     return ctx.runMutation(internal.payments.connection.saveConnection, {
       apiKey,
       accountId,
       environment: args.environment,
       accountTitle: account?.title.slice(0, 512),
+      disputeAccess,
     });
   },
 });
@@ -233,6 +276,19 @@ export const saveConnection = internalMutation({
       );
     }
 
+    const other = await findConnection(ctx, actor.tenantId, otherWhopEnvironment(args.environment));
+    rejectOtherConnectedEnvironment(other?.status);
+    for (const status of ["connected", "invalid_key"] as const) {
+      const holders = await ctx.db.query("tenantPaymentConnections")
+        .withIndex("by_provider_and_environment_and_accountId", (q) => q
+          .eq("provider", "whop").eq("environment", args.environment)
+          .eq("accountId", args.accountId).eq("status", status))
+        .take(2);
+      if (holders.some((holder) => holder.tenantId !== actor.tenantId)) {
+        throw rejectRequest("whop.account_in_use", "This Whop account is already connected to another workspace.");
+      }
+    }
+
     const now = Date.now();
     const credentials = {
       credentialKind: "account_key" as const,
@@ -240,6 +296,7 @@ export const saveConnection = internalMutation({
       keyLast4: args.apiKey.slice(-4),
       apiVersionDate: WHOP_API_VERSION_DATE,
       status: "connected" as const,
+      disputeAccess: args.disputeAccess,
       // Intake and sweep jobs use this timestamp to reject stale reads.
       connectedAt: prior ? Math.max(now, prior.connectedAt + 1) : now,
       connectedByUserId: actor.userId,
@@ -286,7 +343,7 @@ export const setWebhookSecret = mutation({
       throw rejectRequest("whop.disconnected", "Connect Whop before setting a webhook secret.");
     }
     const secret = webhookSecret.trim();
-    if (!/^[\x21-\x7e]{8,1024}$/.test(secret)) {
+    if (!parseWebhookSecret(secret)) {
       throw rejectRequest("whop.invalid_webhook_secret", "Enter the webhook secret from Whop.");
     }
     if (row.webhookSecret === secret) return null;

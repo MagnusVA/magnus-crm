@@ -11,6 +11,7 @@ import {
   type GuardState,
 } from "../../tests/dealGuardFixtures";
 import { storeProofFile } from "../../tests/proofFixtures";
+import { insertProviderBinding, providerPaymentFixture } from "../../tests/providerPaymentFixtures";
 
 // Side deals are worked at the same states as before PR 7: a `scheduled`
 // side deal is Call held (docs/plans/phase-5-deal-status.md §5, §6.9).
@@ -155,4 +156,35 @@ describe("nudgeStaleSideDeals", () => {
       ),
     );
   });
+});
+
+it("voiding a side-deal payment clears its active Whop allocation and keeps provenance", async () => {
+  const fixture = await providerPaymentFixture({ source: "side_deal" });
+  const { t, admin, closer, dealId, personId, providerPaymentId, programId } = fixture;
+  const { paymentId } = await closer.mutation(api.sideDeals.logPayment.logPayment, {
+    opportunityId: dealId!, amount: 100, currency: "USD", paymentType: "pif", programId,
+    proofFileId: await storeProofFile(t),
+  });
+  await admin.mutation(api.payments.review.linkToPaymentRecord, {
+    providerPaymentId, paymentRecordId: paymentId, expectedAllocationRevision: 0,
+    acknowledgeAmountDifference: false,
+  });
+  const bindingId = await t.run((ctx) => insertProviderBinding(ctx, {
+    ...fixture, externalId: "mem_side_fixture",
+    binding: {
+      kind: "membership_deal", leadId: personId,
+      opportunityId: dealId!, anchorPaymentRecordId: paymentId,
+    },
+  }));
+  await admin.mutation(api.sideDeals.voidPayment.voidPayment, { paymentId, reason: "Synthetic correction" });
+  const state = await t.run(async (ctx) => ({
+    record: await ctx.db.get("paymentRecords", paymentId),
+    fact: await ctx.db.get("providerPayments", providerPaymentId),
+    binding: await ctx.db.get("paymentProviderBindings", bindingId),
+  }));
+  expect(state.record).toMatchObject({ status: "disputed", providerPaymentId });
+  expect(state.fact).toMatchObject({ reviewState: "needs_person", allocationRevision: 2 });
+  expect(state.fact?.paymentRecordId).toBeUndefined();
+  expect(state.fact?.resolvedAt).toBeUndefined();
+  expect(state.binding).toMatchObject({ enabled: false, disabledReason: "anchor_undone" });
 });

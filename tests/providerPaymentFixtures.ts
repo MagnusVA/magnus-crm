@@ -1,8 +1,7 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
-import type { OpportunityStatus } from "../convex/opportunities/stages";
+import { stageOfPosition, type DealPosition, type SystemLossReason } from "../convex/opportunities/stages";
 import { bookingHarness, qualifiedLifecycle } from "./bookingHarness";
-import { dealAt } from "./dealStateFixtures";
 import { insertProgram } from "./enrollmentFixtures";
 import { insertOpportunityAggregate } from "../convex/reporting/writeHooks";
 
@@ -10,7 +9,7 @@ export const FIXTURE_NOW = Date.parse("2026-11-17T19:00:00Z");
 export const FIXTURE_PAID_AT = FIXTURE_NOW - 60 * 60 * 1000;
 export const PAYER_EMAIL = "river@example.com";
 export const PRODUCT_ID = "prod_fixture";
-export const VARIANT_ID = "var_fixture";
+export const VARIANT_ID = "plan_fixture";
 
 export async function insertProviderPerson(
   ctx: MutationCtx,
@@ -57,6 +56,7 @@ export async function insertProviderFact(
     sourceUpdatedAt: FIXTURE_PAID_AT,
     sourceCreatedAt: FIXTURE_PAID_AT,
     refreshGeneration: 1,
+    allocationRevision: 0,
     firstSeenAt: FIXTURE_NOW - 2000,
     paidAt: FIXTURE_PAID_AT,
     totalMinor: 10000,
@@ -85,15 +85,18 @@ export async function insertProviderDeal(
   args: {
     tenantId: Id<"tenants">;
     leadId: Id<"leads">;
-    status?: OpportunityStatus;
+    position?: DealPosition;
+    lostReason?: SystemLossReason;
     source?: Doc<"opportunities">["source"];
     assignedCloserId?: Id<"users">;
     latestMeetingAt?: number;
   },
 ) {
-  const { tenantId, leadId, status = "scheduled", source = "calendly", assignedCloserId, latestMeetingAt } = args;
+  const { tenantId, leadId, source = "calendly", lostReason, assignedCloserId, latestMeetingAt } = args;
+  const position = args.position ?? (source === "side_deal" ? "call_held" : "booked");
   const opportunityId = await ctx.db.insert("opportunities", {
-    ...dealAt(status, source),
+    ...stageOfPosition(position),
+    source, lostReason,
     tenantId, leadId, assignedCloserId, latestMeetingAt,
     createdAt: FIXTURE_PAID_AT - 1000,
     updatedAt: FIXTURE_PAID_AT - 1000,
@@ -123,7 +126,8 @@ export async function insertProviderBinding(
 
 export async function providerPaymentFixture(
   options: {
-    dealStatus?: OpportunityStatus | null;
+    dealPosition?: DealPosition | null;
+    lostReason?: SystemLossReason;
     source?: Doc<"opportunities">["source"];
     fact?: Parameters<typeof insertProviderFact>[3];
   } = {},
@@ -136,10 +140,11 @@ export async function providerPaymentFixture(
     const adminId = users.find((user) => user.role === "tenant_admin")!._id;
     const closerId = users.find((user) => user.role === "closer")!._id;
     const personId = await insertProviderPerson(ctx, tenantId);
-    const dealId = options.dealStatus === null ? undefined : await insertProviderDeal(ctx, {
+    const dealId = options.dealPosition === null ? undefined : await insertProviderDeal(ctx, {
       tenantId,
       leadId: personId,
-      status: options.dealStatus ?? "scheduled",
+      position: options.dealPosition,
+      lostReason: options.lostReason,
       source: options.source,
       assignedCloserId: closerId,
       latestMeetingAt: FIXTURE_PAID_AT + 1000,
@@ -155,6 +160,7 @@ export async function providerPaymentFixture(
       keyLast4: "-key",
       apiVersionDate: "2026-11-16-2",
       status: "connected",
+      disputeAccess: "ok",
       autoImportAfter: FIXTURE_NOW - 30 * 86_400_000,
       connectedByUserId: adminId,
       connectedAt: FIXTURE_NOW - 30 * 86_400_000,

@@ -52,6 +52,9 @@ export async function whopFetch<T = unknown>(
         connectedAt,
         code,
         retryAfterMs: failure.retryAfterMs,
+        disputeForbidden: failure.code === "forbidden" &&
+          (path.startsWith("/disputes/") || path.startsWith("/dispute_alerts/")),
+
       });
       log.warn("whop.api.failed", { connectionId, code, httpStatus: failure.status });
       throw error instanceof WhopAccountMismatch ? error : failure;

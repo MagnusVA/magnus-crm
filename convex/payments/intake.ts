@@ -5,12 +5,13 @@ import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalAction, internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx,
 } from "../_generated/server";
-import { log, reportError } from "../lib/observability/log";
+import { log } from "../lib/observability/log";
 import { providerPool } from "../pipeline/workpools";
 import { noteWebhook } from "./connectionState";
 import { refreshProviderPaymentReview } from "./match";
+import { payerDetailsDeadline } from "./payerRetention";
 import { paymentProviderTables } from "./schema";
-import { WhopRequestError } from "./whop/client";
+import { MAX_RETRY_AFTER_MS, reportWhopRequestError, WhopRequestError } from "./whop/client";
 import { WhopAccountMismatch, whopFetch } from "./whop/connectionFetch";
 import {
   adverseEvent, disputeAlertSchema, disputeSchema, normalizePayment, paymentSchema, refundSchema,
@@ -20,9 +21,11 @@ import {
 const connectionId = v.id("tenantPaymentConnections");
 const receiptId = v.id("paymentWebhookReceipts");
 const MAX_ATTEMPTS = 8;
-const DAY_MS = 86_400_000;
-const PAYER_RETENTION_MS = 90 * DAY_MS;
-const receiptFields = paymentProviderTables.paymentWebhookReceipts.validator.fields;
+const {
+  tenantId: receiptTenantId, connectionId: receiptConnectionId, eventType: receiptEventType,
+  externalPaymentId: receiptExternalPaymentId, externalObjectId: receiptExternalObjectId,
+  attempts: receiptAttempts, status: receiptStatus, adversePending: receiptAdversePending,
+} = paymentProviderTables.paymentWebhookReceipts.validator.fields;
 
 async function findReceipt(
   ctx: QueryCtx | MutationCtx,
@@ -77,10 +80,12 @@ async function insertProvisionalPayment(
     sourceUpdatedAt: 0,
     firstSeenAt: Date.now(),
     refreshGeneration: 1,
+    allocationRevision: 0,
     currency: "",
     decimals: 0,
     refundedMinor: 0,
     adverseState: adverse ? pendingAdverseState(adverse.kind) : "none",
+    sourceAdverseState: "none",
     adverseFencedAt: adverse?.fencedAt,
     lineItemCount: 0,
     failedAttemptCount: 0,
@@ -97,16 +102,20 @@ async function fencePayment(
   connection: Doc<"tenantPaymentConnections">,
   externalPaymentId: string,
   kind: AdverseEvent,
-  receivedAt?: number,
+  receivedAt: number,
 ) {
   const existing = await findPayment(ctx, connection, externalPaymentId);
   const priorFence = existing?.adverseFencedAt ?? 0;
-  const fencedAt = receivedAt ?? Math.max(Date.now(), priorFence + 1);
-  if (fencedAt <= priorFence) return fencedAt;
+  const fencedAt = Math.max(receivedAt, priorFence);
   if (existing) {
+    const sourceAdverseState = existing.sourceAdverseState ?? existing.adverseState;
+    const adverseState = sourceAdverseState === "none" || sourceAdverseState === "dispute_won"
+      ? pendingAdverseState(kind) : sourceAdverseState;
     await ctx.db.patch("providerPayments", existing._id, {
       adverseFencedAt: fencedAt,
-      ...(existing.adverseState === "none" ? { adverseState: pendingAdverseState(kind) } : {}),
+      sourceAdverseState,
+      adverseState,
+      adverseReviewAt: adverseReviewTimestamp(existing, adverseState, existing.refundedMinor, receivedAt),
       refreshGeneration: existing.refreshGeneration + 1,
     });
   } else {
@@ -143,7 +152,7 @@ export const receiveWebhook = internalMutation({
     externalPaymentId: v.optional(v.string()),
     externalObjectId: v.optional(v.string()),
     bodySha256: v.string(),
-    rawBodyStorageId: v.id("_storage"),
+    rawBody: v.string(),
   },
   returns: v.union(v.literal("received"), v.literal("duplicate"), v.literal("unavailable")),
   handler: async (ctx, args) => {
@@ -153,21 +162,18 @@ export const receiveWebhook = internalMutation({
       connection.tenantId !== args.tenantId || connection.accountId !== args.accountId ||
       connection.connectedAt !== args.connectedAt
     ) {
-      await ctx.storage.delete(args.rawBodyStorageId);
       return "unavailable";
     }
     if (await findReceipt(ctx, connection, args.webhookId)) {
-      await ctx.storage.delete(args.rawBodyStorageId);
       return "duplicate";
     }
     const now = Date.now();
     const kind = adverseEvent(args.eventType);
-    const receivedAt = args.externalPaymentId && kind
-      ? await fencePayment(ctx, connection, args.externalPaymentId, kind)
-      : now;
     const failureCode = args.eventType === "unknown"
       ? "unknown_event"
       : args.externalObjectId ? undefined : "missing_object";
+    const adversePending = kind !== undefined && !failureCode;
+    const unavailable = connection.status !== "connected";
     const id = await ctx.db.insert("paymentWebhookReceipts", {
       tenantId: connection.tenantId,
       connectionId: connection._id,
@@ -176,15 +182,20 @@ export const receiveWebhook = internalMutation({
       externalPaymentId: args.externalPaymentId,
       externalObjectId: args.externalObjectId,
       bodySha256: args.bodySha256,
-      rawBodyStorageId: args.rawBodyStorageId,
-      receivedAt,
+      rawBody: args.rawBody,
+      hasRawBody: true,
+      adversePending: adversePending || undefined,
+      receivedAt: now,
       attempts: 0,
-      status: failureCode ? "ignored" : "received",
-      processedAt: failureCode ? now : undefined,
-      failureCode,
+      status: failureCode ? "ignored" : unavailable ? "failed" : "received",
+      processedAt: failureCode || unavailable ? now : undefined,
+      failureCode: failureCode ?? (unavailable ? "connection_unavailable" : undefined),
     });
+    if (kind && adversePending && args.externalPaymentId) {
+      await fencePayment(ctx, connection, args.externalPaymentId, kind, now);
+    }
     await noteWebhook(ctx, connection, now);
-    if (!failureCode) await enqueueReceipt(ctx, id, 1);
+    if (!failureCode && !unavailable) await enqueueReceipt(ctx, id, 1);
     return "received";
   },
 });
@@ -192,11 +203,24 @@ export const receiveWebhook = internalMutation({
 export const receipt = internalQuery({
   args: { receiptId },
   returns: v.union(v.null(), v.object({
-    ...receiptFields,
     _id: receiptId,
-    _creationTime: v.number(),
+    tenantId: receiptTenantId,
+    connectionId: receiptConnectionId,
+    eventType: receiptEventType,
+    externalPaymentId: receiptExternalPaymentId,
+    externalObjectId: receiptExternalObjectId,
+    attempts: receiptAttempts,
+    status: receiptStatus,
+    adversePending: receiptAdversePending,
   })),
-  handler: (ctx, args) => ctx.db.get("paymentWebhookReceipts", args.receiptId),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("paymentWebhookReceipts", args.receiptId);
+    if (!row) return null;
+    const { _id, tenantId, connectionId, eventType, externalPaymentId, externalObjectId,
+      attempts, status, adversePending } = row;
+    return { _id, tenantId, connectionId, eventType, externalPaymentId, externalObjectId,
+      attempts, status, adversePending };
+  },
 });
 
 const readIdentity = {
@@ -268,54 +292,62 @@ const normalizedRead = v.object({
 });
 
 const adverseEvidence = v.object({
-  fencedAt: v.number(),
+  receiptId,
   kind: adverseKind,
   state: v.string(),
+  updatedAt: v.number(),
+  refundMinor: v.optional(v.number()),
 });
 
 type PaymentFacts = typeof normalizedRead.type;
 type AdverseEvidence = typeof adverseEvidence.type;
 
-function explainsFence(
-  row: Doc<"providerPayments">,
-  payment: PaymentFacts,
-  evidence?: AdverseEvidence,
-) {
-  if (payment.sourceUpdatedAt <= row.sourceUpdatedAt) return false;
-  const refundChanged = payment.refundedMinor > row.refundedMinor ||
-    (payment.refundedAt ?? 0) > (row.refundedAt ?? 0) ||
-    (payment.adverseState === "refunded" && row.adverseState !== "refunded");
-  const disputeChanged = payment.substatus !== row.substatus ||
-    payment.adverseState !== row.adverseState ||
-    (payment.disputeCreatedAt ?? 0) > (row.disputeCreatedAt ?? 0);
+function corroboratesResource(payment: PaymentFacts, evidence: AdverseEvidence) {
   const refunded = payment.adverseState === "refunded" ||
     payment.adverseState === "partially_refunded" || payment.refundedMinor > 0;
-  if (!evidence) {
-    // A sweep can explain a known pending reversal through a new payment
-    // revision. Clearing to a final unencumbered state needs resource proof.
-    if (row.adverseState === "refund_pending") return refunded && refundChanged;
-    return row.adverseState === "dispute_open" && disputeChanged &&
-      (payment.adverseState === "dispute_open" || payment.adverseState === "dispute_lost");
+  const reflectedRefund = refunded &&
+    (payment.refundedAt ?? payment.sourceUpdatedAt) >= evidence.updatedAt &&
+    (evidence.refundMinor === undefined || payment.refundedMinor >= evidence.refundMinor);
+  if (evidence.kind === "refund") {
+    if (evidence.state === "failed" || evidence.state === "canceled") {
+      return payment.adverseState === "none" && payment.refundedMinor === 0;
+    }
+    return evidence.state === "succeeded" && reflectedRefund;
   }
-  if (evidence.fencedAt !== row.adverseFencedAt) return false;
-  if (evidence.kind === "refund")
-    return evidence.state === "succeeded" && refunded && refundChanged;
-  if (evidence.kind === "dispute_alert")
-    return evidence.state === "auto_refunded"
-      ? refunded && refundChanged
-      : payment.adverseState === "dispute_open" && disputeChanged;
+  if (evidence.kind === "dispute_alert") {
+    return evidence.state === "auto_refunded" ? reflectedRefund : payment.adverseState === "dispute_open";
+  }
   switch (evidence.state) {
-    case "won":
-      return payment.substatus === "dispute_won" && disputeChanged;
-    case "lost":
-      return payment.adverseState === "dispute_lost" && disputeChanged;
-    case "prevented":
-      return refunded && refundChanged;
-    case "warning_closed":
-      return payment.substatus === "dispute_warning_closed" && disputeChanged;
-    default:
-      return payment.adverseState === "dispute_open" && disputeChanged;
+    case "won": return payment.substatus === "dispute_won";
+    case "lost": return payment.adverseState === "dispute_lost";
+    case "prevented": return reflectedRefund;
+    case "warning_closed": return payment.substatus === "dispute_warning_closed";
+    default: return payment.adverseState === "dispute_open";
   }
+}
+
+function pendingAdverseReceipts(
+  ctx: QueryCtx | MutationCtx,
+  connectionId: Id<"tenantPaymentConnections">,
+  externalPaymentId: string,
+) {
+  return ctx.db.query("paymentWebhookReceipts")
+    .withIndex("by_connectionId_and_externalPaymentId_and_adversePending", (q) => q
+      .eq("connectionId", connectionId)
+      .eq("externalPaymentId", externalPaymentId)
+      .eq("adversePending", true));
+}
+
+function adverseReviewTimestamp(
+  row: Doc<"providerPayments">,
+  state: Doc<"providerPayments">["adverseState"],
+  refundedMinor: number,
+  now: number,
+) {
+  if (!row.paymentRecordId || (row.reviewState !== "linked" && row.reviewState !== "recorded")) return undefined;
+  if (state === "none" || state === "dispute_won") return undefined;
+  if (state !== row.adverseState || refundedMinor > row.refundedMinor) return row.adverseReviewAt ?? now;
+  return row.adverseReviewAt;
 }
 
 function reviewState(
@@ -330,6 +362,7 @@ function reviewState(
 
 const readResult = v.union(
   v.literal("stored"), v.literal("fenced"), v.literal("stale"), v.literal("superseded"),
+  v.literal("covered"),
 );
 
 export const storePaymentRead = internalMutation({
@@ -337,7 +370,7 @@ export const storePaymentRead = internalMutation({
     ...readIdentity,
     generation: v.number(),
     payment: normalizedRead,
-    evidence: v.optional(adverseEvidence),
+    evidence: v.optional(v.array(adverseEvidence)),
   },
   returns: readResult,
   handler: async (ctx, args) => {
@@ -346,25 +379,51 @@ export const storePaymentRead = internalMutation({
     const payment = args.payment;
     if (payment.externalPaymentId !== args.externalPaymentId) return "superseded";
     const row = await findPayment(ctx, connection, payment.externalPaymentId);
-    if (!row || row.refreshGeneration !== args.generation) return "superseded";
-    const pendingFence = row.adverseFencedAt !== undefined;
-    if (payment.sourceUpdatedAt < row.sourceUpdatedAt) return pendingFence ? "fenced" : "stale";
-    if (payment.sourceUpdatedAt === row.sourceUpdatedAt) {
-      // Keep the prior snapshot as the comparison point for an unresolved
-      // reversal. An equal revision also cannot undo a known reversal.
-      if (pendingFence) return "fenced";
-      if (row.adverseState !== "none" && (
-        payment.adverseState !== row.adverseState || payment.refundedMinor < row.refundedMinor
-      )) return "stale";
+    if (!row) return "superseded";
+    if (row.refreshGeneration !== args.generation) {
+      return (row.storedRefreshGeneration ?? 0) > args.generation &&
+        row.sourceUpdatedAt >= payment.sourceUpdatedAt ? "covered" : "superseded";
     }
+    if (payment.sourceUpdatedAt < row.sourceUpdatedAt) {
+      return row.adverseFencedAt !== undefined ? "fenced" : "stale";
+    }
+    const confirmed = [];
+    for (const evidence of args.evidence ?? []) {
+      if (!corroboratesResource(payment, evidence)) continue;
+      const receipt = await ctx.db.get("paymentWebhookReceipts", evidence.receiptId);
+      if (receipt?.adversePending && receipt.connectionId === connection._id &&
+          receipt.externalPaymentId === payment.externalPaymentId &&
+          adverseEvent(receipt.eventType) === evidence.kind) {
+        confirmed.push({ receipt, evidence });
+      }
+    }
+    const sourceAdverseState = row.sourceAdverseState ?? row.adverseState;
+    const confirmsCleanRefund = sourceAdverseState === "refund_pending" && payment.adverseState === "none" &&
+      confirmed.some(({ evidence }) => evidence.kind === "refund" &&
+        (evidence.state === "failed" || evidence.state === "canceled"));
+    if (payment.sourceUpdatedAt === row.sourceUpdatedAt && !confirmsCleanRefund && (
+      (row.adverseFencedAt !== undefined || sourceAdverseState !== "none") &&
+      (payment.adverseState !== sourceAdverseState || payment.refundedMinor < row.refundedMinor)
+    )) return row.adverseFencedAt !== undefined ? "fenced" : "stale";
 
-    const fenced = pendingFence && !explainsFence(row, payment, args.evidence);
+    for (const { receipt } of confirmed) {
+      await ctx.db.patch("paymentWebhookReceipts", receipt._id, { adversePending: undefined });
+    }
+    const pending = row.adverseFencedAt === undefined ? null
+      : await pendingAdverseReceipts(ctx, connection._id, payment.externalPaymentId).order("desc").first();
+    const pendingKind = pending && adverseEvent(pending.eventType);
+    const adverseState = pendingKind &&
+      (payment.adverseState === "none" || payment.adverseState === "dispute_won")
+      ? pendingAdverseState(pendingKind)
+      : payment.adverseState;
     const nextReviewState = reviewState(payment, connection.autoImportAfter);
     const protectedReview = row.reviewState === "linked" || row.reviewState === "recorded" ||
       row.reviewState === "dismissed";
     const now = Date.now();
-    const expiredPayer = row.payerDetailsClearedAt !== undefined ||
-      (row.resolvedAt !== undefined && row.resolvedAt <= now - PAYER_RETENTION_MS);
+    const payerDetailsExpireAt = payerDetailsDeadline(
+      row, protectedReview ? row.reviewState : nextReviewState, row.resolvedAt,
+    );
+    const expiredPayer = row.payerDetailsClearedAt !== undefined || now >= payerDetailsExpireAt;
 
     // Convex omits undefined action arguments. Materialize fields that must
     // be removed when a later provider response no longer contains them.
@@ -374,8 +433,13 @@ export const storePaymentRead = internalMutation({
     await ctx.db.patch("providerPayments", row._id, {
       ...factsPatch,
       refreshedAt: now,
-      adverseFencedAt: fenced ? row.adverseFencedAt : undefined,
-      adverseState: fenced && row.adverseState !== "none" ? row.adverseState : payment.adverseState,
+      storedRefreshGeneration: args.generation,
+      adverseFencedAt: pending ? row.adverseFencedAt : undefined,
+      adverseState,
+      sourceAdverseState: payment.adverseState,
+      adverseReviewAt: adverseReviewTimestamp(row, adverseState, payment.refundedMinor, now),
+      payerDetailsExpireAt,
+      hasPayerDetails: !expiredPayer && Boolean(payment.payerEmail || payment.payerPhone) || undefined,
       payerEmail: expiredPayer ? undefined : payment.payerEmail,
       payerPhone: expiredPayer ? undefined : payment.payerPhone,
       payerDetailsClearedAt: expiredPayer ? row.payerDetailsClearedAt ?? now : undefined,
@@ -390,7 +454,7 @@ export const storePaymentRead = internalMutation({
       }),
     });
     await refreshProviderPaymentReview(ctx, row._id);
-    return fenced ? "fenced" : "stored";
+    return pending ? "fenced" : "stored";
   },
 });
 
@@ -398,7 +462,7 @@ export async function refreshWhopPayment(
   ctx: ActionCtx,
   connection: Doc<"tenantPaymentConnections">,
   externalPaymentId: string,
-  evidence?: AdverseEvidence,
+  evidence?: AdverseEvidence[],
 ): Promise<typeof readResult.type> {
   const identity = {
     connectionId: connection._id,
@@ -457,13 +521,54 @@ async function fetchAdverseResource(
     return {
       paymentId: "payment" in object ? object.payment.id : object.payment_id,
       state: "status" in object ? object.status : object.auto_refunded ? "auto_refunded" : "alerted",
+      updatedAt: object.updated_at,
+      refundMinor: "amount" in object && object.amount?.decimals === 2 &&
+        object.amount.minor <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(object.amount.minor) : undefined,
     };
   });
 }
 
+export const listPendingAdverse = internalQuery({
+  args: { connectionId, externalPaymentId: v.string() },
+  returns: v.array(v.object({ receiptId, kind: adverseKind, externalObjectId: v.string() })),
+  handler: async (ctx, { connectionId, externalPaymentId }) => {
+    const rows = await pendingAdverseReceipts(ctx, connectionId, externalPaymentId).take(8);
+    return rows.flatMap((row) => {
+      const kind = adverseEvent(row.eventType);
+      return kind && row.externalObjectId ? [{
+        receiptId: row._id, kind, externalObjectId: row.externalObjectId,
+      }] : [];
+    });
+  },
+});
+
+export async function refreshWhopPaymentForSweep(
+  ctx: ActionCtx,
+  connection: Doc<"tenantPaymentConnections">,
+  externalPaymentId: string,
+) {
+  const resources = await ctx.runQuery(internal.payments.intake.listPendingAdverse, {
+    connectionId: connection._id, externalPaymentId,
+  });
+  const evidence: AdverseEvidence[] = [];
+  for (const resource of resources) {
+    try {
+      const object = await fetchAdverseResource(ctx, connection, resource.kind, resource.externalObjectId);
+      if (object.paymentId === externalPaymentId) evidence.push({ ...resource, ...object });
+    } catch (error) {
+      // An inaccessible resource must not prevent the canonical payment read.
+      if (!(error instanceof WhopRequestError) ||
+          (error.code !== "forbidden" && error.code !== "unexpected_response")) throw error;
+    }
+  }
+  return refreshWhopPayment(ctx, connection, externalPaymentId, evidence.map(
+    ({ receiptId, kind, state, updatedAt, refundMinor }) => ({ receiptId, kind, state, updatedAt, refundMinor }),
+  ));
+}
+
 const attemptOutcome = v.union(
   v.literal("processed"), v.literal("missing_object"), v.literal("account_mismatch"),
-  v.literal("provider_read_failed"),
+  v.literal("provider_read_failed"), v.literal("connection_unavailable"),
 );
 
 async function finishReceiptAttempt(
@@ -473,8 +578,11 @@ async function finishReceiptAttempt(
   const row = await ctx.db.get("paymentWebhookReceipts", args.receiptId);
   if (row?.status !== "received" || row.attempts + 1 !== args.attempt) return;
   const now = Date.now();
-  if (args.outcome === "provider_read_failed" && args.attempt < MAX_ATTEMPTS) {
-    const delay = Math.max(args.retryMs ?? 0, 5_000 * 2 ** (args.attempt - 1));
+  const connection = await ctx.db.get("tenantPaymentConnections", row.connectionId);
+  const outcome = args.outcome === "provider_read_failed" && connection?.status !== "connected"
+    ? "connection_unavailable" : args.outcome;
+  if (outcome === "provider_read_failed" && args.attempt < MAX_ATTEMPTS) {
+    const delay = Math.min(MAX_RETRY_AFTER_MS, Math.max(args.retryMs ?? 0, 5_000 * 2 ** (args.attempt - 1)));
     await ctx.db.patch("paymentWebhookReceipts", row._id, {
       attempts: args.attempt,
       retryAt: now + delay,
@@ -483,15 +591,15 @@ async function finishReceiptAttempt(
     await enqueueReceipt(ctx, row._id, args.attempt + 1, delay);
     return;
   }
-  const status = args.outcome === "processed" ? "processed"
-    : args.outcome === "provider_read_failed" ? "failed" : "ignored";
+  const status = outcome === "processed" ? "processed"
+    : outcome === "provider_read_failed" || outcome === "connection_unavailable" ? "failed" : "ignored";
   await ctx.db.patch("paymentWebhookReceipts", row._id, {
     status,
     attempts: args.attempt,
     processedAt: now,
     retryAt: undefined,
-    failureCode: args.outcome === "processed" ? undefined
-      : args.outcome === "provider_read_failed" ? "attempts_exhausted" : args.outcome,
+    failureCode: outcome === "processed" ? undefined
+      : outcome === "provider_read_failed" ? "attempts_exhausted" : outcome,
   });
   log.info("whop.webhook.completed", {
     connectionId: row.connectionId, receiptId: row._id, status, attempts: args.attempt,
@@ -531,30 +639,46 @@ export const processReceipt = internalAction({
     try {
       if (!connection || connection.tenantId !== receipt.tenantId)
         throw new WhopAccountMismatch();
-      if (connection.status === "disconnected") {
-        outcome = "missing_object";
-      } else if (connection.status === "connected") {
+      if (connection.status !== "connected") {
+        outcome = "connection_unavailable";
+      } else {
         let externalPaymentId = receipt.externalPaymentId;
         let evidence: AdverseEvidence | undefined;
         const kind = adverseEvent(receipt.eventType);
-        if (kind && receipt.externalObjectId) {
-          const object = await fetchAdverseResource(ctx, connection, kind, receipt.externalObjectId);
-          if (object.paymentId && externalPaymentId && object.paymentId !== externalPaymentId)
-            throw new WhopRequestError("unexpected_response");
-          externalPaymentId = object.paymentId ?? undefined;
-          if (externalPaymentId) {
-            const fencedAt = await ctx.runMutation(internal.payments.intake.attachAdversePayment, {
-              receiptId: receipt._id, externalPaymentId, connectedAt: connection.connectedAt,
-            });
-            if (fencedAt === null) throw new WhopRequestError("unexpected_response");
-            evidence = { kind, state: object.state, fencedAt };
+        if (kind && receipt.adversePending && receipt.externalObjectId) {
+          try {
+            const object = await fetchAdverseResource(ctx, connection, kind, receipt.externalObjectId);
+            if (object.paymentId && externalPaymentId && object.paymentId !== externalPaymentId)
+              throw new WhopRequestError("unexpected_response");
+            externalPaymentId = object.paymentId ?? externalPaymentId;
+            if (externalPaymentId) {
+              const fencedAt = await ctx.runMutation(internal.payments.intake.attachAdversePayment, {
+                receiptId: receipt._id, externalPaymentId, connectedAt: connection.connectedAt,
+              });
+              if (fencedAt === null) throw new WhopRequestError("unexpected_response");
+              evidence = {
+                kind, receiptId: receipt._id, state: object.state,
+                updatedAt: object.updatedAt, refundMinor: object.refundMinor,
+              };
+            }
+          } catch (error) {
+            if (!externalPaymentId || kind === "refund" ||
+                !(error instanceof WhopRequestError) || error.code !== "forbidden") throw error;
+            // Refresh canonical facts while the resource remains fenced.
           }
         }
         if (!externalPaymentId) {
           outcome = "missing_object";
         } else {
-          const result = await refreshWhopPayment(ctx, connection, externalPaymentId, evidence);
-          if (!kind || result === "stored" || result === "stale") outcome = "processed";
+          const result = await refreshWhopPayment(ctx, connection, externalPaymentId, evidence && [evidence]);
+          if (result !== "superseded") {
+            if (!kind) {
+              outcome = "processed";
+            } else {
+              const after = await ctx.runQuery(internal.payments.intake.receipt, { receiptId: receipt._id });
+              if (after && !after.adversePending) outcome = "processed";
+            }
+          }
         }
       }
     } catch (error) {
@@ -564,8 +688,8 @@ export const processReceipt = internalAction({
         retryMs = error.retryAfterMs;
       }
       if (outcome !== "account_mismatch") {
-        reportError("whop.webhook.read_failed", new Error("Whop webhook payment read failed"), {
-          integration: "whop", connectionId: receipt.connectionId, receiptId: receipt._id,
+        reportWhopRequestError("whop.webhook.read_failed", error, {
+          connectionId: receipt.connectionId, receiptId: receipt._id,
         });
       }
     }

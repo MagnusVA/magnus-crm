@@ -7,6 +7,7 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
 import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
+import { clearActiveAllocation } from "../payments/allocation";
 import { requireTenantUser } from "../requireTenantUser";
 import { replacePaymentAggregate } from "../reporting/writeHooks";
 
@@ -88,6 +89,7 @@ export const voidPayment = mutation({
     });
 
     await replacePaymentAggregate(ctx, payment, paymentId);
+    await clearActiveAllocation(ctx, payment);
 
     // A disputed payment no longer counts: the enrollment it held moves to
     // the earliest payment left for its program, or goes, and a person left

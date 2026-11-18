@@ -12,6 +12,7 @@ import {
   moveTouchRowsPage,
   moveOpportunityToLead,
   moveRemainingLeadRows,
+  moveProviderPaymentsPage,
 } from "./repointLeadReferences";
 import { syncPersonProspectConversions } from "../lib/prospectConversions";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -713,7 +714,8 @@ export async function executeMerge(
 
   const hasDuplicateFlags =
     (await duplicateFlagsQuery(ctx, tenantId, sourceLeadId).first()) !== null;
-  const continues = formResponses.hasMore || hasDuplicateFlags || leadRows.hasMoreTouches;
+  const continues = formResponses.hasMore || hasDuplicateFlags ||
+    leadRows.hasMoreTouches || leadRows.hasMoreProviderPayments;
   if (continues) {
     await ctx.scheduler.runAfter(0, internal.leads.merge.continueLeadMerge, {
       tenantId,
@@ -845,7 +847,10 @@ export const continueLeadMerge = internalMutation({
       now: Date.now(),
       limit: TOUCH_ROW_PAGE_SIZE,
     });
-    const continues = formResponses.hasMore || duplicateFlags.hasMore || touches.hasMore;
+    const hasMoreProviderPayments = await moveProviderPaymentsPage(ctx, {
+      tenantId, fromLeadId: sourceLeadId, toLeadId: target._id,
+    });
+    const continues = formResponses.hasMore || duplicateFlags.hasMore || touches.hasMore || hasMoreProviderPayments;
     log.info("leads.merge.continued", {
       ...args,
       resolvedTargetLeadId: target._id,

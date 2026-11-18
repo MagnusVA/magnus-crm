@@ -10,8 +10,8 @@ const live = { environment: "live" } as const;
 const sandbox = { environment: "sandbox" } as const;
 const apiKey = "test_whop_api_key_1111";
 const nextKey = "test_whop_api_key_2222";
-const webhookSecret = "ws_test_secret_first";
-const nextSecret = "ws_test_secret_second";
+const webhookSecret = "ws_test_secret_first_synthetic_fixture";
+const nextSecret = "ws_test_secret_second_synthetic_fixture";
 const accountId = "biz_TestAccount";
 const now = Date.parse("2026-11-17T15:00:00Z");
 
@@ -87,7 +87,7 @@ async function fixture() {
   };
 }
 
-function stubWhop(responses: { payments?: () => Response; account?: () => Response } = {}) {
+function stubWhop(responses: { payments?: () => Response; account?: () => Response; dispute?: () => Response; alert?: () => Response } = {}) {
   const fetchMock = vi.fn(async (url: string, _init: RequestInit) => {
     const path = new URL(url).pathname;
     if (path === "/api/v1/payments") {
@@ -96,6 +96,8 @@ function stubWhop(responses: { payments?: () => Response; account?: () => Respon
     if (path === "/api/v1/accounts/me") {
       return responses.account?.() ?? Response.json({ id: accountId, title: "Test Whop" });
     }
+    if (path === "/api/v1/disputes") return responses.dispute?.() ?? Response.json({ data: [] });
+    if (path === "/api/v1/dispute_alerts") return responses.alert?.() ?? Response.json({ data: [] });
     throw new Error("Unexpected test request");
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -111,7 +113,7 @@ describe("Whop connection", () => {
       apiKey: ` ${apiKey} `,
       accountId,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       `https://api.whop.com/api/v1/payments?account_id=${accountId}&first=1`,
@@ -138,6 +140,7 @@ describe("Whop connection", () => {
       connectedAt: now,
       connectedByUserId: f.adminId,
       keyLast4: "1111",
+      disputeAccess: "ok",
       hasWebhookSecret: true,
       webhookUrl: `https://test.convex.site/webhooks/whop?c=${connectionId}`,
       webhookEvents: [
@@ -152,17 +155,22 @@ describe("Whop connection", () => {
       .toMatchObject({ credentialKind: "account_key", apiVersionDate: WHOP_API_VERSION_DATE });
   });
 
-  it("keeps live and sandbox distinct and accepts an empty account without title scope", async () => {
+  it("allows only one connected environment and accepts an empty account without title scope", async () => {
     const f = await fixture();
     const fetchMock = stubWhop({
       payments: () => Response.json({ data: [] }),
       account: () => new Response(null, { status: 403 }),
     });
     const liveId = await f.admin.action(connection.connect, { ...live, apiKey, accountId });
+    await expect(f.admin.action(connection.connect, { ...sandbox, apiKey, accountId }))
+      .rejects.toMatchObject({ data: { code: "whop.other_environment_connected" } });
+    expect(await f.admin.query(connection.getConnection, sandbox)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await f.admin.mutation(connection.disconnect, { connectionId: liveId });
     const sandboxId = await f.admin.action(connection.connect, { ...sandbox, apiKey, accountId });
     expect(sandboxId).not.toBe(liveId);
     expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
+      5,
       `https://sandbox-api.whop.com/api/v1/payments?account_id=${accountId}&first=1`,
       expect.any(Object),
     );
@@ -307,6 +315,56 @@ describe("Whop connection", () => {
       .rejects.toMatchObject({ data: { code: "whop.connection_not_found" } });
     await expect(f.other.mutation(connection.disconnect, { connectionId }))
       .rejects.toMatchObject({ data: { code: "whop.connection_not_found" } });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("connection ownership and webhook setup", () => {
+  it.each(["connected", "invalid_key"] as const)("keeps an account exclusive while its original tenant is %s", async (status) => {
+    const f = await fixture();
+    stubWhop();
+    const args = { ...live, apiKey, accountId };
+    const first = await f.admin.action(connection.connect, args);
+    await f.t.run((ctx) => ctx.db.patch("tenantPaymentConnections", first, { status }));
+    await expect(f.other.action(connection.connect, args))
+      .rejects.toMatchObject({ data: { code: "whop.account_in_use" } });
+    await expect(f.admin.action(connection.connect, args)).resolves.toBe(first);
+    await f.admin.mutation(connection.disconnect, { connectionId: first });
+    const second = await f.other.action(connection.connect, args);
+    expect(second).not.toBe(first);
+    await expect(f.admin.action(connection.connect, args))
+      .rejects.toMatchObject({ data: { code: "whop.account_in_use" } });
+  });
+
+  it.each(["dispute", "alert"] as const)("warns about unavailable %s access on an empty account", async (missing) => {
+    const f = await fixture();
+    const fetchMock = stubWhop({
+      payments: () => Response.json({ data: [] }),
+      [missing]: () => new Response(null, { status: 403 }),
+    });
+    await f.admin.action(connection.connect, { ...live, apiKey, accountId });
+    const view = await f.admin.query(connection.getConnection, live);
+    expect(view).toMatchObject({ status: "connected", disputeAccess: "forbidden" });
+    for (const part of ["disputes", "dispute_alerts"]) {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `https://api.whop.com/api/v1/${part}?account_id=${accountId}&first=1`,
+        expect.any(Object),
+      );
+    }
+  });
+
+  it("rejects undocumented or short webhook secrets without rotating the current key", async () => {
+    const f = await fixture();
+    stubWhop();
+    const connectionId = await f.admin.action(connection.connect, { ...live, apiKey, accountId });
+    const valid = `whsec_${btoa("synthetic_standard_webhook_key")}`;
+    await f.admin.mutation(connection.setWebhookSecret, { connectionId, webhookSecret: valid });
+    for (const value of ["ws_synthetic_short", "whsec_QQ==", "undocumented_synthetic_webhook_key"]) {
+      await expect(f.admin.mutation(connection.setWebhookSecret, { connectionId, webhookSecret: value }))
+        .rejects.toMatchObject({ data: { code: "whop.invalid_webhook_secret" } });
+    }
+    const stored = await f.t.run((ctx) => ctx.db.get("tenantPaymentConnections", connectionId));
+    expect(stored?.webhookSecret).toBe(valid);
+    expect(stored?.previousWebhookSecret).toBeUndefined();
   });
 });
