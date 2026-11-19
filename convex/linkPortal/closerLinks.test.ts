@@ -9,12 +9,13 @@ const PORTAL_SLUG = "portal";
 const CALENDLY = "https://api.calendly.com";
 
 type CloserOverrides = Partial<Pick<Doc<"users">, "isActive" | "deletedAt" | "closerLinkInPortalAt">>;
+type CalendarKind = "one-on-one" | "round_robin";
 
 async function seedCloser(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   slug: string,
-  { ready = true, ...overrides }: CloserOverrides & { ready?: boolean } = {},
+  { ready = true, kind = "one-on-one", ...overrides }: CloserOverrides & { ready?: boolean; kind?: CalendarKind } = {},
 ) {
   const url = `https://calendly.com/${slug}/sales`;
   const calendlyUserUri = `${CALENDLY}/users/${slug}`;
@@ -37,6 +38,11 @@ async function seedCloser(
     calendlyEventTypeUri,
     calendlyOwnerUri: calendlyUserUri,
     calendlyKind: "solo",
+    ...(kind === "round_robin" ? {
+      calendlyOwnerUri: `${CALENDLY}/users/booking-admin`,
+      calendlyPoolingType: "round_robin",
+      calendlySoleHostUri: calendlyUserUri,
+    } : {}),
     calendlySyncStatus: "active",
     bookingBaseUrl: url,
     calendlySchedulingUrl: `${url}?hide_gdpr_banner=1`,
@@ -44,10 +50,10 @@ async function seedCloser(
     programFromLinkAt: ready ? NOW : undefined,
     createdAt: NOW - 10_000,
   });
-  return { userId, configId, calendlyEventTypeUri, url };
+  return { userId, configId, calendlyUserUri, calendlyEventTypeUri, url };
 }
 
-async function setup() {
+async function setup(kind: CalendarKind = "one-on-one") {
   const { t, tenantId, admin } = await bookingHarness({ transactionLimits: true });
   const programId = await admin.mutation(api.tenantPrograms.mutations.upsertProgram, {
     name: "Coaching", linkCode: "coaching-vip",
@@ -57,7 +63,7 @@ async function setup() {
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin")).unique();
     if (!admin) throw new Error("Missing fixture admin");
     const teamId = await testLeadGenTeam(ctx, tenantId, "dm-team");
-    const phoneCloser = await seedCloser(ctx, tenantId, "alex");
+    const phoneCloser = await seedCloser(ctx, tenantId, "alex", { kind });
     await ctx.db.insert("linkPortalConfigs", {
       tenantId, publicSlug: PORTAL_SLUG, isEnabled: true, sessionVersion: 1,
       sessionTtlSeconds: 3600, createdAt: NOW, updatedAt: NOW,
@@ -116,30 +122,53 @@ describe("DM portal closer links", () => {
     ]);
   });
 
-  it("builds the URL with the DM team's UTMs and audits the host and program", async () => {
-    const h = await setup();
+  it.each(["one-on-one", "round_robin"] as const)(
+    "lists a closer with a %s calendar, adds the DM team's UTMs, and audits the copy",
+    async (kind) => {
+      const h = await setup(kind);
+      expect((await h.bootstrap()).phoneClosers).toMatchObject([{ id: h.phoneCloser.userId, displayName: "alex" }]);
 
-    const { url, copyEventId } = await h.copy();
+      const { url, copyEventId } = await h.copy();
 
-    const link = new URL(url);
-    expect(link.origin + link.pathname).toBe(h.phoneCloser.url);
-    expect(Object.fromEntries(link.searchParams)).toEqual({
-      hide_gdpr_banner: "1",
-      utm_source: "dm-team",
-      utm_medium: "dm-setter",
-      utm_campaign: "October Launch",
-      utm_content: "coaching-vip",
-    });
-    expect(await h.t.run((ctx) => ctx.db.get("linkPortalCopyEvents", copyEventId))).toMatchObject({
-      tenantId: h.tenantId,
-      sessionIdHash: "session",
-      eventTypeConfigId: h.phoneCloser.configId,
-      linkHostUserId: h.phoneCloser.userId,
-      bookingProgramId: h.programId,
-      attributionTeamId: h.teamId,
-      dmCloserId: h.dmCloserId,
-      campaignPresetId: h.campaignPresetId,
-      utmCampaign: "October Launch",
+      const link = new URL(url);
+      expect(link.origin + link.pathname).toBe(h.phoneCloser.url);
+      expect(Object.fromEntries(link.searchParams)).toEqual({
+        hide_gdpr_banner: "1",
+        utm_source: "dm-team",
+        utm_medium: "dm-setter",
+        utm_campaign: "October Launch",
+        utm_content: "coaching-vip",
+      });
+      expect(await h.t.run((ctx) => ctx.db.get("linkPortalCopyEvents", copyEventId))).toMatchObject({
+        tenantId: h.tenantId,
+        sessionIdHash: "session",
+        eventTypeConfigId: h.phoneCloser.configId,
+        linkHostUserId: h.phoneCloser.userId,
+        bookingProgramId: h.programId,
+        attributionTeamId: h.teamId,
+        dmCloserId: h.dmCloserId,
+        campaignPresetId: h.campaignPresetId,
+        utmCampaign: "October Launch",
+      });
+    },
+  );
+
+  it("hides a round-robin closer and rejects copy until its sole host is restored", async () => {
+    const h = await setup("round_robin");
+    const { userId, configId, calendlyUserUri } = h.phoneCloser;
+    expect((await h.bootstrap()).phoneClosers).toMatchObject([{ id: userId }]);
+
+    await h.t.run((ctx) => ctx.db.patch("eventTypeConfigs", configId, { calendlySoleHostUri: undefined }));
+
+    expect((await h.bootstrap()).phoneClosers).toEqual([]);
+    await expect(h.copy()).rejects.toMatchObject({ data: { code: "link_portal.closer_unavailable" } });
+    expect(await h.t.run((ctx) => ctx.db.query("linkPortalCopyEvents").take(1))).toEqual([]);
+
+    await h.t.run((ctx) => ctx.db.patch("eventTypeConfigs", configId, { calendlySoleHostUri: calendlyUserUri }));
+
+    expect((await h.bootstrap()).phoneClosers).toMatchObject([{ id: userId }]);
+    await expect(h.copy()).resolves.toMatchObject({
+      url: expect.stringContaining("utm_content=coaching-vip"),
     });
   });
 

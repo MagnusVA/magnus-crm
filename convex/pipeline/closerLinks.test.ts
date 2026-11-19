@@ -16,8 +16,10 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 type Calendar = "flagged" | "ordinary" | "fixed" | "flagged_fixed";
+const CALENDAR_KINDS = ["one-on-one", "round_robin"] as const;
+type CalendarKind = (typeof CALENDAR_KINDS)[number];
 
-async function setup(calendar: Calendar = "flagged") {
+async function setup(calendar: Calendar = "flagged", kind: CalendarKind = "one-on-one") {
   const { t, tenantId, admin } = await bookingHarness({ transactionLimits: true });
   const programId = await admin.mutation(api.tenantPrograms.mutations.upsertProgram, {
     name: "Coaching", linkCode: LINK_CODE,
@@ -42,6 +44,11 @@ async function setup(calendar: Calendar = "flagged") {
       displayName: "Personal sales call",
       calendlyOwnerUri: closer.calendlyUserUri,
       calendlyKind: "solo",
+      ...(kind === "round_robin" ? {
+        calendlyOwnerUri: "https://api.calendly.com/users/booking-admin",
+        calendlyPoolingType: "round_robin",
+        calendlySoleHostUri: closer.calendlyUserUri,
+      } : {}),
       bookingBaseUrl: "https://calendly.com/closer/sales",
       programFromLinkAt: flagged ? 0 : undefined,
       bookingProgramId: fixed ? fixedProgramId : undefined,
@@ -91,8 +98,8 @@ async function book(h: Harness, payload: Payload, createdAt?: string) {
 }
 
 describe("booking on a closer's personal calendar", () => {
-  it("maps the meeting and first booking to the link program alongside DM attribution", async () => {
-    const h = await setup();
+  it.each(CALENDAR_KINDS)("assigns the host and maps the program alongside DM attribution for %s", async (kind) => {
+    const h = await setup("flagged", kind);
     const teamId = await h.t.run((ctx) => testLeadGenTeam(ctx, h.tenantId, DM_TRACKING.utm_source));
     await h.admin.mutation(api.attribution.dmClosers.createDmCloser, {
       teamId, displayName: "DM Setter", utmMedium: DM_TRACKING.utm_medium,
@@ -152,8 +159,8 @@ describe("booking on a closer's personal calendar", () => {
     expect(opportunity.firstBookingProgramId).toBeUndefined();
   });
 
-  it("uses a fixed program ahead of the link code when both are set", async () => {
-    const h = await setup("flagged_fixed");
+  it.each(CALENDAR_KINDS)("uses a fixed program ahead of the link code for %s", async (kind) => {
+    const h = await setup("flagged_fixed", kind);
     const { meeting, opportunity } = await book(h, {
       ...bookingPayload("fixed"),
       tracking: { ...DM_TRACKING, utm_content: LINK_CODE },
@@ -225,8 +232,8 @@ describe("booking on a closer's personal calendar", () => {
     expect(await h.t.run((ctx) => ctx.db.get("followUps", followUpId))).toMatchObject({ status: "booked" });
   });
 
-  it("skips a valid code on a CRM booking even on the ordinary insert path", async () => {
-    const h = await setup();
+  it.each(CALENDAR_KINDS)("skips a valid code on a CRM booking for %s on the ordinary insert path", async (kind) => {
+    const h = await setup("flagged", kind);
     const { meeting, opportunity } = await book(h, {
       ...bookingPayload("internal-tracking"),
       tracking: { utm_source: "ptdom", utm_content: LINK_CODE },

@@ -4,6 +4,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { isCalendlyBookable } from "./bookingSetup/coverage";
+import { readLiveQueryRows } from "./liveQueryBounds";
 import {
 	bookingUrlKey,
 	closerCalendarUrl,
@@ -17,6 +18,11 @@ type ReadCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
 const MAX_CONFIGS_PER_EVENT_TYPE = 8;
 /** Event types read per closer. A person owns a handful; more is a sync anomaly. */
 const MAX_OWNED_EVENT_TYPES = 100;
+/**
+ * Round robins read per closer where they are the only host. One more than
+ * this means the set is incomplete, and no link is Ready on an incomplete set.
+ */
+const MAX_SOLE_HOST_EVENT_TYPES = 20;
 
 /**
  * The config the booking pipeline reads for a Calendly event type: the oldest
@@ -43,26 +49,55 @@ export async function lookupCanonicalEventTypeConfig(
 	};
 }
 
-/** The event types Calendly says this Calendly user owns. */
-export async function listOwnedEventTypeConfigs(
+/** Statuses decided before the link is matched to an event type. */
+const PRE_MATCH_STATUSES: ReadonlySet<CloserLinkStatus> = new Set([
+	"deactivated",
+	"not_closer",
+	"calendly_not_linked",
+	"needs_link",
+]);
+
+export type CloserCalendarConfigs = {
+	configs: Array<Doc<"eventTypeConfigs">>;
+	/** False when the closer is sole host of more round robins than are read. */
+	complete: boolean;
+};
+
+/**
+ * The event types Calendly ties to this Calendly user: the ones they own,
+ * and the round robins the event type sync verified they are the only host of.
+ */
+export async function listCloserCalendarConfigs(
 	ctx: ReadCtx,
 	tenantId: Id<"tenants">,
 	calendlyUserUri: string | undefined,
-): Promise<Array<Doc<"eventTypeConfigs">>> {
-	if (!calendlyUserUri) return [];
-	return await ctx.db
-		.query("eventTypeConfigs")
-		.withIndex("by_tenantId_and_calendlyOwnerUri", (q) =>
-			q.eq("tenantId", tenantId).eq("calendlyOwnerUri", calendlyUserUri),
-		)
-		.take(MAX_OWNED_EVENT_TYPES);
+): Promise<CloserCalendarConfigs> {
+	if (!calendlyUserUri) return { configs: [], complete: true };
+	const [owned, hosted] = await Promise.all([
+		ctx.db
+			.query("eventTypeConfigs")
+			.withIndex("by_tenantId_and_calendlyOwnerUri", (q) =>
+				q.eq("tenantId", tenantId).eq("calendlyOwnerUri", calendlyUserUri),
+			)
+			.take(MAX_OWNED_EVENT_TYPES),
+		readLiveQueryRows(
+			ctx.db
+				.query("eventTypeConfigs")
+				.withIndex("by_tenantId_and_calendlySoleHostUri", (q) =>
+					q.eq("tenantId", tenantId).eq("calendlySoleHostUri", calendlyUserUri),
+				),
+			MAX_SOLE_HOST_EVENT_TYPES,
+		),
+	]);
+	const byId = new Map(owned.map((config) => [config._id, config]));
+	for (const config of hosted.rows) byId.set(config._id, config);
+	return { configs: [...byId.values()], complete: !hosted.capped };
 }
 
 export type CloserLinkState = {
 	status: CloserLinkStatus;
 	/** The canonical config of the closer's personal link, when it matched one. */
 	config: Doc<"eventTypeConfigs"> | null;
-	owned: Array<Doc<"eventTypeConfigs">>;
 };
 
 /** Where a closer's personal link stands, read fresh. */
@@ -70,7 +105,8 @@ export async function readCloserLinkState(
 	ctx: ReadCtx,
 	user: Doc<"users">,
 ): Promise<CloserLinkState> {
-	const owned = await listOwnedEventTypeConfigs(ctx, user.tenantId, user.calendlyUserUri);
+	const calendars = await listCloserCalendarConfigs(ctx, user.tenantId, user.calendlyUserUri);
+	const owned = calendars.configs;
 	const urlKey = bookingUrlKey(user.personalEventTypeUri);
 	const matchedUris = [
 		...new Set(
@@ -91,7 +127,14 @@ export async function readCloserLinkState(
 		}
 	}
 	const { status, config } = closerLinkStatus(user, owned, (uri) => canonical.get(uri) ?? null);
-	return { status, config, owned };
+	// An incomplete set can't tell which round robin, if any, the link is.
+	// An owned one-on-one match stands: Calendly gives each event type its own
+	// URL, so an unread round robin can't share it.
+	const ownedMatch = config !== null && !config.calendlyPoolingType;
+	if (!calendars.complete && !PRE_MATCH_STATUSES.has(status) && !ownedMatch) {
+		return { status: "too_many_calendars", config: null };
+	}
+	return { status, config };
 }
 
 /** Whether this closer's link is in the DM portal right now. */

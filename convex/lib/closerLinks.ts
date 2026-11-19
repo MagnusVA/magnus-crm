@@ -84,6 +84,7 @@ export type CloserCalendarConfig = CoverageEventType & {
   _id: string;
   calendlyEventTypeUri: string;
   calendlyOwnerUri?: string;
+  calendlySoleHostUri?: string;
   calendlyKind?: string;
   calendlyPoolingType?: string;
   notSalesCallAt?: number;
@@ -91,11 +92,35 @@ export type CloserCalendarConfig = CoverageEventType & {
   createdAt: number;
 };
 
-/** A one-on-one calendar of one person: the only kind a closer link can use. */
-export function isSoloCalendar(config: Pick<CloserCalendarConfig, "calendlyKind" | "calendlyPoolingType">) {
+/** Pooled event types that count as one person's calendar when they have a single host. */
+export const SINGLE_HOST_POOLING_TYPES: ReadonlySet<string> = new Set(["round_robin"]);
+
+/**
+ * The Calendly user whose own calendar this event type is, if it is one
+ * person's: a one-on-one event type's owner, or the only host of a round
+ * robin as the event type sync last verified it. Group, collective and
+ * multi-pool event types are nobody's.
+ */
+export function calendarHolderUri(
+  config: Pick<
+    CloserCalendarConfig,
+    "calendlyKind" | "calendlyPoolingType" | "calendlyOwnerUri" | "calendlySoleHostUri"
+  >,
+): string | undefined {
+  if (config.calendlyKind !== undefined && config.calendlyKind !== "solo") return undefined;
+  if (!config.calendlyPoolingType) return config.calendlyOwnerUri;
+  if (SINGLE_HOST_POOLING_TYPES.has(config.calendlyPoolingType)) return config.calendlySoleHostUri;
+  return undefined;
+}
+
+/** Whether Calendly ties this event type to the user at all, as owner or sole host. */
+export function isTiedToUser(
+  config: Pick<CloserCalendarConfig, "calendlyOwnerUri" | "calendlySoleHostUri">,
+  calendlyUserUri: string | undefined,
+): boolean {
   return (
-    (config.calendlyKind === undefined || config.calendlyKind === "solo") &&
-    !config.calendlyPoolingType
+    calendlyUserUri !== undefined &&
+    (config.calendlyOwnerUri === calendlyUserUri || config.calendlySoleHostUri === calendlyUserUri)
   );
 }
 
@@ -115,6 +140,7 @@ export type CloserLinkStatus =
   | "needs_link"
   | "not_their_calendar"
   | "ambiguous"
+  | "too_many_calendars"
   | "not_one_on_one"
   | "unavailable"
   | "not_sales_call"
@@ -129,7 +155,8 @@ export const CLOSER_LINK_STATUS_LABEL: Record<CloserLinkStatus, string> = {
   needs_link: "Needs a link",
   not_their_calendar: "Not one of their Calendly event types",
   ambiguous: "Matches more than one event type",
-  not_one_on_one: "Not a one-on-one event type",
+  too_many_calendars: "Too many Calendly event types to check",
+  not_one_on_one: "Not a one-person event type",
   unavailable: "Inactive in Calendly or missing its URL",
   not_sales_call: "Marked not a sales call",
   fixed_program: "Event type has a fixed program",
@@ -146,9 +173,10 @@ type CloserForStatus = {
 
 /**
  * Where a closer's personal link stands. `ownedConfigs` are the event types
- * Calendly says the closer owns; `canonicalConfigFor` returns the config the
- * booking pipeline reads for a Calendly event type URI (the oldest one), so
- * Ready here means the pipeline will read the program code.
+ * Calendly ties to the closer (as owner or verified sole host);
+ * `canonicalConfigFor` returns the config the booking pipeline reads for a
+ * Calendly event type URI (the oldest one), so Ready here means the pipeline
+ * will read the program code.
  */
 export function closerLinkStatus<Config extends CloserCalendarConfig>(
   user: CloserForStatus,
@@ -165,7 +193,7 @@ export function closerLinkStatus<Config extends CloserCalendarConfig>(
   // A deleted or inactive event type can share its URL with its replacement.
   const matches = ownedConfigs.filter(
     (config) =>
-      config.calendlyOwnerUri === user.calendlyUserUri &&
+      isTiedToUser(config, user.calendlyUserUri) &&
       isCalendlyBookable(config) &&
       sameBookingUrl(closerCalendarUrl(config), user.personalEventTypeUri),
   );
@@ -176,15 +204,20 @@ export function closerLinkStatus<Config extends CloserCalendarConfig>(
   const [uri] = [...uris];
   // The pipeline reads the canonical (oldest) config, so it must be theirs too.
   const config = uri ? canonicalConfigFor(uri) : null;
-  if (!config || config.calendlyOwnerUri !== user.calendlyUserUri) {
+  if (!config || !isTiedToUser(config, user.calendlyUserUri)) {
     return { status: "not_their_calendar", config: null };
   }
-  return { status: calendarStatus(config), config };
+  return { status: calendarStatus(config, user.calendlyUserUri), config };
 }
 
-/** Whether one of the closer's own event types can carry closer links. */
-export function calendarStatus(config: CloserCalendarConfig): CloserLinkStatus {
-  if (!isSoloCalendar(config)) return "not_one_on_one";
+/** Whether an event type Calendly ties to this person can carry their closer links. */
+export function calendarStatus(
+  config: CloserCalendarConfig,
+  calendlyUserUri: string | undefined,
+): CloserLinkStatus {
+  if (calendlyUserUri === undefined || calendarHolderUri(config) !== calendlyUserUri) {
+    return "not_one_on_one";
+  }
   if (linkIssue(config) !== null) return "unavailable";
   if (config.notSalesCallAt !== undefined) return "not_sales_call";
   if (config.bookingProgramId !== undefined) return "fixed_program";
