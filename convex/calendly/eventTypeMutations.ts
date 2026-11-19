@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import {
   getUniqueFieldKey,
   loadFieldCatalogByKey,
@@ -14,6 +14,9 @@ import {
 } from "../lib/tenantCalendlyConnection";
 import { log } from "../lib/observability/log";
 import { isRecord } from "../lib/payloadExtraction";
+import { SINGLE_HOST_POOLING_TYPES, bookingUrlKey } from "../lib/closerLinks";
+import { listActivePhoneClosers } from "../lib/closerLinkData";
+import { HOST_RESULTS_PER_BATCH, isHostCheckCandidate } from "./eventTypeHosts";
 
 type NormalizedCustomQuestion = {
   label: string;
@@ -33,6 +36,8 @@ type NormalizedCalendlyEventType = {
   enabledCustomQuestions: NormalizedCustomQuestion[];
   /** Enabled questions dropped because they have no label. */
   unlabeledQuestionCount: number;
+  /** Whether the sync asks Calendly for this event type's hosts. */
+  hostCheckCandidate: boolean;
   calendlyPatch: Partial<Doc<"eventTypeConfigs">>;
 };
 
@@ -176,6 +181,7 @@ export function normalizeCalendlyEventTypeResource(
     syncStatus,
     enabledCustomQuestions: customQuestions.questions,
     unlabeledQuestionCount: customQuestions.unlabeledCount,
+    hostCheckCandidate: isHostCheckCandidate(value),
     calendlyPatch: {
       calendlyName: name,
       calendlySchedulingUrl: schedulingUrl,
@@ -274,6 +280,13 @@ function buildEventTypeConfigSyncPatch(
 
   if (normalized.syncStatus === "deleted" && existing.linkPortalEnabled) {
     patch.linkPortalEnabled = false;
+    materialChange = true;
+  }
+
+  // A verified sole host only holds while the event type is still a round
+  // robin Calendly lists as active; reactivating it needs a fresh check.
+  if (!normalized.hostCheckCandidate && existing.calendlySoleHostUri !== undefined) {
+    patch.calendlySoleHostUri = undefined;
     materialChange = true;
   }
 
@@ -410,9 +423,53 @@ export const acquireEventTypeSyncLock = internalMutation({
   },
 });
 
+/**
+ * Whether this sync still holds the tenant's event type sync lock. The lock's
+ * expiry, as acquired or last extended, is the run's token: a run that
+ * outlived its lock while another run took over must not write.
+ */
+async function holdsSyncLock(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  syncLockUntil: number,
+) {
+  const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
+  return connection?.eventTypeSyncLockUntil === syncLockUntil;
+}
+
+async function requireSyncLock(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  syncLockUntil: number,
+) {
+  if (!(await holdsSyncLock(ctx, tenantId, syncLockUntil))) {
+    log.warn("calendly.event_types.sync_lock_lost", { tenantId });
+    throw new Error("Calendly event type sync lost its lock to a newer sync.");
+  }
+}
+
+/** Gives the host check time to run: the lock lasts at least until `minLockUntil`. */
+export const extendEventTypeSyncLock = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    syncLockUntil: v.number(),
+    minLockUntil: v.number(),
+  },
+  handler: async (ctx, { tenantId, syncLockUntil, minLockUntil }) => {
+    await requireSyncLock(ctx, tenantId, syncLockUntil);
+    if (minLockUntil <= syncLockUntil) return { syncLockUntil };
+    await updateTenantCalendlyConnection(ctx, tenantId, {
+      eventTypeSyncLockUntil: minLockUntil,
+    });
+    return { syncLockUntil: minLockUntil };
+  },
+});
+
 export const completeEventTypeSync = internalMutation({
   args: {
     tenantId: v.id("tenants"),
+    /** The run's lock; absent only when the run never acquired it (skipped). */
+    syncLockUntil: v.optional(v.number()),
     status: v.union(
       v.literal("success"),
       v.literal("failed"),
@@ -432,9 +489,18 @@ export const completeEventTypeSync = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { tenantId, status, error, totals }) => {
+  handler: async (ctx, { tenantId, syncLockUntil, status, error, totals }) => {
     const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
     if (!connection) {
+      return;
+    }
+    if (
+      status !== "skipped" &&
+      syncLockUntil !== undefined &&
+      connection.eventTypeSyncLockUntil !== syncLockUntil
+    ) {
+      // A newer sync holds the lock and will record its own outcome.
+      log.warn("calendly.event_types.sync_lock_lost", { tenantId, status });
       return;
     }
 
@@ -456,12 +522,14 @@ export const upsertEventTypesPage = internalMutation({
   args: {
     tenantId: v.id("tenants"),
     syncStartedAt: v.number(),
+    syncLockUntil: v.number(),
     collection: v.array(v.any()),
   },
   handler: async (
     ctx,
-    { tenantId, syncStartedAt, collection },
+    { tenantId, syncStartedAt, syncLockUntil, collection },
   ): Promise<EventTypesPageResult> => {
+    await requireSyncLock(ctx, tenantId, syncLockUntil);
     let created = 0;
     let updated = 0;
     let unchanged = 0;
@@ -560,8 +628,10 @@ export const markMissingEventTypes = internalMutation({
   args: {
     tenantId: v.id("tenants"),
     syncStartedAt: v.number(),
+    syncLockUntil: v.number(),
   },
-  handler: async (ctx, { tenantId, syncStartedAt }) => {
+  handler: async (ctx, { tenantId, syncStartedAt, syncLockUntil }) => {
+    await requireSyncLock(ctx, tenantId, syncLockUntil);
     let notReturned = 0;
     const rows = ctx.db
       .query("eventTypeConfigs")
@@ -576,6 +646,7 @@ export const markMissingEventTypes = internalMutation({
         await ctx.db.patch("eventTypeConfigs", config._id, {
           calendlySyncStatus: "not_returned",
           calendlyActive: false,
+          calendlySoleHostUri: undefined,
           updatedAt: Date.now(),
         });
         notReturned += 1;
@@ -583,5 +654,99 @@ export const markMissingEventTypes = internalMutation({
     }
 
     return { notReturned };
+  },
+});
+
+/**
+ * Stores what the host check found: the only host of each round robin, or
+ * none. Only rows this sync listed as round robins are written, and only
+ * when the stored host changes.
+ */
+export const recordEventTypeHosts = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    syncStartedAt: v.number(),
+    syncLockUntil: v.number(),
+    results: v.array(
+      v.object({
+        eventTypeUri: v.string(),
+        soleHostUri: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, { tenantId, syncStartedAt, syncLockUntil, results }) => {
+    await requireSyncLock(ctx, tenantId, syncLockUntil);
+    if (results.length > HOST_RESULTS_PER_BATCH) {
+      throw new Error("Too many host results in one batch.");
+    }
+    let changed = 0;
+    for (const { eventTypeUri, soleHostUri } of results) {
+      const configs = await ctx.db
+        .query("eventTypeConfigs")
+        .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
+          q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
+        )
+        .take(8);
+      for (const config of configs) {
+        if (
+          config.lastCalendlySeenAt !== syncStartedAt ||
+          config.calendlyPoolingType === undefined ||
+          !SINGLE_HOST_POOLING_TYPES.has(config.calendlyPoolingType) ||
+          config.calendlySoleHostUri === soleHostUri
+        ) {
+          continue;
+        }
+        await ctx.db.patch("eventTypeConfigs", config._id, {
+          calendlySoleHostUri: soleHostUri,
+          updatedAt: Date.now(),
+        });
+        changed += 1;
+        if (config.programFromLinkAt !== undefined) {
+          log.info("closer_link.host_changed", {
+            tenantId,
+            eventTypeConfigId: config._id,
+            hadHost: config.calendlySoleHostUri !== undefined,
+            hasHost: soleHostUri !== undefined,
+          });
+        }
+      }
+    }
+    return { changed };
+  },
+});
+
+/**
+ * Forgets every verified sole host in a tenant, a page at a time. Run it when
+ * rolling closer-link round robins back, so a later redeploy trusts no host
+ * the old code stopped checking until a new sync verifies it.
+ */
+export const clearSoleHostProof = internalMutation({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    // Cleared rows leave the index range, so each call reads the next ones.
+    const rows = await ctx.db
+      .query("eventTypeConfigs")
+      .withIndex("by_tenantId_and_calendlySoleHostUri", (q) =>
+        q.eq("tenantId", tenantId).gt("calendlySoleHostUri", ""),
+      )
+      .take(200);
+    for (const row of rows) {
+      await ctx.db.patch("eventTypeConfigs", row._id, { calendlySoleHostUri: undefined });
+    }
+    return { cleared: rows.length, done: rows.length < 200 };
+  },
+});
+
+/** The booking URLs of active phone closers' personal links, reduced to host and path. */
+export const listCloserLinkUrlKeys = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    const closers = await listActivePhoneClosers(ctx, tenantId);
+    const keys = new Set<string>();
+    for (const closer of closers) {
+      const key = bookingUrlKey(closer.personalEventTypeUri);
+      if (key) keys.add(key);
+    }
+    return [...keys];
   },
 });

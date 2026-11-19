@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { hostCheckWarning } from "@/lib/booking-setup/host-check";
 import { getErrorMessage } from "@/lib/errors";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { nameSaysStandard, type LookalikeGroup } from "@/lib/booking-setup/event-type-intel";
@@ -172,10 +173,12 @@ function Library({ coverage, activity }: { coverage: Coverage; activity: Booking
       const result = await syncNow({});
       posthog.capture("booking_event_types_synced", { status: result.status });
       if (result.status === "skipped") toast("A Calendly sync is already running. It will finish on its own.");
-      else
-        toast.success(
-          `Synced from Calendly: ${result.totalSeen} event ${result.totalSeen === 1 ? "type" : "types"}${result.created ? `, ${result.created} new` : ""}.`,
-        );
+      else {
+        const synced = `Synced from Calendly: ${result.totalSeen} event ${result.totalSeen === 1 ? "type" : "types"}${result.created ? `, ${result.created} new` : ""}.`;
+        const unconfirmed = result.hostsUnverified + result.hostsUnchecked;
+        if (unconfirmed > 0) toast.warning(synced, { description: hostCheckWarning(unconfirmed) });
+        else toast.success(synced);
+      }
     } catch (error) {
       reportClientError(error, { flow: "booking_event_types_sync" });
       toast.error(getErrorMessage(error, "Couldn't sync with Calendly. Try again."));

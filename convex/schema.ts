@@ -1737,6 +1737,10 @@ export default defineSchema({
     calendlyColor: v.optional(v.string()),
     calendlyLocale: v.optional(v.string()),
     calendlyOwnerUri: v.optional(v.string()),
+    // The Calendly user URI of a round robin's only host, as the event type
+    // sync last verified it. Closer links treat such a round robin as that
+    // person's own calendar. Written only by the sync's host check.
+    calendlySoleHostUri: v.optional(v.string()),
     calendlyProfileName: v.optional(v.string()),
     calendlySyncStatus: v.optional(
       v.union(
@@ -1756,7 +1760,8 @@ export default defineSchema({
       "by_tenantId_and_calendlyEventTypeUri",
       ["tenantId", "calendlyEventTypeUri"],
     )
-    .index("by_tenantId_and_calendlyOwnerUri", ["tenantId", "calendlyOwnerUri"]),
+    .index("by_tenantId_and_calendlyOwnerUri", ["tenantId", "calendlyOwnerUri"])
+    .index("by_tenantId_and_calendlySoleHostUri", ["tenantId", "calendlySoleHostUri"]),
 
   tenantPrograms: defineTable({
     tenantId: v.id("tenants"),

@@ -13,6 +13,7 @@ import {
   formatCalendlyTokenExpiry,
   getCalendlyTokenTiming,
 } from "@/lib/calendly-connection-status";
+import { hostCheckWarning } from "@/lib/booking-setup/host-check";
 import { getErrorMessage } from "@/lib/errors";
 import posthog from "@/lib/posthog-browser";
 import { ActionRow, FACT_FIGURE, Fact, Facts, NoteLine, StatusWord, type Tone } from "../settings-ui";
@@ -96,7 +97,10 @@ export function CalendlyConnection({ connectionStatus }: { connectionStatus: Cal
         return;
       }
 
-      toast.success(`Synced ${result.totalSeen} event types: ${result.created} new, ${result.updated} updated.`);
+      const synced = `Synced ${result.totalSeen} event types: ${result.created} new, ${result.updated} updated.`;
+      const unconfirmed = result.hostsUnverified + result.hostsUnchecked;
+      if (unconfirmed > 0) toast.warning(synced, { description: hostCheckWarning(unconfirmed) });
+      else toast.success(synced);
     } catch (error) {
       toast.error(getErrorMessage(error, "Failed to sync event types"));
     } finally {

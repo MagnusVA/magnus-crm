@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bookingUrlKey,
   buildCloserLinkUrl,
+  calendarHolderUri,
   calendarStatus,
   type CloserCalendarConfig,
   closerLinkStatus,
@@ -105,11 +106,14 @@ describe("Calendly link URLs", () => {
   });
 });
 
+const CLOSER_URI = "https://api.calendly.com/users/closer";
+const OTHER_USER_URI = "https://api.calendly.com/users/other";
+
 const calendar: CloserCalendarConfig = {
   _id: "calendar",
   createdAt: 0,
   calendlyEventTypeUri: "https://api.calendly.com/event_types/sales",
-  calendlyOwnerUri: "https://api.calendly.com/users/closer",
+  calendlyOwnerUri: CLOSER_URI,
   calendlyKind: "solo",
   calendlySyncStatus: "active",
   bookingBaseUrl: "https://calendly.com/closer/sales",
@@ -118,9 +122,44 @@ const calendar: CloserCalendarConfig = {
 const closer: Parameters<typeof closerLinkStatus>[0] = {
   role: "closer",
   isActive: true,
-  calendlyUserUri: calendar.calendlyOwnerUri,
+  calendlyUserUri: CLOSER_URI,
   personalEventTypeUri: "https://calendly.com/Closer/Sales/",
 };
+
+const hostedRoundRobin = {
+  ...calendar,
+  calendlyOwnerUri: OTHER_USER_URI,
+  calendlyPoolingType: "round_robin",
+  calendlySoleHostUri: CLOSER_URI,
+};
+
+describe("calendar holder", () => {
+  it.each([
+    { name: "one-on-one", config: calendar, holder: CLOSER_URI },
+    { name: "legacy one-on-one without a kind", config: { ...calendar, calendlyKind: undefined }, holder: CLOSER_URI },
+    { name: "round robin hosted by the closer", config: hostedRoundRobin, holder: CLOSER_URI },
+    {
+      name: "round robin without a sole host",
+      config: { ...hostedRoundRobin, calendlySoleHostUri: undefined },
+      holder: undefined,
+    },
+    {
+      name: "round robin hosted by another user",
+      config: { ...hostedRoundRobin, calendlySoleHostUri: OTHER_USER_URI },
+      holder: OTHER_USER_URI,
+    },
+    {
+      name: "round robin owned by the closer and hosted by another user",
+      config: { ...hostedRoundRobin, calendlyOwnerUri: CLOSER_URI, calendlySoleHostUri: OTHER_USER_URI },
+      holder: OTHER_USER_URI,
+    },
+    { name: "collective", config: { ...hostedRoundRobin, calendlyPoolingType: "collective" }, holder: undefined },
+    { name: "multi-pool", config: { ...hostedRoundRobin, calendlyPoolingType: "multi_pool" }, holder: undefined },
+    { name: "group", config: { ...hostedRoundRobin, calendlyKind: "group" }, holder: undefined },
+  ])("resolves the holder for $name", ({ config, holder }) => {
+    expect(calendarHolderUri(config)).toBe(holder);
+  });
+});
 
 describe("closer link status", () => {
   it.each<[Partial<typeof closer>, CloserLinkStatus]>([
@@ -162,6 +201,23 @@ describe("closer link status", () => {
     });
   });
 
+  it("is Ready when the closer is the sole host of a flagged round robin", () => {
+    expect(closerLinkStatus(closer, [hostedRoundRobin], () => hostedRoundRobin)).toEqual({
+      status: "ready",
+      config: hostedRoundRobin,
+    });
+  });
+
+  it("rejects a hosted round robin when its canonical row lacks the host", () => {
+    const canonical = { ...hostedRoundRobin, calendlySoleHostUri: undefined };
+    const newer = { ...hostedRoundRobin, _id: "newer", createdAt: 1 };
+
+    expect(closerLinkStatus<CloserCalendarConfig>(closer, [newer], () => canonical)).toEqual({
+      status: "not_their_calendar",
+      config: null,
+    });
+  });
+
   it("treats matching duplicate rows as one event type and uses its canonical config", () => {
     const newer = { ...calendar, _id: "newer", createdAt: 1 };
     const canonical = { ...calendar, programFromLinkAt: undefined };
@@ -178,6 +234,7 @@ describe("closer link status", () => {
     [{}, "ready"],
     [{ calendlyKind: "group" }, "not_one_on_one"],
     [{ calendlyPoolingType: "round_robin" }, "not_one_on_one"],
+    [{ calendlyPoolingType: "round_robin", calendlySoleHostUri: OTHER_USER_URI }, "not_one_on_one"],
     [{ calendlySyncStatus: "inactive" }, "unavailable"],
     [{ calendlySyncStatus: "deleted" }, "unavailable"],
     [{ bookingBaseUrl: undefined, calendlySchedulingUrl: calendar.bookingBaseUrl }, "unavailable"],
@@ -186,7 +243,7 @@ describe("closer link status", () => {
     [{ programFromLinkAt: undefined }, "program_from_link_off"],
   ])("reports %j as %s", (fields, status) => {
     const config = { ...calendar, ...fields };
-    expect(calendarStatus(config)).toBe(status);
+    expect(calendarStatus(config, closer.calendlyUserUri)).toBe(status);
     expect(closerLinkStatus(closer, [calendar], () => config)).toEqual({ status, config });
   });
 

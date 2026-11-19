@@ -2,12 +2,11 @@
 
 import { useId, useState } from "react";
 import Link from "next/link";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { CLOSER_LINK_STATUS_LABEL } from "@/convex/lib/closerLinks";
 import { MemberAvatar } from "@/app/workspace/_components/member-avatar";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,7 +19,7 @@ import { cardButton, PortalCard, PortalRow } from "../portal/portal-card";
 
 type CloserLinksData = FunctionReturnType<typeof api.bookingSetup.closerLinks.listCloserLinks>;
 type CloserRow = CloserLinksData["closers"][number];
-type CalendarOption = CloserRow["options"][number];
+type CalendarOption = FunctionReturnType<typeof api.bookingSetup.closerLinks.listCloserCalendarOptions>[number];
 
 const PASTE = "paste";
 
@@ -38,7 +37,7 @@ export function shortLinkPath(url: string) {
 
 /** Options the closer link can use: Ready, or Ready once saved. */
 function isSelectable(option: CalendarOption) {
-  return option.status === "ready" || option.status === "program_from_link_off";
+  return option.disabledReason === null;
 }
 
 /**
@@ -83,7 +82,8 @@ export function CloserLinksCard({ closers }: { closers: CloserRow[] }) {
           {closers.map((closer) => {
             const open = editing === closer.userId;
             const isReady = closer.status === "ready";
-            const canToggle = isReady || closer.inPortal;
+            // A paused opt-in can always be switched off.
+            const canToggle = isReady || closer.inPortal || closer.portalPaused;
             return (
               <li key={closer.userId} className="border-b border-border last:border-b-0">
                 <PortalRow className="flex-wrap border-b-0 py-2">
@@ -121,14 +121,30 @@ export function CloserLinksCard({ closers }: { closers: CloserRow[] }) {
                       "flex items-center gap-2 text-[12.5px] text-muted-foreground",
                       !canToggle && "cursor-not-allowed",
                     )}
-                    title={canToggle ? undefined : "Needs a Ready link first"}
+                    title={
+                      closer.portalPaused
+                        ? "Switched on, but the DM portal hides this closer until their link is Ready"
+                        : canToggle
+                          ? undefined
+                          : "Needs a Ready link first"
+                    }
                   >
                     {toggling === closer.userId ? <Spinner className="size-3" /> : null}
-                    <TranslatableText>In portal</TranslatableText>
+                    {closer.portalPaused ? (
+                      <span className="text-warning-ink">
+                        <TranslatableText>Hidden until Ready</TranslatableText>
+                      </span>
+                    ) : (
+                      <TranslatableText>In portal</TranslatableText>
+                    )}
                     <Switch
-                      checked={closer.inPortal}
+                      checked={closer.inPortal || closer.portalPaused}
                       disabled={!canToggle || toggling !== null}
-                      aria-label={`Show ${closer.name} in the DM portal`}
+                      aria-label={
+                        closer.portalPaused
+                          ? `${closer.name} is switched on for the DM portal but hidden until their link is Ready`
+                          : `Show ${closer.name} in the DM portal`
+                      }
                       onCheckedChange={(next) => void togglePortal(closer, next)}
                       className="data-[state=checked]:bg-foreground"
                     />
@@ -152,22 +168,25 @@ export function CloserLinksCard({ closers }: { closers: CloserRow[] }) {
   );
 }
 
-function defaultChoice(closer: CloserRow): string {
-  const current = closer.options.find((option) => option.eventTypeConfigId === closer.linkEventTypeConfigId);
+function defaultChoice(closer: CloserRow, options: CalendarOption[]): string {
+  const current = options.find((option) => option.eventTypeConfigId === closer.linkEventTypeConfigId);
   if (current && isSelectable(current)) return current.eventTypeConfigId;
-  return closer.options.find(isSelectable)?.eventTypeConfigId ?? PASTE;
+  return options.find(isSelectable)?.eventTypeConfigId ?? PASTE;
 }
 
 /** The editor under a closer's row: pick one of their event types, or paste a link. */
 function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () => void }) {
   const setCloserLink = useMutation(api.bookingSetup.closerLinks.setCloserLink);
+  const options = useQuery(api.bookingSetup.closerLinks.listCloserCalendarOptions, { userId: closer.userId });
   const ids = useId();
-  const [choice, setChoice] = useState(() => defaultChoice(closer));
+  const [picked, setChoice] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const loading = options === undefined;
+  const choice = picked ?? (loading ? null : defaultChoice(closer, options));
   const pasting = choice === PASTE;
-  const canSave = !saving && (pasting ? pasted.trim().length > 0 : true);
+  const canSave = !saving && choice !== null && (pasting ? pasted.trim().length > 0 : true);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -200,8 +219,8 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
       className="cov-row-in flex flex-col gap-2.5 border-t border-border bg-background px-4 py-3"
     >
       <p className="text-[12.5px] text-muted-foreground">
-        Pick one of {closer.name}’s one-on-one event types. The same link is used for their follow-up and no-show
-        reschedule links.
+        Pick one of {closer.name}’s own event types: a one-on-one, or a round robin with only them as host. The same
+        link is used for their follow-up and no-show reschedule links.
       </p>
       {closer.calendlyLinked ? null : (
         <p className="text-[12.5px] text-warning-ink">
@@ -212,8 +231,13 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
           . A pasted link still works for follow-ups.
         </p>
       )}
-      <RadioGroup value={choice} onValueChange={setChoice} aria-label={`${closer.name}’s link`} className="gap-0">
-        {closer.options.map((option) => {
+      {loading ? (
+        <p className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+          <Spinner className="size-3" /> Loading {closer.name}’s event types…
+        </p>
+      ) : (
+      <RadioGroup value={choice ?? ""} onValueChange={setChoice} aria-label={`${closer.name}’s link`} className="gap-0">
+        {options.map((option) => {
           const selectable = isSelectable(option);
           const current = option.eventTypeConfigId === closer.linkEventTypeConfigId;
           const id = `${ids}-${option.eventTypeConfigId}`;
@@ -233,6 +257,9 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
                   {option.durationMinutes ? (
                     <span className="text-[12px] font-normal text-muted-foreground">{option.durationMinutes} min</span>
                   ) : null}
+                  {option.pooled ? (
+                    <span className="text-[12px] font-normal text-muted-foreground">Round robin, only them</span>
+                  ) : null}
                   {current ? (
                     <span className="font-condensed text-[12px] leading-none font-bold tracking-[0.08em] text-muted-foreground uppercase">
                       Current
@@ -242,8 +269,8 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
                 <span className="block truncate font-mono text-[12px] text-muted-foreground" translate="no">
                   {option.url ? shortLinkPath(option.url) : "No booking URL"}
                 </span>
-                {selectable ? null : (
-                  <span className="block text-[12px] text-warning-ink">{CLOSER_LINK_STATUS_LABEL[option.status]}</span>
+                {option.disabledReason === null ? null : (
+                  <span className="block text-[12px] text-warning-ink">{option.disabledReason}</span>
                 )}
               </span>
             </label>
@@ -257,9 +284,11 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
           <span className="text-[13.5px] font-medium">Paste a link instead</span>
         </label>
       </RadioGroup>
-      {closer.options.length === 0 ? (
+      )}
+      {options?.length === 0 ? (
         <p className="text-[12.5px] text-muted-foreground">
-          No one-on-one event types synced for {closer.name}. Paste their Calendly link.
+          No event types of {closer.name}’s are synced. Sync now in Booking → Event types, or paste their Calendly
+          link.
         </p>
       ) : null}
       {pasting ? (

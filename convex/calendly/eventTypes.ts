@@ -5,9 +5,16 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { action, internalAction } from "../_generated/server";
+import { bookingUrlKey } from "../lib/closerLinks";
 import { describeError, log } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { CALENDLY_FETCH_TIMEOUT_MS, calendlyHttpError } from "./apiErrors";
+import {
+  HOST_CHECK_PHASE_MS,
+  HOST_RESULTS_PER_BATCH,
+  isHostCheckCandidate,
+  runHostChecks,
+} from "./eventTypeHosts";
 import { getValidAccessToken, refreshTenantTokenCore } from "./tokens";
 
 type TenantEventTypeSyncContext = {
@@ -27,8 +34,21 @@ type EventTypeSyncTotals = {
   questionsMerged: number;
 };
 
+/** What the round-robin host check did, reported to the admin who synced. */
+type HostCheckTotals = {
+  hostsChecked: number;
+  hostsSingle: number;
+  /**
+   * Asked but unproven, or live closer links never reached: their closer
+   * links pause until a sync verifies them.
+   */
+  hostsUnverified: number;
+  /** Other round robins never reached (quota, deadline or outage): their stored host is kept. */
+  hostsUnchecked: number;
+};
+
 type ManualEventTypeSyncResult =
-  | ({ status: "success" } & EventTypeSyncTotals)
+  | ({ status: "success" } & EventTypeSyncTotals & HostCheckTotals)
   | {
       status: "skipped";
       reason: "lock_held";
@@ -46,6 +66,10 @@ type EventTypeSyncSource = {
 };
 
 const EVENT_TYPE_SYNC_LOCK_MS = 5 * 60 * 1000;
+/** The lock is extended to at least this long when the host check starts. */
+const HOST_CHECK_LOCK_MS = 3 * 60 * 1000;
+/** Time kept on the lock after the host check, to write and finish. */
+const HOST_CHECK_LOCK_MARGIN_MS = 30 * 1000;
 const CALENDLY_EVENT_TYPES_URL = "https://api.calendly.com/event_types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -188,9 +212,14 @@ async function syncEventTypesSource(args: {
   ctx: ActionCtx;
   tenantId: Id<"tenants">;
   syncStartedAt: number;
+  syncLockUntil: number;
   source: EventTypeSyncSource;
   accessToken: string;
   seenEventTypeUris: Set<string>;
+  /** Round robins to ask Calendly the hosts of, with their booking URL. */
+  hostCandidates: Map<string, string | undefined>;
+  /** The latest `X-RateLimit-Remaining` Calendly sent. */
+  rateLimit: { remaining: number | null };
   totals: EventTypeSyncTotals;
   /** Resources skipped across the whole sync, logged once in the summary. */
   skipped: { missingUri: number };
@@ -213,6 +242,8 @@ async function syncEventTypesSource(args: {
     );
     accessToken = fetchResult.accessToken;
     const response = fetchResult.response;
+    const remaining = Number(response.headers.get("X-RateLimit-Remaining") ?? Number.NaN);
+    if (Number.isFinite(remaining)) args.rateLimit.remaining = remaining;
 
     if (response.status === 429) {
       throw new Error(calendlyRateLimitMessage(response));
@@ -241,6 +272,13 @@ async function syncEventTypesSource(args: {
       }
       args.seenEventTypeUris.add(resourceUri);
       newResources.push(resource);
+      if (isHostCheckCandidate(resource)) {
+        const schedulingUrl = resource.scheduling_url;
+        args.hostCandidates.set(
+          resourceUri,
+          typeof schedulingUrl === "string" ? schedulingUrl : undefined,
+        );
+      }
     }
 
     if (newResources.length > 0) {
@@ -256,6 +294,7 @@ async function syncEventTypesSource(args: {
         {
           tenantId: args.tenantId,
           syncStartedAt: args.syncStartedAt,
+          syncLockUntil: args.syncLockUntil,
           collection: newResources,
         },
       );
@@ -279,29 +318,135 @@ async function finalizeSuccessfulSync(
   ctx: ActionCtx,
   tenantId: Id<"tenants">,
   startedAt: number,
+  syncLockUntil: number,
   totals: EventTypeSyncTotals,
+  hosts: HostCheckTotals,
   logAttrs: { trigger: EventTypeSyncTrigger; skippedMissingUri: number },
 ) {
   const stale: { notReturned: number } = await ctx.runMutation(
     internal.calendly.eventTypeMutations.markMissingEventTypes,
-    { tenantId, syncStartedAt: startedAt },
+    { tenantId, syncStartedAt: startedAt, syncLockUntil },
   );
   const summary: EventTypeSyncTotals = { ...totals, ...stale };
 
   await ctx.runMutation(
     internal.calendly.eventTypeMutations.completeEventTypeSync,
-    { tenantId, status: "success", totals: summary },
+    { tenantId, syncLockUntil, status: "success", totals: summary },
   );
 
-  log.info("calendly.event_types.sync", {
+  const unconfirmedHosts = hosts.hostsUnverified + hosts.hostsUnchecked;
+  (unconfirmedHosts > 0 ? log.warn : log.info)("calendly.event_types.sync", {
     tenantId,
     outcome: "success",
     durationMs: Date.now() - startedAt,
     ...logAttrs,
     ...summary,
+    ...hosts,
   });
 
-  return { status: "success" as const, ...summary };
+  return { status: "success" as const, ...summary, ...hosts };
+}
+
+/**
+ * Asks Calendly who hosts each round robin the sync listed, and stores the
+ * only host where there is exactly one. Live closer links go first. A 429
+ * stores what was learned, then fails the sync as a listing 429 does.
+ */
+async function syncEventTypeHosts(args: {
+  ctx: ActionCtx;
+  tenantId: Id<"tenants">;
+  syncStartedAt: number;
+  /** The run's lock token, updated in place when the check extends the lock. */
+  lock: { syncLockUntil: number };
+  accessToken: string;
+  candidates: Map<string, string | undefined>;
+  rateLimitRemaining: number | null;
+}): Promise<HostCheckTotals> {
+  const { ctx, tenantId, lock } = args;
+  const empty: HostCheckTotals = { hostsChecked: 0, hostsSingle: 0, hostsUnverified: 0, hostsUnchecked: 0 };
+  if (args.candidates.size === 0) return empty;
+
+  const liveKeys = new Set<string>(
+    await ctx.runQuery(internal.calendly.eventTypeMutations.listCloserLinkUrlKeys, { tenantId }),
+  );
+  const live: string[] = [];
+  const rest: string[] = [];
+  for (const [uri, schedulingUrl] of args.candidates) {
+    const key = bookingUrlKey(schedulingUrl);
+    (key !== null && liveKeys.has(key) ? live : rest).push(uri);
+  }
+  // Shuffled, so a sync cut short doesn't skip the same event types each time.
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j]!, rest[i]!];
+  }
+
+  const phaseStart = Date.now();
+  const extended: { syncLockUntil: number } = await ctx.runMutation(
+    internal.calendly.eventTypeMutations.extendEventTypeSyncLock,
+    { tenantId, syncLockUntil: lock.syncLockUntil, minLockUntil: phaseStart + HOST_CHECK_LOCK_MS },
+  );
+  lock.syncLockUntil = extended.syncLockUntil;
+  const syncLockUntil = lock.syncLockUntil;
+
+  const result = await runHostChecks({
+    candidates: [...live, ...rest],
+    accessToken: args.accessToken,
+    rateLimitRemaining: args.rateLimitRemaining,
+    deadline: Math.min(phaseStart + HOST_CHECK_PHASE_MS, syncLockUntil - HOST_CHECK_LOCK_MARGIN_MS),
+    deps: {
+      fetch: (url, accessToken, timeoutMs) =>
+        fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(timeoutMs),
+        }),
+      refreshToken: async () => (await refreshTenantTokenCore(ctx, tenantId)).accessToken ?? null,
+      now: () => Date.now(),
+    },
+  });
+
+  const writes: Array<{ eventTypeUri: string; soleHostUri?: string }> = [];
+  const hosts = { ...empty };
+  // A live closer link the check didn't reach is paused, not left on old
+  // proof: Calendly may have added a host since. Others keep their host.
+  const liveSet = new Set(live);
+  for (const eventTypeUri of result.unchecked) {
+    if (liveSet.has(eventTypeUri)) {
+      writes.push({ eventTypeUri });
+      hosts.hostsUnverified += 1;
+    } else {
+      hosts.hostsUnchecked += 1;
+    }
+  }
+  for (const [eventTypeUri, verdict] of result.verdicts) {
+    hosts.hostsChecked += 1;
+    if (verdict.kind === "single") hosts.hostsSingle += 1;
+    if (verdict.kind === "failed") hosts.hostsUnverified += 1;
+    writes.push(
+      verdict.kind === "single" ? { eventTypeUri, soleHostUri: verdict.hostUri } : { eventTypeUri },
+    );
+  }
+  for (let start = 0; start < writes.length; start += HOST_RESULTS_PER_BATCH) {
+    await ctx.runMutation(internal.calendly.eventTypeMutations.recordEventTypeHosts, {
+      tenantId,
+      syncStartedAt: args.syncStartedAt,
+      syncLockUntil,
+      results: writes.slice(start, start + HOST_RESULTS_PER_BATCH),
+    });
+  }
+
+  log.info("calendly.event_types.hosts", {
+    tenantId,
+    live: live.length,
+    candidates: args.candidates.size,
+    stoppedBy: result.stoppedBy ?? undefined,
+    durationMs: Date.now() - phaseStart,
+    ...hosts,
+  });
+  if (result.rateLimitResponse) {
+    throw new Error(calendlyRateLimitMessage(result.rateLimitResponse));
+  }
+  return hosts;
 }
 
 export const syncForTenant = internalAction({
@@ -355,6 +500,8 @@ export const syncForTenant = internalAction({
       questionsMerged: 0,
     };
     const skipped = { missingUri: 0 };
+    // The lock's expiry is this run's token; extending it replaces the token.
+    const runLock = { syncLockUntil: lock.lockUntil ?? startedAt + EVENT_TYPE_SYNC_LOCK_MS };
 
     try {
       let accessToken = await getValidAccessToken(ctx, tenantId);
@@ -386,30 +533,51 @@ export const syncForTenant = internalAction({
         memberUserUris,
       });
       const seenEventTypeUris = new Set<string>();
+      const hostCandidates = new Map<string, string | undefined>();
+      const rateLimit: { remaining: number | null } = { remaining: null };
 
       for (const source of sources) {
         accessToken = await syncEventTypesSource({
           ctx,
           tenantId,
           syncStartedAt: startedAt,
+          syncLockUntil: runLock.syncLockUntil,
           source,
           accessToken,
           seenEventTypeUris,
+          hostCandidates,
+          rateLimit,
           totals,
           skipped,
         });
       }
 
-      return await finalizeSuccessfulSync(ctx, tenantId, startedAt, totals, {
-        trigger,
-        skippedMissingUri: skipped.missingUri,
+      const hosts = await syncEventTypeHosts({
+        ctx,
+        tenantId,
+        syncStartedAt: startedAt,
+        lock: runLock,
+        accessToken,
+        candidates: hostCandidates,
+        rateLimitRemaining: rateLimit.remaining,
       });
+
+      return await finalizeSuccessfulSync(
+        ctx,
+        tenantId,
+        startedAt,
+        runLock.syncLockUntil,
+        totals,
+        hosts,
+        { trigger, skippedMissingUri: skipped.missingUri },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       await ctx.runMutation(
         internal.calendly.eventTypeMutations.completeEventTypeSync,
         {
           tenantId,
+          syncLockUntil: runLock.syncLockUntil,
           status: "failed",
           error: message,
         },

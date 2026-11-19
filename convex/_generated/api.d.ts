@@ -89,6 +89,7 @@ import type * as businessDaySchema from "../businessDaySchema.js";
 import type * as businessDays from "../businessDays.js";
 import type * as calendly_apiErrors from "../calendly/apiErrors.js";
 import type * as calendly_connectionQueries from "../calendly/connectionQueries.js";
+import type * as calendly_eventTypeHosts from "../calendly/eventTypeHosts.js";
 import type * as calendly_eventTypeMutations from "../calendly/eventTypeMutations.js";
 import type * as calendly_eventTypes from "../calendly/eventTypes.js";
 import type * as calendly_healthCheck from "../calendly/healthCheck.js";
@@ -769,6 +770,7 @@ declare const fullApi: ApiFromModules<{
   businessDays: typeof businessDays;
   "calendly/apiErrors": typeof calendly_apiErrors;
   "calendly/connectionQueries": typeof calendly_connectionQueries;
+  "calendly/eventTypeHosts": typeof calendly_eventTypeHosts;
   "calendly/eventTypeMutations": typeof calendly_eventTypeMutations;
   "calendly/eventTypes": typeof calendly_eventTypes;
   "calendly/healthCheck": typeof calendly_healthCheck;
