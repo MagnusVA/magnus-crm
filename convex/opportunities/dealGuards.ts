@@ -167,38 +167,6 @@ export function blocksNewQualification(
   return isOpenDeal(deal) && !(isQualifiedDeal(deal) && deal.createdAt <= joinCutoff);
 }
 
-/** The stages at which a closer's deal stops their removal. */
-export const USER_REMOVAL_BLOCKING_STAGES = [
-  "booked",
-  "call_held",
-  "follow_up",
-] as const satisfies readonly DealStage[];
-
-/** A closer with this deal can't be removed. */
-export function blocksUserRemoval(deal: DealStateFields): boolean {
-  return isOpenAt(deal, USER_REMOVAL_BLOCKING_STAGES);
-}
-
-/** Whether the user has a deal that stops their removal: one indexed read per stage. */
-export async function hasDealBlockingUserRemoval(
-  ctx: QueryCtx | MutationCtx,
-  tenantId: Id<"tenants">,
-  userId: Id<"users">,
-): Promise<boolean> {
-  for (const stage of USER_REMOVAL_BLOCKING_STAGES) {
-    const deal = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_assignedCloserId_stage_outcome_createdAt", (q) =>
-        q.eq("tenantId", tenantId).eq("assignedCloserId", userId).eq("stage", stage).eq("outcome", "open"),
-      )
-      .first();
-    if (deal) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /**
  * What an error says the deal is: its badge's words, such as "Booked" or
  * "Lost: no-show". A pair the stage doesn't allow, which assertDealStages

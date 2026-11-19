@@ -14,9 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
@@ -30,7 +28,6 @@ interface RemoveUserDialogProps {
   userId: Id<"users">;
   userName: string;
   userIdentity?: MemberAvatarIdentity;
-  hasActiveAssignments?: boolean;
   onSuccess?: () => void;
 }
 
@@ -40,7 +37,6 @@ export function RemoveUserDialog({
   userId,
   userName,
   userIdentity,
-  hasActiveAssignments = false,
   onSuccess,
 }: RemoveUserDialogProps) {
   const router = useRouter();
@@ -82,21 +78,11 @@ export function RemoveUserDialog({
         </AlertDialogHeader>
         {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
 
-        {hasActiveAssignments && (
-          <Alert variant="destructive">
-            <AlertCircleIcon />
-            <AlertDescription>
-              This user has active opportunity assignments. Reassign them
-              before deactivating.
-            </AlertDescription>
-          </Alert>
-        )}
-
         <div className="flex justify-end gap-2">
           <AlertDialogCancel disabled={isRemoving}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleRemove}
-            disabled={isRemoving || hasActiveAssignments}
+            disabled={isRemoving}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             {isRemoving && <Spinner data-icon="inline-start" />}

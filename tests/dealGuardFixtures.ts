@@ -65,11 +65,6 @@ export const todaysGuards = {
   // lib/leadLifecycle.ts shouldMarkUnresponsive, slack/createQualifiedLead.ts.
   active: (status: OpportunityStatus) => isActiveOpportunityStatus(status),
   qualifiedPending: (status: OpportunityStatus) => status === "qualified_pending",
-  // users/queries.ts and workos/userMutations.ts.
-  blocksUserRemoval: (status: OpportunityStatus) =>
-    (["scheduled", "follow_up_scheduled", "reschedule_link_sent"] as const).some(
-      (blocking) => blocking === status,
-    ),
   // sideDeals/deleteEmptyOpportunity.ts, opportunities/staleness.ts.
   sideDealScheduled: (status: OpportunityStatus, source: DealSource | undefined) =>
     isSideDeal({ source }) && status === "scheduled",

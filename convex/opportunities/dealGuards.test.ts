@@ -4,7 +4,6 @@ import { shouldMarkUnresponsive } from "../lib/leadLifecycle";
 import {
   awaitsCallResult,
   blocksNewQualification,
-  blocksUserRemoval,
   canCancelForUnavailability,
   canMarkLost,
   canRecordMeetingOutcome,
@@ -67,7 +66,6 @@ const rows: Row[] = [
     (c) => canCancelForUnavailability(c.deal),
     (c) => today.canceledFrom(c.status),
   ],
-  ["blocksUserRemoval", (c) => blocksUserRemoval(c.deal), (c) => today.blocksUserRemoval(c.status)],
   [
     "isSideDealAtCallHeld",
     (c) => isSideDealAtCallHeld(c.deal),

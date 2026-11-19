@@ -2,7 +2,7 @@
 
 import { WorkOS } from "@workos-inc/node";
 import { hasPermission } from "../lib/permissions";
-import { ConvexError, v, type Infer } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { action, type ActionCtx, env } from "../_generated/server";
@@ -649,19 +649,6 @@ export const removeUser = action({
 
 		if (tenant.tenantOwnerId === user._id) {
 			throw new Error("Cannot remove the tenant owner");
-		}
-
-		const activeAssignedOpportunityCount: number = await ctx.runQuery(
-			internal.users.queries.getActiveAssignedOpportunityCount,
-			{
-				tenantId: caller.tenantId,
-				userId,
-			},
-		);
-		if (activeAssignedOpportunityCount > 0) {
-			throw new ConvexError(
-				"Cannot remove a user who still has active assigned opportunities",
-			);
 		}
 
 		const isPending = user.invitationStatus === "pending";
