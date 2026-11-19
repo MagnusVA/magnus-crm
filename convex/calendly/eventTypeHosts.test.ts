@@ -437,4 +437,16 @@ describe("runHostChecks", () => {
     expect(result.verdicts.get(EVENT_TYPE)).toEqual({ kind: "failed", reason: "interrupted" });
     expect(checks.fetch).toHaveBeenCalledTimes(1);
   });
+
+  it("counts requests against the quota when responses omit the rate-limit header", async () => {
+    const checks = hostChecks();
+    const eventTypes = candidates(20);
+    // No X-RateLimit-Remaining on any membership response.
+    checks.fetch.mockImplementation(async (url) => page([member(HOST, requestedEventType(url))]));
+
+    const result = await checks.run(eventTypes, { rateLimitRemaining: 12 });
+
+    expect(result.stoppedBy).toBe("quota");
+    expect(checks.fetch.mock.calls.length).toBeLessThan(eventTypes.length);
+  });
 });

@@ -164,6 +164,8 @@ export async function runHostChecks(args: {
     const header = response.headers.get("X-RateLimit-Remaining");
     const value = header === null ? Number.NaN : Number(header);
     if (Number.isFinite(value)) remaining = value;
+    // Without the header, still count the request against the last known quota.
+    else if (remaining !== null) remaining -= 1;
   }
 
   /** One shared refresh at a time; a 401 on a token already replaced just retries. */

@@ -4,6 +4,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { isCalendlyBookable } from "./bookingSetup/coverage";
+import { readLiveQueryRows } from "./liveQueryBounds";
 import {
 	bookingUrlKey,
 	closerCalendarUrl,
@@ -79,16 +80,18 @@ export async function listCloserCalendarConfigs(
 				q.eq("tenantId", tenantId).eq("calendlyOwnerUri", calendlyUserUri),
 			)
 			.take(MAX_OWNED_EVENT_TYPES),
-		ctx.db
-			.query("eventTypeConfigs")
-			.withIndex("by_tenantId_and_calendlySoleHostUri", (q) =>
-				q.eq("tenantId", tenantId).eq("calendlySoleHostUri", calendlyUserUri),
-			)
-			.take(MAX_SOLE_HOST_EVENT_TYPES + 1),
+		readLiveQueryRows(
+			ctx.db
+				.query("eventTypeConfigs")
+				.withIndex("by_tenantId_and_calendlySoleHostUri", (q) =>
+					q.eq("tenantId", tenantId).eq("calendlySoleHostUri", calendlyUserUri),
+				),
+			MAX_SOLE_HOST_EVENT_TYPES,
+		),
 	]);
 	const byId = new Map(owned.map((config) => [config._id, config]));
-	for (const config of hosted.slice(0, MAX_SOLE_HOST_EVENT_TYPES)) byId.set(config._id, config);
-	return { configs: [...byId.values()], complete: hosted.length <= MAX_SOLE_HOST_EVENT_TYPES };
+	for (const config of hosted.rows) byId.set(config._id, config);
+	return { configs: [...byId.values()], complete: !hosted.capped };
 }
 
 export type CloserLinkState = {

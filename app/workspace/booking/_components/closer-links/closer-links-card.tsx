@@ -184,10 +184,10 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
   const [saving, setSaving] = useState(false);
 
   const loading = options === undefined;
-  // A pick a sync has since removed or disabled falls back to the default.
+  // A pick a sync has since removed or disabled is cleared, so the admin picks again.
   const pickedOption = options?.find((option) => option.eventTypeConfigId === picked);
   const stillPickable = picked === PASTE || (pickedOption !== undefined && isSelectable(pickedOption));
-  const choice = picked !== null && stillPickable ? picked : loading ? null : defaultChoice(closer, options);
+  const choice = picked !== null ? (stillPickable ? picked : null) : loading ? null : defaultChoice(closer, options);
   const pasting = choice === PASTE;
   const canSave = !saving && choice !== null && (pasting ? pasted.trim().length > 0 : true);
 
