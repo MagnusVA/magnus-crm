@@ -1,17 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowUpRightIcon } from "lucide-react";
+import { ArrowUpRightIcon, CalendarIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { EndMyDayRow } from "./end-my-day-row";
 import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import type { DealPosition } from "@/convex/opportunities/stages";
-import { businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
+import { addBusinessDays, businessDateForInstant, type BusinessDaySetting } from "@/lib/businessDay";
 import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -37,13 +39,27 @@ import {
   formatDateTime,
   type BoardTab,
 } from "./today-time";
+import {
+  businessDateToCalendarDate,
+  calendarDateToBusinessDate,
+} from "@/app/workspace/_components/dashboard-date-utils";
+
+// react-day-picker loads when the day picker first opens, or earlier when the
+// pointer or focus reaches its button. Until then the popover holds its size.
+const loadCalendar = () => import("@/components/ui/calendar");
+const Calendar = dynamic(
+  () => import("@/components/ui/calendar").then((m) => ({ default: m.Calendar })),
+  { ssr: false, loading: () => <div aria-hidden="true" className="h-[294px] w-[212px]" /> },
+);
 
 type BoardEntry = FunctionReturnType<
   typeof api.closer.calendar.getMeetingsForRange
 >["meetings"][number];
 export type { BoardEntry };
 
-const TABS: Array<{ value: BoardTab; label: string; title: string; empty: string }> = [
+type PresetTab = Exclude<BoardTab, "day">;
+
+const TABS: Array<{ value: PresetTab; label: string; title: string; empty: string }> = [
   { value: "today", label: "Today", title: "Today's calls", empty: "No calls today." },
   { value: "tomorrow", label: "Tomorrow", title: "Tomorrow's calls", empty: "No calls tomorrow." },
   { value: "week", label: "This week", title: "This week's calls", empty: "No calls this week." },
@@ -71,8 +87,8 @@ const POSITION_TEXT: Record<DealPosition, string> = {
 };
 
 /**
- * The closer's calls as a departures board: Today, Tomorrow or This week by
- * business day, one condensed status word per call, and the next or live
+ * The closer's calls as a departures board: Today, Tomorrow, This week or a
+ * day picked from a calendar, by business day, one condensed status word per call, and the next or live
  * call as a lime Boarding row with Join and a countdown. Each row opens its
  * meeting.
  *
@@ -91,11 +107,12 @@ export function TodaysCallsBoard({
   next: NextCall | null;
 }) {
   const [tab, setTab] = useState<BoardTab>("today");
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
   // Ranges move only when the business day does, not with every clock tick.
   const businessDate = businessDateForInstant(now, setting);
   const range = useMemo(
-    () => boardRange(tab, businessDate, setting),
-    [tab, businessDate, setting],
+    () => boardRange(tab, businessDate, setting, pickedDay),
+    [tab, businessDate, setting, pickedDay],
   );
   const calls = useQuery(api.closer.calendar.getMeetingsForRange, {
     startDate: range.start,
@@ -106,6 +123,17 @@ export function TodaysCallsBoard({
     <CallsBoardView
       tab={tab}
       onTabChange={setTab}
+      pickedDay={pickedDay}
+      onPickDay={(day) => {
+        // Today and tomorrow have their own tabs, which keep their extras
+        // (the next call, End my day).
+        if (day === businessDate) setTab("today");
+        else if (day === addBusinessDays(businessDate, 1)) setTab("tomorrow");
+        else {
+          setPickedDay(day);
+          setTab("day");
+        }
+      }}
       meetings={calls?.meetings}
       isPartial={calls?.isPartial ?? false}
       next={next}
@@ -119,6 +147,8 @@ export function TodaysCallsBoard({
 export function CallsBoardView({
   tab,
   onTabChange,
+  pickedDay,
+  onPickDay,
   meetings,
   isPartial,
   next,
@@ -127,13 +157,16 @@ export function CallsBoardView({
 }: {
   tab: BoardTab;
   onTabChange: (tab: BoardTab) => void;
+  /** The business date the "day" tab shows. */
+  pickedDay: string | null;
+  onPickDay: (day: string) => void;
   meetings: BoardEntry[] | undefined;
   isPartial: boolean;
   next: NextCall | null;
   now: number;
   setting: BusinessDaySetting;
 }) {
-  const active = TABS.find((entry) => entry.value === tab)!;
+  const active = tabCopy(tab, pickedDay);
 
   return (
     <section
@@ -165,46 +198,115 @@ export function CallsBoardView({
               </TabsTrigger>
             ))}
           </TabsList>
+          <DayPickerButton
+            tab={tab}
+            pickedDay={pickedDay}
+            today={businessDateForInstant(now, setting)}
+            onPickDay={onPickDay}
+          />
         </header>
 
-        {TABS.map((entry) => (
-          <TabsContent key={entry.value} value={entry.value} className="text-board-foreground">
-            {meetings === undefined ? (
-              <BoardSkeleton />
-            ) : meetings.length === 0 ? (
-              <BoardEmpty
-                title={entry.empty}
-                next={entry.value === "today" ? next : null}
-                timeZone={setting.timeZone}
+        <TabsContent value={tab} className="text-board-foreground">
+          {meetings === undefined ? (
+            <BoardSkeleton />
+          ) : meetings.length === 0 ? (
+            <BoardEmpty
+              title={active.empty}
+              next={tab === "today" ? next : null}
+              timeZone={setting.timeZone}
+            />
+          ) : (
+            <>
+              <BoardTable
+                meetings={meetings}
+                nextMeetingId={next?.meetingId ?? null}
+                now={now}
+                setting={setting}
+                groupByDay={tab === "week"}
               />
-            ) : (
-              <>
-                <BoardTable
-                  meetings={meetings}
-                  nextMeetingId={next?.meetingId ?? null}
-                  now={now}
-                  setting={setting}
-                  groupByDay={entry.value === "week"}
-                />
-                <BoardList
-                  meetings={meetings}
-                  nextMeetingId={next?.meetingId ?? null}
-                  now={now}
-                  setting={setting}
-                  groupByDay={entry.value === "week"}
-                />
-                {isPartial ? (
-                  <p className="border-t border-board-line px-[18px] py-2 text-xs text-board-muted">
-                    Showing the first {meetings.length.toLocaleString()} calls.
-                  </p>
-                ) : null}
-              </>
-            )}
-          </TabsContent>
-        ))}
+              <BoardList
+                meetings={meetings}
+                nextMeetingId={next?.meetingId ?? null}
+                now={now}
+                setting={setting}
+                groupByDay={tab === "week"}
+              />
+              {isPartial ? (
+                <p className="border-t border-board-line px-[18px] py-2 text-xs text-board-muted">
+                  Showing the first {meetings.length.toLocaleString()} calls.
+                </p>
+              ) : null}
+            </>
+          )}
+        </TabsContent>
         <EndMyDayRow meetings={meetings} now={now} visible={tab === "today"} />
       </Tabs>
     </section>
+  );
+}
+
+/** The board's title and empty line: "Calls on Thu, Nov 12" for a picked day. */
+function tabCopy(tab: BoardTab, pickedDay: string | null) {
+  if (tab === "day" && pickedDay) {
+    const day = formatBusinessDate(pickedDay, { weekday: "short", month: "short", day: "numeric" });
+    return { title: `Calls on ${day}`, empty: `No calls on ${day}.` };
+  }
+  return TABS.find((entry) => entry.value === tab) ?? TABS[0];
+}
+
+/**
+ * The calendar button beside the tabs: it opens a month to pick any day,
+ * past or future, and reads that day once one is shown.
+ */
+function DayPickerButton({
+  tab,
+  pickedDay,
+  today,
+  onPickDay,
+}: {
+  tab: BoardTab;
+  pickedDay: string | null;
+  today: string;
+  onPickDay: (day: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const showing = tab === "day" && pickedDay !== null;
+  const selected = showing ? businessDateToCalendarDate(pickedDay) : undefined;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-pressed={showing}
+          onPointerEnter={loadCalendar}
+          onFocus={loadCalendar}
+          className={cn(
+            "inline-flex h-[30px] items-center gap-1.5 rounded-[7px] bg-background/50 px-2.5 text-[13px] text-board-muted transition-colors outline-none hover:text-board-foreground focus-visible:ring-2 focus-visible:ring-ring",
+            showing && "bg-accent text-board-foreground",
+          )}
+        >
+          <CalendarIcon className="size-3.5" aria-hidden="true" />
+          {showing
+            ? formatBusinessDate(pickedDay, { month: "short", day: "numeric" })
+            : "Pick a day"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" collisionPadding={16} className="w-auto p-2">
+        <Calendar
+          mode="single"
+          autoFocus
+          selected={selected}
+          defaultMonth={selected ?? businessDateToCalendarDate(today)}
+          today={businessDateToCalendarDate(today)}
+          onSelect={(date) => {
+            if (!date) return;
+            onPickDay(calendarDateToBusinessDate(date));
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
