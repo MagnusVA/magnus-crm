@@ -494,11 +494,7 @@ export const completeEventTypeSync = internalMutation({
     if (!connection) {
       return;
     }
-    if (
-      status !== "skipped" &&
-      syncLockUntil !== undefined &&
-      connection.eventTypeSyncLockUntil !== syncLockUntil
-    ) {
+    if (status !== "skipped" && connection.eventTypeSyncLockUntil !== syncLockUntil) {
       // A newer sync holds the lock and will record its own outcome.
       log.warn("calendly.event_types.sync_lock_lost", { tenantId, status });
       return;

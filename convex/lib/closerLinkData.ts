@@ -95,7 +95,6 @@ export type CloserLinkState = {
 	status: CloserLinkStatus;
 	/** The canonical config of the closer's personal link, when it matched one. */
 	config: Doc<"eventTypeConfigs"> | null;
-	calendars: CloserCalendarConfigs;
 };
 
 /** Where a closer's personal link stands, read fresh. */
@@ -130,9 +129,9 @@ export async function readCloserLinkState(
 	// URL, so an unread round robin can't share it.
 	const ownedMatch = config !== null && !config.calendlyPoolingType;
 	if (!calendars.complete && !PRE_MATCH_STATUSES.has(status) && !ownedMatch) {
-		return { status: "too_many_calendars", config: null, calendars };
+		return { status: "too_many_calendars", config: null };
 	}
-	return { status, config, calendars };
+	return { status, config };
 }
 
 /** Whether this closer's link is in the DM portal right now. */

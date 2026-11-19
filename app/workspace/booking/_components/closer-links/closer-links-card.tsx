@@ -184,7 +184,10 @@ function CloserLinkEditor({ closer, onDone }: { closer: CloserRow; onDone: () =>
   const [saving, setSaving] = useState(false);
 
   const loading = options === undefined;
-  const choice = picked ?? (loading ? null : defaultChoice(closer, options));
+  // A pick a sync has since removed or disabled falls back to the default.
+  const pickedOption = options?.find((option) => option.eventTypeConfigId === picked);
+  const stillPickable = picked === PASTE || (pickedOption !== undefined && isSelectable(pickedOption));
+  const choice = picked !== null && stillPickable ? picked : loading ? null : defaultChoice(closer, options);
   const pasting = choice === PASTE;
   const canSave = !saving && choice !== null && (pasting ? pasted.trim().length > 0 : true);
 

@@ -71,7 +71,7 @@ export function parseMembershipsPage(value: unknown, eventTypeUri: string): Memb
     if (typeof memberUri !== "string" || !memberUri.startsWith(CALENDLY_USER_URI_PREFIX)) {
       return { kind: "malformed" };
     }
-    if (isRecord(row.event_type) && row.event_type.uri !== undefined && row.event_type.uri !== eventTypeUri) {
+    if (row.event_type !== undefined && (!isRecord(row.event_type) || row.event_type.uri !== eventTypeUri)) {
       return { kind: "malformed" };
     }
     memberUris.push(memberUri);
@@ -169,9 +169,12 @@ export async function runHostChecks(args: {
   /** One shared refresh at a time; a 401 on a token already replaced just retries. */
   async function freshToken(usedToken: string): Promise<string | null> {
     if (token !== usedToken) return token;
-    refreshing ??= deps.refreshToken().finally(() => {
-      refreshing = null;
-    });
+    refreshing ??= deps
+      .refreshToken()
+      .catch(() => null)
+      .finally(() => {
+        refreshing = null;
+      });
     const next = await refreshing;
     if (next) token = next;
     return next && next !== usedToken ? next : null;
@@ -216,6 +219,8 @@ export async function runHostChecks(args: {
       }
       if (response.status === 401 && !refreshed) {
         refreshed = true;
+        // No refresh the retry couldn't use before the deadline.
+        if (stopReason()) return { failed: "unauthorized" };
         const next = await freshToken(usedToken);
         if (!next) return { failed: "unauthorized" };
         usedToken = next;
@@ -234,7 +239,14 @@ export async function runHostChecks(args: {
     const seenTokens = new Set<string>();
     let pageToken: string | undefined;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const response = await request(membershipsPageUrl(eventTypeUri, pageToken));
+      let response: Response | { failed: string };
+      try {
+        response = await request(membershipsPageUrl(eventTypeUri, pageToken));
+      } catch (error) {
+        // Stopped after Calendly already answered a page: asked, not proven.
+        if (error instanceof Unchecked && page > 0) return { kind: "failed", reason: "interrupted" };
+        throw error;
+      }
       if ("failed" in response) return { kind: "failed", reason: response.failed };
       if (response.status === 403 || response.status === 404) return { kind: "not_single" };
       if (!response.ok) return { kind: "failed", reason: `http_${response.status}` };

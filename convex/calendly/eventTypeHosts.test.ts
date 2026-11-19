@@ -108,6 +108,8 @@ describe("parseMembershipsPage", () => {
     ["a token without a next_page", { collection: [member()], pagination: { next_page_token: "next" } }],
     ["a token on a final page", { collection: [member()], pagination: { ...END, next_page_token: "next" } }],
     ["a member URI outside /users/", { collection: [member(EVENT_TYPE)], pagination: END }],
+    ["an event_type that is not an object", { collection: [{ member: { uri: HOST }, event_type: EVENT_TYPE }], pagination: END }],
+    ["an event_type without a URI", { collection: [{ member: { uri: HOST }, event_type: {} }], pagination: END }],
     ["a mismatched event type", { collection: [member(HOST, `${EVENT_TYPE}-other`)], pagination: END }],
   ])("rejects %s", (_name, body) => {
     expect(parseMembershipsPage(body, EVENT_TYPE)).toEqual({ kind: "malformed" });
@@ -376,5 +378,32 @@ describe("runHostChecks", () => {
     const startedDuringFailures = checks.requestedEventTypes().slice(8);
     expect(startedDuringFailures.length).toBeLessThanOrEqual(3);
     expect(startedDuringFailures).toEqual(eventTypes.slice(4, 4 + startedDuringFailures.length));
+  });
+
+  it("fails a lookup that stops after its first page instead of leaving it unchecked", async () => {
+    const checks = hostChecks();
+    // The first page answers and asks for a second; by then the phase is over.
+    checks.fetch.mockImplementationOnce(async () => {
+      checks.now.mockReturnValue(40_000);
+      return page([member()], CONTINUATION);
+    });
+
+    const result = await checks.run([EVENT_TYPE]);
+
+    expect(result.verdicts.get(EVENT_TYPE)).toEqual({ kind: "failed", reason: "interrupted" });
+    expect(result.unchecked).toEqual([]);
+  });
+
+  it("fails one lookup when the token refresh throws, and keeps the other results", async () => {
+    const checks = hostChecks();
+    const [first, second] = candidates(2);
+    checks.refreshToken.mockRejectedValueOnce(new Error("network down"));
+    checks.fetch.mockImplementation(async (url) =>
+      requestedEventType(url) === first ? httpError(401) : page([member(HOST, second)]));
+
+    const result = await checks.run([first, second]);
+
+    expect(result.verdicts.get(first)).toEqual({ kind: "failed", reason: "unauthorized" });
+    expect(result.verdicts.get(second)).toEqual({ kind: "single", hostUri: HOST });
   });
 });
