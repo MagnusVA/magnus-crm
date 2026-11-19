@@ -8,7 +8,6 @@ import {
   getWorkosUserIdCandidates,
 } from "../lib/workosUserId";
 import { userMemberIdentity } from "../lib/memberIdentity";
-import { hasDealBlockingUserRemoval } from "../opportunities/dealGuards";
 
 /**
  * The caller's active CRM user with their avatar identity, or null.
@@ -77,17 +76,6 @@ export const getByTenantAndEmail = internalQuery({
       )
       .unique();
     return user;
-  },
-});
-
-export const getActiveAssignedOpportunityCount = internalQuery({
-  args: {
-    tenantId: v.id("tenants"),
-    userId: v.id("users"),
-  },
-  handler: async (ctx, { tenantId, userId }) => {
-    // 1 when the closer has a Booked, Call held or Follow-up deal, else 0.
-    return (await hasDealBlockingUserRemoval(ctx, tenantId, userId)) ? 1 : 0;
   },
 });
 

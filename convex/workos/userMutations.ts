@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
   internalMutation,
@@ -15,7 +15,6 @@ import { getIdentityOrgId } from "../lib/identity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
 import { ensureUserTeamMember } from "../lib/teamMembers";
-import { hasDealBlockingUserRemoval } from "../opportunities/dealGuards";
 
 const crmRoleValidator = v.union(
   v.literal("tenant_master"),
@@ -653,13 +652,6 @@ export const removeUser = internalMutation({
         userId,
       });
       return;
-    }
-
-    // A Booked, Call held or Follow-up deal keeps its closer.
-    if (await hasDealBlockingUserRemoval(ctx, user.tenantId, userId)) {
-      throw new ConvexError(
-        "Cannot remove a user who still has active assigned opportunities",
-      );
     }
 
     const now = Date.now();
