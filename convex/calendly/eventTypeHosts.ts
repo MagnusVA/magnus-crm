@@ -292,7 +292,8 @@ export async function runHostChecks(args: {
         if (error instanceof RateLimited) {
           stoppedBy = "rate_limited";
           rateLimitResponse ??= error.response;
-          unchecked.push(eventTypeUri);
+          // Calendly was asked and answered 429: asked, not proven.
+          verdicts.set(eventTypeUri, { kind: "failed", reason: "rate_limited" });
         } else if (error instanceof Unchecked) {
           unchecked.push(eventTypeUri);
         } else {

@@ -314,8 +314,13 @@ describe("runHostChecks", () => {
     expect(result.stoppedBy).toBe("rate_limited");
     expect(result.rateLimitResponse).toBe(rateLimited);
     expect(checks.requestedEventTypes()).toEqual(eventTypes.slice(0, 4));
-    expect(result.verdicts).toEqual(new Map(eventTypes.slice(1, 4).map((uri) => [uri, { kind: "single", hostUri: HOST }])));
-    expect(result.unchecked).toEqual([eventTypes[0], ...eventTypes.slice(4)]);
+    expect(result.verdicts).toEqual(
+      new Map<string, HostVerdict>([
+        [eventTypes[0]!, { kind: "failed", reason: "rate_limited" }],
+        ...eventTypes.slice(1, 4).map((uri): [string, HostVerdict] => [uri, { kind: "single", hostUri: HOST }]),
+      ]),
+    );
+    expect(result.unchecked).toEqual(eventTypes.slice(4));
   });
 
   it("sends no retry when a 500 arrives alongside a 429", async () => {
@@ -329,8 +334,13 @@ describe("runHostChecks", () => {
     expect(result.stoppedBy).toBe("rate_limited");
     expect(checks.requestedEventTypes()).toEqual(eventTypes);
     // The 500 was an answer, so its blocked retry leaves it asked but unproven.
-    expect(result.verdicts).toEqual(new Map([[eventTypes[1], { kind: "failed", reason: "interrupted" }]]));
-    expect(result.unchecked).toEqual([eventTypes[0]]);
+    expect(result.verdicts).toEqual(
+      new Map<string, HostVerdict>([
+        [eventTypes[0]!, { kind: "failed", reason: "rate_limited" }],
+        [eventTypes[1]!, { kind: "failed", reason: "interrupted" }],
+      ]),
+    );
+    expect(result.unchecked).toEqual([]);
   });
 
   it("checks only the first of three candidates when six requests remain", async () => {

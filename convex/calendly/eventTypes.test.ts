@@ -262,7 +262,8 @@ describe("syncForTenant host checks", () => {
     expect(membershipReads).toContainEqual([confirmed.uri, null]);
     expect(membershipReads.at(-1)).toEqual([limited.uri, "next"]);
     expect((await f.config(confirmed)).calendlySoleHostUri).toBe(SECOND_HOST);
-    expect((await f.config(limited)).calendlySoleHostUri).toBe(HOST);
+    // Asked, and answered 429 before its last page: unproven, so cleared.
+    expect((await f.config(limited)).calendlySoleHostUri).toBeUndefined();
     expect(await f.config(missing)).toMatchObject({ calendlySyncStatus: "active", calendlySoleHostUri: HOST });
     const connection = await f.connection();
     expect(connection?.lastEventTypeSyncStatus).toBe("failed");
