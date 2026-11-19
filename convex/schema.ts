@@ -203,8 +203,12 @@ export default defineSchema({
     ),
     // WorkOS invitation ID — used to revoke invitation if user is removed before sign-up.
     workosInvitationId: v.optional(v.string()),
-    // Personal Calendly booking page URL used for follow-up scheduling links.
+    // Personal Calendly booking page URL used for follow-up scheduling links
+    // and, for a closer switched on in Booking > Closer links, the DM portal.
     personalEventTypeUri: v.optional(v.string()),
+    // When an admin put this closer's personal link in the DM portal. Unset
+    // means off. Cleared when the user is removed or stops being a closer.
+    closerLinkInPortalAt: v.optional(v.number()),
 
     // Team-member avatar fields. Optional by design: WorkOS profile pictures
     // are not guaranteed and custom uploads are user-driven future state.
@@ -1072,6 +1076,9 @@ export default defineSchema({
     // The person the link was copied for. Copies made before
     // docs/plans/phase-2-person-first.md §4.3 shipped have none (D7).
     leadId: v.optional(v.id("leads")),
+    // A closer link: the phone closer whose personal calendar was copied.
+    // Audit only, never credit (credit is the booking's dealAttributions).
+    linkHostUserId: v.optional(v.id("users")),
   })
     .index("by_tenantId_and_copiedAt", ["tenantId", "copiedAt"])
     .index("by_tenantId_and_leadId_and_copiedAt", [
@@ -1698,6 +1705,11 @@ export default defineSchema({
     notSalesCallAt: v.optional(v.number()),
     // Extended event types allow booking further in advance (e.g. 2-3 days out).
     isExtended: v.optional(v.boolean()),
+    // A closer's personal calendar used for closer links: a booking without a
+    // fixed program takes its program from the link's `utm_content` code.
+    // Set by Booking > Closer links; kept when the closer moves to another
+    // calendar so links already sent still resolve.
+    programFromLinkAt: v.optional(v.number()),
 
     // Calendly-owned metadata from GET /event_types. All fields remain
     // optional for widen-only rollout safety.
@@ -1743,7 +1755,8 @@ export default defineSchema({
     .index(
       "by_tenantId_and_calendlyEventTypeUri",
       ["tenantId", "calendlyEventTypeUri"],
-    ),
+    )
+    .index("by_tenantId_and_calendlyOwnerUri", ["tenantId", "calendlyOwnerUri"]),
 
   tenantPrograms: defineTable({
     tenantId: v.id("tenants"),
@@ -1751,6 +1764,12 @@ export default defineSchema({
     normalizedName: v.string(),
     description: v.optional(v.string()),
     defaultCurrency: v.optional(v.string()),
+    // The program's code in closer links (`utm_content`). Unique in the
+    // tenant across current and retired codes, so a sent link never resolves
+    // to another program. Unset until allocated.
+    linkCode: v.optional(v.string()),
+    // Codes this program used before an admin edited them. Never reissued.
+    retiredLinkCodes: v.optional(v.array(v.string())),
     archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     createdByUserId: v.id("users"),
@@ -1760,7 +1779,8 @@ export default defineSchema({
     .index("by_tenantId_and_normalizedName", [
       "tenantId",
       "normalizedName",
-    ]),
+    ])
+    .index("by_tenantId_and_linkCode", ["tenantId", "linkCode"]),
 
   // One per person and program bought (docs/plans/phase-4-customers.md §3.1).
   // Derived from payments by syncPersonEnrollments; it holds no copy of the

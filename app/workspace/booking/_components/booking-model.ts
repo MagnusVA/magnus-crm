@@ -26,6 +26,7 @@ export type EventTypeStatus =
   | "unsorted" // needs a decision: in the inbox
   | "sorted" // counts for a program
   | "not_sales_call" // sorted out on purpose
+  | "closer_link" // a closer's own calendar: the program comes from each link (Closer links)
   | "gone"; // inactive, deleted or no longer returned by Calendly, never sorted
 
 export function eventTypeStatus(eventType: CoverageEventType): EventTypeStatus {
@@ -33,6 +34,7 @@ export function eventTypeStatus(eventType: CoverageEventType): EventTypeStatus {
   if (eventType.bookingProgramMappingStatus === "mapped" && eventType.bookingProgramId) {
     return "sorted";
   }
+  if (eventType.programFromLinkAt !== undefined) return "closer_link";
   return isCalendlyBookable(eventType) ? "unsorted" : "gone";
 }
 

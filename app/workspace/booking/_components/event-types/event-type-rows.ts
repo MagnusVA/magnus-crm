@@ -86,6 +86,7 @@ export function buildEventTypeRows(coverage: Coverage, board: Board, activity: B
     if (brokenPlacements > 0) portal = { word: `Broken in ${brokenPlacements}`, tone: "danger", condensed: true };
     else if (used) portal = { word: used, tone: "plain", condensed: false };
     else if (status === "sorted" && linkIssue(eventType) === null) portal = { word: "Ready to place", tone: "blue", condensed: true };
+    else if (status === "closer_link") portal = { word: "Closer link", tone: "blue", condensed: true };
     else portal = { word: "—", tone: "slate", condensed: false };
 
     const name = programName(eventType.bookingProgramId);

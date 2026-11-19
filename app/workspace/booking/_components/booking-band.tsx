@@ -15,11 +15,12 @@ import { buildBoard, eventTypeStatus, type Board, type Coverage } from "./bookin
 
 export { BOOKING_ROOT_CLASS as BOOKING_ROOT } from "./booking-layout";
 
-export type BookingSection = "coverage" | "inbox" | "event-types" | "portal";
+export type BookingSection = "coverage" | "inbox" | "event-types" | "closer-links" | "portal";
 
 export function sectionFromPath(pathname: string): BookingSection {
   if (pathname.startsWith("/workspace/booking/inbox")) return "inbox";
   if (pathname.startsWith("/workspace/booking/event-types")) return "event-types";
+  if (pathname.startsWith("/workspace/booking/closer-links")) return "closer-links";
   if (pathname.startsWith("/workspace/booking/portal")) return "portal";
   return "coverage";
 }
@@ -28,6 +29,7 @@ const TITLE: Record<BookingSection, string> = {
   coverage: "Booking setup",
   inbox: "Inbox",
   "event-types": "Booking setup",
+  "closer-links": "Booking setup",
   portal: "Booking setup",
 };
 
@@ -35,6 +37,7 @@ const DESCRIPTION: Record<BookingSection, string> = {
   coverage: "Who can book what: every program against every DM team, and the exact link each DM closer gets.",
   inbox: "Calendly event types nobody has sorted yet. File each one under a program and lane, or set it aside as not a sales call.",
   "event-types": "Calendly’s event types, sorted: sales calls, the unsorted, look-alikes and the noise.",
+  "closer-links": "Each phone closer’s own Calendly link, which DM closers can copy from the portal with a program attached.",
   portal: "The password-protected page where DM closers copy their links, and what they did with it.",
 };
 
@@ -42,6 +45,7 @@ const TABS: Array<{ section: BookingSection; href: string; label: string }> = [
   { section: "coverage", href: "/workspace/booking", label: "Coverage" },
   { section: "inbox", href: "/workspace/booking/inbox", label: "Inbox" },
   { section: "event-types", href: "/workspace/booking/event-types", label: "Event types" },
+  { section: "closer-links", href: "/workspace/booking/closer-links", label: "Closer links" },
   { section: "portal", href: "/workspace/booking/portal", label: "Link portal" },
 ];
 
@@ -52,8 +56,8 @@ const LABEL =
  * The booking setup band, rendered once by the section's layout so it stays
  * mounted while the tabs change. The title and figures follow the section
  * (concept C's band for Coverage, Event types and Link portal; concept B's
- * figures for the Inbox), and the tab row never moves. DM teams moved to
- * Team › Teams (/workspace/team/teams).
+ * figures for the Inbox; closer counts for Closer links), and the tab row
+ * never moves. DM teams moved to Team › Teams (/workspace/team/teams).
  *
  * It also moves a tenant onto booking coverage the first time an admin opens
  * any section (`ensureCoverage` does nothing after that).
@@ -83,7 +87,9 @@ export function BookingBand() {
               {DESCRIPTION[section]}
             </p>
           </div>
-          {board && coverage ? (
+          {section === "closer-links" ? (
+            <CloserLinkFigures />
+          ) : board && coverage ? (
             <Figures section={section} board={board} coverage={coverage} />
           ) : (
             <div className="h-[62px]" aria-hidden />
@@ -146,6 +152,9 @@ const FIGURE_TIP: Record<string, string> = {
   "On a program": "Event types filed under a program. Their bookings count as sales calls for it.",
   "Not a sales call": "Event types set aside as not sales calls. Bring one back from Event types.",
   Gone: "Unsorted event types Calendly no longer offers (switched off or deleted).",
+  Ready: "Active phone closers whose own Calendly link can carry a program.",
+  "Needs work": "Active phone closers with no link yet, or a link that can’t carry a program.",
+  "In portal": "Phone closers DM closers can pick in the link portal.",
 };
 
 function Figure({
@@ -229,7 +238,7 @@ function Figures({
 }) {
   const { figures } = board;
   if (section === "inbox") {
-    const counts = { sorted: 0, not_sales_call: 0, gone: 0 };
+    const counts = { sorted: 0, not_sales_call: 0, closer_link: 0, gone: 0 };
     for (const eventType of coverage.eventTypes) {
       const status = eventTypeStatus(eventType);
       if (status !== "unsorted") counts[status] += 1;
@@ -278,6 +287,27 @@ function Figures({
         href="/workspace/booking?show=problems"
       />
       <Figure label="Unsorted" value={figures.unsorted} caption="event types" href="/workspace/booking/inbox" />
+    </div>
+  );
+}
+
+/** Closer links' figures: how many active phone closers are ready and in the portal. */
+function CloserLinkFigures() {
+  const data = useQuery(api.bookingSetup.closerLinks.listCloserLinks, {});
+  if (!data) return <div className="h-[62px]" aria-hidden />;
+  const total = data.closers.length;
+  const ready = data.closers.filter((closer) => closer.status === "ready").length;
+  const inPortal = data.closers.filter((closer) => closer.inPortal).length;
+  return (
+    <div className="flex flex-wrap">
+      <Figure label="Ready" value={ready} of={total} meter={total ? ready / total : 0} />
+      <Figure
+        label="Needs work"
+        value={total - ready}
+        caption="phone closers"
+        tone={total - ready ? "warning" : "default"}
+      />
+      <Figure label="In portal" value={inPortal} caption="phone closers" />
     </div>
   );
 }

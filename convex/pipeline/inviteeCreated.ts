@@ -3,6 +3,12 @@ import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { callTypeForBooking } from "../lib/dealCallTypes";
 import { requestMeetingProjection } from "../operations/meetingStats";
 import { blockBooking, holdEvidence, ignoreBooking } from "./blocked";
+import { lookupCanonicalEventTypeConfig } from "../lib/closerLinkData";
+import {
+	bookedProgramPatch,
+	resolveBookedProgram,
+	type BookedProgram,
+} from "./bookedProgram";
 import { holdIfEarlierBookingWaiting, holdKeyFor } from "./holdOrder";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
@@ -166,15 +172,6 @@ async function syncMeetingFormResponsesForBooking(
 	await writeMeetingFormResponses(ctx, args);
 }
 
-function bookedProgramPatch(config: Doc<"eventTypeConfigs"> | null | undefined) {
-	return {
-		bookingProgramId: config?.bookingProgramId,
-		bookingProgramName: config?.bookingProgramName,
-		bookingProgramMappingStatus:
-			config?.bookingProgramMappingStatus ?? ("unmapped" as const),
-	};
-}
-
 async function loadEventTypeConfig(
 	ctx: MutationCtx,
 	eventTypeConfigId: Id<"eventTypeConfigs"> | undefined,
@@ -193,7 +190,7 @@ async function patchFirstExternalBookingCaches(
 		opportunity: Doc<"opportunities">;
 		meetingId: Id<"meetings">;
 		scheduledAt: number;
-		eventTypeConfig: Doc<"eventTypeConfigs"> | null | undefined;
+		bookingProgram: BookedProgram;
 		utmParams: ReturnType<typeof extractUtmParams>;
 	},
 ) {
@@ -201,7 +198,7 @@ async function patchFirstExternalBookingCaches(
 		return;
 	}
 
-	const bookingProgram = bookedProgramPatch(args.eventTypeConfig);
+	const bookingProgram = args.bookingProgram;
 	const utmPatch = args.utmParams ? { utmParams: args.utmParams } : {};
 	await ctx.db.patch("opportunities", args.opportunity._id, {
 		firstBookingProgramId: bookingProgram.bookingProgramId,
@@ -600,29 +597,9 @@ async function lookupEventTypeConfig(
 		eventTypeUri: string | undefined;
 	},
 ): Promise<EventTypeConfigLookupResult> {
-	if (!eventTypeUri) {
-		return {
-			existingConfig: null,
-			candidateCount: 0,
-		};
-	}
-
-	const configCandidates = await ctx.db
-		.query("eventTypeConfigs")
-		.withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
-			q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
-		)
-		.take(8);
-
-	return {
-		existingConfig:
-			configCandidates.length === 0
-				? null
-				: configCandidates.reduce((best, row) =>
-						row.createdAt < best.createdAt ? row : best,
-					),
-		candidateCount: configCandidates.length,
-	};
+	// Shared with Booking > Closer links, so "Ready" there names the config
+	// this reads.
+	return await lookupCanonicalEventTypeConfig(ctx, tenantId, eventTypeUri);
 }
 
 /**
@@ -1116,6 +1093,8 @@ export const process = internalMutation({
 						ctx,
 						effectiveEventTypeConfigId,
 					);
+					// A CRM link (utm_source=ptdom): never reads a program code.
+					const relinkBookingProgram = bookedProgramPatch(effectiveEventTypeConfig);
 
 					const meetingId = await ctx.db.insert("meetings", {
 						tenantId,
@@ -1140,7 +1119,7 @@ export const process = internalMutation({
 						createdAt: now,
 						utmParams,
 						utmTruncated,
-						...bookedProgramPatch(effectiveEventTypeConfig),
+						...relinkBookingProgram,
 						...resolutionPatch(resolvedAttribution),
 						rescheduledFromMeetingId,
 					});
@@ -1153,7 +1132,7 @@ export const process = internalMutation({
 						opportunity: targetOpportunity,
 						meetingId,
 						scheduledAt,
-						eventTypeConfig: effectiveEventTypeConfig,
+						bookingProgram: relinkBookingProgram,
 						utmParams,
 					});
 					await insertMeetingAggregate(ctx, meetingId);
@@ -1439,6 +1418,16 @@ export const process = internalMutation({
 				ctx,
 				effectiveEventTypeConfigId,
 			);
+			const reschedBookingProgram = await resolveBookedProgram(ctx, {
+				tenantId,
+				incomingConfig:
+					eventTypeConfigId === effectiveEventTypeConfigId
+						? effectiveEventTypeConfig
+						: await loadEventTypeConfig(ctx, eventTypeConfigId),
+				effectiveConfig: effectiveEventTypeConfig,
+				utmParams,
+				replacedMeeting: explicitSourceMeeting,
+			});
 			const meetingId = await ctx.db.insert("meetings", {
 				tenantId,
 				opportunityId: reschedOpportunityId,
@@ -1461,7 +1450,7 @@ export const process = internalMutation({
 				createdAt: now,
 				utmParams,
 				utmTruncated,
-				...bookedProgramPatch(effectiveEventTypeConfig),
+				...reschedBookingProgram,
 				...resolutionPatch(resolvedAttribution),
 				rescheduledFromMeetingId,
 			});
@@ -1470,7 +1459,7 @@ export const process = internalMutation({
 				opportunity: rescheduleTarget,
 				meetingId,
 				scheduledAt,
-				eventTypeConfig: effectiveEventTypeConfig,
+				bookingProgram: reschedBookingProgram,
 				utmParams,
 			});
 			await insertMeetingAggregate(ctx, meetingId);
@@ -1761,6 +1750,23 @@ export const process = internalMutation({
 			ctx,
 			meetingEventTypeConfigId,
 		);
+		const meetingBookingProgram = await resolveBookedProgram(ctx, {
+			tenantId,
+			incomingConfig:
+				eventTypeConfigId === meetingEventTypeConfigId
+					? meetingEventTypeConfig
+					: await loadEventTypeConfig(ctx, eventTypeConfigId),
+			effectiveConfig: meetingEventTypeConfig,
+			utmParams,
+			replacedMeeting: previousMeeting,
+			replacedMeetingConfig:
+				previousMeeting && !eventTypeConfigId
+					? await loadEventTypeConfig(
+							ctx,
+							(await ctx.db.get("opportunities", previousMeeting.opportunityId))?.eventTypeConfigId,
+						)
+					: null,
+		});
 		const opportunityForFirstBooking = await ctx.db.get("opportunities", opportunityId);
 		if (!opportunityForFirstBooking) {
 			throw new Error("[Pipeline] Opportunity disappeared before meeting insert");
@@ -1788,7 +1794,7 @@ export const process = internalMutation({
 			createdAt: now,
 			utmParams,
 			utmTruncated,
-			...bookedProgramPatch(meetingEventTypeConfig),
+			...meetingBookingProgram,
 			...resolutionPatch(resolvedAttribution),
 		});
 		await recordMeetingBookingAttribution(ctx, meetingId, resolvedAttribution);
@@ -1796,7 +1802,7 @@ export const process = internalMutation({
 			opportunity: opportunityForFirstBooking,
 			meetingId,
 			scheduledAt,
-			eventTypeConfig: meetingEventTypeConfig,
+			bookingProgram: meetingBookingProgram,
 			utmParams,
 		});
 		await insertMeetingAggregate(ctx, meetingId);

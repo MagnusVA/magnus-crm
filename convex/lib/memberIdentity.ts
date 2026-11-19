@@ -208,6 +208,23 @@ export function publicDmCloserIdentity(
   };
 }
 
+/** A phone closer as the shared-password DM portal shows them: a name, no contact details. */
+export function publicPhoneCloserIdentity(
+  userId: Id<"users">,
+  displayName: string,
+): MemberAvatarIdentity {
+  return {
+    id: userId,
+    name: displayName,
+    email: null,
+    imageUrl: null,
+    imageSource: "none",
+    secondaryLabel: null,
+    isActive: true,
+    source: "crm_user",
+  };
+}
+
 export function unknownMemberIdentity(
   label: string,
   source: "system" | "unknown",

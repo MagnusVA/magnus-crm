@@ -7,7 +7,7 @@
 
 export type IntelMode = "normal" | "extended";
 
-export type IntelStatus = "unsorted" | "sorted" | "not_sales_call" | "gone";
+export type IntelStatus = "unsorted" | "sorted" | "not_sales_call" | "closer_link" | "gone";
 
 export type IntelEventType = {
   id: string;

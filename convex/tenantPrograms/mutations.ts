@@ -5,7 +5,10 @@ import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateRequiredString } from "../lib/validation";
 import {
+  allocateProgramLinkCode,
+  checkProgramLinkCode,
   findProgramByNormalizedName,
+  linkCodeChange,
   listProgramsForTenant,
   normalizeOptionalProgramField,
   normalizeProgramName,
@@ -17,6 +20,9 @@ export const upsertProgram = mutation({
     name: v.string(),
     description: v.optional(v.string()),
     defaultCurrency: v.optional(v.string()),
+    // The program's closer-link code. Omitted: unchanged (a new program gets
+    // one from its name).
+    linkCode: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { userId, tenantId } = await requireTenantUser(ctx, [
@@ -51,13 +57,27 @@ export const upsertProgram = mutation({
         throw new Error("Program not found");
       }
 
+      const linkCode =
+        args.linkCode === undefined
+          ? undefined
+          : await checkProgramLinkCode(ctx, tenantId, args.programId, args.linkCode);
+      const linkCodeChanged = linkCode !== undefined && linkCode !== existing.linkCode;
       await ctx.db.patch("tenantPrograms", args.programId, {
         name,
         normalizedName,
         description: normalizeOptionalProgramField(args.description),
         defaultCurrency: normalizeOptionalProgramField(args.defaultCurrency),
+        ...(linkCodeChanged ? linkCodeChange(existing, linkCode) : {}),
         updatedAt: now,
       });
+      if (linkCodeChanged) {
+        log.info("program.link_code_changed", {
+          tenantId,
+          programId: args.programId,
+          previousLinkCode: existing.linkCode,
+          linkCode,
+        });
+      }
 
       const renamed = existing.name !== name;
       if (renamed) {
@@ -80,6 +100,10 @@ export const upsertProgram = mutation({
       tenantId,
       name,
       normalizedName,
+      linkCode:
+        args.linkCode === undefined
+          ? await allocateProgramLinkCode(ctx, tenantId, name)
+          : await checkProgramLinkCode(ctx, tenantId, undefined, args.linkCode),
       description: normalizeOptionalProgramField(args.description),
       defaultCurrency: normalizeOptionalProgramField(args.defaultCurrency),
       createdAt: now,
@@ -175,5 +199,36 @@ export const restoreProgram = mutation({
       updatedAt: Date.now(),
     });
     log.info("program.restored", { tenantId, programId });
+  },
+});
+
+/**
+ * Gives a program a closer-link code, or changes it. The old code is retired,
+ * not freed: links already sent with it book without a program.
+ */
+export const setProgramLinkCode = mutation({
+  args: { programId: v.id("tenantPrograms"), linkCode: v.string() },
+  handler: async (ctx, { programId, linkCode: raw }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const program = await ctx.db.get("tenantPrograms", programId);
+    if (!program || program.tenantId !== tenantId) {
+      throw new Error("Program not found");
+    }
+    const linkCode = await checkProgramLinkCode(ctx, tenantId, programId, raw);
+    if (linkCode === program.linkCode) return linkCode;
+    await ctx.db.patch("tenantPrograms", programId, {
+      ...linkCodeChange(program, linkCode),
+      updatedAt: Date.now(),
+    });
+    log.info("program.link_code_changed", {
+      tenantId,
+      programId,
+      previousLinkCode: program.linkCode,
+      linkCode,
+    });
+    return linkCode;
   },
 });

@@ -9,7 +9,10 @@ import { useCallback, useSyncExternalStore } from "react";
 
 const CHANGE_EVENT = "dm-links:device-memory";
 
-function storageKey(portalSlug: string, name: "closer" | "session-seconds" | "tenant") {
+function storageKey(
+	portalSlug: string,
+	name: "closer" | "session-seconds" | "tenant" | "link-mode" | "phone-closer",
+) {
 	return `dm-links:${portalSlug}:${name}`;
 }
 
@@ -75,6 +78,17 @@ function useStoredValue(key: string) {
 
 export function useRememberedCloser(portalSlug: string) {
 	return useStoredValue(storageKey(portalSlug, "closer"));
+}
+
+/** "programs" (Priority/Standard links) or "closers" (closer links). */
+export function useRememberedLinkMode(portalSlug: string) {
+	const [value, set] = useStoredValue(storageKey(portalSlug, "link-mode"));
+	return [value === "closers" ? ("closers" as const) : ("programs" as const), set] as const;
+}
+
+/** The phone closer last picked in closer links. */
+export function useRememberedPhoneCloser(portalSlug: string) {
+	return useStoredValue(storageKey(portalSlug, "phone-closer"));
 }
 
 export function useRememberedTenantName(portalSlug: string) {

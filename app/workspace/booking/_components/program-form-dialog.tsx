@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/errors";
+import { LINK_CODE_MAX_LENGTH } from "@/convex/lib/closerLinks";
 import {
   ACTION_DIALOG,
   ACTION_FORM,
@@ -67,6 +68,11 @@ const programSchema = z.object({
     .optional()
     .or(z.literal("")),
   defaultCurrency: z.string().optional(),
+  linkCode: z
+    .string()
+    .trim()
+    .max(LINK_CODE_MAX_LENGTH, `A code is ${LINK_CODE_MAX_LENGTH} characters or fewer`)
+    .optional(),
 });
 
 type ProgramFormValues = z.infer<typeof programSchema>;
@@ -83,6 +89,7 @@ interface ProgramFormDialogProps {
     name: string;
     description?: string;
     defaultCurrency?: string;
+    linkCode?: string;
   };
 }
 
@@ -108,6 +115,7 @@ export function ProgramFormDialog({
       name: program?.name ?? "",
       description: program?.description ?? "",
       defaultCurrency: program?.defaultCurrency ?? NONE_CURRENCY,
+      linkCode: program?.linkCode ?? "",
     },
   });
 
@@ -126,6 +134,7 @@ export function ProgramFormDialog({
         name: program?.name ?? "",
         description: program?.description ?? "",
         defaultCurrency: program?.defaultCurrency ?? NONE_CURRENCY,
+        linkCode: program?.linkCode ?? "",
       });
     }
   }, [open, program, form]);
@@ -143,6 +152,10 @@ export function ProgramFormDialog({
       values.description && values.description.trim().length > 0
         ? values.description.trim()
         : undefined;
+    // Send the code only when it changed; left blank, a new program gets one
+    // from its name and an existing one keeps its code.
+    const linkCode = values.linkCode?.trim() ?? "";
+    const linkCodeChanged = linkCode.length > 0 && linkCode !== (program?.linkCode ?? "");
 
     try {
       const programId = await upsertProgram({
@@ -150,6 +163,7 @@ export function ProgramFormDialog({
         name: values.name.trim(),
         description,
         defaultCurrency,
+        ...(linkCodeChanged ? { linkCode } : {}),
       });
 
       posthog.capture("program_saved", {
@@ -261,6 +275,39 @@ export function ProgramFormDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                </FormRow>
+              )}
+            />
+
+            <Controller
+              control={form.control}
+              name="linkCode"
+              render={({ field, fieldState }) => (
+                <FormRow
+                  label="Link code"
+                  htmlFor={`${ids}-link-code`}
+                  invalid={fieldState.invalid}
+                  error={fieldState.error}
+                  description={
+                    program?.linkCode
+                      ? "Closer links send it as utm_content. Changing a code means links already sent with the old code book without a program."
+                      : program
+                        ? "Optional. Closer links send it as utm_content."
+                        : "Optional. Closer links send it as utm_content. Left blank, it’s made from the name."
+                  }
+                >
+                  <Input
+                    {...field}
+                    id={`${ids}-link-code`}
+                    placeholder="e.g. accelerator"
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={LINK_CODE_MAX_LENGTH}
+                    className="font-mono"
+                    translate="no"
+                    aria-invalid={fieldState.invalid}
+                    disabled={isSubmitting}
+                  />
                 </FormRow>
               )}
             />

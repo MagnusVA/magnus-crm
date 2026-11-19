@@ -50,6 +50,7 @@ export async function buildCoverage(ctx: QueryCtx, tenantId: Id<"tenants">) {
       name: program.name,
       description: program.description,
       defaultCurrency: program.defaultCurrency,
+      linkCode: program.linkCode,
       archivedAt: program.archivedAt,
     })),
     teams: teams.map((team) => ({
@@ -94,6 +95,7 @@ export async function buildCoverage(ctx: QueryCtx, tenantId: Id<"tenants">) {
       bookingProgramMappingStatus: config.bookingProgramMappingStatus,
       isExtended: config.isExtended,
       notSalesCallAt: config.notSalesCallAt,
+      programFromLinkAt: config.programFromLinkAt,
       linkPortalEnabled: config.linkPortalEnabled,
       paymentLinkCount: config.paymentLinks?.length ?? 0,
       hasSocialHandleField: Boolean(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import posthog from "@/lib/posthog-browser";
 import {
 	AtSignIcon,
@@ -31,6 +32,8 @@ import {
 	type LinkSheetProgram,
 	type LinkTile,
 } from "./link-sheet-model";
+import { CloserLinksPanel, copyServerLink, LinkModeSwitch } from "./closer-links-panel";
+import { useRememberedLinkMode, useRememberedPhoneCloser } from "./device-memory";
 import { PortalHeader, SignOutButton } from "./portal-header";
 import { PortalLeadsPanel } from "./portal-leads-panel";
 import type {
@@ -38,6 +41,7 @@ import type {
 	PortalBootstrap,
 	PortalCampaign,
 	PortalCloser,
+	PortalPhoneCloser,
 } from "./portal-types";
 import { PortalColumn } from "./portal-ui";
 
@@ -49,7 +53,8 @@ type CopyStatus = "logging" | "logged" | "rate_limited" | "failed" | "manual";
 type Copied = {
 	tileKey: string;
 	programName: string;
-	mode: LinkTile["mode"];
+	/** What the link is besides its program: "Priority", "Standard", or the phone closer's name. */
+	label: string;
 	url: string;
 	campaign: PortalCampaign;
 	status: CopyStatus;
@@ -101,6 +106,16 @@ export function PortalLinkSheet({
 	const [note, setNote] = useState<NoteState>("idle");
 	const flashTimer = useRef<number | null>(null);
 	const copyRun = useRef(0);
+	const router = useRouter();
+	// Closer links show only when an admin put a closer in the portal.
+	const closerLinksOffered =
+		bootstrap.phoneClosers.length > 0 && bootstrap.closerLinkPrograms.length > 0;
+	const [rememberedMode, setLinkMode] = useRememberedLinkMode(portalSlug);
+	const linkMode = closerLinksOffered ? rememberedMode : "programs";
+	const [phoneCloserId, setPhoneCloserId] = useRememberedPhoneCloser(portalSlug);
+	// A remembered closer who left the portal falls back to the closer list.
+	const phoneCloser = bootstrap.phoneClosers.find((row) => row.id === phoneCloserId) ?? null;
+	const [closerError, setCloserError] = useState<string | null>(null);
 
 	// The session cookie ends at a fixed time; stop offering links then, so
 	// nothing gets copied that the server would refuse to log.
@@ -132,7 +147,7 @@ export function PortalLinkSheet({
 		const base: Omit<Copied, "status"> = {
 			tileKey: tile.key,
 			programName: program.programName,
-			mode: tile.mode,
+			label: SCHEDULING_MODE_LABEL[tile.mode],
 			url,
 			campaign,
 		};
@@ -189,6 +204,76 @@ export function PortalLinkSheet({
 		}
 	}
 
+	function flashKey(key: string) {
+		setFlash(key);
+		if (flashTimer.current) window.clearTimeout(flashTimer.current);
+		flashTimer.current = window.setTimeout(() => setFlash(null), FLASH_MS);
+	}
+
+	async function copyCloserLink(target: PortalPhoneCloser, program: { id: string; name: string }) {
+		if (!campaign || sessionEnd) return;
+		const run = ++copyRun.current;
+		setNote("idle");
+		setCloserError(null);
+
+		// The server checks the closer and the program, logs the copy and builds
+		// the link; nothing is copied unless it does.
+		const request = actions
+			.recordCloserLinkCopy(portalSlug, {
+				phoneCloserUserId: target.id,
+				programId: program.id,
+				dmCloserId: closer.id,
+				campaignPresetId: campaign.id,
+			})
+			.catch((error: unknown) => {
+				reportClientError(error, { flow: "link_portal_closer_link_copy" });
+				return { status: "failed" as const };
+			});
+		const clipboard = await copyServerLink(
+			request.then((result) => (result.status === "ok" ? result.url : null)),
+		);
+		const result = await request;
+		if (run !== copyRun.current) return;
+
+		if (result.status !== "ok") {
+			if (result.status === "logged_out") setSessionEnd("logged_out");
+			else if (result.status === "rate_limited") {
+				setCloserError("Too many links in the last minute. Wait a minute, then try again.");
+			} else if (result.status === "unavailable") {
+				setCloserError(`${result.message} Nothing was copied.`);
+				// The closer or program left the portal: reload the lists.
+				router.refresh();
+			} else {
+				setCloserError("Could not get the link. Nothing was copied. Try again in a moment.");
+			}
+			return;
+		}
+
+		const key = `${target.id}:${program.id}`;
+		if (clipboard === "copied") flashKey(key);
+		setCopied({
+			tileKey: key,
+			programName: program.name,
+			label: target.displayName,
+			url: result.url,
+			campaign,
+			status: clipboard === "copied" ? "logged" : "manual",
+		});
+
+		if (isPostHogEnabled()) {
+			posthog.capture("dm_closer_link_copied", {
+				booking_program_id: program.id,
+				phone_closer_user_id: target.id,
+				dm_closer_id: closer.id,
+				team_id: closer.teamId,
+				campaign_preset_id: campaign.id,
+				campaign: campaign.utmCampaign,
+				lead_pinned: lead !== null,
+				clipboard,
+			});
+		}
+	}
+
 	async function noteOnLead() {
 		if (!lead || !copied) return;
 		setNote("saving");
@@ -196,7 +281,7 @@ export function PortalLinkSheet({
 			const result = await actions.addPortalLeadNote(portalSlug, {
 				dmCloserId: closer.id,
 				leadId: lead.leadId,
-				content: `Sent the ${copied.programName} · ${SCHEDULING_MODE_LABEL[copied.mode]} booking link (${copied.campaign.label}).`,
+				content: `Sent the ${copied.programName} · ${copied.label} booking link (${copied.campaign.label}).`,
 			});
 			if (result.status === "ok") setNote("saved");
 			else if (result.status === "logged_out") {
@@ -236,6 +321,16 @@ export function PortalLinkSheet({
 						Not you?
 					</button>
 				</div>
+				{closerLinksOffered ? (
+					<LinkModeSwitch
+						mode={linkMode}
+						onChange={(next) => {
+							setLinkMode(next);
+							setCopied(null);
+							setCloserError(null);
+						}}
+					/>
+				) : null}
 				<div
 					role="group"
 					aria-label="Campaign"
@@ -308,7 +403,22 @@ export function PortalLinkSheet({
 					</div>
 				) : null}
 
-				{programs.length === 0 ? (
+				{linkMode === "closers" ? (
+					<CloserLinksPanel
+						phoneClosers={bootstrap.phoneClosers}
+						programs={bootstrap.closerLinkPrograms}
+						selected={phoneCloser}
+						onSelect={(next) => {
+							setPhoneCloserId(next?.id ?? null);
+							setCopied(null);
+							setCloserError(null);
+						}}
+						flashKey={flash}
+						disabled={!campaign || sessionEnd !== null}
+						error={closerError}
+						onCopy={(target, program) => void copyCloserLink(target, program)}
+					/>
+				) : programs.length === 0 ? (
 					<p className="px-[18px] py-7 text-center text-[13px] text-muted-foreground">
 						No links yet for {closer.teamDisplayName}.
 						<br />
@@ -351,8 +461,9 @@ export function PortalLinkSheet({
 				)}
 
 				<p className="px-3.5 pt-2.5 pb-4 text-center text-[12px] text-muted-foreground">
-					Tap a link to copy it. Each link carries your name, so the booking
-					credits you.
+					{linkMode === "closers"
+						? "Tap a program to copy the closer's link for it. It carries your name, so the booking credits you."
+						: "Tap a link to copy it. Each link carries your name, so the booking credits you."}
 					{sessionExpiresAt && !sessionEnd ? (
 						<>
 							<br />
@@ -533,6 +644,7 @@ const PARAM_TONE: Record<string, string> = {
 	utm_source: "text-stage-booked-ink",
 	utm_medium: "text-stage-follow-up-ink",
 	utm_campaign: "text-warning-ink",
+	utm_content: "text-primary-ink",
 };
 
 function ColoredUrl({ url }: { url: string }) {
@@ -572,7 +684,7 @@ function CopiedSheet({
 }) {
 	const urlRef = useRef<HTMLDivElement>(null);
 	const manual = copied.status === "manual";
-	const mode = SCHEDULING_MODE_LABEL[copied.mode];
+	const mode = copied.label;
 
 	// Without clipboard access, select the link so a long-press copies it.
 	useEffect(() => {

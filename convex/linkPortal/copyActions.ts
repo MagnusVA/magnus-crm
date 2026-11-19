@@ -36,3 +36,38 @@ export const recordCopyEvent = action({
     );
   },
 });
+
+/**
+ * A closer link from the portal: the server checks the closer, the program
+ * and the setter, logs the copy, and returns the link to copy.
+ */
+export const recordCloserLinkCopy = action({
+  args: {
+    portalSlug: v.string(),
+    sessionToken: v.string(),
+    phoneCloserUserId: v.id("users"),
+    programId: v.id("tenantPrograms"),
+    dmCloserId: v.id("dmClosers"),
+    campaignPresetId: v.id("linkPortalCampaignPresets"),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ copyEventId: Id<"linkPortalCopyEvents">; url: string }> => {
+    const session = await verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+
+    return await ctx.runMutation(
+      internal.linkPortal.copyMutations.insertCloserLinkCopy,
+      {
+        tenantId: session.tenantId,
+        publicSlug: args.portalSlug,
+        sessionVersion: session.sessionVersion,
+        sessionIdHash: hashSessionId(session.jti),
+        phoneCloserUserId: args.phoneCloserUserId,
+        programId: args.programId,
+        dmCloserId: args.dmCloserId,
+        campaignPresetId: args.campaignPresetId,
+      },
+    );
+  },
+});

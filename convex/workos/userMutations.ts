@@ -574,6 +574,8 @@ export const updateRole = internalMutation({
         role !== "closer" ? undefined : existing.calendlyMemberName,
       personalEventTypeUri:
         role !== "closer" ? undefined : existing.personalEventTypeUri,
+      closerLinkInPortalAt:
+        role !== "closer" ? undefined : existing.closerLinkInPortalAt,
     });
     if (existing.role !== role) {
       await emitDomainEvent(ctx, {
@@ -616,6 +618,8 @@ export const updateRoleAndInvitation = internalMutation({
         role !== "closer" ? undefined : existing.calendlyMemberName,
       personalEventTypeUri:
         role !== "closer" ? undefined : existing.personalEventTypeUri,
+      closerLinkInPortalAt:
+        role !== "closer" ? undefined : existing.closerLinkInPortalAt,
     });
     if (existing.role !== role) {
       await emitDomainEvent(ctx, {
@@ -678,6 +682,9 @@ export const removeUser = internalMutation({
     await ctx.db.patch("users", userId, {
       deletedAt: now,
       isActive: false,
+      // Out of the DM portal for good: a reactivated closer needs an admin to
+      // switch their closer link on again.
+      closerLinkInPortalAt: undefined,
     });
     await emitDomainEvent(ctx, {
       tenantId: user.tenantId,

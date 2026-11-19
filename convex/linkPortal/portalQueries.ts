@@ -13,7 +13,8 @@ import {
 	teamUsesShared,
 } from "../lib/bookingSetup/coverageData";
 import { log } from "../lib/observability/log";
-import { publicDmCloserIdentity } from "../lib/memberIdentity";
+import { isInPortal, listActivePhoneClosers, readCloserLinkState } from "../lib/closerLinkData";
+import { publicDmCloserIdentity, publicPhoneCloserIdentity } from "../lib/memberIdentity";
 import { verifyPortalSessionToken } from "./sessionToken";
 
 /**
@@ -80,15 +81,15 @@ async function loadPortalBootstrap(
 				.take(500),
 			listTeamProgramEventTypesForTenant(ctx, tenantId),
 			migrated ? listSharedRoutes(ctx, tenantId) : Promise.resolve([]),
-			migrated
-				? ctx.db
-						.query("tenantPrograms")
-						.withIndex("by_tenantId_and_archivedAt", (q) =>
-							q.eq("tenantId", tenantId).eq("archivedAt", undefined),
-						)
-						.take(200)
-				: Promise.resolve([]),
+			// Coverage and closer links both read the active programs.
+			ctx.db
+				.query("tenantPrograms")
+				.withIndex("by_tenantId_and_archivedAt", (q) =>
+					q.eq("tenantId", tenantId).eq("archivedAt", undefined),
+				)
+				.take(200),
 		]);
+		const phoneClosers = await loadPortalPhoneClosers(ctx, tenantId);
 
 	const activeTeamById = new Map(
 		teams.filter((team) => team.isActive).map((team) => [team._id, team]),
@@ -175,7 +176,36 @@ async function loadPortalBootstrap(
 				// Active teams whose DM closers get this event type.
 				teamIds: teamIdsByEventType.get(config._id) ?? [],
 			})),
+		// Closer links: phone closers an admin put in the portal whose link is
+		// Ready, and the programs with a link code. The link itself is built
+		// on the server at copy time.
+		phoneClosers,
+		closerLinkPrograms: activePrograms
+			.filter((program) => program.linkCode !== undefined)
+			.sort((left, right) => left.name.localeCompare(right.name))
+			.map((program) => ({ id: program._id, name: program.name })),
 	};
+}
+
+async function loadPortalPhoneClosers(ctx: QueryCtx, tenantId: Id<"tenants">) {
+	const closers = (await listActivePhoneClosers(ctx, tenantId)).filter(
+		(user) => user.closerLinkInPortalAt !== undefined,
+	);
+	const rows = await Promise.all(
+		closers.map(async (user) => {
+			const state = await readCloserLinkState(ctx, user);
+			if (!isInPortal(user, state)) return null;
+			const displayName = user.fullName?.trim() || user.calendlyMemberName?.trim() || "Closer";
+			return {
+				id: user._id,
+				displayName,
+				identity: publicPhoneCloserIdentity(user._id, displayName),
+			};
+		}),
+	);
+	return rows
+		.filter((row): row is NonNullable<typeof row> => row !== null)
+		.sort((left, right) => left.displayName.localeCompare(right.displayName));
 }
 
 export const getPortalBootstrapForSession = internalQuery({
