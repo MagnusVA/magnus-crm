@@ -66,6 +66,8 @@ const TABS: Array<{ value: PresetTab; label: string; title: string; empty: strin
   { value: "week", label: "This week", title: "This week's calls", empty: "No calls this week." },
 ];
 
+const PANELS: BoardTab[] = [...TABS.map((entry) => entry.value), "day"];
+
 // The status word's colour on the navy board. The board scopes the dark
 // theme's tokens (see `TodaysCallsBoard`), so each -ink here is the light ink
 // made for a dark surface.
@@ -207,44 +209,48 @@ export function CallsBoardView({
           />
         </header>
 
-        {/* A picked day has no tab, so the board's heading names its panel. */}
-        <TabsContent
-          value={tab}
-          {...(tab === "day" ? { "aria-labelledby": "todays-calls-title" } : {})}
-          className="text-board-foreground"
-        >
-          {meetings === undefined ? (
-            <BoardSkeleton />
-          ) : meetings.length === 0 ? (
-            <BoardEmpty
-              title={active.empty}
-              next={tab === "today" ? next : null}
-              timeZone={setting.timeZone}
-            />
-          ) : (
-            <>
-              <BoardTable
-                meetings={meetings}
-                nextMeetingId={next?.meetingId ?? null}
-                now={now}
-                setting={setting}
-                groupByDay={tab === "week"}
+        {/* One panel per tab, and one for a picked day, which has no tab, so
+            the board's heading names it. Only the active panel renders. */}
+        {PANELS.map((value) => (
+          <TabsContent
+            key={value}
+            value={value}
+            {...(value === "day" ? { "aria-labelledby": "todays-calls-title" } : {})}
+            className="text-board-foreground"
+          >
+            {meetings === undefined ? (
+              <BoardSkeleton />
+            ) : meetings.length === 0 ? (
+              <BoardEmpty
+                title={active.empty}
+                next={tab === "today" ? next : null}
+                timeZone={setting.timeZone}
               />
-              <BoardList
-                meetings={meetings}
-                nextMeetingId={next?.meetingId ?? null}
-                now={now}
-                setting={setting}
-                groupByDay={tab === "week"}
-              />
-              {isPartial ? (
-                <p className="border-t border-board-line px-[18px] py-2 text-xs text-board-muted">
-                  Showing the first {meetings.length.toLocaleString()} calls.
-                </p>
-              ) : null}
-            </>
-          )}
-        </TabsContent>
+            ) : (
+              <>
+                <BoardTable
+                  meetings={meetings}
+                  nextMeetingId={next?.meetingId ?? null}
+                  now={now}
+                  setting={setting}
+                  groupByDay={tab === "week"}
+                />
+                <BoardList
+                  meetings={meetings}
+                  nextMeetingId={next?.meetingId ?? null}
+                  now={now}
+                  setting={setting}
+                  groupByDay={tab === "week"}
+                />
+                {isPartial ? (
+                  <p className="border-t border-board-line px-[18px] py-2 text-xs text-board-muted">
+                    Showing the first {meetings.length.toLocaleString()} calls.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </TabsContent>
+        ))}
         <EndMyDayRow meetings={meetings} now={now} visible={tab === "today"} />
       </Tabs>
     </section>
