@@ -206,7 +206,11 @@ export async function runHostChecks(args: {
       try {
         response = await send(url, usedToken);
       } catch (error) {
-        if (error instanceof Unchecked) throw error;
+        // A stop before a retry, once Calendly was asked: asked, not proven.
+        if (error instanceof Unchecked) {
+          if (retried || refreshed) return { failed: "interrupted" };
+          throw error;
+        }
         if (retried) return { failed: "network" };
         retried = true;
         continue;

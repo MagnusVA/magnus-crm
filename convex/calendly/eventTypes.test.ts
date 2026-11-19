@@ -394,6 +394,19 @@ describe("event type sync mutations", () => {
     expect(await f.connection()).toEqual(connectionBefore);
   });
 
+  it("ignores a success or failure completion that carries no lock token", async () => {
+    const f = await fixture();
+    const { t, tenantId } = f;
+    stubCalendly({ organization: [roundRobin("sales-call")] });
+    await f.sync();
+    const connectionBefore = await f.connection();
+    expect(connectionBefore?.eventTypeSyncLockUntil).toBeUndefined();
+
+    await t.mutation(mutations.completeEventTypeSync, { tenantId, status: "failed", error: "late failure" });
+
+    expect(await f.connection()).toEqual(connectionBefore);
+  });
+
   it("extends the lock to the larger timestamp and never shortens it", async () => {
     const f = await fixture();
     const { t, tenantId } = f;

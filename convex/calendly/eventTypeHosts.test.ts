@@ -5,6 +5,7 @@ import {
   parseMembershipsPage,
   runHostChecks,
   type HostCheckDeps,
+  type HostVerdict,
 } from "./eventTypeHosts";
 
 const EVENT_TYPE = "https://api.calendly.com/event_types/round-robin";
@@ -327,8 +328,9 @@ describe("runHostChecks", () => {
 
     expect(result.stoppedBy).toBe("rate_limited");
     expect(checks.requestedEventTypes()).toEqual(eventTypes);
-    expect(result.verdicts.size).toBe(0);
-    expect(result.unchecked).toEqual(eventTypes);
+    // The 500 was an answer, so its blocked retry leaves it asked but unproven.
+    expect(result.verdicts).toEqual(new Map([[eventTypes[1], { kind: "failed", reason: "interrupted" }]]));
+    expect(result.unchecked).toEqual([eventTypes[0]]);
   });
 
   it("checks only the first of three candidates when six requests remain", async () => {
@@ -371,13 +373,19 @@ describe("runHostChecks", () => {
 
     const failed = eventTypes.slice(0, 4);
     expect(result.stoppedBy).toBe("outage");
-    expect(result.verdicts).toEqual(new Map(failed.map((uri) => [uri, { kind: "failed", reason: "http_500" }])));
-    expect(new Set(result.unchecked)).toEqual(new Set(eventTypes.slice(4)));
     expect(checks.requestedEventTypes().slice(0, 8)).toEqual([...failed, ...failed]);
-    // Up to three new requests can start while the last failure is still in flight.
+    // Up to three new requests can start while the last failure is still in
+    // flight; their retries are blocked, so they are asked but unproven.
     const startedDuringFailures = checks.requestedEventTypes().slice(8);
     expect(startedDuringFailures.length).toBeLessThanOrEqual(3);
     expect(startedDuringFailures).toEqual(eventTypes.slice(4, 4 + startedDuringFailures.length));
+    expect(result.verdicts).toEqual(
+      new Map<string, HostVerdict>([
+        ...failed.map((uri): [string, HostVerdict] => [uri, { kind: "failed", reason: "http_500" }]),
+        ...startedDuringFailures.map((uri): [string, HostVerdict] => [uri, { kind: "failed", reason: "interrupted" }]),
+      ]),
+    );
+    expect(new Set(result.unchecked)).toEqual(new Set(eventTypes.slice(4 + startedDuringFailures.length)));
   });
 
   it("fails a lookup that stops after its first page instead of leaving it unchecked", async () => {
@@ -405,5 +413,18 @@ describe("runHostChecks", () => {
 
     expect(result.verdicts.get(first)).toEqual({ kind: "failed", reason: "unauthorized" });
     expect(result.verdicts.get(second)).toEqual({ kind: "single", hostUri: HOST });
+  });
+
+  it("fails a lookup whose retry the deadline blocks instead of leaving it unchecked", async () => {
+    const checks = hostChecks();
+    checks.fetch.mockImplementationOnce(async () => {
+      checks.now.mockReturnValue(40_000);
+      return httpError(500);
+    });
+
+    const result = await checks.run([EVENT_TYPE]);
+
+    expect(result.verdicts.get(EVENT_TYPE)).toEqual({ kind: "failed", reason: "interrupted" });
+    expect(checks.fetch).toHaveBeenCalledTimes(1);
   });
 });
