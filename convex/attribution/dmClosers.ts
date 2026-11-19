@@ -7,7 +7,7 @@ import { dmCloserMemberIdentity } from "../lib/memberIdentity";
 import { log } from "../lib/observability/log";
 import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
-import { linkDmCloserTeamMember } from "../lib/teamMembers";
+import { isActiveLogin, linkDmCloserTeamMember } from "../lib/teamMembers";
 
 export function normalizeDmCloserInput(args: {
   displayName: string;
@@ -40,16 +40,26 @@ export function normalizeDmCloserInput(args: {
   return { displayName, utmMedium, normalizedUtmMedium, slug };
 }
 
+/**
+ * The CRM user a DM closer links to. `requireActive` refuses a deactivated or
+ * removed user: set it whenever the link is new, and leave it off for a link
+ * that isn't changing, so a DM closer already linked to someone who has since
+ * been deactivated can still be edited.
+ */
 export async function getLinkedUserForWrite(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   userId: Id<"users"> | null | undefined,
+  { requireActive }: { requireActive: boolean } = { requireActive: false },
 ) {
   if (!userId) return null;
 
   const user = await ctx.db.get("users", userId);
   if (!user || user.tenantId !== tenantId) {
     throw expectedError("attribution.rejected", "Linked user not found.");
+  }
+  if (requireActive && !isActiveLogin(user)) {
+    throw expectedError("attribution.rejected", "That CRM user is deactivated. Pick an active user.");
   }
 
   return user;
@@ -136,6 +146,7 @@ export const createDmCloser = mutation({
       ctx,
       tenantId,
       args.userId,
+      { requireActive: true },
     );
     const normalized = normalizeDmCloserInput(args);
     const now = Date.now();
@@ -196,11 +207,10 @@ export const updateDmCloser = mutation({
       throw expectedError("attribution.rejected", "Attribution team not found.");
     }
     const shouldPatchUserId = Object.hasOwn(args, "userId");
-    const linkedUser = await getLinkedUserForWrite(
-      ctx,
-      tenantId,
-      shouldPatchUserId ? args.userId : dmCloser.userId,
-    );
+    const nextUserId = shouldPatchUserId ? args.userId : dmCloser.userId;
+    const linkedUser = await getLinkedUserForWrite(ctx, tenantId, nextUserId, {
+      requireActive: (nextUserId ?? undefined) !== dmCloser.userId,
+    });
     const normalized = normalizeDmCloserInput(args);
     const existingActive = await allWithUtmMedium(ctx.db
       .query("dmClosers")

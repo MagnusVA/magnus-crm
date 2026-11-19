@@ -189,6 +189,14 @@ export const upsertEventTypeConfig = mutation({
       )
       .unique();
 
+    if (existing && program && existing.programFromLinkAt !== undefined) {
+      // Closer links already sent carry their program; a fixed program here
+      // would override all of them.
+      throw new Error(
+        "This is a closer's calendar for closer links. Its program comes from each link.",
+      );
+    }
+
     if (existing) {
       await ctx.db.patch("eventTypeConfigs", existing._id, {
         displayName: normalizedDisplayName,

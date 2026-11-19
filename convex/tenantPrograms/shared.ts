@@ -1,11 +1,23 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import {
+  isLinkCode,
+  normalizeLinkCode,
+  pickUniqueLinkCode,
+  programLinkCodes,
+  slugifyLinkCode,
+} from "../lib/closerLinks";
+import { expectedError } from "../lib/observability/errors";
 import { validateRequiredString } from "../lib/validation";
 
 type ProgramWriteCtx = Pick<MutationCtx, "db">;
 type ProgramReadCtx = Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">;
 
 export const MAX_TENANT_PROGRAMS = 200;
+// Link codes are unique across every program in a tenant, archived ones and
+// retired codes included, so allocation reads them all. More programs than
+// this is far past any real tenant; it fails loudly rather than miss a code.
+const MAX_LINK_CODE_SCAN = 1000;
 
 export function normalizeProgramName(name: string): string {
   return name.trim().toLocaleLowerCase();
@@ -26,6 +38,81 @@ export async function listProgramsForTenant(
     .query("tenantPrograms")
     .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", tenantId))
     .take(MAX_TENANT_PROGRAMS);
+}
+
+/** Every link code in the tenant, current and retired, mapped to its program. */
+export async function linkCodeOwners(
+  ctx: ProgramReadCtx,
+  tenantId: Id<"tenants">,
+): Promise<Map<string, Id<"tenantPrograms">>> {
+  const programs = await ctx.db
+    .query("tenantPrograms")
+    .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", tenantId))
+    .take(MAX_LINK_CODE_SCAN + 1);
+  if (programs.length > MAX_LINK_CODE_SCAN) {
+    throw new Error("Too many programs to check link codes.");
+  }
+  const owners = new Map<string, Id<"tenantPrograms">>();
+  for (const program of programs) {
+    for (const code of programLinkCodes(program)) owners.set(code, program._id);
+  }
+  return owners;
+}
+
+/** A free code for a new program, suggested from its name. */
+export async function allocateProgramLinkCode(
+  ctx: ProgramReadCtx,
+  tenantId: Id<"tenants">,
+  name: string,
+): Promise<string> {
+  const owners = await linkCodeOwners(ctx, tenantId);
+  return pickUniqueLinkCode(slugifyLinkCode(name), new Set(owners.keys()));
+}
+
+/**
+ * Checks a code an admin typed for `programId` (undefined: a new program) and
+ * returns it normalized. A code another program holds or once held is
+ * refused, so a link already sent never resolves to another program.
+ */
+export async function checkProgramLinkCode(
+  ctx: ProgramReadCtx,
+  tenantId: Id<"tenants">,
+  programId: Id<"tenantPrograms"> | undefined,
+  raw: string,
+): Promise<string> {
+  const code = normalizeLinkCode(raw);
+  if (!isLinkCode(code)) {
+    throw expectedError(
+      "program.link_code_invalid",
+      "Link codes use lowercase letters, numbers and dashes, up to 24 characters.",
+    );
+  }
+  const owner = (await linkCodeOwners(ctx, tenantId)).get(code);
+  if (owner !== undefined && owner !== programId) {
+    throw expectedError(
+      "program.link_code_taken",
+      `The link code "${code}" is used by another program.`,
+    );
+  }
+  return code;
+}
+
+/**
+ * The fields that move `program` to `code`: its old code is retired, so links
+ * already sent with it never resolve to another program. Taking back a code
+ * the program retired earlier un-retires it.
+ */
+export function linkCodeChange(
+  program: Pick<Doc<"tenantPrograms">, "linkCode" | "retiredLinkCodes">,
+  code: string,
+): Pick<Doc<"tenantPrograms">, "linkCode" | "retiredLinkCodes"> {
+  const retired = new Set(program.retiredLinkCodes ?? []);
+  if (program.linkCode && program.linkCode !== code) retired.add(program.linkCode);
+  retired.delete(code);
+  return {
+    linkCode: code,
+    retiredLinkCodes: retired.size > 0 ? [...retired] : undefined,
+  };
 }
 
 export async function findProgramByNormalizedName(
@@ -86,6 +173,7 @@ export async function ensureProgramForTenant(
     tenantId: args.tenantId,
     name,
     normalizedName,
+    linkCode: await allocateProgramLinkCode(ctx, args.tenantId, name),
     description: normalizeOptionalProgramField(args.description),
     defaultCurrency: normalizeOptionalProgramField(args.defaultCurrency),
     createdAt: now,

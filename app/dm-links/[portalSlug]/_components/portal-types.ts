@@ -1,5 +1,7 @@
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import type {
+	CloserLinkCopyInput,
+	CloserLinkCopyResult,
 	PortalCopyInput,
 	PortalCopyResult,
 	PortalLeadNoteInput,
@@ -23,6 +25,16 @@ export type PortalBootstrap = {
 	}>;
 	dmClosers: Array<PortalCloser>;
 	bookablePrograms: Array<BookableProgramEventType>;
+	/** Closer links: phone closers whose personal link an admin put in the portal. */
+	phoneClosers: Array<PortalPhoneCloser>;
+	/** Closer links: the programs a closer link can be for. */
+	closerLinkPrograms: Array<{ id: string; name: string }>;
+};
+
+export type PortalPhoneCloser = {
+	id: string;
+	displayName: string;
+	identity: MemberAvatarIdentity;
 };
 
 export type PortalCloser = {
@@ -59,6 +71,10 @@ export type PortalActions = {
 		portalSlug: string,
 		input: PortalCopyInput,
 	) => Promise<PortalCopyResult>;
+	recordCloserLinkCopy: (
+		portalSlug: string,
+		input: CloserLinkCopyInput,
+	) => Promise<CloserLinkCopyResult>;
 	searchPortalLeads: (
 		portalSlug: string,
 		searchTerm: string,

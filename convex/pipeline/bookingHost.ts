@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { readsProgramFromLink } from "../lib/closerLinks";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import { blockBooking } from "./blocked";
 
@@ -191,7 +192,14 @@ export async function isProgramEventType(
 			q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
 		)
 		.take(MAX_EVENT_TYPE_CONFIGS + 1);
-	if (configs.some((config) => config.bookingProgramId !== undefined)) return true;
+	// A closer's calendar for closer links counts too: its bookings carry the
+	// program in the link (readsProgramFromLink).
+	if (
+		configs.some(
+			(config) => config.bookingProgramId !== undefined || readsProgramFromLink(config),
+		)
+	)
+		return true;
 	return configs.length > MAX_EVENT_TYPE_CONFIGS ? undefined : false;
 }
 

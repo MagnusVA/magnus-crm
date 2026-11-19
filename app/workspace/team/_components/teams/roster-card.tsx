@@ -19,6 +19,7 @@ import { reportClientError } from "@/lib/observability/report-client-error";
 import { cn } from "@/lib/utils";
 import type { CoverageTeam } from "@/app/workspace/booking/_components/booking-model";
 import { GetsRows } from "./gets-table";
+import { isLinkableMember } from "./linkable-members";
 import { canBook, type TeamAccess } from "./team-access";
 import { formatHours, ScheduleBlock, weekTotal, type WeekHours } from "../schedule-editor";
 import { ActiveWord, CardHead, CARD, Code, FIGURE, firstName, HelpTip, Initials, LABEL } from "../team-ui";
@@ -526,7 +527,10 @@ export function DmCloserFields({
     return withUndo(() => save(patch), message, () => save(previous), field);
   }
 
-  const members = teamMembers.filter((member) => member.isActive || member._id === closer.userId);
+  // Only active logins can be linked. A link to someone deactivated since
+  // stays until it's changed, shown without naming them.
+  const members = teamMembers.filter(isLinkableMember);
+  const linkedToInactive = closer.userId !== undefined && !members.some((member) => member._id === closer.userId);
   const otherTeams = teams.filter((row) => row.isActive || row._id === closer.teamId);
   const show = (field: DmCloserField) => fields.includes(field);
 
@@ -595,6 +599,11 @@ export function DmCloserFields({
             }}
           >
             <NativeSelectOption value="">Not linked</NativeSelectOption>
+            {linkedToInactive ? (
+              <NativeSelectOption value={closer.userId} disabled>
+                Deactivated user
+              </NativeSelectOption>
+            ) : null}
             {members.map((member) => (
               <NativeSelectOption key={member._id} value={member._id}>
                 {member.email}

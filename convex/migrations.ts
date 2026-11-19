@@ -1,3 +1,5 @@
+import { allocateProgramLinkCode, linkCodeOwners } from "./tenantPrograms/shared";
+import { isLinkCode, programLinkCodes } from "./lib/closerLinks";
 import { mergedLeadIds } from "./lib/mergedLeads";
 import { assertMeetingProjection, assertMeetingProjectionBucket, assertMeetingProjectionSource } from "./operations/meetingProjectionChecks";
 import {
@@ -1410,4 +1412,35 @@ export const migrateBookingCoverage = migrations.define({
 export const assertBookingCoverageMigrated = migrations.define({
   table: "tenants", batchSize: 1,
   migrateOne: async (ctx, tenant) => { await assertTenantOnCoverage(ctx, tenant._id); },
+});
+
+// Closer links: every program gets a link code (its `utm_content` in closer
+// links), suggested from its name and unique in the tenant. Programs created
+// since the deploy already have one. Idempotent; run it, then
+// assertProgramLinkCodes.
+export const backfillProgramLinkCodes = migrations.define({
+  table: "tenantPrograms",
+  batchSize: 20,
+  migrateOne: async (ctx, program) => {
+    if (program.linkCode !== undefined) return;
+    await ctx.db.patch("tenantPrograms", program._id, {
+      linkCode: await allocateProgramLinkCode(ctx, program.tenantId, program.name),
+    });
+  },
+});
+
+// Every program holds a well-formed link code that no other program in its
+// tenant holds, current or retired. Throws on the first problem, with IDs only.
+export const assertProgramLinkCodes = migrations.define({
+  table: "tenantPrograms",
+  batchSize: 20,
+  migrateOne: async (ctx, program) => {
+    const fail = (problem: string) => new Error(`Program ${program._id} ${problem}`);
+    if (program.linkCode === undefined) throw fail("has no link code");
+    if (!isLinkCode(program.linkCode)) throw fail("has a malformed link code");
+    const owners = await linkCodeOwners(ctx, program.tenantId);
+    for (const code of programLinkCodes(program)) {
+      if (owners.get(code) !== program._id) throw fail("shares a link code with another program");
+    }
+  },
 });

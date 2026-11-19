@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRole } from "@/components/auth/role-context";
@@ -13,25 +14,22 @@ import { CardSection, RecordRow, RuledBlock } from "./card-ui";
 import type { DirectoryMember } from "./member-model";
 
 const CalendlyLinkDialog = dynamic(() => import("../calendly-link-dialog").then((module) => ({ default: module.CalendlyLinkDialog })));
-const EventTypeAssignmentDialog = dynamic(() =>
-  import("../event-type-assignment-dialog").then((module) => ({ default: module.EventTypeAssignmentDialog })),
-);
 const MarkUnavailableDialog = dynamic(() =>
   import("../mark-unavailable-dialog").then((module) => ({ default: module.MarkUnavailableDialog })),
 );
 
-type Open = null | "calendly" | "event-type" | "unavailable";
+type Open = null | "calendly" | "unavailable";
 
 /**
  * A phone closer's Calendly side: the Calendly member their round-robin
- * bookings land on, their personal event type for follow-ups, marking them
- * unavailable (which leads to redistributing their calls), and recent
- * reassignments. The old Team page's rules: actions only while the login is
- * active; event type and availability need their permissions.
+ * bookings land on, their personal link (read-only here; set in Booking ›
+ * Closer links), marking them unavailable (which leads to redistributing
+ * their calls), and recent reassignments. The old Team page's rules: actions
+ * only while the login is active; availability needs its permission.
  */
 export function PhoneCloserSection({ member }: { member: DirectoryMember }) {
   const login = member.login!;
-  const { hasPermission } = useRole();
+  const { hasPermission, isAdmin } = useRole();
   const users = useQuery(api.users.queries.listTeamMembers, {});
   const user = users?.find((row) => row._id === login.userId);
   const [open, setOpen] = useState<Open>(null);
@@ -72,24 +70,25 @@ export function PhoneCloserSection({ member }: { member: DirectoryMember }) {
                 }
               />
               <RecordRow
-                label="Personal event type"
-                tip="Their own Calendly booking page. Follow-up scheduling links send leads here."
+                label="Personal link"
+                tip="Their own Calendly booking page. DM closers copy it from the link portal, and follow-up and no-show reschedule links send leads here."
                 primary={
                   user.personalEventTypeUri ? (
                     <span className="font-mono text-[13px] tracking-[-0.01em] break-all" translate="no">
                       {user.personalEventTypeUri.replace(/^https?:\/\//, "")}
                     </span>
                   ) : (
-                    <span className="font-medium text-warning-ink">Not assigned</span>
+                    <span className="font-medium text-warning-ink">No link yet</span>
                   )
                 }
-                secondary="Follow-up scheduling links"
-                actions={
-                  active && hasPermission("team:assign-event-type") ? (
-                    <Button variant="outline" size="sm" onClick={() => setOpen("event-type")}>
-                      {user.personalEventTypeUri ? "Change" : "Assign"}
-                    </Button>
-                  ) : null
+                secondary={
+                  isAdmin ? (
+                    <Link href="/workspace/booking/closer-links" className="underline underline-offset-2 hover:text-foreground">
+                      Manage in Booking → Closer links
+                    </Link>
+                  ) : (
+                    "Set in Booking → Closer links"
+                  )
                 }
               />
               <RecordRow
@@ -118,16 +117,6 @@ export function PhoneCloserSection({ member }: { member: DirectoryMember }) {
           userId={user._id}
           userName={name}
           userIdentity={user.avatar}
-        />
-      ) : null}
-      {user && open === "event-type" ? (
-        <EventTypeAssignmentDialog
-          open
-          onOpenChange={(next) => !next && setOpen(null)}
-          userId={user._id}
-          userName={name}
-          userIdentity={user.avatar}
-          currentUri={user.personalEventTypeUri}
         />
       ) : null}
       {user && open === "unavailable" ? (

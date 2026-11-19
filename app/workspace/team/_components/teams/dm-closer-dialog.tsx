@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { MemberIdentityOption } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { getErrorMessage } from "@/lib/errors";
+import { isLinkableMember } from "./linkable-members";
 
 type DmCloserRow = Doc<"dmClosers"> & { teamLabel: string };
 type TeamMemberOption = {
@@ -37,6 +38,7 @@ type TeamMemberOption = {
   email: string;
   role: Doc<"users">["role"];
   isActive: boolean;
+  deletedAt?: number;
   avatar: MemberAvatarIdentity;
 };
 
@@ -64,6 +66,11 @@ export function DmCloserDialog({
   const [displayName, setDisplayName] = useState("");
   const [utmMedium, setUtmMedium] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  // Only active logins can be linked. A DM closer already linked to someone
+  // deactivated since keeps that link until it's changed, shown unnamed.
+  const linkableMembers = teamMembers.filter(isLinkableMember);
+  const linkedToInactive =
+    linkedUserId !== null && !linkableMembers.some((member) => member._id === linkedUserId);
   const createDmCloser = useMutation(api.attribution.dmClosers.createDmCloser);
   const updateDmCloser = useMutation(api.attribution.dmClosers.updateDmCloser);
 
@@ -188,7 +195,12 @@ export function DmCloserDialog({
                 <SelectGroup>
                   <SelectLabel>CRM user</SelectLabel>
                   <SelectItem value="__none__">No linked user</SelectItem>
-                  {teamMembers.map((member) => (
+                  {linkedToInactive && linkedUserId ? (
+                    <SelectItem value={linkedUserId} disabled>
+                      Deactivated user
+                    </SelectItem>
+                  ) : null}
+                  {linkableMembers.map((member) => (
                     <SelectItem key={member._id} value={member._id}>
                       <MemberIdentityOption identity={member.avatar} />
                     </SelectItem>

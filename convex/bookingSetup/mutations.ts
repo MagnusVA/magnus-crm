@@ -239,6 +239,15 @@ export const sortEventType = mutation({
     const now = Date.now();
 
     if (sorting.kind === "program") {
+      if (config.programFromLinkAt !== undefined) {
+        // Closer links already sent carry their program; a fixed program here
+        // would override all of them.
+        throw rejectRequest(
+          "booking_setup.closer_link_calendar",
+          "This is a closer's calendar for closer links. Its program comes from each link.",
+          { tenantId, eventTypeConfigId },
+        );
+      }
       const program = await ctx.db.get("tenantPrograms", sorting.programId);
       if (!program || program.tenantId !== tenantId || program.archivedAt !== undefined) {
         throw rejectRequest("booking_setup.program_not_found", "Program not found.", {

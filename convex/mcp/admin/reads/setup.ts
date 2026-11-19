@@ -114,7 +114,9 @@ export const run = internalQuery({
           ? "not_sales_call"
           : c.bookingProgramId && c.bookingProgramMappingStatus === "mapped"
             ? "sorted"
-            : isCalendlyBookable(c)
+            : c.programFromLinkAt !== undefined
+              ? "closer_link"
+              : isCalendlyBookable(c)
               ? "unsorted"
               : "gone";
       items = scan.rows

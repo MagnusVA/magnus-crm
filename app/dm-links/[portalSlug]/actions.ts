@@ -34,6 +34,22 @@ export type PortalCopyResult =
 	| { recorded: true }
 	| { recorded: false; reason: "logged_out" | "rate_limited" | "failed" };
 
+export type CloserLinkCopyInput = {
+	phoneCloserUserId: string;
+	programId: string;
+	dmCloserId: string;
+	campaignPresetId: string;
+};
+
+/**
+ * A closer link is built on the server, so the portal copies only a link the
+ * server just checked and logged. Anything but `ok` copies nothing.
+ */
+export type CloserLinkCopyResult =
+	| { status: "ok"; url: string }
+	| { status: "logged_out" | "rate_limited" | "failed" }
+	| { status: "unavailable"; message: string };
+
 // === NIM-17 Phase 5: portal lead surface ===
 
 export type PortalLeadInitialSource = "cta" | "inbound" | "wechat";
@@ -121,6 +137,7 @@ async function hashRequesterIp() {
 type PortalAction =
 	| "unlock"
 	| "record_copy"
+	| "record_closer_link_copy"
 	| "search_leads"
 	| "update_lead_profile"
 	| "add_lead_note"
@@ -228,6 +245,51 @@ export async function recordPortalCopy(
 		console.warn("[LinkPortal] copy audit failed", error);
 		await reportPortalError(error, "record_copy");
 		return { recorded: false, reason: "failed" };
+	}
+}
+
+const CLOSER_LINK_UNAVAILABLE_CODES = new Set([
+	"link_portal.closer_unavailable",
+	"link_portal.program_unavailable",
+]);
+
+export async function recordCloserLinkCopy(
+	rawPortalSlug: string,
+	input: CloserLinkCopyInput,
+): Promise<CloserLinkCopyResult> {
+	const session = await readPortalSession(rawPortalSlug);
+	if (!session) {
+		return { status: "logged_out" };
+	}
+
+	try {
+		const { url } = await fetchAction(api.linkPortal.copyActions.recordCloserLinkCopy, {
+			portalSlug: session.portalSlug,
+			sessionToken: session.sessionToken,
+			phoneCloserUserId: input.phoneCloserUserId as Id<"users">,
+			programId: input.programId as Id<"tenantPrograms">,
+			dmCloserId: input.dmCloserId as Id<"dmClosers">,
+			campaignPresetId:
+				input.campaignPresetId as Id<"linkPortalCampaignPresets">,
+		});
+		return { status: "ok", url };
+	} catch (error) {
+		const code = getErrorCode(error);
+		if (code === "link_portal.copy_rate_limited") {
+			return { status: "rate_limited" };
+		}
+		if (code && CLOSER_LINK_UNAVAILABLE_CODES.has(code)) {
+			return {
+				status: "unavailable",
+				message:
+					code === "link_portal.program_unavailable"
+						? "This program is no longer available."
+						: "This closer is no longer available.",
+			};
+		}
+		console.warn("[LinkPortal] closer link copy failed", error);
+		await reportPortalError(error, "record_closer_link_copy");
+		return { status: "failed" };
 	}
 }
 
