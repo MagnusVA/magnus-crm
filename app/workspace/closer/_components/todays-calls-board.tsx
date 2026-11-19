@@ -15,6 +15,7 @@ import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TranslatableText } from "@/components/translatable-text";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -206,7 +207,12 @@ export function CallsBoardView({
           />
         </header>
 
-        <TabsContent value={tab} className="text-board-foreground">
+        {/* A picked day has no tab, so the board's heading names its panel. */}
+        <TabsContent
+          value={tab}
+          {...(tab === "day" ? { "aria-labelledby": "todays-calls-title" } : {})}
+          className="text-board-foreground"
+        >
           {meetings === undefined ? (
             <BoardSkeleton />
           ) : meetings.length === 0 ? (
@@ -287,20 +293,20 @@ function DayPickerButton({
           )}
         >
           <CalendarIcon className="size-3.5" aria-hidden="true" />
-          {showing
-            ? formatBusinessDate(pickedDay, { month: "short", day: "numeric" })
-            : "Pick a day"}
+          <TranslatableText>
+            {showing ? formatBusinessDate(pickedDay, { month: "short", day: "numeric" }) : "Pick a day"}
+          </TranslatableText>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" collisionPadding={16} className="w-auto p-2">
         <Calendar
           mode="single"
+          required
           autoFocus
           selected={selected}
           defaultMonth={selected ?? businessDateToCalendarDate(today)}
           today={businessDateToCalendarDate(today)}
           onSelect={(date) => {
-            if (!date) return;
             onPickDay(calendarDateToBusinessDate(date));
             setOpen(false);
           }}
