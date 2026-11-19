@@ -57,10 +57,20 @@ export function formatDateTime(ms: number, timeZone: string) {
 }
 
 
-export type BoardTab = "today" | "tomorrow" | "week";
+/** The board's tabs; "day" is one business date the closer picked. */
+export type BoardTab = "today" | "tomorrow" | "week" | "day";
 
-/** The board's range for a tab, from today's business date. */
-export function boardRange(tab: BoardTab, today: string, setting: BusinessDaySetting) {
+/**
+ * The board's range for a tab, from today's business date. The "day" tab
+ * shows `pickedDay`, or today when none is picked.
+ */
+export function boardRange(
+  tab: BoardTab,
+  today: string,
+  setting: BusinessDaySetting,
+  pickedDay?: string | null,
+) {
+  if (tab === "day") return businessDayRange(pickedDay ?? today, setting);
   if (tab === "today") return businessDayRange(today, setting);
   if (tab === "tomorrow") return businessDayRange(addBusinessDays(today, 1), setting);
   return businessPeriodRange(today, "week", setting);
