@@ -45,6 +45,8 @@ Every report page reads today live from Convex, on its own or as part of a longe
 
 `magnus_report` and `magnus_numbers` have no per-tenant key, daily-run or per-minute warehouse allowance. Assistant keys cache answers for six hours. A global lane admits at most three running or waiting jobs, with one running in the shared pool; excess jobs stay pending until retried, preserving a worker for web reports. Legacy allowance rows and fields remain in the schema but are no longer read or written.
 
+`magnus_lead_countries` (`convex/mcp/reports/leadCountries.ts`) uses the same lane for one report, `lead_countries.summary`: the leads qualified through Slack in a range, counted by country, always from ClickHouse as of the last sync. Its Convex reader (`reports/leadCountries:liveLeadCountries`) exists only for parity.
+
 ### The Node build path
 
 Most reports aggregate in SQL and finalize inside the `complete` mutation, which takes at most 4M characters of rows and about a second of CPU. A report that returns raw rows to reuse its Convex reader's builder can outgrow that (People's role reports read 44-54M characters for a year of production data). Such a report sets `node` in its definition (`NodeBuild` in `definition.ts`):

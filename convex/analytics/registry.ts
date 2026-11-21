@@ -2,6 +2,7 @@ import type { AnyReportDefinition } from "./definition";
 import { apiReports } from "./api/metrics";
 import { attributionReports } from "./definitions/attribution";
 import { callsReports } from "./definitions/calls";
+import { leadCountriesReports } from "./definitions/leadCountries";
 import { leadGenReports } from "./definitions/leadGen";
 import { operationsReports } from "./definitions/operations";
 import { overviewReports } from "./definitions/overview";
@@ -16,6 +17,7 @@ const definitions: readonly AnyReportDefinition[] = [
   ...apiReports,
   ...attributionReports,
   ...callsReports,
+  ...leadCountriesReports,
   ...leadGenReports,
   ...operationsReports,
   ...overviewReports,

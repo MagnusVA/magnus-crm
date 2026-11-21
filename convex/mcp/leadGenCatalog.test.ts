@@ -30,6 +30,7 @@ const ADMIN_TOOLS = [
   "magnus_end_of_day",
   "magnus_get_recording",
   "magnus_health",
+  "magnus_lead_countries",
   "magnus_lead_gen_floor",
   "magnus_lead_gen_roster",
   "magnus_lead_gen_submissions",
