@@ -134,6 +134,18 @@ describe("admin lookup person search", () => {
     expect(direct.items[0].state).toBe("not_recorded");
   });
 
+  it("returns a person's recorded country on every person match", async () => {
+    const f = await adminFixture();
+    const target = await person(f, { fullName: "Carla Brown", searchText: "Carla Brown", country: " Honduras " });
+    await person(f, { fullName: "Dana Brown", searchText: "Dana Brown" });
+    const result = await search(f, "Brown");
+    expect(result.items).toHaveLength(2);
+    expect(result.items.find((item) => item.id === target.leadId)?.country).toEqual({ text: "Honduras", by: "integration" });
+    expect(result.items.find((item) => item.id !== target.leadId)).not.toHaveProperty("country");
+    const direct = await f.t.query(lookup, { caller: adminCaller(f.orgId), kind: "person", id: target.leadId });
+    expect(direct.items[0].country).toEqual({ text: "Honduras", by: "integration" });
+  });
+
   it("distinguishes unnamed prospects without exposing identifiers", async () => {
     const f = await adminFixture();
     await prospects(f, 2);

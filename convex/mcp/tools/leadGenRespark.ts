@@ -92,7 +92,7 @@ export const batch = internalQuery({
 });
 
 const panelValidator = v.object({ contactAgain: contactAgainMcpValidator, resparkBlockedReason: nullableString, handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
-  dispositionReason: text, identity: v.object({ name: text, phone: nullableString, email: nullableString }), timeZone: nullableString,
+  dispositionReason: text, identity: v.object({ name: text, phone: nullableString, email: nullableString }), country: text, timeZone: nullableString,
   timeline: v.array(touchValidator), deals: v.array(v.object({ opportunityId: v.id("opportunities"), stage: dealStageValidator,
     outcome: dealOutcomeValidator, lostReason: text, createdAt: v.string() })),
   calls: v.array(v.object({ meetingId: v.id("meetings"), opportunityId: v.id("opportunities"), scheduledAt: v.string(),
@@ -141,6 +141,7 @@ export const person = internalQuery({
         dispositionReason: panel.dispositionReason ? staffText(panel.dispositionReason) : null,
         identity: { name: panel.identity.name ? budget.personText(panel.identity.name) : null,
           phone: panel.identity.phone ? budget.text(panel.identity.phone) : null, email: panel.identity.email ? budget.text(panel.identity.email) : null },
+        country: panel.country ? budget.personText(panel.country) : null,
         timeZone: panel.timeZone ? budget.text(panel.timeZone, { mask: false }) : null, timeline,
         deals: deals.map(deal => ({ ...deal, createdAt: formatLocal(deal.createdAt, me.timeZone), lostReason: deal.lostReason ? staffText(deal.lostReason) : null })),
         calls: calls.map(call => ({ ...call, scheduledAt: formatLocal(call.scheduledAt, me.timeZone), bookingAnswers: budget.take(call.bookingAnswers, limit).map(answer => ({

@@ -79,6 +79,7 @@ export const lookupItemValidator = v.object({
   currency: v.optional(v.string()),
   scheduledAt: v.optional(v.string()),
   isActive: v.optional(v.boolean()),
+  country: v.optional(textValidator),
   lifecycle: v.optional(v.string()),
   latestActivityAt: v.optional(v.string()),
   dealCount: v.optional(v.number()),
@@ -103,6 +104,7 @@ type LookupItem = {
   currency?: string;
   scheduledAt?: string;
   isActive?: boolean;
+  country?: ReturnType<typeof text>;
   lifecycle?: string;
   latestActivityAt?: string;
   dealCount?: number;
@@ -265,6 +267,9 @@ async function personItem(
     allowedActions: ["magnus_lookup"],
     openInMagnus: paths.person(lead._id),
   };
+  // Typed by the setter in the Slack qualification form; already on the row.
+  const country = lead.country?.trim();
+  if (country) base.country = text(country, "integration");
   if (!detail || lead.status === "merged") return { item: base, capped: false };
   const p = await buildAdminPerson(ctx, me, lead._id, contact);
   if (p.contact)

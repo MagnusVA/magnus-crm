@@ -152,6 +152,29 @@ describe("Respark queries", () => {
     expect(await h.admin.query(api.respark.queries.getMyResparkBatch, {})).toBeNull();
   });
 
+  it("shows the person's recorded country, with staff names and amounts redacted for a lead generator", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const leadId = await capture(h, "country.person");
+    await h.t.run(async (ctx) => {
+      await ctx.db.insert("users", { tenantId: h.tenantId, workosUserId: "pat", email: "pat@example.com",
+        fullName: "Pat Closer", role: "closer", isActive: true });
+      const userId = await ctx.db.insert("users", { tenantId: h.tenantId, workosUserId: "generator",
+        email: "generator@example.com", role: "lead_generator", isActive: true });
+      await ctx.db.insert("leadGenWorkers", { tenantId: h.tenantId, userId, workosUserId: "generator",
+        email: "generator@example.com", isActive: true, teamId: h.leadGenTeamId, createdAt: NOW, updatedAt: NOW });
+    });
+    const caller = h.t.withIdentity({ subject: "generator", org_id: "org_test" });
+    await caller.mutation(api.respark.batches.claimResparkBatch, {});
+    const itemId = (await caller.query(api.respark.queries.getMyResparkBatch, {}))!.items[0].itemId;
+    const country = async () => (await caller.query(api.respark.queries.getResparkPersonPanel, { itemId }))!.country;
+    expect(await country()).toBeNull();
+    await h.t.run((ctx) => ctx.db.patch("leads", leadId, { country: " Honduras, Pat Closer collected $500 " }));
+    const shown = await country();
+    expect(shown).toMatch(/^Honduras, \[staff\] collected /);
+    expect(shown).not.toMatch(/Pat Closer|\$500/);
+  });
+
   it("masks identity, notes and booking answers on the server; omits payment events and credit", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness({ leadGenTeam: true });

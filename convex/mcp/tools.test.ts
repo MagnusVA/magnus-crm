@@ -69,6 +69,21 @@ describe("closer MCP reads", () => {
     expect(JSON.stringify(tasks.data)).not.toContain(h.otherTaskId);
   });
 
+  it("returns the person's recorded country as person-supplied text", async () => {
+    const h = await mcpToolsFixture();
+    const read = async () =>
+      (
+        (await callTool(h.t, h.token, h.sessionId, "magnus_person", {
+          personId: h.leadId,
+        })).data as { people: Array<{ country: unknown }> }
+      ).people[0].country;
+    expect(await read()).toBeNull();
+    await h.t.run((ctx) =>
+      ctx.db.patch("leads", h.leadId, { country: " Honduras " }),
+    );
+    expect(await read()).toEqual({ text: "Honduras", personSupplied: true });
+  });
+
   it("returns booking snapshots and the latest note as person-supplied, with contacts only on request", async () => {
     const h = await mcpToolsFixture();
     await callTool(h.t, h.token, h.sessionId, "magnus_add_call_note", {

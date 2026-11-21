@@ -225,6 +225,14 @@ describe("lead gen reads through /mcp", () => {
     privateDataAbsent(first); privateDataAbsent(second); privateDataAbsent(activity);
   });
 
+  it("returns the person's recorded country as person-supplied text", async () => {
+    const h = await createMcpHarness(); const seed = await seedLeadGenReads(h); const tool = await connect(h, seed.orgId);
+    const country = async () => (await tool<People>("magnus_respark_person", { itemIds: [seed.items[0]._id] })).people[0].panel!.country;
+    expect(await country()).toBeNull();
+    await h.t.run(ctx => ctx.db.patch("leads", seed.items[0].leadId, { country: " Honduras " }));
+    expect(await country()).toMatchObject({ text: "Honduras", personSupplied: true });
+  });
+
   it("bounds nested panel rows across five people and refuses expired or foreign-team panels", async () => {
     const h = await createMcpHarness(); const seed = await seedLeadGenReads(h); const tool = await connect(h, seed.orgId);
     await h.t.run(async ctx => {

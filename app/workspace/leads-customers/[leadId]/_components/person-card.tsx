@@ -101,6 +101,7 @@ export function PersonCard() {
   const otherIdentifiers = identifiers.filter((identifier) => !shown.has(contactKey(identifier.rawValue)));
   const initialSource = lead.initialSource ? INITIAL_SOURCE_META[lead.initialSource].label : null;
   const income = lead.selfReportedIncome;
+  const country = lead.country?.trim() || null;
   // A customer's stage follows their payments; voiding the payment moves it.
   const canMoveBack = lead.lifecycleStage !== "prospect" && lead.status !== "converted";
 
@@ -148,8 +149,13 @@ export function PersonCard() {
           <TouchFacts />
         </dl>
 
-        {initialSource || income !== undefined ? (
+        {country || initialSource || income !== undefined ? (
           <dl>
+            {country ? (
+              <Fact label="Country" title={country}>
+                {country}
+              </Fact>
+            ) : null}
             {initialSource ? <Fact label="Initial source">{initialSource}</Fact> : null}
             {income !== undefined ? (
               <Fact label="Income" title="Self-reported in the DM portal">

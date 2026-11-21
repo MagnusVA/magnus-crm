@@ -199,9 +199,11 @@ async function readPerson(
       };
     }),
   );
+  const country = detail.lead.country?.trim();
   return {
     personId,
     name: personText(detail.lead.fullName ?? "Unknown person"),
+    country: country ? personText(country) : null,
     ...(includeContact
       ? {
           contact: {
@@ -226,6 +228,7 @@ export const run = internalQuery({
       v.object({
         personId: v.id("leads"),
         name: personTextValidator,
+        country: v.union(personTextValidator, v.null()),
         contact: v.optional(
           v.object({
             email: v.union(v.string(), v.null()),
