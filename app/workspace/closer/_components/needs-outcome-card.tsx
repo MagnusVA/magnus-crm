@@ -1,19 +1,35 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
+import { formatDistanceStrict } from "date-fns";
 import { SecondOpinionHint } from "@/components/second-opinion/needs-outcome-hint";
 import { UnmatchedRecordings } from "@/components/fathom/unmatched-recordings";
 import type { FunctionReturnType } from "convex/server";
-import type { api } from "@/convex/_generated/api";
+import { api } from "@/convex/_generated/api";
 import { meetingAttendanceDisplay } from "@/lib/status-config";
+import { formatAmountMinor } from "@/lib/format-currency";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
+import { PAYMENT_TYPE_LABELS } from "@/app/workspace/_components/payment-dialog-form";
+import {
+  NoShowReasonPicker,
+  useRecordAttendance,
+} from "@/app/workspace/closer/meetings/_components/attendance-question";
+import { StageChip } from "@/app/workspace/closer/meetings/_components/stage-tone";
+import { firstNameOf } from "@/app/workspace/closer/meetings/_components/meeting-detail-types";
 import { SectionEmpty } from "./section-state";
 import { ScrollMoreHint } from "./scroll-more-hint";
 import { useExpandInPlace } from "./use-expand-in-place";
-import { formatDateTime, formatShortDate } from "./today-time";
+import { formatClock, formatDateTime, formatShortDate } from "./today-time";
 
 type NeedsOutcome = FunctionReturnType<typeof api.closer.dashboard.getMeetingsNeedingOutcome>;
+type Row = NeedsOutcome["meetings"][number];
+type AttendanceRowData = Extract<Row, { rowKind: "attendance" }>;
+type AskRowData = Extract<Row, { rowKind: "whop_ask" }>;
+type OutcomeRowData = Extract<Row, { rowKind: "outcome" }>;
 
 const SHOWN = 4;
 
@@ -22,6 +38,10 @@ const SHOWN = 4;
  * each with Record outcome on its meeting page. The query also returns
  * today's calls still to come; each joins the list once `now` passes its end.
  * Four show; "Show N more" scrolls the rest inside the same height.
+ *
+ * Two kinds of row come first: a call whose deal a Whop payment won, which
+ * still needs its attendance (Attended / Didn't show), and a Whop payment
+ * waiting for the closer's confirmation (Review, on its meeting or task).
  */
 export function NeedsOutcomeCard({
   result,
@@ -37,7 +57,10 @@ export function NeedsOutcomeCard({
     meetings.length > SHOWN,
   );
   const visible = expanded ? meetings : meetings.slice(0, SHOWN);
-  const oldest = meetings.at(-1);
+  const oldest = meetings.length
+    ? meetings.reduce((min, meeting) => (meeting.scheduledAt < min.scheduledAt ? meeting : min))
+    : undefined;
+  const partial = Boolean(result?.isPartial || result?.attendancePartial);
 
   return (
     <section aria-labelledby="needs-outcome-title" className="@container rounded-xl border bg-card text-sm text-card-foreground">
@@ -48,7 +71,7 @@ export function NeedsOutcomeCard({
         {meetings.length > 0 ? (
           <span className="rounded-full bg-warning px-[7px] text-xs leading-[18px] font-semibold text-primary-foreground tabular-nums">
             {meetings.length}
-            {result?.isPartial ? "+" : ""}
+            {partial ? "+" : ""}
           </span>
         ) : null}
         {oldest ? (
@@ -76,35 +99,20 @@ export function NeedsOutcomeCard({
         <>
           <div className="relative">
             <ul {...listProps}>
-              {visible.map((meeting) => (
-                <li
-                  key={meeting.meetingId}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 border-t px-4 py-2.5 first:border-t-0"
-                >
-                  <div className="min-w-0">
-                    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 @sm:flex-nowrap">
-                      <span className="min-w-0 truncate font-semibold">{meeting.leadName}</span>
-                      <span className="shrink-0 rounded-[4px] bg-warning-surface px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-warning-ink uppercase">
-                        Not recorded
-                      </span>
-                    </p>
-                    <p className="truncate text-[13px] text-muted-foreground">
-                      {[meeting.programName, formatDateTime(meeting.scheduledAt, timeZone)]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    <SecondOpinionHint meetingId={meeting.meetingId} />
-                  </div>
-                  <Button asChild className="h-8 px-3 font-semibold">
-                    <Link
-                      href={`/workspace/closer/meetings/${meeting.meetingId}`}
-                      aria-label={`Record outcome for ${meeting.leadName}`}
-                    >
-                      Record outcome
-                    </Link>
-                  </Button>
-                </li>
-              ))}
+              {visible.map((meeting) =>
+                meeting.rowKind === "attendance" ? (
+                  <AttendanceRow
+                    key={`attendance:${meeting.meetingId}`}
+                    row={meeting}
+                    now={now}
+                    timeZone={timeZone}
+                  />
+                ) : meeting.rowKind === "whop_ask" ? (
+                  <AskRow key={`ask:${meeting.decisionId}`} row={meeting} now={now} />
+                ) : (
+                  <OutcomeRow key={meeting.meetingId} meeting={meeting} timeZone={timeZone} />
+                ),
+              )}
             </ul>
             <ScrollMoreHint {...hintProps} />
           </div>
@@ -125,6 +133,142 @@ export function NeedsOutcomeCard({
       )}
       <UnmatchedRecordings />
     </section>
+  );
+}
+
+const ROW = "border-t px-4 py-2.5 first:border-t-0";
+const OWED_CHIP =
+  "shrink-0 rounded-[4px] bg-warning-surface px-1.5 font-condensed text-[11px] leading-[18px] font-bold tracking-[0.1em] text-warning-ink uppercase";
+
+/** An ordinary past call with no result, as before Whop. */
+function OutcomeRow({ meeting, timeZone }: { meeting: OutcomeRowData; timeZone: string }) {
+  return (
+    <li className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 ${ROW}`}>
+      <div className="min-w-0">
+        <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 @sm:flex-nowrap">
+          <span className="min-w-0 truncate font-semibold">{meeting.leadName}</span>
+          <span className={OWED_CHIP}>Not recorded</span>
+        </p>
+        <p className="truncate text-[13px] text-muted-foreground">
+          {[meeting.programName, formatDateTime(meeting.scheduledAt, timeZone)]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+        <SecondOpinionHint meetingId={meeting.meetingId} />
+      </div>
+      <Button asChild className="h-8 px-3 font-semibold">
+        <Link
+          href={`/workspace/closer/meetings/${meeting.meetingId}`}
+          aria-label={`Record outcome for ${meeting.leadName}`}
+        >
+          Record outcome
+        </Link>
+      </Button>
+    </li>
+  );
+}
+
+/** "Today 2:00 PM", or "Nov 17, 2:00 PM", in the business day's zone. */
+function dayTime(at: number, now: number, timeZone: string) {
+  return formatShortDate(at, timeZone) === formatShortDate(now, timeZone)
+    ? `Today ${formatClock(at, timeZone)}`
+    : formatDateTime(at, timeZone);
+}
+
+/**
+ * A call on a deal a Whop payment won, still owed its attendance. Attended
+ * records it in one tap; Didn't show asks for the reason first.
+ */
+function AttendanceRow({ row, now, timeZone }: { row: AttendanceRowData; now: number; timeZone: string }) {
+  const { record, pending } = useRecordAttendance(row.meetingId, firstNameOf(row.leadName));
+  const [askingReason, setAskingReason] = useState(false);
+  const amount = row.amountMinor !== null && row.currency ? formatAmountMinor(row.amountMinor, row.currency) : null;
+  const paymentType = row.paymentType ? PAYMENT_TYPE_LABELS[row.paymentType].toLowerCase() : null;
+  return (
+    <li className={`flex flex-col gap-2 ${ROW}`}>
+      <div className="min-w-0">
+        <p className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+          <Link
+            href={`/workspace/closer/meetings/${row.meetingId}`}
+            className="min-w-0 truncate font-semibold underline-offset-2 hover:underline focus-visible:underline"
+          >
+            {row.leadName}
+          </Link>
+          <span className="min-w-0 truncate text-muted-foreground">
+            · won from Whop{amount ? `, ${amount}${paymentType ? ` ${paymentType}` : ""}` : ""}
+          </span>
+          <StageChip position="won" />
+        </p>
+        <p className="text-[13px] text-muted-foreground">
+          {dayTime(row.scheduledAt, now, timeZone)} call. The payment is recorded; the call still needs its
+          attendance.
+        </p>
+      </div>
+      {askingReason ? (
+        <NoShowReasonPicker
+          pending={pending === "no_show"}
+          onCancel={() => setAskingReason(false)}
+          onSave={(reason) => {
+            void record("no_show", reason);
+          }}
+        />
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            className="h-8 px-3 font-semibold"
+            disabled={pending !== null}
+            aria-label={`${row.leadName} attended`}
+            onClick={() => void record("held")}
+          >
+            {pending === "held" ? <Spinner data-icon="inline-start" /> : null}
+            <TranslatableText>{pending === "held" ? "Saving…" : "Attended"}</TranslatableText>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 px-3"
+            disabled={pending !== null}
+            aria-label={`${row.leadName} didn't show`}
+            onClick={() => setAskingReason(true)}
+          >
+            Didn&rsquo;t show
+          </Button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** "20 minutes ago", or "just now" in the first minute. */
+function collectedAgo(at: number, now: number) {
+  return now - at < 60_000 ? "just now" : formatDistanceStrict(at, now, { addSuffix: true });
+}
+
+/** A Whop payment waiting for the closer: Review opens its meeting or task. */
+function AskRow({ row, now }: { row: AskRowData; now: number }) {
+  const amount = row.amountMinor !== null && row.currency ? formatAmountMinor(row.amountMinor, row.currency) : null;
+  return (
+    <li className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 ${ROW}`}>
+      <div className="min-w-0">
+        <p className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+          <span className="min-w-0 truncate font-semibold">{row.leadName}</span>
+          <span className="min-w-0 truncate text-muted-foreground">
+            · Whop payment waiting{amount ? `, ${amount}` : ""}
+          </span>
+          <span className={OWED_CHIP}>Confirm</span>
+        </p>
+        <p className="text-[13px] text-muted-foreground">
+          {row.paidAt !== null ? `Collected ${collectedAgo(row.paidAt, now)}. ` : ""}
+          After a business day an admin can confirm it from Billing.
+        </p>
+      </div>
+      <Button asChild className="h-8 px-3 font-semibold">
+        <Link href={row.href} aria-label={`Review the Whop payment for ${row.leadName}`}>
+          Review
+        </Link>
+      </Button>
+    </li>
   );
 }
 

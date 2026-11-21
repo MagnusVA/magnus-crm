@@ -36,20 +36,28 @@ export async function landFollowUp(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
   start: FollowUpStart,
-  args: { source: "closer" | "admin"; actorUserId: Id<"users">; occurredAt: number },
+  args: (
+    | { source: "closer" | "admin"; actorUserId: Id<"users"> }
+    | { source: "system"; actorUserId?: undefined; latestActivityAt?: number }
+  ) & { occurredAt: number; decisionId?: Id<"resultAutomationDecisions"> },
 ): Promise<void> {
+  const fields = {
+    updatedAt: args.occurredAt,
+    ...(args.source === "system" && { latestActivityAt: args.latestActivityAt }),
+  };
   if (start === "stay") {
-    await patchOpportunityLifecycle(ctx, opportunityId, { updatedAt: args.occurredAt });
+    await patchOpportunityLifecycle(ctx, opportunityId, fields);
     return;
   }
   // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
   // Follow-up, which only the exception allows.
   await transitionOpportunity(ctx, opportunityId, {
     to: { stage: "follow_up" },
-    fields: { updatedAt: args.occurredAt },
+    fields,
     exception: "missed_meeting_next_step",
     source: args.source,
     actorUserId: args.actorUserId,
     occurredAt: args.occurredAt,
+    ...(args.decisionId && { metadata: { decisionId: args.decisionId } }),
   });
 }

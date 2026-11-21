@@ -8,6 +8,8 @@ export type BillingCopyDetail = {
     amountMinor: number;
     currency: string;
     recordedAt: number;
+    providerPaidAt?: number;
+    providerByline?: string;
     status: BillingPaymentStatus;
     paymentType: PaymentType;
     programName: string;
@@ -45,6 +47,9 @@ export function formatBillingCopyPayload(detail: BillingCopyDetail) {
   return [
     line("Payment ID", detail.payment.id),
     line("Paid at", new Date(detail.payment.recordedAt).toISOString()),
+    ...(detail.payment.providerPaidAt === undefined
+      ? []
+      : [line("Collected by Whop", new Date(detail.payment.providerPaidAt).toISOString())]),
     line(
       "Reviewed at",
       detail.review.reviewedAt
@@ -62,7 +67,7 @@ export function formatBillingCopyPayload(detail: BillingCopyDetail) {
     line("Payment status", detail.payment.status),
     line("Reference code", detail.payment.referenceCode),
     line("Internal note", detail.payment.note),
-    line("Entered by", detail.enteredBy.name),
+    line("Entered by", detail.payment.providerByline ?? detail.enteredBy.name),
     line("Phone closer", detail.phoneCloser.name),
     line("DM team", detail.dmAttribution.teamName),
     line("DM closer", detail.dmAttribution.dmCloserName),

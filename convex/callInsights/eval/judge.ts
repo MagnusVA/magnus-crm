@@ -165,7 +165,9 @@ export function candidatesFromRun(
   });
   return items;
 }
-export function candidateFromLabel(l: Doc<"callInsightEvalLabels">): Candidate {
+export function candidateFromLabel(
+  l: Doc<"callInsightEvalLabels"> & { itemClass: Candidate["itemClass"] },
+): Candidate {
   return {
     key: l.itemKey ?? String(l._id),
     labelId: l._id,
@@ -388,7 +390,10 @@ export const load = internalQuery({
       run.quotesPurgedAt !== undefined
     )
       return null;
-    const extractor = labels.filter((l) => l.source === "extractor");
+    const extractor = labels.filter(
+      (l): l is typeof l & { itemClass: Candidate["itemClass"] } =>
+        l.source === "extractor" && l.itemClass !== "evidence",
+    );
     const candidates = extractor.length
       ? extractor.map(candidateFromLabel)
       : drift(row)
@@ -1176,7 +1181,7 @@ export function calibration(
     for (const admin of c.labels.filter(
       (l) =>
         l.source === "admin" &&
-        !["result", "attendance"].includes(l.itemClass) &&
+        !["result", "attendance", "evidence"].includes(l.itemClass) &&
         !l.matchedLabelId,
     )) {
       const match = inventory.find(

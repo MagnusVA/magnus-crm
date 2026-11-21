@@ -6,6 +6,9 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
+import { noteHumanResult } from "../automation/humanResult";
+import { standDownForIdentityReview } from "../automation/mergeStandDown";
+import { getString, isRecord } from "../lib/payloadExtraction";
 import { followMergeChain } from "../leads/identityResolution";
 import { log } from "../lib/observability/log";
 import type {
@@ -262,7 +265,7 @@ export async function settleBookingReview(
   }
 }
 
-export async function resolveBookingReview(
+async function markBookingReviewResolved(
   ctx: MutationCtx,
   review: Doc<"bookingReviews">,
   userId: Id<"users">,
@@ -283,6 +286,74 @@ export async function resolveBookingReview(
     kind: review.kind,
     resolution,
   });
+}
+
+/** The deal a CRM booking link names, when the booking came from one. */
+export async function bookingLinkTarget(
+  ctx: QueryCtx,
+  raw: Doc<"rawWebhookEvents">,
+): Promise<Doc<"opportunities"> | "unknown" | null> {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(raw.payload);
+  } catch {
+    return null;
+  }
+  const payload = isRecord(envelope) && isRecord(envelope.payload) ? envelope.payload : {};
+  const tracking = isRecord(payload.tracking) ? payload.tracking : {};
+  const campaign = getString(tracking, "utm_campaign");
+  if (getString(tracking, "utm_source") !== "ptdom" || !campaign) return null;
+  const id = ctx.db.normalizeId("opportunities", campaign);
+  const deal = id ? await ctx.db.get("opportunities", id) : null;
+  return deal && deal.tenantId === raw.tenantId ? deal : "unknown";
+}
+
+/**
+ * Records an admin's explicit answer. Sibling closures replay that answer
+ * through markBookingReviewResolved without recording another human result.
+ */
+export async function resolveBookingReview(
+  ctx: MutationCtx,
+  review: Doc<"bookingReviews">,
+  userId: Id<"users">,
+  resolution: "merged" | "kept_separate" | "same_person" | "different_person",
+  mergedDeals?: ReadonlySet<Id<"opportunities">>,
+) {
+  await markBookingReviewResolved(ctx, review, userId, resolution);
+  if (review.status === "resolved" && review.resolution === resolution) return;
+
+  const tenantId = review.tenantId;
+  const receipt = await ctx.db.get("webhookDeliveries", review.deliveryId);
+  const delivery = receipt?.tenantId === tenantId ? receipt : null;
+  let deal = delivery?.opportunityId
+    ? await ctx.db.get("opportunities", delivery.opportunityId)
+    : null;
+  if (deal?.tenantId !== tenantId && delivery?.meetingId) {
+    const meeting = await ctx.db.get("meetings", delivery.meetingId);
+    if (meeting?.tenantId === tenantId) {
+      deal = await ctx.db.get("opportunities", meeting.opportunityId);
+    }
+  }
+
+  if (deal?.tenantId === tenantId) {
+    if (!mergedDeals?.has(deal._id)) await noteHumanResult(ctx, deal._id, { tenantId, userId });
+    return;
+  }
+
+  const { people } = await reviewPeople(ctx, review);
+  if (delivery && review.kind !== "attached") {
+    const raw = await ctx.db.get("rawWebhookEvents", delivery.rawEventId);
+    const linked = raw?.tenantId === tenantId ? await bookingLinkTarget(ctx, raw) : null;
+    if (linked && linked !== "unknown" && people.has(linked.leadId)) {
+      if (!mergedDeals?.has(linked._id)) await noteHumanResult(ctx, linked._id, { tenantId, userId });
+      return;
+    }
+  }
+
+  if (!mergedDeals) {
+    await standDownForIdentityReview(ctx, { tenantId, leadIds: people, actorUserId: userId });
+  }
+  // B1 wires scheduleEvaluationsForLead after the held booking is placed.
 }
 
 /**
@@ -373,7 +444,7 @@ export async function closeMergedReviews(
   let closed = 0;
   for (const review of page.page) {
     if (!(await reviewIsOnePerson(ctx, review))) continue;
-    await resolveBookingReview(ctx, review, userId, "merged");
+    await markBookingReviewResolved(ctx, review, userId, "merged");
     await retryMergedHold(ctx, review, userId);
     closed++;
   }
@@ -421,7 +492,7 @@ export async function closeKeptSeparateSiblings(
   for (const review of page.page) {
     if (review._id === decided._id || review.kind !== "attached") continue;
     if ((await keyOf(review)) !== decidedKey) continue;
-    await resolveBookingReview(ctx, review, userId, "kept_separate");
+    await markBookingReviewResolved(ctx, review, userId, "kept_separate");
     closed++;
   }
   if (!page.isDone) {

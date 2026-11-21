@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { assertAutomationInvariants } from "../../tests/automationInvariants";
+import { assertPaymentInvariants } from "../../tests/paymentInvariants";
+import { automationCallFixture, FIXTURE_NOW, seedAutomationSample, seedCallDecision } from "../../tests/providerPaymentFixtures";
 import { api } from "../_generated/api";
+import { insertOpportunityAggregate } from "./writeHooks";
 import {
   LOSS_RANGE,
   MEETING_RANGE,
@@ -72,6 +76,61 @@ describe("Pipeline Health by stage", () => {
       ]),
     );
     expect(loss.isLossAttributionTruncated).toBe(false);
+  });
+
+  it("credits an actorless call refusal to the assigned closer under Automatic", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXTURE_NOW);
+    const f = await automationCallFixture();
+    await f.t.run(async (ctx) => {
+      const opportunityId = await ctx.db.insert("opportunities", {
+        tenantId: f.tenantId, leadId: f.personId, assignedCloserId: f.closerId,
+        stage: "closed", outcome: "lost", lostReason: "call_refusal", lostAt: FIXTURE_NOW,
+        createdAt: FIXTURE_NOW - 5000, updatedAt: FIXTURE_NOW, latestActivityAt: FIXTURE_NOW - 5000,
+      });
+      await insertOpportunityAggregate(ctx, opportunityId);
+      const decisionId = await seedCallDecision(ctx, {
+        tenantId: f.tenantId, opportunityId, leadId: f.personId,
+        kind: "refusal_loss", closerId: f.closerId, meetingId: f.meetingId,
+        runId: f.runId, recordingId: f.recordingId,
+      });
+      const decision = (await ctx.db.get("resultAutomationDecisions", decisionId))!;
+      const certificateSampleId = await seedAutomationSample(ctx, {
+        tenantId: f.tenantId, kind: "refusal_loss", ruleVersion: decision.ruleVersion,
+        status: "certified", certifiedAt: FIXTURE_NOW,
+      });
+      await ctx.db.patch("resultAutomationDecisions", decisionId, {
+        mode: "automatic", state: "applied", appliedVia: "automatic", resolvedAt: FIXTURE_NOW,
+        certificateSampleId, humanResultRevisionAfter: 0,
+        callBefore: { position: "booked", meetingId: f.meetingId, meetingStatus: "scheduled", latestActivityAt: FIXTURE_NOW - 1 },
+      });
+      await ctx.db.patch("meetings", f.meetingId, {
+        opportunityId, status: "held", heldMarkedAt: FIXTURE_NOW,
+        attendanceSource: "call_insights", attendanceDecisionId: decisionId,
+      });
+      const importedId = await ctx.db.insert("opportunities", {
+        tenantId: f.tenantId, leadId: f.personId, assignedCloserId: f.closerId,
+        stage: "closed", outcome: "lost", lostReason: "old imported reason", lostAt: FIXTURE_NOW,
+        createdAt: FIXTURE_NOW - 1, updatedAt: FIXTURE_NOW, latestActivityAt: FIXTURE_NOW,
+      });
+      await insertOpportunityAggregate(ctx, importedId);
+    });
+    const scope = { tenantId: f.tenantId };
+    await assertAutomationInvariants(f.t, scope);
+    await assertPaymentInvariants(f.t, scope);
+
+    const loss = await f.admin.query(api.reporting.pipelineHealth.getPipelineBacklogAndLoss, {
+      startDate: FIXTURE_NOW - 1, endDate: FIXTURE_NOW + 1,
+    });
+    expect(loss.lossAttribution).toMatchObject({
+      admin: 0, closer: 0, automatic: 1, unknown: 1,
+      byActor: [{ userId: f.closerId, actorRole: "automatic", count: 1 }],
+    });
+    expect(JSON.stringify(loss)).not.toContain("call_refusal");
+    await f.t.run((ctx) => ctx.db.patch("tenants", f.tenantId, { pipelineHealthAggregatesVerifiedAt: FIXTURE_NOW }));
+    await expect(f.admin.query(api.reporting.pipelineHealth.getPipelineBacklogAndLoss, {
+      startDate: FIXTURE_NOW - 1, endDate: FIXTURE_NOW + 1,
+    })).resolves.toEqual(loss);
   });
 });
 

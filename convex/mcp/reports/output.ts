@@ -1,3 +1,5 @@
+import { maskReservedLossReason } from "../../lib/lossReasonLabel";
+import { isReservedLossReason } from "../../opportunities/stages";
 import { gatewayAnswerBytes, MAX_ASSISTANT_ANSWER_BYTES } from "../../../lib/assistantReportMerge";
 export type Json = null | string | number | boolean | Json[] | {
     [key: string]: Json;
@@ -94,8 +96,14 @@ export function safeText(value: Json, key = ""): Json {
         return value.map(v => safeText(v, key));
     if (value && typeof value === "object")
         return Object.fromEntries(Object.entries(value).filter(([k]) => !/email|phone|receipt|proof|referenceCode|transcript|notes|imageUrl|avatar|picture|handle/i.test(k)).map(([k, v]) => [k, safeText(v, k)]));
-    if (typeof value === "string" && /name|label|title|answer|originValue|utm|username|text|^reason$|^channel$/i.test(key))
-        return { text: /\S+@\S+\.\S+|^\+?[\d(). -]{7,}$/.test(value) ? "Hidden contact detail" : value.slice(0, 240), by: /lead|person|answer/i.test(key) ? "person" : /closer/i.test(key) ? "closer" : "integration" };
+    if (typeof value === "string" && /name|label|title|answer|originValue|utm|username|text|^(?:lostReason|lossReason|reason|channel)$/i.test(key)) {
+        const isLossReason = /^(lostReason|lossReason)$/i.test(key) ||
+            (/^reason$/i.test(key) && isReservedLossReason(value));
+        const display = isLossReason
+            ? maskReservedLossReason(value) ?? ""
+            : value;
+        return { text: /\S+@\S+\.\S+|^\+?[\d(). -]{7,}$/.test(display) ? "Hidden contact detail" : display.slice(0, 240), by: /lead|person|answer/i.test(key) ? "person" : /closer/i.test(key) ? "closer" : "integration" };
+    }
     return value;
 }
 /** Bound every displayed list; the remainder is calculated from all omitted

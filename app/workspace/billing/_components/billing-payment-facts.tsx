@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { PaymentOrigin } from "@/convex/lib/paymentTypes";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { DetailCard, detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { HelpTip } from "@/app/workspace/team/_components/team-ui";
@@ -18,7 +19,7 @@ import {
   STATUS_LABELS,
 } from "./billing-format";
 import { PaidAt } from "./paid-at";
-import { AgentPaymentChip } from "./payment-provenance-markers";
+import { PaymentEntryChip } from "./payment-provenance-markers";
 
 // The payment page's facts: the band's figure row (amount, status, proof,
 // closer) and the three fact cards under it (Payment, Customer and call,
@@ -26,7 +27,7 @@ import { AgentPaymentChip } from "./payment-provenance-markers";
 
 export type BillingPaymentDetail = NonNullable<FunctionReturnType<typeof api.billing.queries.getPaymentDetail>>;
 
-const ORIGIN_LABELS: Record<string, string> = {
+const ORIGIN_LABELS: Record<PaymentOrigin, string> = {
   closer_meeting: "Closer, from a meeting",
   closer_reminder: "Closer, from a reminder",
   admin_meeting: "Admin, from a meeting",
@@ -36,9 +37,10 @@ const ORIGIN_LABELS: Record<string, string> = {
   admin_side_deal: "Admin, side deal",
   closer_additional: "Closer, additional payment",
   admin_additional: "Admin, additional payment",
+  provider: "From Whop",
 };
 
-function formatOrigin(origin: string) {
+function formatOrigin(origin: PaymentOrigin) {
   return ORIGIN_LABELS[origin] ?? origin.replaceAll("_", " ");
 }
 
@@ -89,6 +91,9 @@ export function PaymentFigures({ detail }: { detail: BillingPaymentDetail }) {
   const proofSize = formatBytes(proof.size);
   const hasProof = proof.url !== null;
   const closer = detail.phoneCloser.identity?.name ?? detail.phoneCloser.name;
+  const providerByline = payment.providerByline;
+  const missingProofLabel = providerByline ? "From Whop" : "Missing";
+  const missingProofInk = payment.status === "recorded" && !providerByline ? "text-warning" : "text-board-muted";
 
   return (
     <div
@@ -109,7 +114,7 @@ export function PaymentFigures({ detail }: { detail: BillingPaymentDetail }) {
       </Zone>
       <Zone label="Proof" tip="The receipt or screenshot attached when the payment was recorded.">
         {/* Missing proof is owed only while the payment still needs review. */}
-        <p className={cn(ZONE_WORD, hasProof ? "text-board-foreground" : payment.status === "recorded" ? "text-warning" : "text-board-muted")}>{hasProof ? "Attached" : "Missing"}</p>
+        <p className={cn(ZONE_WORD, hasProof ? "text-board-foreground" : missingProofInk)}>{hasProof ? "Attached" : missingProofLabel}</p>
         <p className={ZONE_PROOF}>
           {hasProof ? `${proofTypeLabel(proof.contentType)}${proofSize ? ` · ${proofSize}` : ""}` : "No file on record"}
         </p>
@@ -118,7 +123,9 @@ export function PaymentFigures({ detail }: { detail: BillingPaymentDetail }) {
         <p className="truncate pt-0.5 text-[20px] leading-[1.3] font-semibold" translate="no">
           {closer ?? <span className="text-board-muted">No closer</span>}
         </p>
-        <p className={cn(ZONE_PROOF, "truncate")}>Entered by {detail.enteredBy.name}</p>
+        <p className={cn(ZONE_PROOF, !providerByline && "truncate")}>
+          {providerByline ? <span>{providerByline}</span> : <>Entered by {detail.enteredBy.name}</>}
+        </p>
       </Zone>
     </div>
   );
@@ -159,6 +166,7 @@ const MONO = "font-mono text-[12.5px] tracking-[-0.01em]";
 export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDetail; now: number; proof: ReactNode }) {
   const { payment, customer, meeting, review, dmAttribution, slackContributorSummary } = detail;
   const fathomLink = fathomLinkFor(detail);
+  const providerByline = payment.providerByline;
 
   return (
     <div className="@container/facts">
@@ -170,17 +178,24 @@ export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDet
                 {payment.referenceCode ? <span className={MONO}>{payment.referenceCode}</span> : <None />}
               </Fact>
               <Fact label={<HelpTip tip="Who recorded the payment, and from where in the app.">Recorded</HelpTip>}>
-                {formatOrigin(payment.origin)}
-                <AgentPaymentChip
+                {providerByline ? (
+                  <span className={FIGURE}><PaidAt at={payment.recordedAt} now={now} /></span>
+                ) : formatOrigin(payment.origin)}
+                <PaymentEntryChip
                   recordedVia={payment.recordedVia}
                   agentClient={payment.agentClient}
                   className="ml-2 align-[1px]"
                 />
               </Fact>
+              {payment.providerPaidAt !== undefined ? (
+                <Fact label="Collected by Whop">
+                  <span className={FIGURE}><PaidAt at={payment.providerPaidAt} now={now} /></span>
+                </Fact>
+              ) : null}
               <Fact label="Reviewed">
                 {review.reviewedAt ? (
                   <>
-                    <span translate="no">{review.reviewer?.name ?? review.reviewerName ?? "Unknown"}</span>
+                    <span translate="no">{review.reviewer?.name ?? review.reviewerName ?? (providerByline ? "No reviewer on record" : "Unknown")}</span>
                     <span className="text-muted-foreground"> · </span>
                     <span className={FIGURE}><PaidAt at={review.reviewedAt} now={now} /></span>
                   </>
@@ -241,9 +256,11 @@ export function PaymentFacts({ detail, now, proof }: { detail: BillingPaymentDet
 
           <DetailCard title="Attribution">
             <Facts>
-              <Fact label="Entered by">
-                <Member identity={detail.enteredBy.identity} name={detail.enteredBy.name} />
-              </Fact>
+              {providerByline ? null : (
+                <Fact label="Entered by">
+                  <Member identity={detail.enteredBy.identity} name={detail.enteredBy.name} />
+                </Fact>
+              )}
               <Fact label="Phone closer">
                 <Member identity={detail.phoneCloser.identity} name={detail.phoneCloser.name} />
               </Fact>

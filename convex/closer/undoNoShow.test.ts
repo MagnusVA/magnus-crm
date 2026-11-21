@@ -57,6 +57,8 @@ describe("undoNoShow", () => {
     ] as const)
       expect(undone.meeting[field]).toBeUndefined();
     expect(undone.deal).toMatchObject({ stage: "booked", outcome: "open" });
+    // The no-show and its undo are both human results: each stands down pending proposals.
+    expect(undone.deal?.humanResultRevision).toBe(2);
     expect(undone.deal.lostReason).toBeUndefined();
     expect(undone.deal.lostAt).toBeUndefined();
     expect(undone.events.slice(-2)).toEqual([

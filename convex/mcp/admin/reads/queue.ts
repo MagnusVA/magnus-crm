@@ -36,6 +36,7 @@ import {
   notFound,
   canSeeOpinions,
   paymentActions,
+  paymentVia,
   dealActions,
   meetingActions,
   paths,
@@ -182,7 +183,7 @@ async function paymentItem(
     proof_reused: row.proofReused === true,
     no_proof: !row.proofFileId,
     recorded_by_you: row.recordedByUserId === me.userId,
-    via: row.agentClient ?? null,
+    via: paymentVia(row),
   };
   return {
     ...item(

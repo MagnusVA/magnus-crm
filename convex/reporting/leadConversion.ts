@@ -25,7 +25,7 @@ export type LeadConversion = {
   leadId: Id<"leads">;
   convertedAt: number;
   winningOpportunityId: Id<"opportunities">;
-  /** Who recorded the first payment; credited when the deal has no closer. */
+  /** First payment's fallback credit when the deal has no closer. */
   convertedByUserId: Id<"users"> | undefined;
 };
 
@@ -37,7 +37,8 @@ export type LeadConversionList = {
 /**
  * The conversions in [startDate, endDate), read from first enrollments
  * (docs/plans/phase-4-customers.md §6.3): the enrollment's deal is the
- * winning deal, and its first payment's recorder is the fallback closer.
+ * winning deal. For a provider payment, the fallback is its credited closer.
+ * For a manual payment, the fallback is its recorder.
  */
 export async function conversionsFromEnrollments(
   ctx: QueryCtx,
@@ -53,12 +54,18 @@ export async function conversionsFromEnrollments(
     MAX_CONVERSION_SCAN_ROWS,
   );
   const conversions = await Promise.all(
-    enrollments.map(async (enrollment) => ({
-      leadId: enrollment.leadId,
-      convertedAt: enrollment.enrolledAt,
-      winningOpportunityId: enrollment.opportunityId,
-      convertedByUserId: (await enrollmentFirstPayment(ctx, enrollment))?.recordedByUserId,
-    })),
+    enrollments.map(async (enrollment) => {
+      const payment = await enrollmentFirstPayment(ctx, enrollment);
+      return {
+        leadId: enrollment.leadId,
+        convertedAt: enrollment.enrolledAt,
+        winningOpportunityId: enrollment.opportunityId,
+        convertedByUserId:
+          payment?.origin === "provider"
+            ? payment.attributedCloserId
+            : payment?.recordedByUserId,
+      };
+    }),
   );
   return { conversions, isTruncated };
 }
@@ -127,8 +134,8 @@ export async function loadLeadConversionFacts(
 
 /**
  * Every Leads & Conversions number from a list of conversions. A conversion
- * counts for its winning deal's closer, else its recorder, when that user is
- * an active closer; otherwise it is excluded.
+ * counts for its winning deal's closer or the first payment's fallback
+ * closer, if that user is an active closer. Otherwise it is excluded.
  */
 export function summarizeLeadConversions(
   args: {

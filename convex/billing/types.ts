@@ -59,10 +59,11 @@ export type BillingDmAttribution = {
  * payment (docs/plans/closer-assistant.md §6.3, §7 Billing).
  */
 export type BillingPaymentProvenance = {
-  recordedVia: "web" | "mcp" | null;
+  recordedVia: NonNullable<Doc<"paymentRecords">["recordedVia"]> | null;
   /** The MCP client's name, for a payment an agent logged. */
   agentClient: string | null;
   proofReused: boolean;
+  providerByline?: string;
 };
 
 /** Another payment in the tenant whose proof file has the same hash. */
@@ -104,6 +105,7 @@ export type BillingPaymentRow = {
     programId: Id<"tenantPrograms">;
     programName: string;
     origin: Doc<"paymentRecords">["origin"];
+    providerPaidAt?: number;
     referenceCode: string | null;
     note: string | null;
     hasProofFile: boolean;
@@ -130,7 +132,7 @@ export type BillingPaymentRow = {
   enteredBy: {
     id: Id<"users"> | null;
     name: string;
-    identity: MemberAvatarIdentity;
+    identity: MemberAvatarIdentity | null;
   };
   phoneCloser: {
     id: Id<"users"> | null;

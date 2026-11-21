@@ -8,9 +8,11 @@ import {
   dealBookingCredit,
 } from "../lib/attribution/dealAttributions";
 import {
+  paymentEntryOf,
   resolveLegacyCompatibleAttributedCloserId,
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
+import { providerEntryByline } from "./enrichment";
 import type { BillingAuditMetric } from "./types";
 
 const DEFAULT_AUDIT_LIMIT = 200;
@@ -123,8 +125,9 @@ export async function buildPaymentAuditSnapshot(
 
   const sampleDiagnostics = await Promise.all(
     payments.slice(0, ISSUE_SAMPLE_LIMIT).map(async (payment) => {
+      const entry = paymentEntryOf(payment);
       const [recordedBy, program, meetingById] = await Promise.all([
-        ctx.db.get("users", payment.recordedByUserId),
+        payment.recordedByUserId ? ctx.db.get("users", payment.recordedByUserId) : null,
         ctx.db.get("tenantPrograms", payment.programId),
         payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
@@ -147,6 +150,9 @@ export async function buildPaymentAuditSnapshot(
               .take(SLACK_CONTRIBUTOR_LIMIT)
           : [];
 
+      const recorder = tenantOwned(recordedBy, tenantId);
+      const providerByline = providerEntryByline(entry, recorder);
+
       return {
         paymentRecordId: payment._id,
         status: payment.status,
@@ -159,7 +165,8 @@ export async function buildPaymentAuditSnapshot(
           resolved: meeting !== null,
         },
         recordedByUser: {
-          resolved: recordedBy !== null && recordedBy.tenantId === tenantId,
+          resolved: recorder !== null,
+          ...(providerByline === undefined ? {} : { providerByline }),
         },
         program: {
           resolved: program !== null && program.tenantId === tenantId,
@@ -199,12 +206,12 @@ export async function buildPaymentAuditSnapshot(
       }
 
       const [recordedBy, program, meetingById] = await Promise.all([
-        ctx.db.get("users", payment.recordedByUserId),
+        payment.recordedByUserId ? ctx.db.get("users", payment.recordedByUserId) : null,
         ctx.db.get("tenantPrograms", payment.programId),
         payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
 
-      if (!recordedBy || recordedBy.tenantId !== tenantId) {
+      if (paymentEntryOf(payment) !== "provider_auto" && !tenantOwned(recordedBy, tenantId)) {
         metrics.missingRecordedByUser += 1;
         if (issues.length < ISSUE_SAMPLE_LIMIT) {
           issues.push({

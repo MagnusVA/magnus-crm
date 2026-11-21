@@ -9,6 +9,148 @@ import {
 import { autoMatch } from "./labels";
 
 describe("two-phase grading", () => {
+  it.each([
+    ["2026-10-04T02:45", "2026-10-03T15:45:00Z", []],
+    ["2026-10-04T02:46", "2026-10-03T15:46:00Z", ["nextStepAt"]],
+  ] as const)("grades %s in the tenant's time zone to the minute", async (localTime, utcTime, wrongFields) => {
+    const f = await evalHarness();
+    const { caseId } = await createCase(f);
+    const truth = {
+      recordingScope: "whole",
+      prospectStance: "undecided",
+      closerStance: "continues",
+      nextStep: "call_back",
+    } as const;
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", f.tenantId, {
+        businessDay: { timeZone: "Australia/Lord_Howe", dayStartHour: 4 },
+      });
+      await ctx.db.patch("callInsightRuns", f.runId, {
+        evidence: {
+          ...truth,
+          nextStepAt: Date.parse("2026-10-03T15:45:52Z"),
+          scopeLines: [1],
+          statements: [],
+          dropped: { quoteNotFound: 0, amountNotInQuote: 0, cardNumber: 0, overLimit: 0 },
+        },
+      });
+    });
+    const save = (nextStepDateTimeLocal: string) => f.owner.mutation(api.labels.setAdminEvidence, {
+      caseId, evidence: { ...truth, nextStepDateTimeLocal },
+    });
+    // On Lord Howe the clock moves from 2:00 to 2:30 that morning.
+    await expect(save("2026-10-04T02:15")).rejects.toThrow("Enter a valid next-step time.");
+    await save(localTime);
+    await f.owner.mutation(api.labels.commitList, { caseId, skipped: true });
+    const view = await f.owner.query(api.cases.caseForGrading, { caseId });
+    expect(view.adminItems[0]).toMatchObject({
+      nextStepAt: Date.parse(utcTime),
+    });
+    expect(view.candidates?.find((label) => label.itemClass === "evidence")).toMatchObject({
+      nextStepAt: Date.parse("2026-10-03T15:45:00Z"),
+      adminVerdict: wrongFields.length ? "wrong" : "right",
+      wrongFields,
+    });
+  });
+
+  it.each([false, true])(
+    "freezes evidence truth before revealing the model and records exposure=%s",
+    async (exposed) => {
+      const f = await evalHarness();
+      const { caseId } = await createCase(f);
+      const truth = {
+        recordingScope: "whole",
+        prospectStance: "undecided",
+        closerStance: "continues",
+        nextStep: "call_back",
+        nextStepAt: Date.parse("2026-11-04T17:00:00Z"),
+        nextStepMethod: "text",
+        quotedAmountMinor: 170000,
+        quotedCurrency: "USD",
+      } as const;
+      await f.t.run(async (ctx) => {
+        await ctx.db.patch("callInsightEvalCases", caseId, {
+          exposedBeforeResult: exposed,
+        });
+        await ctx.db.patch("callInsightRuns", f.runId, {
+          evidence: {
+            ...truth,
+            prospectStance: "refused",
+            scopeLines: [1],
+            statements: [],
+            dropped: {
+              quoteNotFound: 0,
+              amountNotInQuote: 0,
+              cardNumber: 0,
+              overLimit: 0,
+            },
+          },
+        });
+      });
+      const read = () => f.owner.query(api.cases.caseForGrading, { caseId });
+      expect((await read()).candidates).toBeUndefined();
+      await expect(
+        f.closer.mutation(api.labels.setAdminEvidence, {
+          caseId,
+          evidence: truth,
+        }),
+      ).rejects.toThrow();
+      const labelId = await f.owner.mutation(api.labels.setAdminEvidence, {
+        caseId,
+        evidence: { ...truth, nextStepMethod: "call" },
+      });
+      expect(
+        await f.owner.mutation(api.labels.setAdminEvidence, {
+          caseId,
+          evidence: truth,
+        }),
+      ).toBe(labelId);
+      const draft = await read();
+      expect(draft.candidates).toBeUndefined();
+      expect(draft.adminItems).toEqual([
+        expect.objectContaining({ ...truth, itemClass: "evidence" }),
+      ]);
+      expect(draft.adminItems[0].evidenceBlind).toBeUndefined();
+      await f.owner.mutation(api.labels.commitList, { caseId, skipped: true });
+      const committed = await read();
+      expect(committed.adminItems[0].evidenceBlind).toBe(!exposed);
+      const evidence = committed.candidates?.find(
+        (l) => l.itemClass === "evidence",
+      );
+      expect(evidence).toMatchObject({
+        prospectStance: "refused",
+        adminVerdict: "wrong",
+        wrongFields: ["prospectStance"],
+      });
+      await expect(
+        f.owner.mutation(api.labels.setAdminEvidence, {
+          caseId,
+          evidence: truth,
+        }),
+      ).rejects.toThrow();
+      await expect(
+        f.owner.mutation(api.labels.gradeItem, {
+          labelId: evidence!.labelId,
+          verdict: "right",
+        }),
+      ).rejects.toThrow();
+      for (const item of committed.candidates!.filter(
+        (l) => l.itemClass !== "evidence",
+      ))
+        await f.owner.mutation(api.labels.gradeItem, {
+          labelId: item.labelId,
+          verdict: "right",
+        });
+      await f.owner.mutation(api.labels.commitLabels, { caseId });
+      await f.owner.mutation(api.labels.reopenCase, { caseId });
+      await expect(
+        f.owner.mutation(api.labels.setAdminEvidence, {
+          caseId,
+          evidence: truth,
+        }),
+      ).rejects.toThrow();
+    },
+  );
   it("requires a blind result and attendance, then every grade, and commits revisions once", async () => {
     const f = await evalHarness();
     const c = await createCase(f);

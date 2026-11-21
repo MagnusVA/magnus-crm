@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { awaitsCallResult, describeDealState } from "../opportunities/dealGuards";
@@ -112,5 +113,9 @@ export async function expireUnfinishedFollowUp(
       ...args.metadata,
     },
     occurredAt: now,
+  });
+  await noteHumanResult(ctx, opportunity._id, {
+    tenantId: opportunity.tenantId,
+    userId: args.actorUserId,
   });
 }

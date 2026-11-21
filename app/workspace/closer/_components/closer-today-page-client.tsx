@@ -14,6 +14,7 @@ import { nextCall } from "./board-status";
 import { CloserTodaySkeleton } from "./closer-today-skeleton";
 import { NeedsOutcomeCard } from "./needs-outcome-card";
 import { PerformanceCard } from "./performance-card";
+import { PinnedGroupCard } from "./pinned-group-card";
 import { SectionError } from "./section-state";
 import { TasksCard } from "./tasks-card";
 import { TodayHeader } from "./today-header";
@@ -25,7 +26,9 @@ import { UnmatchedBanner } from "./unmatched-banner";
  * the calls still owed an outcome and today's tasks on the right. The page
  * is a container: narrower than 56rem (a half-screen window, a zoomed-in
  * browser) the columns stack in the order a closer works them: calls,
- * outcomes, tasks, then performance.
+ * outcomes, tasks, then performance. What is waiting on the closer (pending
+ * losses, payment checks, changes others made to their numbers), when there
+ * is any, sits between the outcomes and the tasks.
  */
 export function CloserTodayPageClient() {
   usePageTitle("Today");
@@ -92,6 +95,16 @@ export function CloserTodayPageClient() {
             }
           >
             <NeedsOutcomeCard result={needsOutcome} now={now} timeZone={setting.timeZone} />
+          </SectionErrorBoundary>
+          <SectionErrorBoundary
+            sectionName="waiting on you"
+            fallback={
+              <div className="rounded-xl border bg-card">
+                <SectionError what="what’s waiting on you" />
+              </div>
+            }
+          >
+            <PinnedGroupCard setting={setting} now={now} />
           </SectionErrorBoundary>
           <SectionErrorBoundary
             sectionName="tasks"

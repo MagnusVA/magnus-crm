@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -20,12 +20,14 @@ import {
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useNow } from "@/hooks/use-now";
 import { cn } from "@/lib/utils";
+import { AutomationBanner } from "@/app/workspace/_components/automation-banner";
 import { PageBand } from "@/app/workspace/_components/page-band";
 import { SectionEmpty } from "@/app/workspace/closer/_components/section-state";
 import { detailLinkClass } from "@/app/workspace/closer/meetings/_components/detail-card";
 import { BAND_BUTTON_WRAPPER, PAYMENT_TYPE_LABELS, plural, STATUS_LABELS } from "./billing-format";
 import { QueueHeads, QueueRow, QueueRowsSkeleton, type BillingQueueRow } from "./billing-queue-rows";
 import { ExportMenu } from "./export-menu";
+import { formatExceptionCount, WhopExceptionsView } from "./whop-exceptions-view";
 
 const PAGE_SIZE = 25;
 const ALL = "all";
@@ -42,8 +44,11 @@ function statusFromParam(value: string | null): BillingPaymentStatus {
   return TABS.find((tab) => tab.param !== null && tab.param === value)?.status ?? "recorded";
 }
 
-function tabId(status: BillingPaymentStatus) {
-  return `billing-tab-${status}`;
+/** A payment status, or the Whop payments with no CRM payment yet (`?view=whop`). */
+type BillingView = BillingPaymentStatus | "whop";
+
+function tabId(view: BillingView) {
+  return `billing-tab-${view}`;
 }
 
 type BillingFilterArgs = {
@@ -94,6 +99,8 @@ export function BillingPageClient() {
   const now = useNow();
   const searchParams = useSearchParams();
   const status = statusFromParam(searchParams.get("status"));
+  const view: BillingView = searchParams.get("view") === "whop" ? "whop" : status;
+  const whopCounts = useQuery(api.payments.review.getProviderExceptionCounts, {});
 
   const [programFilter, setProgramFilter] = useState<string>(ALL);
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<string>(ALL);
@@ -160,11 +167,16 @@ export function BillingPageClient() {
     setEndDate("");
   };
 
-  const setStatus = (next: BillingPaymentStatus) => {
+  const setView = (next: BillingView) => {
     const params = new URLSearchParams(window.location.search);
-    const param = TABS.find((tab) => tab.status === next)?.param ?? null;
-    if (param) params.set("status", param);
-    else params.delete("status");
+    if (next === "whop") {
+      params.set("view", "whop");
+    } else {
+      params.delete("view");
+      const param = TABS.find((tab) => tab.status === next)?.param ?? null;
+      if (param) params.set("status", param);
+      else params.delete("status");
+    }
     const search = params.toString();
     const { pathname } = window.location;
     window.history.replaceState(null, "", search ? `${pathname}?${search}` : pathname);
@@ -182,166 +194,190 @@ export function BillingPageClient() {
         }
       >
         {/* Invalid dates have no counts; the tabs say nothing rather than an old number. */}
-        <StatusTabs status={status} counts={valid ? counts : NO_COUNTS} onSelect={setStatus} />
+        <StatusTabs
+          view={view}
+          counts={valid ? counts : NO_COUNTS}
+          whopCount={whopCounts ? formatExceptionCount(whopCounts) : undefined}
+          whopOwed={(whopCounts?.count ?? 0) > 0}
+          onSelect={setView}
+        />
       </PageBand>
 
-      <section
-        id={CARD_ID}
-        role="tabpanel"
-        aria-labelledby={tabId(status)}
-        className="@container/payments min-w-0 overflow-hidden rounded-xl border border-border bg-card"
-      >
-        <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2">
-          <div className="mr-auto flex min-w-0 flex-wrap items-baseline gap-x-2.5">
-            <h2 className="text-[15px] font-semibold">Payments</h2>
-            <span className="text-[13px] text-muted-foreground">
-              {!valid ? "Check the dates" : exactCount === undefined ? "Counting…" : exactCount === 0 ? "0 payments" : `${plural(exactCount, "payment")} · newest first`}
-            </span>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-2 @2xl/payments:flex @2xl/payments:flex-wrap @2xl/payments:items-center @4xl/payments:w-auto @4xl/payments:flex-nowrap">
-            <Select value={programFilter} onValueChange={setProgramFilter}>
-              <SelectTrigger aria-label="Program" size="sm" className="h-[30px] w-full text-[13px] @2xl/payments:w-44">
-                <SelectValue placeholder="All programs" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value={ALL}>All programs</SelectItem>
-                  {(programs ?? []).map((program) => (
-                    <SelectItem key={program._id} value={program._id}>
-                      {program.name}
-                      {program.archivedAt ? " (archived)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <Select value={paymentTypeFilter} onValueChange={setPaymentTypeFilter}>
-              <SelectTrigger aria-label="Payment type" size="sm" className="h-[30px] w-full text-[13px] @2xl/payments:w-36">
-                <SelectValue placeholder="All types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value={ALL}>All types</SelectItem>
-                  {PAYMENT_TYPES.map((paymentType) => (
-                    <SelectItem key={paymentType} value={paymentType}>
-                      {PAYMENT_TYPE_LABELS[paymentType]}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {/* One "Paid" pair: from and through, both days included. */}
-            <div
-              role="group"
-              aria-labelledby="billing-paid-label"
-              className="col-span-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground"
-            >
-              <span id="billing-paid-label" className="shrink-0">
-                Paid
+      <AutomationBanner />
+      {view === "whop" ? (
+        <WhopExceptionsView id={CARD_ID} labelledBy={tabId("whop")} now={now} />
+      ) : (
+        <section
+          id={CARD_ID}
+          role="tabpanel"
+          aria-labelledby={tabId(status)}
+          className="@container/payments min-w-0 overflow-hidden rounded-xl border border-border bg-card"
+        >
+          <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2">
+            <div className="mr-auto flex min-w-0 flex-wrap items-baseline gap-x-2.5">
+              <h2 className="text-[15px] font-semibold">Payments</h2>
+              <span className="text-[13px] text-muted-foreground">
+                {!valid ? "Check the dates" : exactCount === undefined ? "Counting…" : exactCount === 0 ? "0 payments" : `${plural(exactCount, "payment")} · newest first`}
               </span>
-              {(
-                [
-                  { id: "billing-start-date", label: "Paid from", value: startDate, set: setStartDate },
-                  { id: "billing-end-date", label: "Paid through", value: endDate, set: setEndDate },
-                ] as const
-              ).map((date, index) => (
-                <span key={date.id} className="flex min-w-0 flex-1 items-center gap-2 @2xl/payments:flex-none">
-                  {index === 1 ? <span aria-hidden="true">–</span> : null}
-                  <Input
-                    aria-label={date.label}
-                    aria-invalid={!valid}
-                    aria-describedby={valid ? undefined : "billing-range-error"}
-                    id={date.id}
-                    type="date"
-                    value={date.value}
-                    onChange={(event) => date.set(event.target.value)}
-                    className="h-[30px] w-full min-w-0 font-condensed text-[14px] font-semibold tabular-nums text-foreground @2xl/payments:w-[9.25rem]"
-                  />
+            </div>
+            <div className="grid w-full grid-cols-2 gap-2 @2xl/payments:flex @2xl/payments:flex-wrap @2xl/payments:items-center @4xl/payments:w-auto @4xl/payments:flex-nowrap">
+              <Select value={programFilter} onValueChange={setProgramFilter}>
+                <SelectTrigger aria-label="Program" size="sm" className="h-[30px] w-full text-[13px] @2xl/payments:w-44">
+                  <SelectValue placeholder="All programs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value={ALL}>All programs</SelectItem>
+                    {(programs ?? []).map((program) => (
+                      <SelectItem key={program._id} value={program._id}>
+                        {program.name}
+                        {program.archivedAt ? " (archived)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Select value={paymentTypeFilter} onValueChange={setPaymentTypeFilter}>
+                <SelectTrigger aria-label="Payment type" size="sm" className="h-[30px] w-full text-[13px] @2xl/payments:w-36">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value={ALL}>All types</SelectItem>
+                    {PAYMENT_TYPES.map((paymentType) => (
+                      <SelectItem key={paymentType} value={paymentType}>
+                        {PAYMENT_TYPE_LABELS[paymentType]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              {/* One "Paid" pair: from and through, both days included. */}
+              <div
+                role="group"
+                aria-labelledby="billing-paid-label"
+                className="col-span-2 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground"
+              >
+                <span id="billing-paid-label" className="shrink-0">
+                  Paid
                 </span>
-              ))}
+                {(
+                  [
+                    { id: "billing-start-date", label: "Paid from", value: startDate, set: setStartDate },
+                    { id: "billing-end-date", label: "Paid through", value: endDate, set: setEndDate },
+                  ] as const
+                ).map((date, index) => (
+                  <span key={date.id} className="flex min-w-0 flex-1 items-center gap-2 @2xl/payments:flex-none">
+                    {index === 1 ? <span aria-hidden="true">–</span> : null}
+                    <Input
+                      aria-label={date.label}
+                      aria-invalid={!valid}
+                      aria-describedby={valid ? undefined : "billing-range-error"}
+                      id={date.id}
+                      type="date"
+                      value={date.value}
+                      onChange={(event) => date.set(event.target.value)}
+                      className="h-[30px] w-full min-w-0 font-condensed text-[14px] font-semibold tabular-nums text-foreground @2xl/payments:w-[9.25rem]"
+                    />
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        {!valid ? (
-          <p id="billing-range-error" role="alert" className="px-4 py-3 text-[13px] text-danger-ink">
-            The second Paid date must be on or after the first. Change one of them to see payments.
-          </p>
-        ) : rows === undefined || (reloading && rows.length === 0) ? (
-          <QueueRowsSkeleton />
-        ) : rows.length === 0 ? (
-          <SectionEmpty title={filtered ? `No ${STATUS_LABELS[status].toLowerCase()} payments match these filters.` : EMPTY_TITLE[status]}>
-            {filtered ? (
-              <button type="button" onClick={clearFilters} className={cn(detailLinkClass, "mt-1 text-[13px]")}>
-                Clear filters
-              </button>
-            ) : (
-              EMPTY_HINT[status]
-            )}
-          </SectionEmpty>
-        ) : (
-          <>
-            <div
-              aria-busy={reloading}
-              className={cn("transition-opacity duration-200 motion-reduce:transition-none", reloading && "opacity-60")}
-            >
-              <QueueHeads />
-              <ul aria-label={`${STATUS_LABELS[status]} payments`}>
-                {rows.map((row) => (
-                  <QueueRow key={row.payment.id} row={row} now={now} />
-                ))}
-              </ul>
-            </div>
-            <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-1.5 text-[13px] text-muted-foreground">
-              <span role="status" className="tabular-nums">
-                {exactCount !== undefined && rows.length >= exactCount
-                  ? `Showing all ${plural(rows.length, "payment")}`
-                  : `Showing ${rows.length.toLocaleString("en-US")}${exactCount !== undefined ? ` of ${plural(exactCount, "payment")}` : " payments"}`}
-              </span>
-              {!reloading && (queue.status === "CanLoadMore" || queue.status === "LoadingMore") ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="ml-auto h-7"
-                  disabled={queue.status === "LoadingMore"}
-                  onClick={() => queue.loadMore(PAGE_SIZE)}
-                >
-                  {queue.status === "LoadingMore" ? "Loading…" : `Show ${PAGE_SIZE} more`}
-                </Button>
-              ) : null}
-            </div>
-          </>
-        )}
-      </section>
+          {!valid ? (
+            <p id="billing-range-error" role="alert" className="px-4 py-3 text-[13px] text-danger-ink">
+              The second Paid date must be on or after the first. Change one of them to see payments.
+            </p>
+          ) : rows === undefined || (reloading && rows.length === 0) ? (
+            <QueueRowsSkeleton />
+          ) : rows.length === 0 ? (
+            <SectionEmpty title={filtered ? `No ${STATUS_LABELS[status].toLowerCase()} payments match these filters.` : EMPTY_TITLE[status]}>
+              {filtered ? (
+                <button type="button" onClick={clearFilters} className={cn(detailLinkClass, "mt-1 text-[13px]")}>
+                  Clear filters
+                </button>
+              ) : (
+                EMPTY_HINT[status]
+              )}
+            </SectionEmpty>
+          ) : (
+            <>
+              <div
+                aria-busy={reloading}
+                className={cn("transition-opacity duration-200 motion-reduce:transition-none", reloading && "opacity-60")}
+              >
+                <QueueHeads />
+                <ul aria-label={`${STATUS_LABELS[status]} payments`}>
+                  {rows.map((row) => (
+                    <QueueRow key={row.payment.id} row={row} now={now} />
+                  ))}
+                </ul>
+              </div>
+              <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-t px-4 py-1.5 text-[13px] text-muted-foreground">
+                <span role="status" className="tabular-nums">
+                  {exactCount !== undefined && rows.length >= exactCount
+                    ? `Showing all ${plural(rows.length, "payment")}`
+                    : `Showing ${rows.length.toLocaleString("en-US")}${exactCount !== undefined ? ` of ${plural(exactCount, "payment")}` : " payments"}`}
+                </span>
+                {!reloading && (queue.status === "CanLoadMore" || queue.status === "LoadingMore") ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto h-7"
+                    disabled={queue.status === "LoadingMore"}
+                    onClick={() => queue.loadMore(PAGE_SIZE)}
+                  >
+                    {queue.status === "LoadingMore" ? "Loading…" : `Show ${PAGE_SIZE} more`}
+                  </Button>
+                ) : null}
+              </div>
+            </>
+          )}
+        </section>
+      )}
     </div>
   );
 }
 
-/** NEEDS REVIEW · REVIEWED · DISPUTED, each with its count; arrows move between them. */
+/** NEEDS REVIEW · REVIEWED · DISPUTED · FROM WHOP, each with its count; arrows move between them. */
 function StatusTabs({
-  status,
+  view,
   counts,
+  whopCount,
+  whopOwed,
   onSelect,
 }: {
-  status: BillingPaymentStatus;
+  view: BillingView;
   counts: Record<BillingPaymentStatus, number | undefined>;
-  onSelect: (status: BillingPaymentStatus) => void;
+  whopCount: string | undefined;
+  whopOwed: boolean;
+  onSelect: (view: BillingView) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const views: BillingView[] = [...TABS.map((tab) => tab.status), "whop"];
+
+  // The strip scrolls sideways on a phone. Keep the selected tab in view,
+  // also once its count arrives and makes it wider.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLButtonElement>(`#${tabId(view)}`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [view, whopCount]);
 
   const select = (index: number) => {
-    const tab = TABS[(index + TABS.length) % TABS.length];
-    onSelect(tab.status);
-    listRef.current?.querySelector<HTMLButtonElement>(`#${tabId(tab.status)}`)?.focus();
+    const next = views[(index + views.length) % views.length];
+    onSelect(next);
+    listRef.current?.querySelector<HTMLButtonElement>(`#${tabId(next)}`)?.focus();
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const current = TABS.findIndex((tab) => tab.status === status);
+    const current = views.indexOf(view);
     if (event.key === "ArrowRight") select(current + 1);
     else if (event.key === "ArrowLeft") select(current - 1);
     else if (event.key === "Home") select(0);
-    else if (event.key === "End") select(TABS.length - 1);
+    else if (event.key === "End") select(views.length - 1);
     else return;
     event.preventDefault();
   };
@@ -354,33 +390,34 @@ function StatusTabs({
       onKeyDown={onKeyDown}
       className="-mx-4 flex items-center gap-[22px] overflow-x-auto border-t border-board-line px-4 [scrollbar-width:none] @lg:-mx-[18px] @lg:px-[18px]"
     >
-      {TABS.map((tab) => {
-        const selected = tab.status === status;
-        const count = counts[tab.status];
+      {views.map((tab) => {
+        const selected = tab === view;
+        const count = tab === "whop" ? whopCount : counts[tab]?.toLocaleString("en-US");
+        const owed = tab === "whop" ? whopOwed : tab === "recorded" && (counts.recorded ?? 0) > 0;
         return (
           <button
-            key={tab.status}
-            id={tabId(tab.status)}
+            key={tab}
+            id={tabId(tab)}
             type="button"
             role="tab"
             aria-selected={selected}
             aria-controls={CARD_ID}
             tabIndex={selected ? 0 : -1}
-            onClick={() => onSelect(tab.status)}
+            onClick={() => onSelect(tab)}
             className={cn(
               "flex h-10 shrink-0 items-center gap-[7px] border-b-2 font-condensed text-[13px] font-semibold tracking-[0.12em] whitespace-nowrap uppercase outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
               selected ? "border-primary text-board-foreground" : "border-transparent text-board-muted hover:text-board-foreground",
             )}
           >
-            {STATUS_LABELS[tab.status]}
+            {tab === "whop" ? "From Whop" : STATUS_LABELS[tab]}
             {count !== undefined ? (
               <span
                 className={cn(
                   "font-condensed text-[14px] tracking-[0.02em] tabular-nums",
-                  tab.status === "recorded" && count > 0 ? "text-warning" : selected ? "text-board-foreground" : "text-board-muted",
+                  owed ? "text-warning" : selected ? "text-board-foreground" : "text-board-muted",
                 )}
               >
-                {count.toLocaleString("en-US")}
+                {count}
               </span>
             ) : null}
           </button>

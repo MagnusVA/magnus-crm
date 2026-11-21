@@ -8,6 +8,7 @@ import {
 import { internal } from "../_generated/api";
 import { log } from "../lib/observability/log";
 import { toMicroUsd } from "./budget";
+import { CALL_CHECK_MICRO_USD } from "./callChecks";
 import {
   TRANSCRIPT_RETENTION_MS,
   transcriptExpiresAt,
@@ -15,7 +16,7 @@ import {
 } from "./retention";
 import { effectiveSettings, servingConfig } from "./settings";
 import { headerFor, queueRead } from "./trigger";
-import type { CallInsightsSettings } from "./validators";
+import type { RunConfig } from "./validators";
 
 /**
  * Batches an admin approved: reading calls matched before the feature was
@@ -33,6 +34,13 @@ export const MAX_JOB_ITEMS = 500;
 export const ESTIMATE_PER_CALL_MICRO_USD = 125_000;
 /** A job stops before an item that could push it past its ceiling by this much. */
 const WORST_CASE_PER_CALL_MICRO_USD = 450_000;
+
+function estimatedCallMicroUsd(config: RunConfig): number {
+  return (
+    ESTIMATE_PER_CALL_MICRO_USD +
+    (config.callEvidence ? 2 * CALL_CHECK_MICRO_USD : 0)
+  );
+}
 
 export type BackfillScope = "unread" | "unread_and_outdated";
 
@@ -55,11 +63,10 @@ const BACKFILL_SCAN = 1_500;
 export async function backfillCandidates(
   ctx: QueryCtx | MutationCtx,
   tenantId: Id<"tenants">,
-  settings: CallInsightsSettings,
+  current: RunConfig,
   scope: BackfillScope,
   now: number,
 ): Promise<{ candidates: Candidate[]; expired: number; capped: boolean }> {
-  const current = servingConfig(settings);
   const candidates: Candidate[] = [];
   let expired = 0;
   let scanned = 0;
@@ -141,14 +148,16 @@ export async function previewBackfill(
 ): Promise<BackfillPreview | null> {
   const settings = effectiveSettings(tenant);
   if (!settings) return null;
-  const found = await backfillCandidates(ctx, tenant._id, settings, scope, now);
+  const config = servingConfig(settings, tenant);
+  const found = await backfillCandidates(ctx, tenant._id, config, scope, now);
   const outdated = found.candidates.filter((c) => c.outdated).length;
   return {
     total: found.candidates.length,
     unread: found.candidates.length - outdated,
     outdated,
     expired: found.expired,
-    estimateUsd: (found.candidates.length * ESTIMATE_PER_CALL_MICRO_USD) / 1e6,
+    estimateUsd:
+      (found.candidates.length * estimatedCallMicroUsd(config)) / 1e6,
     soonestExpiryAt: found.candidates[0]?.expiresAt ?? null,
     capped: found.capped,
   };
@@ -184,10 +193,11 @@ export async function startBackfill(
   const settings = effectiveSettings(args.tenant);
   if (!settings) return null;
   if (await runningJob(ctx, args.tenant._id)) return null;
+  const config = servingConfig(settings, args.tenant);
   const found = await backfillCandidates(
     ctx,
     args.tenant._id,
-    settings,
+    config,
     args.scope,
     now,
   );
@@ -198,7 +208,7 @@ export async function startBackfill(
     status: "running",
     ceilingMicroUsd: toMicroUsd(args.ceilingUsd),
     spentMicroUsd: 0,
-    estimateMicroUsd: found.candidates.length * ESTIMATE_PER_CALL_MICRO_USD,
+    estimateMicroUsd: found.candidates.length * estimatedCallMicroUsd(config),
     total: found.candidates.length,
     done: 0,
     failed: 0,

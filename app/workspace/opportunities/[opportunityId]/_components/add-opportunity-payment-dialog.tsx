@@ -6,7 +6,7 @@ import { useMutation } from "convex/react";
 import { BanknoteIcon } from "lucide-react";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
-import { Controller, FormProvider, useForm } from "react-hook-form";
+import { Controller, FormProvider, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,21 @@ import {
 } from "@/app/workspace/_components/payment-dialog-form";
 import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
 import { useProofRequired } from "@/hooks/use-proof-required";
+import { formatAmountMinor } from "@/lib/format-currency";
+import {
+  useWhopPaymentCheck,
+  useWhopStepState,
+  whopAmountOffer,
+  whopConfirmLine,
+  whopSuccessMessage,
+  type WhopAnswer,
+} from "@/app/workspace/_components/payments/whop-payment-check";
+import {
+  WhopAmountOffer,
+  WhopAnswerFact,
+  WhopCapacityHold,
+  WhopPaymentFoundStep,
+} from "@/app/workspace/_components/payments/whop-payment-found-step";
 
 function isValidHttpUrl(value: string): boolean {
   try {
@@ -112,6 +127,9 @@ export function AddOpportunityPaymentDialog({
   // Closers must attach proof; the payment mutations refuse a payment without it.
   const proofRequired = useProofRequired();
   const [confirming, setConfirming] = useConfirmStep<PaymentValues>(open);
+  // Whop already reporting this person's payment adds a step before the save.
+  const whopCheck = useWhopPaymentCheck(open ? { kind: "deal", opportunityId } : null);
+  const whop = useWhopStepState<PaymentValues>(open);
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const recordAdditionalPayment = useMutation(
     api.closer.additionalPayment.recordAdditionalPayment,
@@ -129,7 +147,7 @@ export function AddOpportunityPaymentDialog({
     },
   });
 
-  const onSubmit = async (values: PaymentValues) => {
+  const onSubmit = async (values: PaymentValues, answer: WhopAnswer | null = null) => {
     let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -169,18 +187,31 @@ export function AddOpportunityPaymentDialog({
         proofFileId,
         fathomLink: trimmedFathomLink || undefined,
         note: trimmedNote || undefined,
+        ...(answer ? { provider: answer.intent } : {}),
       });
 
-      posthog.capture("additional_payment_recorded", {
-        opportunity_id: opportunityId,
-        payment_id: result.paymentId,
-        has_proof_file: Boolean(proofFileId),
-        has_fathom_link: Boolean(trimmedFathomLink),
-      });
-      toast.success("Payment recorded");
+      const attached = answer
+        ? whopSuccessMessage(answer, { marksAttendance: false, proofAttached: Boolean(proofFileId) })
+        : null;
+      if (!attached) {
+        posthog.capture("additional_payment_recorded", {
+          opportunity_id: opportunityId,
+          payment_id: result.paymentId,
+          has_proof_file: Boolean(proofFileId),
+          has_fathom_link: Boolean(trimmedFathomLink),
+          ...(answer ? { whop_answer: answer.kind } : {}),
+        });
+      }
+      toast.success(attached ?? "Payment recorded");
+      whop.reset();
       form.reset();
       setOpen(false);
     } catch (error) {
+      // Whop reports a payment the step must ask about, or the deal is full.
+      if (whop.refused(error, values)) {
+        setConfirming(null);
+        return;
+      }
       reportClientError(error, { flow: "additional_payment_record", httpStatus: uploadHttpStatus });
       const message =
         getErrorMessage(error, "Failed to record payment");
@@ -192,6 +223,18 @@ export function AddOpportunityPaymentDialog({
   };
 
   const amountLabel = confirming ? formatPaymentAmount(confirming.amount, confirming.currency) : "";
+  const typedAmount = useWatch({ control: form.control, name: "amount" });
+  const proofFile = useWatch({ control: form.control, name: "proofFile" });
+  const offer = whopAmountOffer(whopCheck);
+  const offerCurrency = CURRENCIES.find((code) => code === offer?.currency);
+  const showOffer = Boolean(offer && offerCurrency) && typedAmount === "" && !form.formState.isDirty;
+  const whopValues = whop.shown?.values;
+  const closeAndReset = () => {
+    setOpen(false);
+    form.reset();
+    whop.reset();
+    setSubmitError(null);
+  };
   const fathomLink = confirming?.fathomLink?.trim();
   const note = confirming?.note?.trim();
 
@@ -203,6 +246,7 @@ export function AddOpportunityPaymentDialog({
           setOpen(value);
           if (!value) {
             form.reset();
+            whop.reset();
             setSubmitError(null);
           }
         }
@@ -216,7 +260,40 @@ export function AddOpportunityPaymentDialog({
       </DialogTrigger>
       {open ? (
         <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
-          {confirming ? (
+          {whop.capacityHeld ? (
+            <WhopCapacityHold onClose={closeAndReset} />
+          ) : whop.shown && whopValues ? (
+            <WhopPaymentFoundStep
+              conflicts={whop.shown.conflicts}
+              typed={{
+                amountMinor: Math.round(Number(whopValues.amount) * 100),
+                currency: whopValues.currency,
+                paymentType: whopValues.paymentType,
+                programName,
+              }}
+              personName={leadName}
+              proofRules={{ newMoney: proofRequired, roleNeedsProof: proofRequired }}
+              proof={{ file: proofFile, onChange: (file) => form.setValue("proofFile", file) }}
+              notice={whop.shown.notice}
+              error={whop.shown.error ?? submitError}
+              pending={isSubmitting}
+              onBack={() => {
+                setSubmitError(null);
+                whop.back();
+              }}
+              onAnswer={(answer) => {
+                setSubmitError(null);
+                const values = { ...whopValues, proofFile: form.getValues("proofFile") };
+                // Already recorded here: nothing new to confirm, the step saves.
+                if (answer.kind === "same_money" && answer.existing) {
+                  void onSubmit(values, answer);
+                  return;
+                }
+                whop.choose(answer);
+                setConfirming(values);
+              }}
+            />
+          ) : confirming ? (
             <>
               <ActionDialogHeader
                 title={leadName ? `Add ${amountLabel} to ${leadName}’s deal?` : `Add a ${amountLabel} payment to this deal?`}
@@ -230,6 +307,7 @@ export function AddOpportunityPaymentDialog({
                 proofFile={confirming.proofFile}
                 extraFacts={
                   <>
+                    <WhopAnswerFact answer={whop.answer} hasProofFile={Boolean(confirming.proofFile)} />
                     {fathomLink ? (
                       <RecordFact label="Fathom link">
                         <span className="break-all">{fathomLink}</span>
@@ -240,15 +318,17 @@ export function AddOpportunityPaymentDialog({
                 }
                 steps={[
                   "Adds the payment to Billing’s Needs review, credited to the deal’s closer.",
+                  ...(whop.answer ? [whopConfirmLine(whop.answer)] : []),
                   "Adds it to the deal’s paid total and revenue reports. The deal stays won.",
                 ]}
                 submitError={submitError}
                 pending={isSubmitting}
                 onBack={() => {
                   setSubmitError(null);
+                  whop.backFromConfirm(confirming);
                   setConfirming(null);
                 }}
-                onConfirm={() => void onSubmit(confirming)}
+                onConfirm={() => void onSubmit(confirming, whop.answer)}
               />
             </>
           ) : (
@@ -257,9 +337,25 @@ export function AddOpportunityPaymentDialog({
                 title={leadName ? `Add a payment to ${leadName}’s deal` : "Add a payment"}
                 description="Another payment on this won deal. It’s credited to the deal’s closer and counts in revenue reports."
               />
+              {showOffer && offer && offerCurrency ? (
+                <WhopAmountOffer
+                  amountLabel={formatAmountMinor(Math.round(offer.amount * 100), offerCurrency)}
+                  onUse={() => {
+                    form.setValue("amount", String(offer.amount));
+                    form.setValue("currency", offerCurrency);
+                    form.setFocus("amount");
+                  }}
+                />
+              ) : null}
               <FormProvider {...form}>
                 <PaymentFormStep
                   onSubmit={form.handleSubmit((values) => {
+                    // The step asks for proof once it knows whether Whop's payment stands in for it.
+                    if (whopCheck.status === "found") {
+                      setSubmitError(null);
+                      whop.show(values, whopCheck.conflicts);
+                      return;
+                    }
                     if (proofRequired && !values.proofFile) {
                       form.setError("proofFile", { message: PROOF_REQUIRED_MESSAGE });
                       return;

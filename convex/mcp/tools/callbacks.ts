@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../../automation/humanResult";
 import { v } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../../_generated/server";
@@ -10,7 +11,7 @@ import { formatLocal, parseLocalDateTime } from "../time";
  * Moving a pending call-back (decision 20): the one narrow edit the agent may
  * make. It changes the time on a call-back the closer owns and keeps its
  * history in a `followUp.rescheduled` event, which is neither a touch nor a
- * last touch. Nothing else about the task, the deal or the meeting changes.
+ * last touch. Moving a call-back also stands down pending results on the deal.
  */
 export async function moveCallbackCore(
   ctx: MutationCtx,
@@ -50,6 +51,7 @@ export async function moveCallbackCore(
     },
     occurredAt: now,
   });
+  await noteHumanResult(ctx, task.opportunityId, actor);
   return { task, from, moved: true };
 }
 

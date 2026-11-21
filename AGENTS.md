@@ -50,6 +50,8 @@ Next.js 16 App Router, React 19, Convex, WorkOS AuthKit, shadcn/ui with Tailwind
 - Error tracking, logs, and server events in PostHog: `docs/agents/observability.md`
 - Report pages on ClickHouse, the report engine, and the external metrics API: `docs/agents/reporting.md`
 - Call insights (what Claude reads from recorded calls, suggested results, the quality tests, and where prospect words may be stored): `docs/agents/call-insights.md`
+- Payment providers (Whop payments as facts, intake, matching, recording, taking a payment out and putting it back): `docs/agents/payments.md`
+- Automatic results (proposals from Whop payments and recorded calls, the levels, certificates, the refusal notice, undo): `docs/agents/automatic-results.md`
 - Vendor API docs (Calendly, Slack, Convex, PostHog, WorkOS) live in `.docs/<vendor>/`; Calendly starts at `.docs/calendly/index.md`
 
 <!-- BEGIN:nextjs-agent-rules -->

@@ -1,3 +1,5 @@
+import { maskReservedLossReason } from "../../../lib/lossReasonLabel";
+import { assertMcpTypedLossReason } from "../../tools/outcomes";
 import { v } from "convex/values";
 import type { Id } from "../../../_generated/dataModel";
 import { internalMutation } from "../../../_generated/server";
@@ -135,23 +137,25 @@ export const prepareRecordResult = internalMutation({
     }
 
     const detail = result.reason.trim();
+    assertMcpTypedLossReason(detail);
     if (detail.split(/\s+/).filter(Boolean).length < 2) {
       throw rejectRequest("loss.reason_required", "A loss needs a reason of a few words. Ask why the deal was lost.");
     }
     const reason = `${LOSS_LABEL[result.category]}: ${detail}`.slice(0, 500);
     const args: LossArgs = { meetingId, opportunityId: meeting.opportunityId, reason };
+    const lossLabel = maskReservedLossReason(reason);
     return await preparePlan(ctx, actor, lossCommitter, args, {
       title: `Mark ${who}'s deal lost`,
-      summary: `${who} · ${closerName}'s ${when} call · lost · ${reason}`,
+      summary: `${who} · ${closerName}'s ${when} call · lost · ${lossLabel}`,
       target: { kind: "deal", id: meeting.opportunityId, label: who },
       columns: ["Person", "Call", "Closer", "Reason"],
-      rows: [[who, when, closerName, reason]],
+      rows: [[who, when, closerName, lossLabel ?? ""]],
       footnote: "The call counts as held. A loss a person records can't be reopened.",
       preview: {
         person: { text: who, by: "person" },
         call: when,
         closer: closerName,
-        reason,
+        reason: lossLabel,
         effect: "The deal closes as lost and the call counts as held. This can't be undone.",
         openInMagnus: link,
       },

@@ -32,6 +32,7 @@ import {
   tenantId,
   notFound,
   paymentActions,
+  paymentVia,
   meetingActions,
   dealActions,
   paths,
@@ -77,6 +78,7 @@ export const lookupItemValidator = v.object({
   related: v.optional(v.array(relatedValidator)),
   amountMinor: v.optional(v.number()),
   currency: v.optional(v.string()),
+  via: v.optional(v.string()),
   scheduledAt: v.optional(v.string()),
   isActive: v.optional(v.boolean()),
   country: v.optional(textValidator),
@@ -102,6 +104,7 @@ type LookupItem = {
   }>;
   amountMinor?: number;
   currency?: string;
+  via?: string;
   scheduledAt?: string;
   isActive?: boolean;
   country?: ReturnType<typeof text>;
@@ -388,6 +391,7 @@ async function paymentItem(
   const person = deal
     ? await loadInTenant(ctx, me, "leads", deal.leadId)
     : null;
+  const via = paymentVia(payment);
   return {
     kind: "payment",
     id: payment._id,
@@ -402,6 +406,7 @@ async function paymentItem(
     state: payment.status,
     amountMinor: payment.amountMinor,
     currency: payment.currency,
+    ...(via ? { via } : {}),
     allowedActions: paymentActions(me, payment),
     openInMagnus: paths.payment(payment._id),
     ...(contact && full

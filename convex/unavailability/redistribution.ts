@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -203,6 +204,7 @@ export const autoDistributeMeetings = mutation({
     const now = Date.now();
     const reasonLabel = getReasonLabel(unavailability.reason);
 
+    const changedDeals = new Set<Id<"opportunities">>();
     for (const meeting of meetingsToAssign) {
       let bestCandidate: CloserSchedule | null = null;
       let bestScore = Number.NEGATIVE_INFINITY;
@@ -291,6 +293,9 @@ export const autoDistributeMeetings = mutation({
         occurredAt: now,
       });
 
+      if (oldOpportunity.assignedCloserId !== bestCandidate.closerId) {
+        changedDeals.add(meeting.opportunityId);
+      }
       bestCandidate.meetings.push({
         meetingId: meeting.meetingId,
         opportunityId: meeting.opportunityId,
@@ -305,6 +310,10 @@ export const autoDistributeMeetings = mutation({
         toCloserId: bestCandidate.closerId,
         toCloserName: bestCandidate.closerName,
       });
+    }
+
+    for (const opportunityId of changedDeals) {
+      await noteHumanResult(ctx, opportunityId, { tenantId, userId }, { cause: "assignment" });
     }
 
     // Each reassigned deal has its `opportunity.reassigned` event; this line
@@ -446,6 +455,7 @@ export const manuallyResolveMeeting = mutation({
         occurredAt: now,
       });
 
+      await noteHumanResult(ctx, opportunity._id, { tenantId, userId }, { cause: "assignment" });
       log.info("unavailability.redistribution.manual_assigned", {
         tenantId,
         unavailabilityId: args.unavailabilityId,
@@ -501,6 +511,15 @@ export const manuallyResolveMeeting = mutation({
       });
     } else {
       await patchOpportunityLifecycle(ctx, opportunity._id, cancellationFields);
+    }
+
+    if (
+      meeting.status !== "canceled" ||
+      cancelsDeal ||
+      opportunity.cancellationReason !== cancellationFields.cancellationReason ||
+      opportunity.canceledBy !== cancellationFields.canceledBy
+    ) {
+      await noteHumanResult(ctx, opportunity._id, { tenantId, userId });
     }
 
     log.info("unavailability.redistribution.manual_canceled", {

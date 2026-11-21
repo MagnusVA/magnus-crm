@@ -1,3 +1,4 @@
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { personCustomerStatus } from "../enrollments/read";
@@ -52,7 +53,7 @@ function compactOpportunity(opportunity: Doc<"opportunities">) {
     firstMeetingAt: opportunity.firstMeetingAt,
     paymentReceivedAt: opportunity.paymentReceivedAt,
     // The person page's lost deal card says why and when.
-    lostReason: opportunity.lostReason,
+    lostReason: maskReservedLossReason(opportunity.lostReason) ?? undefined,
     lostAt: opportunity.lostAt,
     latestActivityAt: opportunity.latestActivityAt,
     createdAt: opportunity.createdAt,
@@ -100,6 +101,7 @@ function compactPayment(
     status: payment.status,
     recordedAt: payment.recordedAt,
     origin: payment.origin,
+    recordedVia: payment.recordedVia,
     permissions,
   };
 }

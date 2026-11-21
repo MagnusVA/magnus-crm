@@ -1,3 +1,4 @@
+import type { Doc, Id } from "../_generated/dataModel";
 
 // The deal's state machine is the stage machine in
 // convex/opportunities/stages.ts (docs/plans/phase-5-deal-status.md §4.4),
@@ -31,6 +32,41 @@ export function validateMeetingTransition(
   to: MeetingStatus,
 ): boolean {
   return MEETING_VALID_TRANSITIONS[from].includes(to);
+}
+
+// === Meeting exceptions ===
+// Moves the machine above doesn't allow, each for the one writer that names
+// it. Held stays terminal for everything else.
+
+export const MEETING_TRANSITION_EXCEPTIONS = {
+  // The undo of a held mark a call decision wrote takes the meeting back to
+  // scheduled. Its only writer is `withdrawAutomatedHeld`
+  // (lib/meetingAttendanceUndo.ts).
+  automation_held_undone: { from: "held", to: "scheduled" },
+} as const satisfies Record<string, { from: MeetingStatus; to: MeetingStatus }>;
+
+export type MeetingTransitionException = keyof typeof MEETING_TRANSITION_EXCEPTIONS;
+
+/**
+ * Whether `automation_held_undone` may move this meeting from held back to
+ * scheduled: the held mark came from Call insights through this decision,
+ * and nothing was recorded on the deal after the decision's write (its
+ * revision is still the one the write left).
+ */
+export function validateAutomationHeldUndone(args: {
+  meeting: Pick<Doc<"meetings">, "status" | "attendanceSource" | "attendanceDecisionId">;
+  decisionId: Id<"resultAutomationDecisions">;
+  humanResultRevision: number;
+  humanResultRevisionAfter: number | undefined;
+}): boolean {
+  const { meeting } = args;
+  const rule = MEETING_TRANSITION_EXCEPTIONS.automation_held_undone;
+  return meeting.status === rule.from &&
+    meeting.attendanceSource === "call_insights" &&
+    meeting.attendanceDecisionId !== undefined &&
+    meeting.attendanceDecisionId === args.decisionId &&
+    args.humanResultRevisionAfter !== undefined &&
+    args.humanResultRevision === args.humanResultRevisionAfter;
 }
 
 // === Feature D: Lead Status Transitions ===

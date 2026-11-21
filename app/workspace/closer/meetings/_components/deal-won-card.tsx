@@ -40,6 +40,8 @@ type EnrichedPayment = {
   referenceCode?: string;
   status: "recorded" | "verified" | "disputed";
   recordedAt: number;
+  /** When Whop collected the money, on a payment recorded from Whop. */
+  providerPaidAt?: number;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
@@ -49,6 +51,7 @@ type EnrichedPayment = {
   attributedCloser?: MemberAvatarIdentity | null;
   recordedByUserId?: string;
   recordedByName?: string | null;
+  providerByline: string | null;
   recordedBy?: MemberAvatarIdentity | null;
 };
 
@@ -151,6 +154,18 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </dd>
                 </div>
 
+                {payment.providerPaidAt !== undefined && (
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Collected by Whop
+                    </dt>
+                    <dd className="flex items-center gap-1.5 text-sm">
+                      <CalendarIcon className="size-3.5 text-muted-foreground" />
+                      {format(payment.providerPaidAt, "MMM d, yyyy 'at' h:mm a")}
+                    </dd>
+                  </div>
+                )}
+
                 {payment.attributedCloserName && (
                   <div>
                     <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -183,6 +198,12 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </dd>
                 </div>
               </dl>
+
+              {payment.providerByline && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {payment.providerByline}
+                </p>
+              )}
 
               {payment.origin === "admin_meeting" &&
                 payment.attributedCloserId &&

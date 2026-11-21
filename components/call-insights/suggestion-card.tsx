@@ -18,26 +18,30 @@ import {
  * in. `suggestion-view.tsx` draws the panel. It never saves anything: the person saves in the
  * form. `OutcomeSection` owns the query and the dialogs; this card asks it to
  * open one (`onUse`), or to open the no-show form empty (`onOpenEmpty`).
+ * While a one-tap ask or a pending-loss notice from the same call shows
+ * (`replacedByCallAsk`), the card renders nothing and isn't stamped shown.
  */
 export function SuggestionCard({
   suggestion,
   onUse,
   onOpenEmpty,
+  replacedByCallAsk = false,
 }: {
   suggestion: MeetingSuggestion;
   onUse: (prefill: SuggestionPrefill) => void;
   onOpenEmpty: (dialog: SuggestionDialog) => void;
+  replacedByCallAsk?: boolean;
 }) {
   const markShown = useMutation(api.callInsights.queries.markSuggestionShown);
   const marked = useRef(new Set<string>());
   const { stateId, revision, shown } = suggestion;
   useEffect(() => {
     const key = `${stateId}:${revision}`;
-    if (shown || marked.current.has(key)) return;
+    if (replacedByCallAsk || shown || marked.current.has(key)) return;
     marked.current.add(key);
     // Exposure is best effort; a failed stamp never blocks the card.
     void markShown({ stateId }).catch(() => undefined);
-  }, [stateId, revision, shown, markShown]);
+  }, [stateId, revision, shown, markShown, replacedByCallAsk]);
 
   const use = (dialog: SuggestionDialog, compact?: boolean) => {
     const prefill = prefillFor(suggestion, dialog, { compact });
@@ -101,6 +105,7 @@ export function SuggestionCard({
     );
   }
 
+  if (replacedByCallAsk) return null;
   return (
     <SuggestionPanel
       suggestion={suggestion}

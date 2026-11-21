@@ -3,10 +3,14 @@ import type { Id } from "../_generated/dataModel";
 import { legacyStatus } from "./dealState";
 import {
   DEAL_POSITIONS,
+  RESERVED_LOSS_REASONS,
+  SYSTEM_LOSS_REASONS,
   STAGE_TRANSITION_EXCEPTIONS,
   VALID_STAGE_TRANSITIONS,
   assertStageMove,
   exceptionAllows,
+  isReservedLossReason,
+  isSystemLossReason,
   stageForStatus,
   stageMoveAllowed,
   stageOfPosition,
@@ -119,6 +123,94 @@ describe("the named exceptions", () => {
       allows: [SYSTEM("no_show")],
       refuses: [SYSTEM("canceled"), BY_PERSON("no_show"), SYSTEM("stale"), BY_PERSON("budget"), {}],
     },
+    // Phase 2: Whop wins undone, corrected and restored (S2 corrections §3).
+    {
+      exception: "provider_win_undone_to_booked",
+      from: "won",
+      to: "booked",
+      allows: [{}],
+      refuses: [],
+    },
+    {
+      exception: "provider_win_undone_to_follow_up",
+      from: "won",
+      to: "follow_up",
+      allows: [{}],
+      refuses: [],
+    },
+    {
+      exception: "provider_win_corrected_to_follow_up",
+      from: "won",
+      to: "follow_up",
+      allows: [{}],
+      refuses: [],
+    },
+    {
+      exception: "provider_payment_after_system_loss",
+      from: "lost",
+      to: "won",
+      allows: [SYSTEM("no_show"), SYSTEM("canceled"), SYSTEM("stale")],
+      refuses: [
+        BY_PERSON("no_show"),
+        BY_PERSON("budget"),
+        BY_PERSON(),
+        SYSTEM("payment_excluded"),
+        BY_PERSON("payment_excluded"),
+        SYSTEM("call_refusal"),
+        BY_PERSON("call_refusal"),
+        {},
+      ],
+    },
+    {
+      exception: "payment_exclusion_restored",
+      from: "lost",
+      to: "won",
+      allows: [SYSTEM("payment_excluded"), BY_PERSON("payment_excluded")],
+      refuses: [
+        SYSTEM("no_show"),
+        SYSTEM("stale"),
+        BY_PERSON("budget"),
+        BY_PERSON("Payment voided: wrong"),
+        BY_PERSON("PAYMENT_EXCLUDED"),
+        BY_PERSON(" payment_excluded"),
+        SYSTEM("call_refusal"),
+        BY_PERSON(),
+        {},
+      ],
+    },
+    // Phase 3: a refusal recorded from the call (contract §1.4).
+    {
+      exception: "call_refusal_reopened",
+      from: "lost",
+      to: "follow_up",
+      // Confirmed by a person, or written automatically.
+      allows: [BY_PERSON("call_refusal"), SYSTEM("call_refusal")],
+      refuses: [
+        BY_PERSON("budget"),
+        BY_PERSON("Call_Refusal "),
+        SYSTEM("no_show"),
+        SYSTEM("payment_excluded"),
+        BY_PERSON(),
+        {},
+      ],
+    },
+    {
+      exception: "provider_payment_after_call_refusal",
+      from: "lost",
+      to: "won",
+      // Only the automatic refusal: one a person confirmed stays theirs.
+      allows: [SYSTEM("call_refusal")],
+      refuses: [
+        BY_PERSON("call_refusal"),
+        BY_PERSON("budget"),
+        BY_PERSON("Call_Refusal "),
+        SYSTEM("Call_Refusal "),
+        SYSTEM("no_show"),
+        SYSTEM("payment_excluded"),
+        BY_PERSON(),
+        {},
+      ],
+    },
     {
       exception: "no_show_undone",
       from: "lost",
@@ -128,10 +220,61 @@ describe("the named exceptions", () => {
     },
   ];
 
-  it("has the four in the plan plus the no-show undo, and no Calendly flip", () => {
+  it("has exactly the twelve named exceptions, and no Calendly flip", () => {
     expect(EXCEPTIONS.sort()).toEqual(
-      ["missed_meeting_next_step", "no_show_undone", "no_show_withdrawn", "payment_voided", "slack_stale_rejoin"].sort(),
+      [
+        "call_refusal_reopened",
+        "missed_meeting_next_step",
+        "no_show_undone",
+        "no_show_withdrawn",
+        "payment_exclusion_restored",
+        "payment_voided",
+        "provider_payment_after_call_refusal",
+        "provider_payment_after_system_loss",
+        "provider_win_corrected_to_follow_up",
+        "provider_win_undone_to_booked",
+        "provider_win_undone_to_follow_up",
+        "slack_stale_rejoin",
+      ].sort(),
     );
+  });
+
+  it("covers every named exception in its cases", () => {
+    expect(CASES.map(({ exception }) => exception).sort()).toEqual([...EXCEPTIONS].sort());
+  });
+
+  it("gives each reserved rule a lost deal to reopen", () => {
+    const reserved = Object.entries(STAGE_TRANSITION_EXCEPTIONS).flatMap(([name, rule]) =>
+      "reserved" in rule ? [{ name, from: rule.from, ...rule.reserved }] : [],
+    );
+    expect(reserved).toEqual([
+      { name: "payment_exclusion_restored", from: "lost", reason: "payment_excluded", actor: "any" },
+      { name: "call_refusal_reopened", from: "lost", reason: "call_refusal", actor: "any" },
+      { name: "provider_payment_after_call_refusal", from: "lost", reason: "call_refusal", actor: "none" },
+    ]);
+  });
+
+  it("keeps the system loss codes to exactly three, with the reserved codes apart", () => {
+    expect(Object.values(SYSTEM_LOSS_REASONS).sort()).toEqual(["canceled", "no_show", "stale"]);
+    for (const reserved of ["payment_excluded", "call_refusal"]) {
+      expect(isReservedLossReason(reserved)).toBe(true);
+      expect(isSystemLossReason(reserved)).toBe(false);
+    }
+    expect(Object.values(RESERVED_LOSS_REASONS).sort()).toEqual(["call_refusal", "payment_excluded"]);
+  });
+
+  it("keeps the four earlier rules' meaning", () => {
+    expect({
+      payment_voided: STAGE_TRANSITION_EXCEPTIONS.payment_voided,
+      slack_stale_rejoin: STAGE_TRANSITION_EXCEPTIONS.slack_stale_rejoin,
+      missed_meeting_next_step: STAGE_TRANSITION_EXCEPTIONS.missed_meeting_next_step,
+      no_show_withdrawn: STAGE_TRANSITION_EXCEPTIONS.no_show_withdrawn,
+    }).toEqual({
+      payment_voided: { from: "won", to: "lost", loss: null },
+      slack_stale_rejoin: { from: "lost", to: "booked", loss: ["stale"] },
+      missed_meeting_next_step: { from: "lost", to: "follow_up", loss: ["no_show", "canceled"] },
+      no_show_withdrawn: { from: "lost", to: "booked", loss: ["no_show"] },
+    });
   });
 
   it.each(CASES)("$exception moves $from to $to only from the loss it was written for", (testCase) => {

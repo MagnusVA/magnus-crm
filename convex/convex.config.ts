@@ -65,11 +65,19 @@ const app = defineApp({
     // https://<deployment>.convex.site/mcp, the access tokens' audience.
     AUTHKIT_DOMAIN: v.optional(v.string()),
     MCP_RESOURCE_URL: v.optional(v.string()),
+
+    // `allow` lets payments from a Whop Sandbox connection be recorded on a
+    // throwaway deployment (runbooks/whop-concurrency.md). Never set it on
+    // production: Sandbox money would count as cash.
+    WHOP_SANDBOX_RECORDING: v.optional(v.string()),
   },
 });
 app.use(workpool, { name: "webhookWorkpool" });
 app.use(workpool, { name: "reportingWorkpool" });
 app.use(workpool, { name: "analyticsWorkpool" });
+// Payment provider intake has its own budget, so Calendly bookings never wait
+// behind Whop refreshes (docs/agents/payments.md).
+app.use(workpool, { name: "providerWorkpool" });
 app.use(workOSAuthKit);
 app.use(migrations);
 app.use(posthog, {

@@ -21,6 +21,7 @@ import {
 } from "./call-insights-band";
 import { CardSkeleton, PAGE_ROOT } from "./call-insights-skeleton";
 import { CallsTab } from "./calls-tab";
+import { ProposalsTab } from "./proposals-tab";
 import { QualityTab } from "./quality/quality-tab";
 import { ReportsTab } from "./reports-tab";
 import { SettingsTab } from "./settings-tab";
@@ -30,15 +31,26 @@ export type CallInsightsSettingsView = NonNullable<
   FunctionReturnType<typeof api.callInsights.queries.settings>
 >;
 
+/** The band's tabs with Proposals after Suggestions. */
+type PageTab = CallInsightsTab | "proposals";
+const PAGE_TABS: ReadonlyArray<{ value: PageTab; label: string }> = [
+  ...CALL_INSIGHTS_TABS.slice(0, 2),
+  { value: "proposals", label: "Proposals" },
+  ...CALL_INSIGHTS_TABS.slice(2),
+];
+function pageTabFromParam(value: string | null): PageTab {
+  return value === "proposals" ? "proposals" : tabFromParam(value);
+}
+
 /** Writes `?tab=` in place (no navigation), so a tab is linkable. */
-function writeTabToUrl(tab: CallInsightsTab) {
+function writeTabToUrl(tab: PageTab) {
   const url = new URL(window.location.href);
   url.searchParams.set("tab", tab);
   window.history.replaceState(window.history.state, "", url);
 }
 
 /**
- * The Call insights page: Calls, Suggestions, Reports, Quality and Settings
+ * The Call insights page: Calls, Suggestions, Proposals, Reports, Quality and Settings
  * as tabs kept in `?tab=`. While the feature is off every tab but Settings
  * says so and points there.
  */
@@ -50,12 +62,12 @@ export function CallInsightsPageClient() {
   ]);
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const [tab, setTab] = useState<CallInsightsTab>(() => tabFromParam(tabParam));
+  const [tab, setTab] = useState<PageTab>(() => pageTabFromParam(tabParam));
   // A link to another ?tab= while the page is open moves the tab too.
   const [seenParam, setSeenParam] = useState(tabParam);
   if (tabParam !== seenParam) {
     setSeenParam(tabParam);
-    setTab(tabFromParam(tabParam));
+    setTab(pageTabFromParam(tabParam));
   }
   // Right after a navigation the Convex client can run a query before it has
   // the session's token; wait for it rather than fail with auth.not_authenticated.
@@ -73,7 +85,7 @@ export function CallInsightsPageClient() {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [tab]);
 
-  const selectTab = (next: CallInsightsTab) => {
+  const selectTab = (next: PageTab) => {
     setTab(next);
     writeTabToUrl(next);
   };
@@ -82,7 +94,7 @@ export function CallInsightsPageClient() {
     <div className={PAGE_ROOT}>
       <CallInsightsBand
         navRef={navRef}
-        tabs={CALL_INSIGHTS_TABS.map((candidate) => (
+        tabs={PAGE_TABS.map((candidate) => (
           <a
             key={candidate.value}
             href={`?tab=${candidate.value}`}
@@ -135,6 +147,7 @@ export function CallInsightsPageClient() {
               suggestions={settings.settings?.suggestions ?? "off"}
             />
           ) : null}
+          {tab === "proposals" ? <ProposalsTab /> : null}
           {tab === "reports" ? <ReportsTab /> : null}
           {tab === "quality" ? <QualityTab /> : null}
           {tab === "settings" ? (

@@ -1,3 +1,4 @@
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { CallRecord } from "@/convex/secondOpinion/questions";
@@ -52,7 +53,8 @@ export function recordLabel(record: CallRecord | undefined) {
     return record.amountMinor !== undefined && record.currency
       ? `${new Intl.NumberFormat("en-US", { style: "currency", currency: record.currency }).format(record.amountMinor / 100)} · ${record.paymentType ?? "Payment"}`
       : "Payment";
-  return `${labels[record.kind]}${record.lossReason ? ` · ${record.lossReason}` : ""}`;
+  const lossLabel = lossReasonLabel(record.lossReason);
+  return lossLabel ? `${labels[record.kind]} · ${lossLabel}` : labels[record.kind];
 }
 export function localTime(at: number, timeZone: string) {
   return new Intl.DateTimeFormat("en-US", {

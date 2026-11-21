@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { paymentProviderTables } from "../payments/schema";
 import { countBillingPayments } from "./aggregates";
 import {
   enrichBillingPaymentListRows,
@@ -87,6 +88,55 @@ export const getPaymentDetail = query({
     await requireBillingOpsEnabled(ctx, tenantId);
 
     return await buildPaymentDetail(ctx, tenantId, paymentRecordId);
+  },
+});
+
+const correctionFields = paymentProviderTables.paymentCorrections.validator.fields;
+
+export const getPaymentCorrections = query({
+  args: { paymentRecordId: v.id("paymentRecords") },
+  returns: v.object({
+    corrections: v.array(v.object({
+      correctionId: v.id("paymentCorrections"),
+      operation: correctionFields.operation,
+      result: correctionFields.result,
+      cause: correctionFields.cause,
+      level: correctionFields.level,
+      createdAt: correctionFields.createdAt,
+      actorName: v.union(v.string(), v.null()),
+      restoredByCorrectionId: correctionFields.restoredByCorrectionId,
+    })),
+    restorable: v.union(v.id("paymentCorrections"), v.null()),
+  }),
+  handler: async (ctx, { paymentRecordId }) => {
+    const { tenantId } = await requireBillingPermission(ctx, "billing:view");
+    await requireBillingOpsEnabled(ctx, tenantId);
+    const payment = await ctx.db.get("paymentRecords", paymentRecordId);
+    if (payment?.tenantId !== tenantId) return { corrections: [], restorable: null };
+
+    const rows = await ctx.db.query("paymentCorrections")
+      .withIndex("by_tenantId_and_paymentRecordId_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("paymentRecordId", paymentRecordId))
+      .order("desc").take(10);
+    const restorable = rows.find((row) => row.operation === "exclude" && row.restoredByCorrectionId === undefined);
+    const actorIds = [...new Set(rows.map((row) => row.actorUserId))];
+    const actorNames = new Map(await Promise.all(actorIds.map(async (id) => {
+      const actor = await ctx.db.get("users", id);
+      return [id, actor?.tenantId === tenantId ? actor.fullName ?? actor.calendlyMemberName ?? null : null] as const;
+    })));
+    return {
+      corrections: rows.map((row) => ({
+        correctionId: row._id,
+        operation: row.operation,
+        result: row.result,
+        cause: row.cause,
+        level: row.level,
+        createdAt: row.createdAt,
+        actorName: actorNames.get(row.actorUserId) ?? null,
+        restoredByCorrectionId: row.restoredByCorrectionId,
+      })),
+      restorable: restorable?._id ?? null,
+    };
   },
 });
 

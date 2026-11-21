@@ -1,3 +1,4 @@
+import { paymentEntryOf } from "../../../lib/paymentTypes";
 import { MAX_ASSISTANT_ANSWER_BYTES } from "../../../../lib/assistantReportMerge";
 import { v } from "convex/values";
 import type { Doc, Id, TableNames } from "../../../_generated/dataModel";
@@ -60,6 +61,11 @@ export function canSeeOpinions(me: Admin) {
       me.tenant.secondOpinion?.mode === "shadow")
   );
 }
+export function paymentVia(payment: Doc<"paymentRecords">): string | null {
+  if (paymentEntryOf(payment) !== "person") return "whop";
+  return payment.agentClient ?? (payment.recordedVia === "mcp" ? "mcp" : null);
+}
+
 export function paymentActions(me: Admin, payment: Doc<"paymentRecords">) {
   const actions = ["magnus_lookup"];
   if (me.tenant.billingOpsEnabled && me.writeFamilies.includes("payments")) {

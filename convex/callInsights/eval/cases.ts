@@ -14,6 +14,7 @@ import { transcriptLine, type TranscriptLine } from "../../fathom/validators";
 import { requireTenantUser } from "../../requireTenantUser";
 import { rejectRequest } from "../../lib/observability/errors";
 import { readLiveQueryRows } from "../../lib/liveQueryBounds";
+import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
 import { isCategory } from "../../../lib/callInsights/taxonomy";
 import {
   suggestionValuesValidator,
@@ -24,6 +25,9 @@ import {
   incomePeriodValidator,
   incomeScenarioValidator,
   resolutionValidator,
+  evidenceLabelFields,
+  evidenceLabelValues,
+  EVIDENCE_PROMPT_VERSION,
 } from "../validators";
 
 export const splitValidator = v.union(
@@ -43,6 +47,10 @@ export const itemClassValidator = v.union(
   itemKindValidator,
   v.literal("result"),
   v.literal("attendance"),
+);
+export const evalItemClassValidator = v.union(
+  itemClassValidator,
+  v.literal("evidence"),
 );
 export const verdictValidator = v.union(
   v.literal("right"),
@@ -66,9 +74,15 @@ export const labelValueFields = {
 };
 export const safeLabelValidator = v.object({
   labelId: v.id("callInsightEvalLabels"),
-  itemClass: itemClassValidator,
+  itemClass: evalItemClassValidator,
   itemKey: v.optional(v.string()),
   ...labelValueFields,
+  ...evidenceLabelFields,
+  recordingScope: v.optional(evidenceLabelFields.recordingScope),
+  prospectStance: v.optional(evidenceLabelFields.prospectStance),
+  closerStance: v.optional(evidenceLabelFields.closerStance),
+  nextStep: v.optional(evidenceLabelFields.nextStep),
+  evidenceBlind: v.optional(v.boolean()),
   adminVerdict: v.optional(verdictValidator),
   wrongFields: v.optional(v.array(v.string())),
   matchedLabelId: v.optional(v.id("callInsightEvalLabels")),
@@ -152,21 +166,18 @@ export function safeLabel(row: Doc<"callInsightEvalLabels">) {
     itemClass: row.itemClass,
     itemKey: row.itemKey,
     ...labelValues(row),
+    ...evidenceLabelValues(row),
+    evidenceBlind: row.evidenceBlind,
     adminVerdict: row.adminVerdict,
     wrongFields: row.wrongFields,
     matchedLabelId: row.matchedLabelId,
   };
 }
 export function assertCategory(
-  kind: Doc<"callInsightEvalLabels">["itemClass"],
+  kind: Infer<typeof itemKindValidator>,
   category?: string,
 ) {
-  if (
-    kind === "result" ||
-    kind === "attendance" ||
-    !category ||
-    !isCategory(kind, category)
-  )
+  if (!category || !isCategory(kind, category))
     throw rejectRequest(
       "call_insights.eval_category",
       "Choose a category for this item.",
@@ -196,7 +207,7 @@ async function caseView(
     labelRevision: row.labelRevision,
     listSkipped:
       row.listCommittedAt !== undefined &&
-      !labels.some((l) => l.source === "admin"),
+      !labels.some((l) => l.source === "admin" && l.itemClass !== "evidence"),
     leadName:
       lead?.tenantId === row.tenantId
         ? (lead.fullName ?? "Unknown person")
@@ -413,6 +424,8 @@ export const cases = query({
 export const gradingViewValidator = v.object({
   case: caseViewValidator,
   phase: v.union(v.literal("list"), v.literal("grade"), v.literal("done")),
+  evidenceExpected: v.boolean(),
+  evidenceTimeZone: v.string(),
   transcript: v.object({
     recordingId: v.id("callRecordings"),
     lineCount: v.number(),
@@ -468,8 +481,15 @@ export const caseForGrading = query({
   ): Promise<Infer<typeof gradingViewValidator>> => {
     const me = await requireAdminContext(ctx);
     const row = await loadCase(ctx, caseId, me.tenantId);
-    const labels = await caseLabels(ctx, caseId);
-    const recording = await ctx.db.get("callRecordings", row.recordingId);
+    const [labels, recording, candidate, businessDay] = await Promise.all([
+      caseLabels(ctx, caseId),
+      ctx.db.get("callRecordings", row.recordingId),
+      row.candidateRunId ? ctx.db.get("callInsightRuns", row.candidateRunId) : null,
+      getTenantBusinessDay(ctx, me.tenantId),
+    ]);
+    const run = candidate?.tenantId === me.tenantId && candidate.recordingId === row.recordingId
+      ? candidate
+      : null;
     const live =
       recording?.tenantId === me.tenantId &&
       recording.matchStatus === "matched" &&
@@ -486,6 +506,8 @@ export const caseForGrading = query({
     const base = {
       case: await caseView(ctx, row, labels),
       phase,
+      evidenceExpected: run?.kind === "full" && run.config.promptVersion === EVIDENCE_PROMPT_VERSION,
+      evidenceTimeZone: businessDay.timeZone,
       transcript: {
         recordingId: row.recordingId,
         lineCount: live ? (recording.transcriptLineCount ?? 0) : 0,
@@ -493,11 +515,8 @@ export const caseForGrading = query({
       adminItems: labels.filter((l) => l.source === "admin").map(safeLabel),
     };
     if (phase === "list") return base;
-    const run = row.candidateRunId
-      ? await ctx.db.get("callInsightRuns", row.candidateRunId)
-      : null;
     const items =
-      live && run?.tenantId === me.tenantId && run.quotesPurgedAt === undefined
+      live && run && run.quotesPurgedAt === undefined
         ? (run.items ?? [])
         : [];
     const candidates = labels

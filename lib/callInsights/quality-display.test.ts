@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   barResultWords,
   campaignProgress,
+  capabilityWords,
   caseActionWords,
   countedWords,
   judgeWords,
@@ -355,6 +356,10 @@ describe("form input", () => {
 });
 
 describe("bars and Opus", () => {
+  it("names the call evidence capability", () => {
+    expect(capabilityWords("callEvidence")).toBe("Evidence from recorded calls");
+  });
+
   it("says results, floors and bounds", () => {
     expect(barResultWords("inconclusive")).toBe("Not enough yet");
     expect(needsMoreWords({ n: 14, calls: 6, floor: 20 }, 10)).toBe(

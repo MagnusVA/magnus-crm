@@ -41,6 +41,19 @@ exports[`web paths write what they wrote before the split > attach, a manual mat
       "changed": [],
       "deleted": [],
     },
+    "opportunities": {
+      "added": [],
+      "changed": [
+        {
+          "_id": "0000000000000010006opportunities",
+          "removed": [],
+          "set": {
+            "humanResultRevision": 1,
+          },
+        },
+      ],
+      "deleted": [],
+    },
   },
 }
 `;

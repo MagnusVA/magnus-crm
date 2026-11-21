@@ -1,12 +1,15 @@
 import { blockBooking } from "../pipeline/blocked";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
+import { noteHumanResult } from "../automation/humanResult";
+import { validateCurrency } from "../lib/formatMoney";
+import { insertManualReminder } from "../lib/reminderInsert";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { transitionOpportunity } from "../lib/opportunityActivity";
-import { canStartFollowUp, describeDealState } from "../opportunities/dealGuards";
+import { computeLatestActivityAt, transitionOpportunity } from "../lib/opportunityActivity";
+import { canStartFollowUp, describeDealState, loadDealOpenTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { expireUnfinishedFollowUp } from "../lib/activeFollowUp";
@@ -17,6 +20,10 @@ import {
 } from "../lib/followUpStart";
 import {
   assertCoreRole,
+  callAttendancePatch,
+  guardActorForOutcome,
+  liveOutcomeSuggestion,
+  type AutomationCoreOptions,
   personalCalendarMissing,
   provenanceMetadata,
   toCheckResult,
@@ -64,6 +71,12 @@ export const createFollowUpRecord = internalMutation({
     if (!opportunity || opportunity.tenantId !== args.tenantId) {
       throw new Error("Opportunity not found");
     }
+    if (opportunity.assignedCloserId !== args.closerId) {
+      throw new Error("Not your opportunity");
+    }
+    if (opportunity.leadId !== args.leadId) {
+      throw new Error("Opportunity person changed while creating the link");
+    }
     if (!canStartFollowUp(opportunity)) {
       throw new Error(
         `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}". ` +
@@ -109,6 +122,7 @@ export const createFollowUpRecord = internalMutation({
       actorUserId: args.closerId,
       occurredAt: now,
     });
+    await noteHumanResult(ctx, args.opportunityId, { tenantId: args.tenantId, userId: args.closerId });
     return id;
   },
 });
@@ -273,6 +287,7 @@ export const createSchedulingLinkFollowUp = mutation({
       }).catch(() => undefined);
     }
 
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId });
     return { schedulingLinkUrl, followUpId };
   },
 });
@@ -314,6 +329,12 @@ export const cancelPendingFollowUp = mutation({
   },
 });
 
+const paymentOwedValidator = v.object({
+  expectedAmountMinor: v.optional(v.number()),
+  expectedCurrency: v.optional(v.string()),
+  promisedPaymentAt: v.optional(v.number()),
+});
+
 export const createManualReminderFollowUpPublic = mutation({
   args: {
     opportunityId: v.id("opportunities"),
@@ -322,7 +343,9 @@ export const createManualReminderFollowUpPublic = mutation({
     reminderScheduledAt: v.number(),
     reminderNote: v.optional(v.string()),
     fromSuggestion: v.optional(fromSuggestionValidator),
+    paymentOwed: v.optional(paymentOwedValidator),
   },
+  returns: v.object({ followUpId: v.id("followUps") }),
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, ["closer"]);
     return await createCallbackTask(ctx, actor, args, WEB);
@@ -337,6 +360,7 @@ export type CallbackTaskArgs = {
   reminderScheduledAt: number;
   reminderNote?: string;
   fromSuggestion?: FromSuggestion;
+  paymentOwed?: Infer<typeof paymentOwedValidator>;
 };
 
 /**
@@ -422,14 +446,34 @@ export async function checkCallbackTaskAllowed(
  */
 export async function createCallbackTask(
   ctx: MutationCtx,
-  actor: CoreActor,
+  actor: CoreActor | null,
   args: CallbackTaskArgs,
   provenance: Provenance,
+  automation?: AutomationCoreOptions,
 ): Promise<{ followUpId: Id<"followUps"> }> {
+  const guardedActor = await guardActorForOutcome(ctx, actor, args, automation, "closer");
   const { userId, tenantId, opportunity, meeting, start, now } =
-    await checkCallbackTask(ctx, actor, args);
+    await checkCallbackTask(ctx, guardedActor, args);
 
-  const suggestion = args.fromSuggestion && meeting
+  if (automation && (await loadDealOpenTasks(ctx, opportunity._id)).hasOpenTask) {
+    throw new Error("The deal already has a pending task");
+  }
+  const paymentOwed = args.paymentOwed;
+  if (paymentOwed && automation) throw new Error("A manual payment promise requires a human result");
+  const { expectedAmountMinor, expectedCurrency, promisedPaymentAt } = paymentOwed ?? {};
+  if ((expectedAmountMinor === undefined) !== (expectedCurrency === undefined)) {
+    throw new Error("Enter the expected amount and currency together");
+  }
+  if (expectedAmountMinor !== undefined && (!Number.isSafeInteger(expectedAmountMinor) || expectedAmountMinor <= 0)) {
+    throw new Error("Expected amount in minor units must be a positive integer");
+  }
+  if (promisedPaymentAt !== undefined && !Number.isFinite(new Date(promisedPaymentAt).getTime())) {
+    throw new Error("Invalid promised payment date");
+  }
+  const currency = expectedCurrency === undefined ? undefined : validateCurrency(expectedCurrency);
+  const suggestion = automation && meeting
+    ? actor && await liveOutcomeSuggestion(ctx, meeting, now).catch(() => null)
+    : args.fromSuggestion && meeting
     ? await resolveSuggestionRef(ctx, {
         tenantId,
         meetingId: meeting._id,
@@ -437,62 +481,65 @@ export async function createCallbackTask(
       }).catch(() => null)
     : null;
 
-  const followUpId = await ctx.db.insert("followUps", {
-    tenantId,
-    opportunityId: args.opportunityId,
-    leadId: opportunity.leadId,
+  const writer = automation?.system
+    ? { source: "system" as const, latestActivityAt: opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity) }
+    : { source: "closer" as const, actorUserId: userId };
+  const followUpId = await insertManualReminder(ctx, {
+    opportunity,
     closerId: userId,
-    type: "manual_reminder",
     contactMethod: args.contactMethod,
     reminderScheduledAt: args.reminderScheduledAt,
     reminderNote: args.reminderNote,
-    reason: "closer_initiated",
-    status: "pending",
-    ...(meeting ? { sourceMeetingId: meeting._id } : {}),
-    createdAt: now,
-    createdByUserId: userId,
-    createdSource: "closer",
+    sourceMeetingId: meeting?._id,
+    reason: automation ? "call_insights" : "closer_initiated",
+    task: automation ? automation.task ?? { purpose: "call_back" } : undefined,
+    automationDecisionId: automation?.decisionId,
+    now,
+    ...writer,
+    metadata: paymentOwed ? { ...provenanceMetadata(provenance), purpose: "payment_owed" } : provenanceMetadata(provenance),
   });
+  // The insert helper requires all promise fields on automation tasks. A
+  // closer can save a payment-owed reminder with a partial or unknown promise.
+  if (paymentOwed) {
+    await ctx.db.patch("followUps", followUpId, {
+      purpose: "payment_owed",
+      expectedAmountMinor,
+      expectedCurrency: currency,
+      promisedPaymentAt,
+    });
+  }
 
-  await emitDomainEvent(ctx, {
-    tenantId,
-    entityType: "followUp",
-    entityId: followUpId,
-    eventType: "followUp.created",
-    source: "closer",
-    actorUserId: userId,
-    toStatus: "pending",
-    metadata: {
-      type: "manual_reminder",
-      opportunityId: args.opportunityId,
-      ...provenanceMetadata(provenance),
-    },
+  const landTask = () => landFollowUp(ctx, args.opportunityId, start, {
+    ...writer,
     occurredAt: now,
+    decisionId: automation?.decisionId,
   });
-
-  await landFollowUp(ctx, args.opportunityId, start, {
-    source: "closer",
-    actorUserId: userId,
-    occurredAt: now,
-  });
+  if (!automation?.system) await landTask();
   if (meeting) {
     await completeMeetingForOutcome(ctx, {
       meetingId: meeting._id,
       opportunityId: opportunity._id,
       toMeetingStatus: "held",
       recordedAt: now,
+      extraMeetingPatch: callAttendancePatch(automation),
     });
     if (suggestion) {
       await markSuggestionUsed(ctx, {
         state: suggestion,
         userId,
-        changedFields: args.fromSuggestion?.changedFields,
+        changedFields: automation ? undefined : args.fromSuggestion?.changedFields,
       }).catch(() => undefined);
     }
     // A recorded result plus a matched recording starts Jev's check (§6.9).
-    await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+    if (!automation?.system) {
+      await queueSecondOpinion(ctx, { meetingId: meeting._id, trigger: "result_recorded" });
+    }
   }
 
+  // Marking held updates the deal's meeting refs and can recompute its activity time.
+  if (automation?.system) await landTask();
+
+  if (actor && !automation) await noteHumanResult(ctx, opportunity._id, actor);
   return { followUpId };
 }
 
@@ -538,5 +585,6 @@ export const markReminderComplete = mutation({
       toStatus: "completed",
       occurredAt: now,
     });
+    await noteHumanResult(ctx, followUp.opportunityId, { tenantId, userId });
   },
 });

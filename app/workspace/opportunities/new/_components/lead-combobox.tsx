@@ -40,12 +40,15 @@ export function LeadCombobox({
 	onChange,
 	disabled,
 	invalid,
+	emptyText = "Nobody matches. Switch to New to add the person.",
 }: {
 	id?: string;
 	value?: Id<"leads">;
 	onChange: (value: Id<"leads"> | undefined) => void;
 	disabled?: boolean;
 	invalid?: boolean;
+	/** What the list says when a search finds nobody. */
+	emptyText?: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const [draft, setDraft] = useState("");
@@ -125,9 +128,7 @@ export function LeadCombobox({
 							<CommandEmpty>Searching…</CommandEmpty>
 						) : null}
 						{trimmedSearch.length >= 2 && results?.length === 0 ? (
-							<CommandEmpty>
-								Nobody matches. Switch to New to add the person.
-							</CommandEmpty>
+							<CommandEmpty>{emptyText}</CommandEmpty>
 						) : null}
 						{results && results.length > 0 ? (
 							<CommandGroup>

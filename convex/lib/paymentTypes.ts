@@ -13,6 +13,10 @@ export const PAYMENT_ORIGINS = [
   // opportunity (a customer making a further/installment payment).
   "closer_additional",
   "admin_additional",
+  // Created from a provider payment (Whop), whoever confirmed it and
+  // whichever writer inserted it (docs/agents/payments.md). A payment a
+  // person typed and later linked to a provider payment keeps its own origin.
+  "provider",
 ] as const;
 
 export const PAYMENT_TYPES = [
@@ -43,6 +47,14 @@ export const paymentOriginValidator = v.union(
   v.literal("admin_side_deal"),
   v.literal("closer_additional"),
   v.literal("admin_additional"),
+  v.literal("provider"),
+);
+
+/** How a payment was entered. `provider`: created from a provider payment. */
+export const paymentRecordedViaValidator = v.union(
+  v.literal("web"),
+  v.literal("mcp"),
+  v.literal("provider"),
 );
 
 export const paymentTypeValidator = v.union(
@@ -114,9 +126,28 @@ export function resolveLegacyCompatiblePaymentProgramName(
 export type AssertablePaymentShape = {
   tenantId: Id<"tenants">;
   attributedCloserId: Id<"users"> | undefined;
-  recordedByUserId: Id<"users">;
+  // Absent only on a row the system created from a provider payment.
+  recordedByUserId: Id<"users"> | undefined;
   origin: PaymentOrigin;
   opportunityId: Id<"opportunities"> | undefined;
   programId: Id<"tenantPrograms">;
   paymentType: PaymentType;
 };
+
+/**
+ * How a payment came to be recorded, for bylines and audits:
+ * - `person`: someone typed it.
+ * - `provider_confirmed`: created from a provider payment a person confirmed.
+ * - `provider_auto`: created from a provider payment with nobody confirming.
+ */
+export type PaymentEntry = "person" | "provider_confirmed" | "provider_auto";
+
+export function paymentEntryOf(row: {
+  origin?: string | null;
+  recordedByUserId?: Id<"users">;
+}): PaymentEntry {
+  if (row.origin !== "provider") return "person";
+  return row.recordedByUserId === undefined
+    ? "provider_auto"
+    : "provider_confirmed";
+}

@@ -5,6 +5,12 @@ import { CALL_INSIGHTS_TABS, CallInsightsBand } from "./call-insights-band";
 export const PAGE_ROOT =
   "@container mx-auto flex w-full max-w-[1100px] min-w-0 flex-col gap-3.5 pb-6 short:gap-3";
 
+const tabs = [
+  ...CALL_INSIGHTS_TABS.slice(0, 2),
+  { value: "proposals", label: "Proposals" },
+  ...CALL_INSIGHTS_TABS.slice(2),
+];
+
 /** A ruled card's skeleton: the 44px title row, then rows at their real height. */
 export function CardSkeleton({
   label,
@@ -41,7 +47,7 @@ export function CallInsightsSkeleton() {
   return (
     <div className={PAGE_ROOT}>
       <CallInsightsBand
-        tabs={CALL_INSIGHTS_TABS.map((tab) => (
+        tabs={tabs.map((tab) => (
           <span
             key={tab.value}
             className="flex h-10 shrink-0 items-center font-condensed text-[13px] font-semibold tracking-[0.12em] text-board-muted uppercase"

@@ -38,7 +38,11 @@ import {
   lifecycleStageEnteredAtValidator,
   lifecycleStageValidator,
 } from "./leads/lifecycle";
-import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
+import {
+  paymentOriginValidator,
+  paymentRecordedViaValidator,
+  paymentTypeValidator,
+} from "./lib/paymentTypes";
 import { enrollmentStatusValidator } from "./enrollments/validators";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
@@ -58,6 +62,10 @@ import { callInsightsSettingsValidator } from "./callInsights/validators";
 import { endOfDayTables } from "./closer/endOfDaySchema";
 import { leadGenShiftTables } from "./leadGen/endOfShiftSchema";
 import { contactAgainValidator } from "./lib/contactAgain";
+import { paymentProviderTables } from "./payments/schema";
+import { automationTables, resultAutomationSettingsValidator } from "./automation/schema";
+
+const { providerPayments, ...otherPaymentProviderTables } = paymentProviderTables;
 
 export default defineSchema({
   ...pipelineTables,
@@ -70,8 +78,13 @@ export default defineSchema({
   ...fathomTables,
   ...secondOpinionTables,
   ...callInsightTables,
+  ...automationTables,
   ...endOfDayTables,
   ...leadGenShiftTables,
+  ...otherPaymentProviderTables,
+  providerPayments: providerPayments.index("by_connectionId_status_paymentRecordId_paidAt", [
+    "connectionId", "status", "paymentRecordId", "paidAt",
+  ]),
   tenants: defineTable({
     activityEventCountsVerifiedAt: v.optional(v.number()),
     // Set when the tenant moved to the booking coverage model: explicit Shared
@@ -172,6 +185,7 @@ export default defineSchema({
     // Call insights: Claude's reading of recorded calls. Unset means off.
     // Its own key, so Second opinion's settings dialog never overwrites it.
     callInsights: v.optional(callInsightsSettingsValidator),
+    resultAutomation: v.optional(resultAutomationSettingsValidator),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
@@ -725,6 +739,8 @@ export default defineSchema({
     // (convex/lib/contactAgain.ts). While it is ahead, no respark claim picks
     // them. Cleared when they become a customer or do not contact.
     contactAgain: v.optional(contactAgainValidator),
+    // Fences refusal notices when a human settles a booking identity review.
+    identityReviewRevision: v.optional(v.number()),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
@@ -1147,6 +1163,8 @@ export default defineSchema({
     lostAt: v.optional(v.number()),
     paymentReceivedAt: v.optional(v.number()),
     lostByUserId: v.optional(v.id("users")),
+    // Bumped by noteHumanResult for each human result. Absent means zero.
+    humanResultRevision: v.optional(v.number()),
     // Denormalized cross-source activity timestamp for entity-browse sorting.
     // Backfilled for legacy rows before this becomes required.
     latestActivityAt: v.optional(v.number()),
@@ -1501,6 +1519,12 @@ export default defineSchema({
     createdAt: v.number(),
     heldMarkedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
+    // The meeting's end, when attendance is owed on a deal won by a Whop payment.
+    attendanceOwedSince: v.optional(v.number()),
+    // Set together when a call decision marked the meeting held, so only
+    // that decision's undo may move it back (`automation_held_undone`).
+    attendanceSource: v.optional(v.literal("call_insights")),
+    attendanceDecisionId: v.optional(v.id("resultAutomationDecisions")),
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
@@ -1588,6 +1612,17 @@ export default defineSchema({
       "assignedCloserId",
       "status",
       "scheduledAt",
+    ])
+    .index("by_tenantId_assignedCloserId_status_attendanceOwedSince", [
+      "tenantId",
+      "assignedCloserId",
+      "status",
+      "attendanceOwedSince",
+    ])
+    .index("by_tenantId_and_status_and_attendanceOwedSince", [
+      "tenantId",
+      "status",
+      "attendanceOwedSince",
     ])
     .index("by_tenantId_and_bookingProgramId_and_scheduledAt", [
       "tenantId",
@@ -1818,7 +1853,9 @@ export default defineSchema({
     attributedCloserId: v.optional(v.id("users")),
     amountMinor: v.number(),
     currency: v.string(),
-    recordedByUserId: v.id("users"),
+    // Who entered the payment. Absent only on a row the system created from a
+    // provider payment with nobody confirming it (`origin: "provider"`).
+    recordedByUserId: v.optional(v.id("users")),
     programId: v.id("tenantPrograms"),
     programName: v.string(),
     paymentType: paymentTypeValidator,
@@ -1847,7 +1884,7 @@ export default defineSchema({
     origin: paymentOriginValidator,
     // How the payment was entered (closer-assistant.md §6.3). Set on every
     // new payment; unset on rows written before the AI assistant.
-    recordedVia: v.optional(v.union(v.literal("web"), v.literal("mcp"))),
+    recordedVia: v.optional(paymentRecordedViaValidator),
     // clientInfo.name of the MCP client, for payments an agent logged.
     agentClient: v.optional(v.string()),
     // SHA-256 of the proof file, read from _storage when the payment is
@@ -1855,8 +1892,22 @@ export default defineSchema({
     // proofReused, which Billing shows to the reviewer.
     proofSha256: v.optional(v.string()),
     proofReused: v.optional(v.boolean()),
+    // The provider payment this row came from or was linked to
+    // (docs/agents/payments.md). Provenance: it stays after the row stops
+    // counting, so read the row that counts through
+    // `providerPayments.paymentRecordId`, and never `.unique()` this index.
+    providerPaymentId: v.optional(v.id("providerPayments")),
+    // When the provider collected the money. Reports keep using `recordedAt`.
+    providerPaidAt: v.optional(v.number()),
+    automationDecisionId: v.optional(v.id("resultAutomationDecisions")),
+    // Whop payments a person declared different money from this row. At most 10.
+    distinctFromProviderPaymentIds: v.optional(v.array(v.id("providerPayments"))),
   })
     .index("by_tenantId_and_proofSha256", ["tenantId", "proofSha256"])
+    .index("by_tenantId_and_providerPaymentId", [
+      "tenantId",
+      "providerPaymentId",
+    ])
     .index("by_opportunityId_and_recordedAt", [
       "opportunityId",
       "recordedAt",
@@ -1953,6 +2004,8 @@ export default defineSchema({
     reminderNote: v.optional(v.string()),
     completedAt: v.optional(v.number()),
     completionNote: v.optional(v.string()),
+    // The manual or Whop payment that completed this reminder.
+    completionPaymentId: v.optional(v.id("paymentRecords")),
     // Structured completion tag for reminder-driven outcomes.
     // Legacy follow-ups remain valid without backfill during the rollout.
     completionOutcome: v.optional(
@@ -1971,6 +2024,8 @@ export default defineSchema({
       v.literal("admin_initiated"),
       v.literal("overran_review_resolution"),
       v.literal("stale_opportunity_nudge"),
+      // Every task a call decision writes, asked or automatic.
+      v.literal("call_insights"),
     ),
     status: v.union(
       v.literal("pending"),
@@ -1978,6 +2033,15 @@ export default defineSchema({
       v.literal("completed"),
       v.literal("expired"),
     ),
+    // What the call said the task is for, and what was promised. Set only on
+    // tasks a call decision or its corrections write.
+    purpose: v.optional(v.union(v.literal("call_back"), v.literal("payment_owed"))),
+    expectedAmountMinor: v.optional(v.number()),
+    expectedCurrency: v.optional(v.string()),
+    promisedPaymentAt: v.optional(v.number()),
+    automationDecisionId: v.optional(v.id("resultAutomationDecisions")),
+    // A failed Whop attempt in the call window (providerPayments.declineCode).
+    declineCode: v.optional(v.string()),
     bookedAt: v.optional(v.number()),
     createdAt: v.number(),
     createdByUserId: v.optional(v.id("users")),
@@ -2010,11 +2074,20 @@ export default defineSchema({
       "status",
       "createdAt",
     ])
+    .index("by_tenantId_source_reason_status_reminderScheduledAt", [
+      "tenantId", "createdSource", "reason", "status", "reminderScheduledAt",
+    ])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
     .index("by_opportunityId_and_status_and_reason", [
       "opportunityId",
       "status",
       "reason",
+    ])
+    .index("by_tenantId_and_completionPaymentId_and_opportunityId_and_status", [
+      "tenantId",
+      "completionPaymentId",
+      "opportunityId",
+      "status",
     ]),
 
   // === v0.5b: Domain Events (Finding 1) ===

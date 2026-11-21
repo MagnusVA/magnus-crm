@@ -23,6 +23,23 @@ const CONVEX_ACCESS_GUARDS = [
   "verifyPortalSessionToken",
 ];
 
+// A deal's stage and outcome change only through transitionOpportunity,
+// which validates the move and owns its events and projections.
+const OPPORTUNITY_STAGE_WRITE = {
+  selector:
+    "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name=/^(stage|outcome)$/], [key.value=/^(stage|outcome)$/])",
+  message:
+    "Change an opportunity's stage and outcome with transitionOpportunity (convex/lib/opportunityActivity.ts).",
+};
+
+// Convex's runtime rejects `await import(...)` ("dynamic module import
+// unsupported"). Vitest accepts it, so only this rule catches one before a
+// deploy does.
+const DYNAMIC_IMPORT = {
+  selector: "ImportExpression",
+  message: "Convex functions can't use dynamic import(). Import the module at the top of the file.",
+};
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -63,20 +80,13 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // A deal's stage and outcome change only through transitionOpportunity,
-    // which validates the move and owns its events and projections.
     files: ["convex/**/*.ts"],
-    rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name=/^(stage|outcome)$/], [key.value=/^(stage|outcome)$/])",
-          message:
-            "Change an opportunity's stage and outcome with transitionOpportunity (convex/lib/opportunityActivity.ts).",
-        },
-      ],
-    },
+    rules: { "no-restricted-syntax": ["error", OPPORTUNITY_STAGE_WRITE, DYNAMIC_IMPORT] },
+  },
+  {
+    // Tests run in Vitest, where a dynamic import is fine.
+    files: ["convex/**/*.test.ts"],
+    rules: { "no-restricted-syntax": ["error", OPPORTUNITY_STAGE_WRITE] },
   },
   {
     // One-off migrations scan whole tables on purpose.

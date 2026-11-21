@@ -165,6 +165,9 @@ const TIMELINE_LABELS: Record<string, string> = {
   "meeting.no_show": "Marked a no-show",
   "meeting.no_show_reverted": "No-show undone",
   "meeting.status_changed": "Call attendance changed",
+  "meeting.attendance_withdrawn": "Held mark withdrawn",
+  "automation.notice_acknowledged": "Refusal notice seen",
+  "automation.notice_stopped": "Refusal stopped",
   "followUp.created": "Task created",
   "followUp.booked": "Follow-up call booked",
   "followUp.completed": "Task done",
@@ -181,6 +184,9 @@ const TIMELINE_LABELS: Record<string, string> = {
   "payment.corrected": "Payment corrected",
   "payment.disputed": "Payment disputed",
   "payment.voided": "Payment voided",
+  "payment.restored": "Payment restored",
+  "payment.flagged_not_my_sale": "Flagged: not my sale",
+  "payment.not_my_sale_cleared": "Not-my-sale flag cleared",
 };
 
 /**

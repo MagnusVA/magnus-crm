@@ -4,6 +4,7 @@ import schema from "../../schema";
 import type { Id } from "../../_generated/dataModel";
 import { rejectRequest } from "../../lib/observability/errors";
 import { readLiveQueryRows } from "../../lib/liveQueryBounds";
+import { EVIDENCE_PROMPT_VERSION } from "../validators";
 import { requireAdminContext, caseLabels, splitValidator } from "./cases";
 import { computeMetrics, type MetricCase } from "./metrics";
 
@@ -67,6 +68,9 @@ export const buildReport = mutation({
         case: row,
         labels: await caseLabels(ctx, row._id),
         items: validRun?.items,
+        evidenceExpected:
+          validRun?.kind === "full" &&
+          validRun.config.promptVersion === EVIDENCE_PROMPT_VERSION,
         recordedKind:
           meeting?.tenantId === me.tenantId ? meeting.status : undefined,
         hardCaseHeld,

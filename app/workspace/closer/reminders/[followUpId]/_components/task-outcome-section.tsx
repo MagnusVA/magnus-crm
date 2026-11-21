@@ -1,8 +1,11 @@
 "use client";
 
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import { Suspense, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { useIdle } from "@/hooks/use-idle";
 import {
   ArrowRightIcon,
@@ -17,12 +20,20 @@ import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import { Button } from "@/components/ui/button";
 import type { BusinessDaySetting } from "@/lib/businessDay";
 import { isReminderDealFinished } from "@/lib/deal-controls";
-import { formatDateTime } from "@/app/workspace/closer/_components/today-time";
+import { formatAmountMinor } from "@/lib/format-currency";
+import { useRole } from "@/components/auth/role-context";
+import { formatDateTime, formatShortDate } from "@/app/workspace/closer/_components/today-time";
 import {
   ChoiceButton,
   OutcomeHeading,
 } from "@/app/workspace/closer/meetings/_components/outcome-section";
 import { StageChip } from "@/app/workspace/closer/meetings/_components/stage-tone";
+import {
+  REMINDER_SENTENCE,
+  WhopPaymentFoundCard,
+  whopConfirmPrefill,
+  type WhopConfirmPrefill,
+} from "@/app/workspace/closer/meetings/_components/whop-payment-ask";
 import type { NoAnswerStep } from "./reminder-no-answer-dialog";
 import type { TaskDetail, TaskDetailMode } from "./task-detail-types";
 
@@ -63,6 +74,9 @@ type TaskOutcomeSectionProps = {
  * - a quiet line when the deal finished elsewhere (`isReminderDealFinished`),
  * - a one-line summary once an outcome closed the task.
  *
+ * A Whop payment waiting for confirmation on this task's deal shows above
+ * the question, with Record payment (the payment dialog, filled from Whop).
+ *
  * Nothing is written until a step-2 choice is confirmed in its dialog, and
  * the mutations check the task and the deal again.
  */
@@ -86,10 +100,40 @@ export function TaskOutcomeSection({
   const idle = useIdle();
   const shown = (key: OutcomeDialog) => idle || mounted.has(key);
 
-  const openDialog = (next: OutcomeDialog) => {
+  const showDialog = (next: OutcomeDialog) => {
     setMounted((prev) => (prev.has(next) ? prev : new Set(prev).add(next)));
     setDialog(next);
   };
+  // The ask as it was when Record payment opened the dialog.
+  const [whopConfirm, setWhopConfirm] = useState<WhopConfirmPrefill | null>(null);
+  const openDialog = (next: OutcomeDialog) => {
+    setWhopConfirm(null);
+    showDialog(next);
+  };
+  const open = followUp.status === "pending" &&
+    followUp.reason !== "stale_opportunity_nudge" &&
+    !isReminderDealFinished(opportunity);
+  const whopAsk = useQuery(
+    api.payments.confirm.getWhopAsk,
+    open ? { target: { kind: "reminder", followUpId: followUp._id } } : "skip",
+  );
+  const openWhopConfirm = () => {
+    const prefill = whopAsk ? whopConfirmPrefill(whopAsk) : null;
+    if (!prefill) return;
+    setWhopConfirm(prefill);
+    showDialog("payment");
+  };
+  const askCard = whopAsk ? (
+    <WhopPaymentFoundCard
+      ask={whopAsk}
+      sentence={REMINDER_SENTENCE}
+      actions={
+        <Button type="button" className="font-semibold" onClick={openWhopConfirm}>
+          Record payment
+        </Button>
+      }
+    />
+  ) : null;
   const dialogState = (key: OutcomeDialog) => ({
     open: dialog === key,
     onOpenChange: (open: boolean) => setDialog(open ? key : null),
@@ -136,19 +180,25 @@ export function TaskOutcomeSection({
     );
   } else if (mode === "admin") {
     body = (
-      <AdminPaymentPanel
-        firstName={firstName}
-        closerName={closerName}
-        onPick={() => openDialog("payment")}
-      />
+      <>
+        {askCard}
+        <AdminPaymentPanel
+          firstName={firstName}
+          closerName={closerName}
+          onPick={() => openDialog("payment")}
+        />
+      </>
     );
   } else {
     body = (
-      <TaskOutcomeQuestion
-        firstName={firstName}
-        method={followUp.contactMethod === "text" ? "text" : "call"}
-        onPick={openDialog}
-      />
+      <>
+        {askCard}
+        <TaskOutcomeQuestion
+          firstName={firstName}
+          method={followUp.contactMethod === "text" ? "text" : "call"}
+          onPick={openDialog}
+        />
+      </>
     );
   }
 
@@ -165,6 +215,7 @@ export function TaskOutcomeSection({
             leadName={leadName}
             defaultProgramId={opportunity.firstBookingProgramId ?? null}
             actingFor={mode === "admin" ? closerName : null}
+            whopConfirm={whopConfirm}
             {...dialogState("payment")}
           />
         ) : null}
@@ -379,7 +430,13 @@ function AdminPaymentPanel({
 function TaskSummary({ detail, setting }: { detail: TaskDetail; setting: BusinessDaySetting }) {
   const { followUp, opportunity } = detail;
   const note = followUp.completionNote?.trim();
-  const quoted = note ? <>&ldquo;{note}&rdquo;</> : null;
+  const displayNote = followUp.completionOutcome === "lost" || followUp.completionOutcome === "no_response_given_up"
+    ? lossReasonLabel(note)
+    : note;
+  const quoted = displayNote ? <>&ldquo;{displayNote}&rdquo;</> : null;
+
+  const paidBy = detail.completedByPayment;
+  if (paidBy) return <PaymentCompletion detail={detail} paidBy={paidBy} setting={setting} />;
 
   let headline: React.ReactNode;
   switch (followUp.completionOutcome) {
@@ -424,6 +481,62 @@ function TaskSummary({ detail, setting }: { detail: TaskDetail; setting: Busines
       <p className="min-w-0 flex-1 basis-56 font-medium">{headline}</p>
       {followUp.completedAt ? (
         <p className="text-[0.8125rem] text-muted-foreground tabular-nums">
+          Closed {formatDateTime(followUp.completedAt, setting.timeZone)}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * A payment-owed task a payment closed: "Completed by a payment of $500.00
+ * on Nov 20", how it compares with the promise, and a link to the payment
+ * for roles that can open Billing.
+ */
+function PaymentCompletion({
+  detail,
+  paidBy,
+  setting,
+}: {
+  detail: TaskDetail;
+  paidBy: NonNullable<TaskDetail["completedByPayment"]>;
+  setting: BusinessDaySetting;
+}) {
+  const { hasPermission } = useRole();
+  const { followUp, opportunity } = detail;
+  const amount = formatAmountMinor(paidBy.amountMinor, paidBy.currency);
+  const difference =
+    paidBy.differenceMinor === null || paidBy.differenceMinor === 0
+      ? null
+      : `${formatAmountMinor(Math.abs(paidBy.differenceMinor), paidBy.currency)} ${
+          paidBy.differenceMinor < 0 ? "less" : "more"
+        } than promised`;
+
+  return (
+    <section
+      aria-label="Outcome"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card px-4 py-3"
+    >
+      <StageChip position={opportunity.position} systemLoss={opportunity.systemLoss} />
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="font-medium tabular-nums">
+          Completed by a payment of {amount} on{" "}
+          {formatShortDate(paidBy.recordedAt, setting.timeZone)}.
+        </p>
+        {difference ? (
+          <p className="text-[0.8125rem] text-muted-foreground tabular-nums">{difference}</p>
+        ) : null}
+      </div>
+      {hasPermission("billing:view") ? (
+        <Button asChild variant="outline" size="sm">
+          <Link href={`/workspace/billing/${paidBy.paymentRecordId}`}>
+            Open payment
+            <ArrowRightIcon data-icon="inline-end" aria-hidden />
+          </Link>
+        </Button>
+      ) : null}
+      {followUp.completedAt ? (
+        <p className="w-full text-[0.8125rem] text-muted-foreground tabular-nums">
           Closed {formatDateTime(followUp.completedAt, setting.timeZone)}
         </p>
       ) : null}

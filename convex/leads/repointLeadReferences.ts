@@ -29,6 +29,8 @@
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { noteHumanResult } from "../automation/humanResult";
+import { standDownForMerge } from "../automation/mergeStandDown";
 import { moveMeetingAttributions } from "../lib/attribution/dealAttributions";
 import { retypeDealMeetingsWithoutRefs } from "../lib/dealCallTypes";
 import { requestMeetingProjection } from "../operations/meetingStats";
@@ -61,6 +63,7 @@ export type LeadRowsMoveResult = {
   copyEvents: number;
   /** More prospects or copy events than one page; continue with `moveTouchRowsPage`. */
   hasMoreTouches: boolean;
+  hasMoreProviderPayments: boolean;
   boundsHit: string[];
 };
 
@@ -94,6 +97,7 @@ export async function moveOpportunityToLead(
      * `moveFormResponsesPage`, so a large lead can be paged.
      */
     moveFormResponses: boolean;
+    humanMove?: { userId: Id<"users">; mergeStandDownDone?: true };
   },
 ): Promise<OpportunityMoveResult> {
   const { tenantId, opportunityId, toLeadId, now } = args;
@@ -127,6 +131,33 @@ export async function moveOpportunityToLead(
     webhookDeliveries: 0,
     boundsHit: [],
   };
+
+  if (opportunity.leadId !== toLeadId) {
+    // A split moves only evidence for this deal. Evidence with just a person
+    // candidate follows that person only when the person is merged.
+    const [allocated, candidates] = await Promise.all([
+      ctx.db.query("providerPayments")
+        .withIndex("by_tenantId_and_opportunityId", (q) =>
+          q.eq("tenantId", tenantId).eq("opportunityId", opportunityId))
+        .take(ROW_LIMIT),
+      ctx.db.query("providerPayments")
+        .withIndex("by_tenantId_and_candidateOpportunityId", (q) =>
+          q.eq("tenantId", tenantId).eq("candidateOpportunityId", opportunityId))
+        .take(ROW_LIMIT),
+    ]);
+    noteBound(result.boundsHit, "provider_payments", allocated);
+    noteBound(result.boundsHit, "provider_payment_candidates", candidates);
+    for (const payment of allocated) {
+      if (payment.leadId !== toLeadId) {
+        await ctx.db.patch("providerPayments", payment._id, { leadId: toLeadId });
+      }
+    }
+    for (const payment of candidates) {
+      if (payment.candidateLeadId !== toLeadId) {
+        await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
+      }
+    }
+  }
 
   const meetings = await ctx.db
     .query("meetings")
@@ -223,6 +254,12 @@ export async function moveOpportunityToLead(
     result.auditMatches += 1;
   }
 
+  if (args.humanMove && opportunity.leadId !== toLeadId) {
+    if (!args.humanMove.mergeStandDownDone) {
+      await standDownForMerge(ctx, { tenantId, leadIds: [opportunity.leadId, toLeadId], actorUserId: args.humanMove.userId });
+    }
+    await noteHumanResult(ctx, opportunityId, { tenantId, userId: args.humanMove.userId });
+  }
   return result;
 }
 
@@ -396,6 +433,34 @@ export async function moveMeetingToOpportunity(
   return result;
 }
 
+/** Drains one page from each provider payment index for the merged person. */
+export async function moveProviderPaymentsPage(
+  ctx: MutationCtx,
+  { tenantId, fromLeadId, toLeadId }: {
+    tenantId: Id<"tenants">;
+    fromLeadId: Id<"leads">;
+    toLeadId: Id<"leads">;
+  },
+): Promise<boolean> {
+  const [allocated, candidates] = await Promise.all([
+    ctx.db.query("providerPayments")
+      .withIndex("by_tenantId_and_leadId_and_paidAt", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", fromLeadId))
+      .take(ROW_LIMIT + 1),
+    ctx.db.query("providerPayments")
+      .withIndex("by_tenantId_and_candidateLeadId_and_paidAt", (q) =>
+        q.eq("tenantId", tenantId).eq("candidateLeadId", fromLeadId))
+      .take(ROW_LIMIT + 1),
+  ]);
+  for (const payment of allocated.slice(0, ROW_LIMIT)) {
+    await ctx.db.patch("providerPayments", payment._id, { leadId: toLeadId });
+  }
+  for (const payment of candidates.slice(0, ROW_LIMIT)) {
+    await ctx.db.patch("providerPayments", payment._id, { candidateLeadId: toLeadId });
+  }
+  return allocated.length > ROW_LIMIT || candidates.length > ROW_LIMIT;
+}
+
 /**
  * Moves every remaining row in a lead-indexed table from `fromLeadId` to
  * `toLeadId`: lead notes, the DM portal's edit history, Slack qualification
@@ -421,6 +486,7 @@ export async function moveRemainingLeadRows(
     prospects: 0,
     copyEvents: 0,
     hasMoreTouches: false,
+    hasMoreProviderPayments: false,
     boundsHit: [],
   };
 
@@ -484,6 +550,10 @@ export async function moveRemainingLeadRows(
     await ctx.db.patch("followUps", followUp._id, { leadId: toLeadId });
   }
   result.followUps = followUps.length;
+
+  result.hasMoreProviderPayments = await moveProviderPaymentsPage(ctx, {
+    tenantId, fromLeadId, toLeadId,
+  });
 
   // Lead gen prospects and DM portal copies are the person's touches
   // (docs/plans/phase-2-person-first.md §5). A person can have more than one

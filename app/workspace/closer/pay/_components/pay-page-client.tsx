@@ -26,6 +26,7 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { TranslatableText } from "@/components/translatable-text";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { isAwaitingOutcome, isReminderDealFinished } from "@/lib/deal-controls";
 import { getErrorMessage } from "@/lib/errors";
@@ -37,6 +38,17 @@ import {
 	type PaymentLinkInput,
 } from "@/lib/paymentLink";
 import { PROOF_REQUIRED_MESSAGE } from "@/lib/paymentProof";
+import {
+	proofNeedFor,
+	useWhopPaymentCheck,
+	useWhopStepState,
+	whopSuccessMessage,
+	type WhopAnswer,
+} from "@/app/workspace/_components/payments/whop-payment-check";
+import {
+	WhopCapacityHold,
+	WhopPaymentFoundStep,
+} from "@/app/workspace/_components/payments/whop-payment-found-step";
 import { PayPageSkeleton } from "./pay-page-skeleton";
 import { ProofDropZone, proofFileProblem } from "./proof-drop-zone";
 
@@ -218,6 +230,17 @@ function ReceiptForm({
 	const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
 	const logPayment = useMutation(api.closer.payments.logPayment);
 	const logReminderPayment = useMutation(api.closer.reminderOutcomes.logReminderPayment);
+	// Whop already reporting this person's payment asks first; the page saves.
+	const whopCheck = useWhopPaymentCheck(
+		target.canPay
+			? target.kind === "meeting"
+				? { kind: "meeting", meetingId: target.meetingId }
+				: { kind: "reminder", followUpId: target.followUpId }
+			: null,
+	);
+	const whop = useWhopStepState<null>(true);
+	const [attachedMessage, setAttachedMessage] = useState<string | null>(null);
+	const marksAttendance = target.kind === "meeting";
 
 	const editHref = buildPaymentDialogLink(link);
 	const missing = [
@@ -238,18 +261,32 @@ function ReceiptForm({
 		);
 	}
 
+	if (attachedMessage) {
+		return (
+			<PayNotice title="Saved" success>
+				{attachedMessage}{" "}
+				<Link className="underline underline-offset-4" href={target.href}>
+					{target.kind === "meeting" ? "Open the call" : "Open the task"}
+				</Link>
+			</PayNotice>
+		);
+	}
+
 	const choose = (next: File | undefined) => {
 		setSubmitError(null);
 		setFileError(next ? proofFileProblem(next) : null);
 		setFile(next);
 	};
 
-	const submit = async () => {
-		if (!file) {
+	const submit = async (answer: WhopAnswer | null = whop.answer) => {
+		const need = answer
+			? proofNeedFor(answer, { newMoney: true, roleNeedsProof: true, marksAttendance })
+			: "required";
+		if (!file && need === "required") {
 			setFileError(PROOF_REQUIRED_MESSAGE);
 			return;
 		}
-		const problem = proofFileProblem(file);
+		const problem = file ? proofFileProblem(file) : null;
 		if (problem) {
 			setFileError(problem);
 			return;
@@ -266,24 +303,29 @@ function ReceiptForm({
 		setIsSubmitting(true);
 		setSubmitError(null);
 		try {
-			const uploadUrl = await generateUploadUrl();
-			const upload = await fetch(uploadUrl, {
-				method: "POST",
-				headers: { "Content-Type": file.type },
-				body: file,
-			});
-			if (!upload.ok) {
-				uploadHttpStatus = upload.status;
-				throw new Error("Failed to upload the receipt");
+			let proofFileId: Id<"_storage"> | undefined;
+			if (file) {
+				const uploadUrl = await generateUploadUrl();
+				const upload = await fetch(uploadUrl, {
+					method: "POST",
+					headers: { "Content-Type": file.type },
+					body: file,
+				});
+				if (!upload.ok) {
+					uploadHttpStatus = upload.status;
+					throw new Error("Failed to upload the receipt");
+				}
+				const { storageId } = (await upload.json()) as { storageId?: string };
+				if (!storageId) throw new Error("File upload returned invalid storage ID");
+				proofFileId = storageId as Id<"_storage">;
 			}
-			const { storageId } = (await upload.json()) as { storageId?: string };
-			if (!storageId) throw new Error("File upload returned invalid storage ID");
 			const values = {
 				amount: link.amount,
 				currency: link.currency,
 				programId: link.programId as Id<"tenantPrograms">,
 				paymentType: link.paymentType,
-				proofFileId: storageId as Id<"_storage">,
+				proofFileId,
+				...(answer ? { provider: answer.intent } : {}),
 			};
 			if (target.kind === "meeting") {
 				await logPayment({
@@ -294,6 +336,14 @@ function ReceiptForm({
 			} else {
 				await logReminderPayment({ ...values, followUpId: target.followUpId });
 			}
+			const attached = answer
+				? whopSuccessMessage(answer, { marksAttendance, proofAttached: Boolean(proofFileId) })
+				: null;
+			if (attached) {
+				toast.success(attached);
+				setAttachedMessage(attached);
+				return;
+			}
 			posthog.capture("payment_logged", {
 				flow: "payment_link",
 				target: target.kind,
@@ -301,11 +351,14 @@ function ReceiptForm({
 				currency: link.currency,
 				program_id: link.programId,
 				payment_type: link.paymentType,
-				has_proof_file: true,
+				has_proof_file: Boolean(proofFileId),
+				...(answer ? { whop_answer: answer.kind } : {}),
 			});
 			toast.success("Payment logged. The deal is won.");
 			setLogged(true);
 		} catch (error: unknown) {
+			// Whop reports a payment the step must ask about, or the deal is full.
+			if (whop.refused(error, null)) return;
 			reportClientError(error, { flow: "payment_link_log", httpStatus: uploadHttpStatus });
 			const message = getErrorMessage(error, "Failed to log payment. Please try again.");
 			setSubmitError(message);
@@ -319,6 +372,20 @@ function ReceiptForm({
 		link.amount !== undefined && link.currency !== undefined
 			? formatAmountMinor(Math.round(link.amount * 100), link.currency)
 			: null;
+	// The step shows the server's set after a refused save, else the pre-check's until answered.
+	const stepConflicts =
+		whop.shown?.conflicts ??
+		(whopCheck.status === "found" && !whop.answer ? whopCheck.conflicts : null);
+	const answer = whop.answer;
+	const proofNeed = answer
+		? proofNeedFor(answer, { newMoney: true, roleNeedsProof: true, marksAttendance })
+		: "required";
+	const attaching = answer?.kind === "same_money" && answer.existing;
+	const actionLabel = attaching
+		? marksAttendance
+			? "Attach proof and mark the call attended"
+			: "Attach proof"
+		: "Log payment";
 
 	return (
 		<div className="mx-auto flex w-full max-w-md flex-col gap-4">
@@ -372,14 +439,69 @@ function ReceiptForm({
 						{missing.length === 1 ? "it" : "them"}.
 					</AlertDescription>
 				</Alert>
+			) : whop.capacityHeld ? (
+				<div className="overflow-hidden rounded-xl border bg-card">
+					<WhopCapacityHold variant="page" />
+				</div>
+			) : stepConflicts && link.amount !== undefined && link.currency !== undefined ? (
+				<div className="overflow-hidden rounded-xl border bg-card">
+					<WhopPaymentFoundStep
+						variant="page"
+						conflicts={stepConflicts}
+						typed={{
+							amountMinor: Math.round(link.amount * 100),
+							currency: link.currency,
+							paymentType: link.paymentType,
+							programName,
+						}}
+						personName={target.personName}
+						marksAttendance={marksAttendance}
+						proofRules={{ newMoney: true, roleNeedsProof: true }}
+						notice={whop.shown?.notice}
+						error={whop.shown?.error ?? submitError}
+						pending={isSubmitting}
+						autoFocus={whop.shown !== null}
+						onAnswer={(next) => {
+							setSubmitError(null);
+							setFileError(null);
+							whop.choose(next, stepConflicts);
+						}}
+					/>
+				</div>
 			) : (
 				<>
-					<ProofDropZone
-						file={file}
-						onChange={choose}
-						disabled={isSubmitting}
-						error={fileError}
-					/>
+					{answer ? (
+						<div className="flex items-baseline justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+							<span className="min-w-0">
+								{answer.kind === "different_money"
+									? "Different money from Whop’s payment."
+									: attaching
+										? "Already recorded from Whop. No second payment is added."
+										: "The same money as Whop’s payment. They’re linked when you log it."}
+							</span>
+							<Button
+								variant="link"
+								size="sm"
+								className="h-auto shrink-0 p-0"
+								disabled={isSubmitting}
+								onClick={() => whop.backFromConfirm(null)}
+							>
+								Change
+							</Button>
+						</div>
+					) : null}
+					{proofNeed === "waived" && !file ? (
+						<p className="text-sm text-muted-foreground">
+							No proof file is needed: the Whop payment is the proof.
+						</p>
+					) : (
+						<ProofDropZone
+							file={file}
+							onChange={choose}
+							disabled={isSubmitting}
+							error={fileError}
+						/>
+					)}
 					{submitError ? (
 						<Alert variant="destructive">
 							<AlertCircleIcon />
@@ -390,15 +512,15 @@ function ReceiptForm({
 						size="lg"
 						className="h-12 w-full text-base font-semibold"
 						disabled={isSubmitting}
-						onClick={submit}
+						onClick={() => void submit()}
 					>
 						{isSubmitting ? (
 							<>
 								<Spinner data-icon="inline-start" />
-								Logging…
+								<TranslatableText>{attaching ? "Saving…" : "Logging…"}</TranslatableText>
 							</>
 						) : (
-							"Log payment"
+							<TranslatableText>{actionLabel}</TranslatableText>
 						)}
 					</Button>
 				</>

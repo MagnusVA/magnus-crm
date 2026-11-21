@@ -1,19 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getServiceToken } from "convex/server";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { onRecordingMatched } from "../fathom/recordings";
 import {
+  callEvidenceSettings,
   callInsightsHarness,
   decisionsAnswer,
   gatewayFetch,
   messagesResponse,
+  PAID_CALL,
   PAID_EXTRACTION,
 } from "../../tests/callInsightsHarness";
 import { monthKeyFor } from "./budget";
+import {
+  CALL_CHECK_MICRO_USD,
+  MAX_CALL_CHECK_RECORDING_MS,
+} from "./callChecks";
+import { jevReserveMicroUsd } from "./run";
+import {
+  evidenceAnswer,
+  evidenceStatement,
+} from "../../tests/callInsights/synthetic/fixtures";
 import { attachRecordingCore } from "../fathom/recordings";
 import { backfillCandidates, startBackfill } from "./jobs";
-import { effectiveSettings } from "./settings";
+import {
+  callEvidenceWanted,
+  effectiveSettings,
+  servingConfig,
+} from "./settings";
 import { liveSuggestionForMeeting } from "./suggest/state";
 import { queueRead } from "./trigger";
 
@@ -1241,14 +1256,13 @@ describe("what a no-show reading may rely on", () => {
 describe("what a backfill picks", () => {
   const candidates = (f: Harness, scope: "unread" | "unread_and_outdated") =>
     f.t.run(async (ctx) => {
-      const settings = effectiveSettings(
-        await ctx.db.get("tenants", f.tenantId),
-      );
+      const tenant = await ctx.db.get("tenants", f.tenantId);
+      const settings = effectiveSettings(tenant);
       if (!settings) throw new Error("No settings");
       return await backfillCandidates(
         ctx,
         f.tenantId,
-        settings,
+        servingConfig(settings, tenant),
         scope,
         Date.now(),
       );
@@ -1289,5 +1303,457 @@ describe("what a backfill picks", () => {
       candidates: [],
       expired: 1,
     });
+  });
+});
+
+describe("opt-in call evidence", () => {
+  const uniqueQuote =
+    "Please text me tomorrow at three about the cedar pavilion.";
+  const transcript = [
+    ...PAID_CALL,
+    { ...PAID_CALL[4], timestamp: "00:22:00", text: uniqueQuote },
+    {
+      ...PAID_CALL[5],
+      timestamp: "00:23:00",
+      text: "I can text at three tomorrow. Goodbye.",
+    },
+  ];
+  const callback = evidenceAnswer({
+    recordingScope: "whole",
+    scopeLines: [1, 8],
+    prospectStance: "yes",
+    closerStance: "continues",
+    nextStep: "call_back",
+    nextStepDateTimeLocal: "2026-11-04T15:00:00",
+    nextStepMethod: "text",
+    statements: [evidenceStatement("asks_call_back", uniqueQuote, 7)],
+  });
+
+  it("uses only active call kinds or the alert to select p2", () => {
+    expect(callEvidenceWanted(undefined)).toBe(false);
+    expect(callEvidenceWanted({ resultAutomation: { enabled: true } })).toBe(
+      false,
+    );
+    for (const kind of ["call_back", "payment_owed", "refusal_loss"]) {
+      for (const mode of ["shadow", "ask", "automatic"])
+        expect(
+          callEvidenceWanted({
+            resultAutomation: { enabled: true, kinds: { [kind]: { mode } } },
+          }),
+        ).toBe(true);
+      expect(
+        callEvidenceWanted({
+          resultAutomation: {
+            enabled: true,
+            kinds: { [kind]: { mode: "off" } },
+          },
+        }),
+      ).toBe(false);
+    }
+    for (const mode of ["shadow", "on"])
+      expect(
+        callEvidenceWanted({
+          resultAutomation: { enabled: true, paidOnCallAlert: { mode } },
+        }),
+      ).toBe(true);
+    expect(
+      callEvidenceWanted({
+        resultAutomation: { enabled: false, paidOnCallAlert: { mode: "on" } },
+      }),
+    ).toBe(false);
+    // `pausedAt` is the time of the last pause and stays after a resume: a
+    // tenant that is running again wants evidence.
+    expect(
+      callEvidenceWanted({
+        resultAutomation: {
+          enabled: true,
+          pausedAt: 0,
+          paidOnCallAlert: { mode: "on" },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      callEvidenceWanted({
+        resultAutomation: {
+          enabled: false,
+          pausedAt: 0,
+          paidOnCallAlert: { mode: "on" },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  const published = async (callEvidence: boolean, evidence: unknown) => {
+    const f = await callInsightsHarness({ callEvidence, transcript });
+    const calls = stubGateway({ extraction: { ...PAID_EXTRACTION, evidence } });
+    await queue(f);
+    await drain(f);
+    const [run] = await runs(f);
+    return {
+      run,
+      calls,
+      facts: await facts(f),
+      suggestion: await suggestion(f),
+    };
+  };
+
+  it("chooses p2 in serving and backfill, and reserves both checks only for eligible full reads", async () => {
+    const f = await callInsightsHarness();
+    stubGateway();
+    await queue(f);
+    await drain(f);
+    const [p1] = await runs(f);
+    expect(p1.config).toMatchObject({ promptVersion: "p1" });
+    expect(p1.config).not.toHaveProperty("callEvidence");
+    expect(p1.receipts[1].reservedMicroUsd).toBe(jevReserveMicroUsd(44, 4));
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", f.tenantId, {
+        resultAutomation: callEvidenceSettings(f.ownerId, Date.now()),
+      });
+      const tenant = (await ctx.db.get("tenants", f.tenantId))!;
+      const config = servingConfig(effectiveSettings(tenant)!, tenant);
+      expect(config).toMatchObject({ promptVersion: "p2", callEvidence: true });
+      expect(
+        (
+          await backfillCandidates(
+            ctx,
+            f.tenantId,
+            config,
+            "unread_and_outdated",
+            Date.now(),
+          )
+        ).candidates,
+      ).toMatchObject([{ recordingId: f.recordingId, outdated: true }]);
+      const job = await startBackfill(ctx, {
+        tenant,
+        userId: f.ownerId,
+        scope: "unread_and_outdated",
+        ceilingUsd: 1,
+      });
+      expect(job).not.toBeNull();
+    });
+    stubGateway({ extraction: { ...PAID_EXTRACTION, evidence: callback } });
+    await drain(f);
+    const p2 = (await runs(f)).find((run) => run.generation === 2);
+    expect(p2?.config).toMatchObject({
+      promptVersion: "p2",
+      callEvidence: true,
+    });
+    expect(p2?.receipts[1].reservedMicroUsd).toBe(
+      p1.receipts[1].reservedMicroUsd + 2 * CALL_CHECK_MICRO_USD,
+    );
+
+    const full = await published(true, callback);
+    expect(full.calls).toEqual({ messages: 1, decisions: 9 });
+    expect(full.run.evidence).toMatchObject({
+      recordingScope: "whole",
+      nextStepAt: Date.parse("2026-11-04T21:00:00Z"),
+      statements: [{ quote: uniqueQuote, speaker: "Prospect", lineIndex: 7 }],
+    });
+    expect(full.run.callChecks).toEqual({
+      version: "cc1",
+      wholeCall: 0.95,
+      refused: 0.95,
+      disqualified: 0.95,
+      nextStep: 0.95,
+      incomplete: false,
+    });
+  });
+
+  it("reads and stores a queued p2 serving call exactly like p1 after Off", async () => {
+    async function read(switchOff: boolean) {
+      const f = await callInsightsHarness({ callEvidence: switchOff, transcript });
+      const gateway = gatewayFetch({ extraction: { ...PAID_EXTRACTION, evidence: callback } });
+      const fetch = vi.fn(gateway.fetchImpl);
+      vi.stubGlobal("fetch", fetch);
+      const runId = (await queue(f))!;
+      if (switchOff) {
+        expect((await runs(f))[0].config.promptVersion).toBe("p2");
+        await f.t.run((ctx) => ctx.db.patch("tenants", f.tenantId, {
+          resultAutomation: { ...callEvidenceSettings(f.ownerId, Date.now()), enabled: false },
+        }));
+      }
+      await f.t.action(internal.callInsights.run.read, { runId });
+      return {
+        requests: fetch.mock.calls.map(([url, init]) => [url, init?.body]),
+        budget: await budget(f),
+        run: (await runs(f))[0],
+        promptVersion: (await header(f)).promptVersion,
+      };
+    }
+    expect(await read(true)).toEqual(await read(false));
+  });
+
+  it("keeps explicitly requested p2 evidence for eval after serving automation is Off", async () => {
+    const f = await callInsightsHarness({ callEvidence: true, transcript });
+    const calls = stubGateway({ extraction: { ...PAID_EXTRACTION, evidence: callback } });
+    const queued = (await queue(f))!;
+    const runId = await f.t.run(async (ctx) => {
+      const { _id, _creationTime, ...run } = (await ctx.db.get("callInsightRuns", queued))!;
+      void _id;
+      void _creationTime;
+      await ctx.db.patch("tenants", f.tenantId, { resultAutomation: undefined });
+      return await ctx.db.insert("callInsightRuns", {
+        ...run, purpose: "eval", evalRole: "candidate", trigger: "eval", generation: 0, inputKey: "fixture-eval",
+      });
+    });
+    await f.t.action(internal.callInsights.run.read, { runId });
+    const run = await f.t.run((ctx) => ctx.db.get("callInsightRuns", runId));
+    expect(run).toMatchObject({ status: "answered", config: { promptVersion: "p2" }, callChecks: { incomplete: false } });
+    expect(run?.evidence?.recordingScope).toBe("whole");
+    expect(calls).toEqual({ messages: 1, decisions: 9 });
+  });
+
+  it("finishes the legacy output without retrying automation checks after Off", async () => {
+    const f = await callInsightsHarness({ callEvidence: true, transcript });
+    const calls = stubGateway({
+      extraction: { ...PAID_EXTRACTION, evidence: callback },
+      decisions: (body) => body.questions.next_step
+        ? new Response("unavailable", { status: 503 })
+        : decisionsAnswer(body),
+    });
+    const runId = (await queue(f))!;
+    await f.t.action(internal.callInsights.run.read, { runId });
+    expect((await runs(f))[0]).toMatchObject({
+      status: "checking", earlyReading: { incomplete: false },
+    });
+    expect(calls).toEqual({ messages: 1, decisions: 9 });
+    await f.t.run((ctx) => ctx.db.patch("tenants", f.tenantId, {
+      resultAutomation: { ...callEvidenceSettings(f.ownerId, Date.now()), enabled: false },
+    }));
+    await drain(f);
+    const [run] = await runs(f);
+    expect(run.status).toBe("answered");
+    expect(run.evidence).toBeUndefined();
+    expect(run.callChecks).toBeUndefined();
+    expect(run.receipts.at(-1)?.reservedMicroUsd).toBe(0);
+    expect(calls).toEqual({ messages: 1, decisions: 9 });
+  });
+
+  it("keeps evidence quotes out of the meeting and person browser responses", async () => {
+    const f = await callInsightsHarness({
+      callEvidence: true,
+      settings: { mode: "on", suggestions: "on" },
+      transcript,
+    });
+    stubGateway({ extraction: { ...PAID_EXTRACTION, evidence: callback } });
+    await queue(f);
+    await drain(f);
+    expect((await runs(f))[0].evidence?.statements[0].quote).toBe(uniqueQuote);
+    const card = await f.owner.query(api.callInsights.queries.forMeeting, {
+      meetingId: f.meetingId,
+    });
+    const person = await f.owner.query(api.callInsights.queries.forPerson, {
+      leadId: f.leadId,
+    });
+    const suggested = await f.owner.query(
+      api.callInsights.queries.suggestionForMeeting,
+      { meetingId: f.meetingId },
+    );
+    for (const response of [card, person, suggested]) {
+      expect(response).not.toBeNull();
+      expect(JSON.stringify(response)).not.toContain(uniqueQuote);
+    }
+  });
+
+  it("keeps items, facts and suggestion equal across arbitrary evidence, including malformed blocks", async () => {
+    const baseline = await published(false, undefined);
+    expect(baseline.calls).toEqual({ messages: 1, decisions: 7 });
+    const ids = new Set([
+      "_id",
+      "tenantId",
+      "meetingId",
+      "recordingId",
+      "latestRunId",
+      "publishedRunId",
+      "runId",
+    ]);
+    const stable = (document: unknown) =>
+      JSON.stringify(document, (key, value) =>
+        ids.has(key) || key === "promptVersion" ? undefined : value,
+      );
+    let seed = 43017;
+    const pick = <T>(...options: T[]): T => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return options[Math.floor((seed / 2 ** 32) * options.length)];
+    };
+    const generated = Array.from({ length: 12 }, () =>
+      evidenceAnswer({
+        recordingScope: pick("whole", "fragment", "multiple_calls", "unknown"),
+        scopeLines: pick([1, 2], [], [0, 999]),
+        statements: [
+          evidenceStatement(
+            pick("declines", "defers", "payment_seen", "unknown"),
+            pick(uniqueQuote, "Invented words", ""),
+            pick(0, 3, 7, 999),
+            {
+              amountRole: pick("none", "balance", "full_price"),
+              amount: pick("", "1700", "99.01", "invented"),
+              currencyAsSaid: pick(
+                "none",
+                "usd",
+                "dollars_unspecified",
+                "invented",
+              ),
+            },
+          ),
+        ],
+        prospectStance: pick("yes", "refused", "undecided"),
+        closerStance: pick("continues", "disqualified", "unknown"),
+        nextStep: pick("none", "call_back", "payment_owed"),
+        nextStepDateTimeLocal: pick("", "2026-11-04T12:00:00", "invented"),
+        nextStepMethod: pick("none", "call", "text"),
+        quotedAmount: pick("", "1700", "99.01", "invented"),
+        quotedCurrencyAsSaid: pick("none", "cad", "symbol_only", "invented"),
+      }),
+    );
+    for (const evidence of [
+      callback,
+      ...generated,
+      evidenceAnswer({
+        recordingScope: "multiple_calls",
+        scopeLines: [999],
+        statements: [
+          evidenceStatement("defers", uniqueQuote, 7, {
+            amount: "991",
+            currencyAsSaid: "private currency",
+          }),
+        ],
+        prospectStance: "refused",
+        closerStance: "disqualified",
+        nextStep: "payment_owed",
+        nextStepDateTimeLocal: "2026-12-01T12:10:00",
+        nextStepMethod: "call",
+        quotedAmount: "991",
+        quotedCurrencyAsSaid: "private currency",
+      }),
+      undefined,
+      { invalid: "model text must never be published" },
+    ]) {
+      const p2 = await published(true, evidence);
+      expect(JSON.stringify(p2.run.items)).toBe(
+        JSON.stringify(baseline.run.items),
+      );
+      expect(p2.run.result).toEqual(baseline.run.result);
+      expect(p2.run.result?.failedChecks).toEqual(
+        baseline.run.result?.failedChecks,
+      );
+      expect(stable(p2.facts)).toBe(stable(baseline.facts));
+      expect(stable(p2.suggestion)).toBe(stable(baseline.suggestion));
+      // The only new stored string in the projection is an allowlisted version.
+      expect(p2.facts.find((row) => row.kind === "call")?.promptVersion).toBe(
+        "p2",
+      );
+      expect(JSON.stringify([p2.facts, p2.suggestion])).not.toContain(
+        uniqueQuote,
+      );
+      if (evidence === undefined || "invalid" in evidence) {
+        expect(p2.run.evidence).toBeUndefined();
+        expect(p2.run.evidenceFailure).toBe(
+          evidence ? "malformed_evidence" : "missing_evidence",
+        );
+        expect(p2.run.callChecks).toBeUndefined();
+        expect(p2.calls).toEqual(baseline.calls);
+      }
+    }
+  });
+
+  it.each([
+    [MAX_CALL_CHECK_RECORDING_MS, true],
+    [MAX_CALL_CHECK_RECORDING_MS + 1, false],
+  ])(
+    "applies the two-hour cutoff at exact recording duration %i ms",
+    async (duration, checksExpected) => {
+      const f = await callInsightsHarness({ callEvidence: true, transcript });
+      await f.t.run(async (ctx) => {
+        const recording = (await ctx.db.get("callRecordings", f.recordingId))!;
+        await ctx.db.patch("callRecordings", f.recordingId, {
+          recordingEndAt: recording.recordingStartAt + duration,
+        });
+      });
+      const calls = stubGateway({
+        extraction: { ...PAID_EXTRACTION, evidence: callback },
+      });
+      await queue(f);
+      await drain(f);
+      const [run] = await runs(f);
+      expect(run.evidence?.recordingScope).toBe("whole");
+      expect(run.receipts[1].reservedMicroUsd).toBe(
+        jevReserveMicroUsd(44, 4, checksExpected),
+      );
+      if (checksExpected) expect(run.callChecks?.nextStep).toBe(0.95);
+      else expect(run.callChecks).toBeUndefined();
+      expect(calls).toEqual({ messages: 1, decisions: checksExpected ? 9 : 7 });
+    },
+  );
+
+  it("retries a format change within the Jev stage and preserves the completed suggestion reading", async () => {
+    const f = await callInsightsHarness({ callEvidence: true, transcript });
+    const calls = stubGateway({
+      extraction: { ...PAID_EXTRACTION, evidence: callback },
+      decisions: (body) =>
+        body.questions.next_step
+          ? new Response(
+              JSON.stringify({
+                answers: { next_step: "private unrecognized answer" },
+              }),
+              { status: 200 },
+            )
+          : decisionsAnswer(body),
+    });
+    await queue(f);
+    await drain(f);
+    const [run] = await runs(f);
+    expect(run).toMatchObject({
+      status: "answered",
+      checkRetries: 3,
+      earlyReading: { incomplete: false },
+      callChecks: { version: "cc1", wholeCall: 0.95, incomplete: true },
+    });
+    expect(run.callChecks?.nextStep).toBeUndefined();
+    expect((await suggestion(f))?.tier).toBe("ready");
+    expect(calls).toEqual({ messages: 1, decisions: 7 + 4 * 2 });
+    expect(getServiceToken).toHaveBeenCalledTimes(
+      calls.messages + calls.decisions,
+    );
+  });
+
+  it("sends the call's local date on a late read", async () => {
+    const start = Date.parse("2026-11-03T01:00:00Z");
+    const f = await callInsightsHarness({ callEvidence: true, transcript });
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch("meetings", f.meetingId, { scheduledAt: start });
+      await ctx.db.patch("callRecordings", f.recordingId, {
+        recordingStartAt: start,
+        recordingEndAt: start + 30 * 60_000,
+        transcriptExpiresAt: start + 90 * 86_400_000,
+      });
+    });
+    vi.setSystemTime(start + 10 * 86_400_000);
+    const gateway = gatewayFetch({
+      extraction: {
+        ...PAID_EXTRACTION,
+        evidence: {
+          ...callback,
+          nextStepDateTimeLocal: "2026-11-03T15:00:00",
+        },
+      },
+    });
+    const fetch = vi.fn(gateway.fetchImpl);
+    vi.stubGlobal("fetch", fetch);
+    await queue(f);
+    await drain(f);
+    const body = JSON.parse(
+      String(
+        fetch.mock.calls.find(([url]) =>
+          String(url).endsWith("/v1/messages"),
+        )?.[1]?.body,
+      ),
+    );
+    expect(body.messages[0].content).toContain("Today: 2026-11-02");
+    expect(JSON.stringify(body.system)).toContain("EVIDENCE");
+    expect((await runs(f))[0].evidence?.nextStepAt).toBe(
+      Date.parse("2026-11-03T21:00:00Z"),
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { stopCallDecisionsForRecording } from "../automation/callDecisions";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalMutation,
@@ -9,7 +10,6 @@ import { internal } from "../_generated/api";
 import { ITEM_KINDS } from "../../lib/callInsights/taxonomy";
 import { log, reportError } from "../lib/observability/log";
 import { effectiveSettings, servingConfig } from "./settings";
-import type { RunConfig } from "./validators";
 
 export type ReadTrigger = Doc<"callInsightRuns">["trigger"];
 type CallHeader = Extract<Doc<"callInsightFacts">, { kind: "call" }>;
@@ -116,8 +116,6 @@ export async function queueRead(
     recordingId: Id<"callRecordings">;
     trigger: ReadTrigger;
     jobId?: Id<"callInsightJobs">;
-    /** Read with this configuration instead of the tenant's. Jobs only. */
-    config?: RunConfig;
   },
 ): Promise<Id<"callInsightRuns"> | null> {
   const now = Date.now();
@@ -212,7 +210,7 @@ export async function queueRead(
     kind: "full",
     status: "queued",
     attempt: 0,
-    config: args.config ?? servingConfig(settings),
+    config: servingConfig(settings, tenant),
     receipts: [],
     // Due now, so the sweep finds the run if its scheduled read is lost.
     nextAttemptAt: now,
@@ -267,6 +265,7 @@ async function detachHeader(ctx: MutationCtx, header: CallHeader, now: number) {
   for (const row of suggestions)
     if (row.usedAt === undefined)
       await ctx.db.delete("resultSuggestionStates", row._id);
+  await stopCallDecisionsForRecording(ctx, header.recordingId, "recording_moved", header.tenantId);
 }
 
 /**

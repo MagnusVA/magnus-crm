@@ -6,9 +6,9 @@ import {
   isPlaceholderPollutedLead,
 } from "../leads/identityResolution";
 import { log } from "../lib/observability/log";
-import { getString, isRecord } from "../lib/payloadExtraction";
 import { requireTenantUser } from "../requireTenantUser";
 import {
+  bookingLinkTarget,
   closeKeptSeparateSiblings,
   PHONE_MATCH_NEW_EMAIL,
   resolveBookingReview,
@@ -32,26 +32,6 @@ const ANSWER_WORDS: Record<Answer, string> = {
   same_person: "Same person",
   different_person: "Different person",
 };
-
-/** The deal a CRM booking link names, when the booking came from one. */
-async function bookingLinkTarget(
-  ctx: QueryCtx,
-  raw: Doc<"rawWebhookEvents">,
-): Promise<Doc<"opportunities"> | "unknown" | null> {
-  let envelope: unknown;
-  try {
-    envelope = JSON.parse(raw.payload);
-  } catch {
-    return null;
-  }
-  const payload = isRecord(envelope) && isRecord(envelope.payload) ? envelope.payload : {};
-  const tracking = isRecord(payload.tracking) ? payload.tracking : {};
-  const campaign = getString(tracking, "utm_campaign");
-  if (getString(tracking, "utm_source") !== "ptdom" || !campaign) return null;
-  const id = ctx.db.normalizeId("opportunities", campaign);
-  const deal = id ? await ctx.db.get("opportunities", id) : null;
-  return deal && deal.tenantId === raw.tenantId ? deal : "unknown";
-}
 
 /** Who a held booking's review decides about, as they are now, and why it can or can't be decided. */
 export type HeldBookingState = {

@@ -27,7 +27,11 @@ describe("stored reports and capability gates", () => {
       spentMicroUsd: 0,
       createdByUserId: f.ownerId,
     });
-    expect(row!.bars).toHaveLength(6);
+    expect(row!.bars).toHaveLength(7);
+    expect(row!.bars.find((b) => b.key === "call_evidence")).toMatchObject({
+      calls: 0,
+      result: "inconclusive",
+    });
     expect(row!.bars.every((b) => b.result === "inconclusive")).toBe(true);
     expect(JSON.stringify(row)).not.toContain("husband");
     await f.admin.mutation(api.reports.buildReport, {

@@ -8,7 +8,7 @@ import type { MutationCtx } from "../convex/_generated/server";
 
 /** Registers the workpools and aggregates the app mounts. */
 export function registerComponents(t: ReturnType<typeof convexTest>) {
-  for (const name of ["webhookWorkpool", "reportingWorkpool"])
+  for (const name of ["webhookWorkpool", "reportingWorkpool", "providerWorkpool"])
     workpool.register(t, name);
   for (const name of [
     "meetingsByStatus",

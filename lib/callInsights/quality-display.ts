@@ -689,6 +689,7 @@ export function countedWords(bar: { n: number; calls: number }): string {
 
 export const CAPABILITY_WORDS: Record<string, string> = {
   whatTheySaid: "What they said, for closers",
+  callEvidence: "Evidence from recorded calls",
   suggestions: "Suggested results on meetings",
   amountPrefill: "Amount prefill",
   noShowCertain: "Certain no-shows",

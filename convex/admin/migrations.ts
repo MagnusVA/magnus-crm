@@ -36,6 +36,7 @@ import {
 } from "../lib/tenantCalendlyConnection";
 import {
   normalizePaymentOrigin,
+  paymentEntryOf,
   paymentTypeValidator,
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentProgramName,
@@ -1136,6 +1137,8 @@ export const auditPaymentProgramsAndTypesCutover = query({
     for (const payment of payments) {
       const legacyPayment = payment as LegacyPaymentMigrationRow;
       const legacyOrigin = legacyPayment.origin as string | undefined;
+      const missingRecorder =
+        payment.recordedByUserId === undefined && paymentEntryOf(payment) !== "provider_auto";
       if (payment.programId === undefined) {
         audit.paymentsMissingProgramId += 1;
       }
@@ -1145,7 +1148,7 @@ export const auditPaymentProgramsAndTypesCutover = query({
       if (payment.paymentType === undefined) {
         audit.paymentsMissingPaymentType += 1;
       }
-      if (payment.recordedByUserId === undefined) {
+      if (missingRecorder) {
         audit.paymentsMissingRecordedByUserId += 1;
       }
       if (legacyOrigin === "customer_flow") {
@@ -1164,7 +1167,7 @@ export const auditPaymentProgramsAndTypesCutover = query({
           payment.programId === undefined ||
           payment.programName === undefined ||
           payment.paymentType === undefined ||
-          payment.recordedByUserId === undefined ||
+          missingRecorder ||
           legacyPayment.closerId !== undefined ||
           legacyPayment.provider !== undefined ||
           legacyPayment.loggedByAdminUserId !== undefined ||

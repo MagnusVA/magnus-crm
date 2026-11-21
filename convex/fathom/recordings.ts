@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { v } from "convex/values";
 import {
   query,
@@ -189,7 +190,7 @@ export async function attachRecordingCore(
     return null;
   }
   const meetingId = args.meetingId!;
-  await requireRecordingMeeting(ctx, actor, meetingId);
+  const meeting = await requireRecordingMeeting(ctx, actor, meetingId);
   const existing = await ctx.db
     .query("callRecordings")
     .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
@@ -200,6 +201,7 @@ export async function attachRecordingCore(
       "This meeting already has a recording. Reassign it first.",
     );
   if (row.meetingId === meetingId && row.matchStatus === "matched") return null;
+  const oldMeeting = row.meetingId ? await ctx.db.get("meetings", row.meetingId) : null;
   await ctx.db.patch("callRecordings", row._id, {
     meetingId,
     matchStatus: "matched",
@@ -214,6 +216,10 @@ export async function attachRecordingCore(
     actorUserId: actor.userId,
     provenance,
   });
+  await noteHumanResult(ctx, meeting.opportunityId, actor);
+  if (oldMeeting?.tenantId === actor.tenantId && oldMeeting.opportunityId !== meeting.opportunityId) {
+    await noteHumanResult(ctx, oldMeeting.opportunityId, actor);
+  }
   return null;
 }
 export async function listUnmatchedRecordings(

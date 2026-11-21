@@ -233,6 +233,7 @@ export const auditPaymentOriginBackfill = internalQuery({
 			admin_side_deal: 0,
 			closer_additional: 0,
 			admin_additional: 0,
+			provider: 0,
 		};
 
 		while (true) {

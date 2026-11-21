@@ -8,3 +8,8 @@ export const webhookPool = new Workpool(components.webhookWorkpool, {
 export const reportingPool = new Workpool(components.reportingWorkpool, {
   maxParallelism: 2,
 });
+// Whop refreshes and sweeps. Two workers: one connection's request clock
+// already spaces its calls.
+export const providerPool = new Workpool(components.providerWorkpool, {
+  maxParallelism: 2,
+});

@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import posthog from "@/lib/posthog-browser";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { Controller, useForm } from "react-hook-form";
@@ -45,7 +45,7 @@ type VoidPaymentValues = z.infer<typeof voidPaymentSchema>;
 /** What Void does, in the order the server does it. */
 const STEPS = [
   "Marks the payment disputed, so it leaves revenue reports and the deal’s paid total.",
-  "Closes the side deal as lost, with your reason.",
+  "If another payment on this deal still counts, the deal stays won. If none does, it closes as lost, with your reason.",
   "Removes the enrollment it held. A person left with no payment is no longer a customer.",
 ];
 
@@ -66,10 +66,11 @@ export function VoidPaymentDialog({
   dateLabel?: string;
 }) {
   const ids = useId();
-  const [open, setOpen] = useState(false);
+  const [openVersion, setOpenVersion] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const voidPayment = useMutation(api.sideDeals.voidPayment.voidPayment);
+  const statusVersion = useQuery(api.sideDeals.voidPayment.getVoidStatusVersion, { paymentId });
 
   const form = useForm({
     resolver: standardSchemaResolver(voidPaymentSchema),
@@ -77,17 +78,18 @@ export function VoidPaymentDialog({
   });
 
   const onSubmit = async (values: VoidPaymentValues) => {
+    if (openVersion === null) return;
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      await voidPayment({ paymentId, reason: values.reason.trim() });
+      await voidPayment({ paymentId, reason: values.reason.trim(), expectedStatusVersion: openVersion });
       posthog.capture("side_deal_payment_voided", {
         payment_id: paymentId,
       });
       toast.success("Payment voided");
       form.reset();
-      setOpen(false);
+      setOpenVersion(null);
     } catch (error) {
       reportClientError(error, { flow: "payment_void" });
       const message =
@@ -108,10 +110,10 @@ export function VoidPaymentDialog({
 
   return (
     <Dialog
-      open={open}
+      open={openVersion !== null}
       onOpenChange={(value) => {
         if (!isSubmitting) {
-          setOpen(value);
+          setOpenVersion(value ? statusVersion ?? null : null);
           if (!value) {
             form.reset();
             setSubmitError(null);
@@ -124,13 +126,14 @@ export function VoidPaymentDialog({
           variant="ghost"
           size="xs"
           className="text-danger-ink hover:text-danger-ink"
+          disabled={statusVersion == null}
           aria-label="Void this payment"
         >
           Void
         </Button>
       </DialogTrigger>
       <DialogContent className={ACTION_DIALOG} showCloseButton={!isSubmitting}>
-        <ActionDialogHeader title={title} description="Voiding a side deal’s payment can’t be undone." tone="danger" />
+        <ActionDialogHeader title={title} description="Billing can put the payment back from its page later, if nothing on the deal has changed since." tone="danger" />
 
         <form className={ACTION_FORM} onSubmit={form.handleSubmit(onSubmit)} noValidate>
           <SubmitError>{submitError}</SubmitError>
@@ -173,7 +176,7 @@ export function VoidPaymentDialog({
           <ActionDialogFooter>
             <CancelButton
               onClick={() => {
-                setOpen(false);
+                setOpenVersion(null);
                 form.reset();
                 setSubmitError(null);
               }}

@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -96,6 +97,16 @@ export function SettingsTab({
       ) : (
         <OffCard view={view} onConfirm={setConfirm} />
       )}
+      <NoteLine className="px-1">
+        Which results the CRM may record by itself is set in{" "}
+        <Link
+          href="/workspace/settings/automatic-results"
+          className="font-medium text-foreground underline decoration-foreground/40 underline-offset-[3px] hover:decoration-foreground"
+        >
+          Automatic results
+        </Link>
+        .
+      </NoteLine>
       {confirm ? (
         <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
       ) : null}

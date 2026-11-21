@@ -1,14 +1,29 @@
 import { v } from "convex/values";
+import { noteHumanResult } from "../automation/humanResult";
+import {
+  allocateReconciledPayment,
+  attachReconciledPayment,
+  checkPaymentReconciliation,
+  hasRecentWhopMoney,
+  RECENT_WHOP_MONEY_MS,
+  finishReconciledPayment,
+  providerIntentValidator,
+  providerWaivesProof,
+  readReconciliationDealPayments,
+  reconcilePaymentWrite,
+  reconciledPaymentFields,
+  reconciledPaymentSelection,
+} from "../payments/reconcileCheck";
 import { mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   earliestCountingPayment,
-  readDealPayments,
   syncPersonEnrollments,
 } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { recordPayment } from "../lib/leadLifecycle";
+import { expectedError } from "../lib/observability/errors";
+import { insertRecordedPayment } from "../lib/paymentWrite";
 import {
   assertPaymentRow,
   type PaymentOrigin,
@@ -18,7 +33,6 @@ import { checkPaymentProof, newPaymentFields } from "../lib/paymentProof";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
-import { insertPaymentAggregate } from "../reporting/writeHooks";
 
 /**
  * Records an ADDITIONAL payment against an already-won
@@ -28,10 +42,8 @@ import { insertPaymentAggregate } from "../reporting/writeHooks";
  * won / terminal). The person is already a customer, so the enrollment sync
  * only adds the payment to their total.
  *
- * Attribution follows the "any closer, self-credit" rule: a closer credits
- * themselves; an admin recording on behalf credits the opportunity's assigned
- * closer. The row flows into the Sales Calls / revenue
- * dashboards and the admin billing review queue automatically.
+ * Ordinary manual payments keep the closer's self-credit. Whop-backed
+ * confirmations credit the closer named in the server's proposal.
  */
 export const recordAdditionalPayment = mutation({
   args: {
@@ -40,6 +52,7 @@ export const recordAdditionalPayment = mutation({
     currency: v.string(),
     paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
+    provider: v.optional(providerIntentValidator),
     fathomLink: v.optional(v.string()),
     note: v.optional(v.string()),
   },
@@ -47,17 +60,51 @@ export const recordAdditionalPayment = mutation({
     paymentId: v.id("paymentRecords"),
   }),
   handler: async (ctx, args) => {
-    const { userId, tenantId, role } = await requireTenantUser(ctx, [
+    const actor = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
       "tenant_admin",
     ]);
+    const { userId, tenantId, role } = actor;
     const now = Date.now();
     const isAdmin = role === "tenant_master" || role === "tenant_admin";
 
     const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found.");
+    }
+
+    const canReconcile = isAdmin || opportunity.assignedCloserId === userId;
+    if (!canReconcile && args.provider) {
+      throw new Error("You are not the assigned closer for this opportunity.");
+    }
+    const dealPayments = await readReconciliationDealPayments(ctx, opportunity._id);
+    if (!canReconcile) {
+      const conflicts = await checkPaymentReconciliation(ctx, {
+        tenantId,
+        leadId: opportunity.leadId,
+        opportunityId: opportunity._id,
+        writer: "additional",
+        dealPayments,
+      });
+      // Only recent Whop money can be this payment. A charge from months ago
+      // must not send every later manual payment to Billing.
+      const since = now - RECENT_WHOP_MONEY_MS;
+      const recentConflict = conflicts.some((conflict) =>
+        conflict.state === "read_limit" || conflict.paidAt === undefined || conflict.paidAt >= since);
+      if (recentConflict || await hasRecentWhopMoney(ctx, { tenantId, leadId: opportunity.leadId, since })) {
+        throw expectedError("payment.billing_review_required", "Billing needs to check this payment first.");
+      }
+    }
+    const reconciliation = canReconcile
+      ? await reconcilePaymentWrite(ctx, opportunity, "additional", dealPayments, args.provider)
+      : { action: "insert" as const, distinctFrom: [] };
+    if (reconciliation.action === "attach_existing") {
+      const paymentId = reconciliation.paymentRecordId;
+      if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {
+        await noteHumanResult(ctx, opportunity._id, actor);
+      }
+      return { paymentId };
     }
 
     // Gate: additional payments are only for opportunities that are already won.
@@ -89,6 +136,11 @@ export const recordAdditionalPayment = mutation({
       origin = "closer_additional";
     }
 
+    if (reconciliation.action === "insert_from_provider") {
+      origin = "provider";
+      attributedCloserId = reconciliation.proposal.attributedCloserId;
+    }
+
     const currency = validateCurrency(args.currency);
     const amountMinor = toAmountMinor(args.amount);
 
@@ -101,17 +153,18 @@ export const recordAdditionalPayment = mutation({
     // (docs/plans/phase-4-customers.md D14).
     const programId =
       opportunity.soldProgramId ??
-      earliestCountingPayment(await readDealPayments(ctx, opportunity._id))?.programId;
+      earliestCountingPayment(dealPayments)?.programId;
     if (!programId) {
       throw new Error(
         "This opportunity has no sold program or payment to take the program from.",
       );
     }
-    const program = await ctx.db.get("tenantPrograms", programId);
+    const selection = reconciledPaymentSelection(reconciliation, { programId, paymentType: args.paymentType });
+    const program = await ctx.db.get("tenantPrograms", selection.programId);
     if (!program || program.tenantId !== tenantId) {
       throw new Error("Sold program for this opportunity was not found.");
     }
-    const paymentType = resolvePaymentType(args.paymentType);
+    const paymentType = resolvePaymentType(selection.paymentType);
 
     // Validate the optional Fathom link the same way the codebase validates
     // other external URLs: parse it and require an http/https protocol.
@@ -147,10 +200,13 @@ export const recordAdditionalPayment = mutation({
       programId: program._id,
       paymentType,
     });
-    const proof = await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
+    const whopWaivesProof = providerWaivesProof(reconciliation, amountMinor, currency);
+    const proof = whopWaivesProof && !args.proofFileId
+      ? null
+      : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
     const recordedFields = await newPaymentFields(ctx, tenantId, proof, WEB);
 
-    const paymentId = await ctx.db.insert("paymentRecords", {
+    const paymentId = await insertRecordedPayment(ctx, {
       tenantId,
       opportunityId: args.opportunityId,
       meetingId: undefined,
@@ -164,15 +220,12 @@ export const recordAdditionalPayment = mutation({
       proofFileId: args.proofFileId ?? undefined,
       fathomLink,
       note: normalizedNote,
-      status: "recorded",
-      statusChangedAt: now,
       recordedAt: now,
       origin,
       ...recordedFields,
+      ...reconciledPaymentFields(reconciliation),
     });
-    await recordPayment(ctx, paymentId);
-
-    await insertPaymentAggregate(ctx, paymentId);
+    await allocateReconciledPayment(ctx, reconciliation, paymentId, actor, now);
 
     // The person's enrollments follow their payments (§4.1). A payment for a
     // program the person already has creates no enrollment, and the sync
@@ -201,7 +254,7 @@ export const recordAdditionalPayment = mutation({
         amountMinor,
         currency,
         programId: program._id,
-        programName: program.name,
+        ...(origin !== "provider" && { programName: program.name }),
         paymentType,
         origin,
         attributedCloserId,
@@ -213,6 +266,7 @@ export const recordAdditionalPayment = mutation({
       },
     });
 
+    await finishReconciledPayment(ctx, reconciliation, { actor, writer: "additional", opportunity, paymentId, now });
     return { paymentId };
   },
 });

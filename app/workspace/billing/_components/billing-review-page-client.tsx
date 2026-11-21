@@ -4,7 +4,7 @@ import { Suspense, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePreloadedQuery, type Preloaded } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PencilIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -20,11 +20,13 @@ import { BillingEventHistory } from "./billing-event-history";
 import { BAND_BUTTON_CLASS, PAYMENT_TYPE_LABELS } from "./billing-format";
 import { PaymentFacts, PaymentFigures, paymentTitle } from "./billing-payment-facts";
 import { PaidAt } from "./paid-at";
+import { PaymentCorrectionPanel, type CorrectablePayment } from "./payment-correction-panel";
 import { BillingProofPreview } from "./billing-proof-preview";
 import { BillingReviewActions } from "./billing-review-actions";
 import { CopyBillingPayloadButton } from "./copy-billing-payload-button";
 import { ReusedProofCard } from "./payment-provenance-markers";
 import { SlackContributorTimeline } from "./slack-contributor-timeline";
+import { WhopEvidenceCard } from "./whop-evidence-card";
 
 const CorrectionDialog = dynamic(() =>
   import("./correction-dialog").then((m) => ({ default: m.CorrectionDialog })),
@@ -100,6 +102,22 @@ function CorrectPaymentButton({ payment }: { payment: BillingPayment }) {
   );
 }
 
+function BillingPaymentCorrections({ payment, now }: { payment: CorrectablePayment; now: number }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const takeOut = searchParams.get("takeOut") === "wrong_match";
+
+  function closeTakeOut() {
+    const params = new URLSearchParams(searchParams);
+    params.delete("takeOut");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  return <PaymentCorrectionPanel payment={payment} now={now} takeOut={takeOut} onCloseTakeOut={closeTakeOut} />;
+}
+
 export function BillingReviewPageClient({
   preloadedPayment,
 }: {
@@ -160,7 +178,7 @@ export function BillingReviewPageClient({
         column: facts, comments, history, Slack contributors.
       */}
       <div className="grid min-w-0 items-start gap-x-[18px] gap-y-3.5 @4xl:grid-cols-[minmax(0,1fr)_24rem] short:gap-y-3">
-        <div className="order-1 min-w-0 @4xl:col-start-1 @4xl:row-start-1">
+        <div className="order-1 flex min-w-0 flex-col gap-3.5 @4xl:col-start-1 @4xl:row-start-1 short:gap-3">
           <PaymentFacts
             detail={detail}
             now={now}
@@ -168,9 +186,28 @@ export function BillingReviewPageClient({
               <>
                 <BillingProofPreview proof={detail.proof} owed={needsReview} />
                 <ReusedProofCard detail={detail} now={now} />
+                <WhopEvidenceCard
+                  paymentRecordId={payment.id}
+                  amountMinor={payment.amountMinor}
+                  currency={payment.currency}
+                  now={now}
+                />
               </>
             }
           />
+          <Suspense fallback={null}>
+            <BillingPaymentCorrections
+              payment={{
+                id: payment.id,
+                amountMinor: payment.amountMinor,
+                currency: payment.currency,
+                recordedAt: payment.recordedAt,
+                status: payment.status,
+                dealOutcome: detail.opportunity.outcome,
+              }}
+              now={now}
+            />
+          </Suspense>
         </div>
         <div className="contents @4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-3.5 short:@4xl:gap-3">
           <div className="order-2 min-w-0">

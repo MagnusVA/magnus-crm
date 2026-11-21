@@ -8,6 +8,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { isMovedSlot } from "../lib/callType";
+import { maskReservedLossReason } from "../lib/lossReasonLabel";
 import { expectedError } from "../lib/observability/errors";
 import { REPORT_ADMIN_ROLES } from "./lib/access";
 import { getEventLabel } from "../reporting/lib/eventLabels";
@@ -172,7 +173,7 @@ export function exportRowsFromSql(kind: RowsKind, rows: SqlRow[], timeZone: stri
       eventId: text(row.event_id), occurredAt: iso(row.occurred_at_ms), timeZone, label: getEventLabel(text(row.event_type)).verb,
       eventType: text(row.event_type), entityType: text(row.entity_type), entityId: text(row.entity_id),
       actorName: text(row.actor_name), memberName: text(row.member_name), source: text(row.source),
-      fromStatus: text(row.from_status), toStatus: text(row.to_status), reason: text(row.reason),
+      fromStatus: text(row.from_status), toStatus: text(row.to_status), reason: maskReservedLossReason(text(row.reason)) ?? "",
     }));
   }
   return rows.map((row): ReportRecord => kind === "calls" ? {
@@ -314,7 +315,7 @@ export const liveEventPage = internalQuery({
         eventId: event._id, occurredAt: new Date(event.occurredAt).toISOString(), timeZone: range.timeZone,
         label: getEventLabel(event.eventType).verb, eventType: event.eventType, entityType: event.entityType, entityId: event.entityId,
         actorName: await userName(event.actorUserId), memberName: await memberName(event.teamMemberId),
-        source: event.source, fromStatus: event.fromStatus ?? "", toStatus: event.toStatus ?? "", reason: event.reason ?? "",
+        source: event.source, fromStatus: event.fromStatus ?? "", toStatus: event.toStatus ?? "", reason: maskReservedLossReason(event.reason) ?? "",
       });
     }
     return { rows, continueCursor: page.continueCursor, isDone: page.isDone };

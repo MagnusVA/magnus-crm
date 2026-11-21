@@ -9,9 +9,10 @@ import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useNow } from "@/hooks/use-now";
 import { cn } from "@/lib/utils";
+import { useWhopConnection } from "@/components/whop/whop-settings-parts";
 import { BusinessDayCard } from "./business-day-card";
 import { IntegrationsTab } from "./integrations/integrations-tab";
-import { calendlyState, slackState } from "./integrations/integration-status";
+import { calendlyState, slackState, whopState } from "./integrations/integration-status";
 import { LeadGenRulesCard } from "./lead-gen-rules-card";
 import { ResparkSettingsCard } from "./respark-settings-card";
 import { SETTINGS_TABS, SettingsBandFrame, TAB_CLASS, type SettingsTab } from "./settings-band-frame";
@@ -68,9 +69,13 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
   const calendlyStatus = useQuery(api.calendly.oauthQueries.getConnectionStatus, isAdmin ? {} : "skip");
   const slackStatus = usePreloadedQuery(preloadedSlackStatus);
   const now = useNow();
-  const owed = [calendlyStatus ? calendlyState(calendlyStatus, now) : null, slackState(slackStatus)].filter(
-    (state) => state !== null && state.tone !== "ok",
-  );
+  const whopConnection = useWhopConnection(isAdmin);
+  // Whop is optional: not connected is slate and isn't owed.
+  const owed = [
+    calendlyStatus ? calendlyState(calendlyStatus, now) : null,
+    slackState(slackStatus),
+    whopConnection === undefined ? null : whopState(whopConnection),
+  ].filter((state) => state !== null && state.tone !== "ok" && state.tone !== "muted");
   const owedTone = owed.some((state) => state?.tone === "danger") ? "danger" : "warning";
 
   useEffect(() => {

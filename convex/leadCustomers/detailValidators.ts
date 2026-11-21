@@ -157,6 +157,7 @@ const compactPayment = v.object({
     "status",
     "recordedAt",
     "origin",
+    "recordedVia",
   ]),
   permissions,
 });

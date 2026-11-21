@@ -1,5 +1,6 @@
 "use client";
 
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import { Suspense, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -478,7 +479,7 @@ function NotBooking({
 /** How the link ended, in a line: booked, canceled, or the deal marked lost. */
 function LinkSummary({ detail, setting }: { detail: LinkTaskDetail; setting: BusinessDaySetting }) {
   const { followUp, opportunity, bookedMeeting } = detail;
-  const note = followUp.completionNote?.trim();
+  const note = lossReasonLabel(followUp.completionNote?.trim());
 
   let headline: React.ReactNode;
   switch (followUp.status) {

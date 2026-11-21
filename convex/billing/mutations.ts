@@ -1,3 +1,4 @@
+import { noteHumanResult } from "../automation/humanResult";
 import { v, type ObjectType } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
@@ -14,6 +15,7 @@ import {
 } from "../lib/outcomeCores";
 import { hasPermission, type Permission } from "../lib/permissions";
 import { syncPersonEnrollments } from "../lib/enrollments";
+import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { toAmountMinor } from "../lib/formatMoney";
 import { requireActiveProgram } from "../lib/paymentHelpers";
@@ -279,6 +281,12 @@ async function planCorrection(
   if (args.amount !== undefined) {
     const amountMinor = toAmountMinor(args.amount);
     if (amountMinor !== payment.amountMinor) {
+      if (payment.origin === "provider") {
+        throw expectedError(
+          "payment.provider_amount_locked",
+          "This payment came from Whop. Take it out and record the right one instead.",
+        );
+      }
       patch.amountMinor = amountMinor;
       addChangedKey(changedKeys, "amountMinor");
     }
@@ -483,17 +491,17 @@ export async function correctPaymentCore(
   // none (docs/plans/phase-4-customers.md §4.6). Other fields change no
   // enrollment; the sync still rebuilds the search row, whose total an
   // amount correction changes.
-  if (nextPayment.opportunityId) {
-    const opportunity = await ctx.db.get("opportunities", nextPayment.opportunityId);
-    if (opportunity && opportunity.tenantId === tenantId) {
-      await syncPersonEnrollments(ctx, {
-        tenantId,
-        leadId: opportunity.leadId,
-        now,
-        source: "admin",
-        actorUserId: userId,
-      });
-    }
+  const opportunity = nextPayment.opportunityId
+    ? await ctx.db.get("opportunities", nextPayment.opportunityId)
+    : null;
+  if (opportunity?.tenantId === tenantId) {
+    await syncPersonEnrollments(ctx, {
+      tenantId,
+      leadId: opportunity.leadId,
+      now,
+      source: "admin",
+      actorUserId: userId,
+    });
   }
 
   await emitDomainEvent(ctx, {
@@ -514,6 +522,10 @@ export async function correctPaymentCore(
       ...provenanceMetadata(provenance),
     },
   });
+
+  if (opportunity?.tenantId === tenantId && hasChangedKey(changedKeys, FINANCIAL_CORRECTION_KEYS)) {
+    await noteHumanResult(ctx, opportunity._id, actor);
+  }
 
   return {
     paymentRecordId: args.paymentRecordId,

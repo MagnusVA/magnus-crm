@@ -103,6 +103,7 @@ exports[`web paths write what they wrote before the split > createManualReminder
         "_id": "0000000000000010011opportunities",
         "removed": [],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "stage": "follow_up",
           "updatedAt": 1790858400000,
@@ -286,6 +287,7 @@ exports[`web paths write what they wrote before the split > createManualReminder
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "stage": "follow_up",
           "updatedAt": 1790858400000,
@@ -511,6 +513,7 @@ exports[`web paths write what they wrote before the split > logPayment, as an ad
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "outcome": "won",
           "paymentReceivedAt": 1790858400000,
@@ -784,6 +787,7 @@ exports[`web paths write what they wrote before the split > logPayment, as the c
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "outcome": "won",
           "paymentReceivedAt": 1790858400000,
@@ -992,6 +996,7 @@ exports[`web paths write what they wrote before the split > logReminderPayment, 
         "set": {
           "completedAt": 1790858400000,
           "completionOutcome": "payment_received",
+          "completionPaymentId": "000000000000010022paymentRecords",
           "status": "completed",
         },
       },
@@ -1084,6 +1089,7 @@ exports[`web paths write what they wrote before the split > logReminderPayment, 
         "_id": "0000000000000010011opportunities",
         "removed": [],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "outcome": "won",
           "paymentReceivedAt": 1790858400000,
@@ -1295,6 +1301,7 @@ exports[`web paths write what they wrote before the split > logReminderPayment, 
         "set": {
           "completedAt": 1790858400000,
           "completionOutcome": "payment_received",
+          "completionPaymentId": "000000000000010023paymentRecords",
           "status": "completed",
         },
       },
@@ -1387,6 +1394,7 @@ exports[`web paths write what they wrote before the split > logReminderPayment, 
         "_id": "0000000000000010011opportunities",
         "removed": [],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "outcome": "won",
           "paymentReceivedAt": 1790858400000,
@@ -1524,6 +1532,7 @@ exports[`web paths write what they wrote before the split > markAsLost, from the
         "_id": "0000000000000010011opportunities",
         "removed": [],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostByUserId": "000000000000000000000010002users",
@@ -1672,6 +1681,7 @@ exports[`web paths write what they wrote before the split > markAsLost, from the
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostByUserId": "000000000000000000000010002users",
@@ -1822,6 +1832,7 @@ exports[`web paths write what they wrote before the split > markNoShow 1`] = `
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostReason": "no_show",
@@ -1953,6 +1964,7 @@ exports[`web paths write what they wrote before the split > markReminderLost 1`]
         "_id": "0000000000000010011opportunities",
         "removed": [],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostByUserId": "000000000000000000000010002users",

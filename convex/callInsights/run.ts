@@ -8,6 +8,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { schedulePublishedCallEvaluation } from "../automation/callDecisions";
 import {
   businessDateForInstant,
   DEFAULT_BUSINESS_DAY,
@@ -24,6 +25,13 @@ import {
   settleAllAtReservation,
   type ReceiptCost,
 } from "./budget";
+import {
+  buildCallCheckRequests,
+  CALL_CHECK_MICRO_USD,
+  callCheckProposal,
+  combineCallChecks,
+  MAX_CALL_CHECK_RECORDING_MS,
+} from "./callChecks";
 import { callGenericDecisions } from "./decisions";
 import {
   buildReadingRequests,
@@ -39,13 +47,13 @@ import { parseAttendanceOnly, parseExtraction } from "./parse";
 import {
   ATTENDANCE_SCHEMA,
   ATTENDANCE_SYSTEM,
-  EXTRACTION_SCHEMA,
-  EXTRACTION_SYSTEM,
+  extractionSchema,
+  extractionSystem,
   buildUserMessage,
 } from "./prompt";
 import { projectRun, storeSuggestion } from "./publish";
 import { transcriptGone } from "./retention";
-import { effectiveSettings } from "./settings";
+import { callEvidenceWanted, effectiveSettings } from "./settings";
 import { deriveSuggestion } from "./suggest/derive";
 import { CERTAIN_AFTER_SLOT_MS, upsertSuggestion } from "./suggest/state";
 import {
@@ -56,17 +64,27 @@ import {
   type PreparedTranscript,
 } from "./transcriptPrep";
 import { headerFor, latestServingRun, requeueIfMoved } from "./trigger";
-import { validateAttendance, validateExtraction } from "./validate";
+import {
+  validateAttendance,
+  validateEvidence,
+  validateExtraction,
+} from "./validate";
 import {
   attendanceEvidenceValidator,
   attendanceMeasuresValidator,
+  callChecksValidator,
+  callEvidenceValidator,
   droppedCountsValidator,
   earlyReadingValidator,
+  EVIDENCE_PROMPT_VERSION,
+  PROMPT_VERSION,
+  evidenceFailureValidator,
   insightItemValidator,
   resultEvidenceValidator,
   runConfigValidator,
   runReasonValidator,
   type AttendanceMeasures,
+  type CallChecks,
   type EarlyReading,
   type InsightItem,
   type RunReason,
@@ -108,11 +126,16 @@ function backoffMs(attempt: number, retryAfterSeconds?: number): number {
 }
 
 /** The reservation for a run's Jev requests: one lump for items, readings and the result check. */
-export function jevReserveMicroUsd(items: number, readings: number): number {
+export function jevReserveMicroUsd(
+  items: number,
+  readings: number,
+  callChecks = false,
+): number {
   return (
     items * JEV_ITEM_MICRO_USD +
     readings * JEV_READING_MICRO_USD +
-    JEV_RESULT_MICRO_USD
+    JEV_RESULT_MICRO_USD +
+    (callChecks ? 2 * CALL_CHECK_MICRO_USD : 0)
   );
 }
 
@@ -150,6 +173,8 @@ const loadedValidator = v.object({
   // A run resuming its Jev stage carries what Claude already said.
   items: v.optional(v.array(insightItemValidator)),
   result: v.optional(resultEvidenceValidator),
+  evidence: v.optional(callEvidenceValidator),
+  earlyReading: v.optional(earlyReadingValidator),
   checkRetries: v.number(),
 });
 
@@ -349,6 +374,8 @@ export const load = internalQuery({
             deal.nextMeetingId !== meeting._id),
         items: run.status === "checking" ? run.items : undefined,
         result: run.status === "checking" ? run.result : undefined,
+        evidence: run.status === "checking" ? run.evidence : undefined,
+        earlyReading: run.status === "checking" ? run.earlyReading : undefined,
         checkRetries: run.checkRetries ?? 0,
       },
     };
@@ -404,11 +431,15 @@ export const begin = internalMutation({
     expect: v.union(v.literal("extract"), v.literal("check")),
     claudeMicroUsd: v.number(),
     jevMicroUsd: v.number(),
+    reserveCallChecks: v.optional(v.boolean()),
     secondOpinionSpentUsd: v.number(),
   },
   returns: v.union(
     v.null(),
-    v.object({ claimToken: v.string(), attempt: v.number() }),
+    v.object({
+      claimToken: v.string(), attempt: v.number(),
+      promptVersion: v.string(), evidenceEnabled: v.boolean(),
+    }),
   ),
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -438,6 +469,22 @@ export const begin = internalMutation({
       await noteJobItem(ctx, run, "skipped");
       return null;
     }
+    const evidenceEnabled = run.config.promptVersion === EVIDENCE_PROMPT_VERSION &&
+      run.config.callEvidence === true &&
+      (run.purpose === "eval" || callEvidenceWanted(tenant));
+    const config = run.purpose === "serve" && !resuming &&
+      run.config.promptVersion === EVIDENCE_PROMPT_VERSION && !evidenceEnabled
+      ? { ...run.config, promptVersion: PROMPT_VERSION, callEvidence: undefined }
+      : run.config;
+    // A p2 run may have finished its legacy checks before the evidence
+    // switch changed. Its retry only needs to reserve unfinished item checks.
+    const skipCompletedChecks = resuming && run.purpose === "serve" &&
+      run.config.callEvidence && !evidenceEnabled && run.earlyReading;
+    const legacyJevMicroUsd = skipCompletedChecks
+      ? (run.config.itemCheck ? (run.items ?? []).filter(needsItemCheck).length * JEV_ITEM_MICRO_USD : 0)
+      : args.jevMicroUsd;
+    const jevMicroUsd = legacyJevMicroUsd +
+      (evidenceEnabled && args.reserveCallChecks ? 2 * CALL_CHECK_MICRO_USD : 0);
     if (run.jobId) {
       const job = await ctx.db.get("callInsightJobs", run.jobId);
       // A job never commits more than its ceiling: what it spent, what its
@@ -447,7 +494,7 @@ export const begin = internalMutation({
         job.spentMicroUsd +
           (await jobOpenReservationsMicroUsd(ctx, job._id, run._id)) +
           args.claudeMicroUsd +
-          args.jevMicroUsd >
+          jevMicroUsd >
           job.ceilingMicroUsd;
       if (!job || job.status !== "running" || overCeiling) {
         await ctx.db.patch("callInsightRuns", run._id, {
@@ -482,7 +529,7 @@ export const begin = internalMutation({
       {
         key: `jev:${suffix}`,
         origin: "jev_item" as const,
-        amount: args.jevMicroUsd,
+        amount: jevMicroUsd,
       },
     ];
     // One admission for the whole attempt: both reservations fit or neither is made.
@@ -530,6 +577,7 @@ export const begin = internalMutation({
       status: resuming ? "checking" : "running",
       reason: undefined,
       kind: resuming ? run.kind : args.kind,
+      config,
       attempt,
       claimToken,
       leaseUntil: now + LEASE_MS,
@@ -545,7 +593,7 @@ export const begin = internalMutation({
       undefined,
       now,
     );
-    return { claimToken, attempt };
+    return { claimToken, attempt, promptVersion: config.promptVersion, evidenceEnabled };
   },
 });
 
@@ -648,6 +696,8 @@ const saveExtractionArgs = {
   primaryBlockerExtracted: v.optional(v.string()),
   speakerUncertain: v.boolean(),
   result: v.optional(resultEvidenceValidator),
+  evidence: v.optional(callEvidenceValidator),
+  evidenceFailure: v.optional(evidenceFailureValidator),
   attendance: attendanceEvidenceValidator,
   measures: attendanceMeasuresValidator,
   cost: costValidator,
@@ -707,6 +757,8 @@ export const saveExtraction = internalMutation({
       primaryBlockerExtracted: args.primaryBlockerExtracted,
       speakerUncertain: args.speakerUncertain,
       result: args.result,
+      evidence: args.evidence,
+      evidenceFailure: args.evidenceFailure,
       attendance: args.attendance,
       measures: args.measures,
       receipts,
@@ -735,6 +787,8 @@ export const release = internalMutation({
     costUnknown: v.optional(v.boolean()),
     /** Jev answers that did arrive, kept so a retry asks only for the rest. */
     items: v.optional(v.array(insightItemValidator)),
+    /** Reuse the completed early reading when only the new call checks need a retry. */
+    earlyReading: v.optional(earlyReadingValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -773,6 +827,7 @@ export const release = internalMutation({
           run.quotesPurgedAt === undefined
             ? (args.items ?? run.items)
             : run.items,
+        earlyReading: args.earlyReading ?? run.earlyReading,
         claimToken: undefined,
         leaseUntil: undefined,
         nextAttemptAt: now + delay,
@@ -824,6 +879,7 @@ export const publish = internalMutation({
     claimToken: v.string(),
     items: v.array(insightItemValidator),
     earlyReading: earlyReadingValidator,
+    callChecks: v.optional(callChecksValidator),
     jevCost: costValidator,
   },
   returns: v.null(),
@@ -872,6 +928,7 @@ export const publish = internalMutation({
     const settings = effectiveSettings(tenant);
     if (!meeting || !settings) return await end("skipped", "disabled");
 
+    const keepEvidence = run.purpose === "eval" || callEvidenceWanted(tenant);
     const primaryBlockerExtracted = run.primaryBlockerExtracted;
     const survived = args.items.filter((item) => item.check !== "rejected");
     const finished = {
@@ -879,6 +936,9 @@ export const publish = internalMutation({
       reason: undefined,
       items: args.items,
       earlyReading: args.earlyReading,
+      callChecks: keepEvidence ? args.callChecks : undefined,
+      evidence: keepEvidence ? run.evidence : undefined,
+      evidenceFailure: keepEvidence ? run.evidenceFailure : undefined,
       primaryBlocker:
         primaryBlockerExtracted &&
         survived.some(
@@ -927,6 +987,7 @@ export const publish = internalMutation({
           settings,
           now,
         });
+        await schedulePublishedCallEvaluation(ctx, tenant, meeting, "published", now);
       }
     }
     await noteJobItem(ctx, run, "done");
@@ -948,6 +1009,10 @@ function sumCost(costs: Array<number | undefined>): number | undefined {
     (cost): cost is number => typeof cost === "number",
   );
   return known.length ? known.reduce((a, b) => a + b, 0) : undefined;
+}
+
+function needsItemCheck(item: InsightItem) {
+  return item.check === "unchecked" && item.score === undefined;
 }
 
 async function inChunks<T, R>(
@@ -1065,12 +1130,14 @@ export const read = internalAction({
     const recordingLengthSeconds = Math.round(
       (input.recordingEndAt - input.recordingStartAt) / 1000,
     );
-    const readingsWanted = kind === "full" ? 4 : 2;
+    const canRunCallChecks =
+      kind === "full" &&
+      input.recordingEndAt - input.recordingStartAt <= MAX_CALL_CHECK_RECORDING_MS &&
+      (!resuming || input.evidence !== undefined);
+    const readingsWanted = input.earlyReading ? 0 : kind === "full" ? 4 : 2;
     const itemsBound = resuming
       ? (input.items?.length ?? 0)
-      : kind === "full"
-        ? 44
-        : 0;
+      : kind === "full" ? 44 : 0;
 
     const claim = await ctx.runMutation(internal.callInsights.run.begin, {
       runId: args.runId,
@@ -1083,10 +1150,8 @@ export const read = internalAction({
             transcript.estimatedTokens,
             MAX_OUTPUT_TOKENS,
           ),
-      jevMicroUsd: jevReserveMicroUsd(
-        input.config.itemCheck ? itemsBound : 0,
-        readingsWanted,
-      ),
+      jevMicroUsd: jevReserveMicroUsd(input.config.itemCheck ? itemsBound : 0, readingsWanted),
+      reserveCallChecks: canRunCallChecks,
       secondOpinionSpentUsd: await secondOpinionSpendUsd(
         ctx,
         input.tenantId,
@@ -1095,12 +1160,26 @@ export const read = internalAction({
     });
     if (!claim) return null;
     const { claimToken } = claim;
+    const evidenceWanted = kind === "full" && claim.evidenceEnabled;
+    const callChecksWanted = canRunCallChecks && claim.evidenceEnabled;
     const claudeKey = `claude:${claim.attempt}`;
     const getToken = () => getServiceToken("ai-gateway");
 
     try {
       let items: InsightItem[];
       let result = input.result;
+      let evidence = input.evidence;
+      const timeContext = { timeZone: input.timeZone, callDateIso: "" };
+      if (!resuming || callChecksWanted) {
+        // "Tomorrow at three" counts from the day of the call in the tenant's zone.
+        timeContext.callDateIso = businessDateForInstant(
+          input.recordingStartAt,
+          {
+            timeZone: input.timeZone,
+            dayStartHour: 0,
+          },
+        );
+      }
       if (resuming) {
         items = input.items ?? [];
       } else {
@@ -1108,19 +1187,20 @@ export const read = internalAction({
         const response = await callMessages(
           buildMessagesRequest({
             model: input.config.model,
-            system: kind === "full" ? EXTRACTION_SYSTEM : ATTENDANCE_SYSTEM,
+            system:
+              kind === "full"
+                ? extractionSystem(claim.promptVersion)
+                : ATTENDANCE_SYSTEM,
             user: buildUserMessage({
               rendered,
               scheduledStartOffsetSeconds,
-              // "Tomorrow at three" counts from the day of the call where
-              // the tenant is, not from the UTC date of this read.
-              todayIso: businessDateForInstant(input.recordingStartAt, {
-                timeZone: input.timeZone,
-                dayStartHour: 0,
-              }),
+              todayIso: timeContext.callDateIso,
               timeZone: input.timeZone,
             }),
-            schema: kind === "full" ? EXTRACTION_SCHEMA : ATTENDANCE_SCHEMA,
+            schema:
+              kind === "full"
+                ? extractionSchema(claim.promptVersion)
+                : ATTENDANCE_SCHEMA,
             maxTokens: MAX_OUTPUT_TOKENS,
             effort: "low",
           }),
@@ -1173,7 +1253,7 @@ export const read = internalAction({
         let saved: SaveExtractionArgs;
         try {
           if (kind === "full") {
-            const raw = parseExtraction(response.text);
+            const raw = parseExtraction(response.text, evidenceWanted);
             const validated = validateExtraction(raw, transcript, {
               timeZone: input.timeZone,
               now,
@@ -1197,6 +1277,19 @@ export const read = internalAction({
                 ...validated.result,
                 values: { ...validated.result.values, programId: program?.id },
               },
+              ...(evidenceWanted
+                ? raw.evidence
+                  ? {
+                      evidence: validateEvidence(raw.evidence, transcript, {
+                        ...timeContext,
+                        callEndedAt: input.recordingEndAt,
+                      }),
+                    }
+                  : {
+                      evidenceFailure:
+                        raw.evidenceFailure ?? "missing_evidence",
+                    }
+                : {}),
               // The timing rules for waiting and leaving quotes need the
               // recording's offsets, which the item validator doesn't have.
               attendance: validateAttendance(
@@ -1252,6 +1345,7 @@ export const read = internalAction({
           return null;
         items = saved.items;
         result = saved.result;
+        evidence = saved.evidence;
       }
 
       // Jev: one request per item that has no answer yet, the call read twice
@@ -1266,8 +1360,7 @@ export const read = internalAction({
       let missing = false;
       const checked = input.config.itemCheck
         ? await inChunks(items, JEV_PARALLEL, async (item) => {
-            if (item.check !== "unchecked" || item.score !== undefined)
-              return item;
+            if (!needsItemCheck(item)) return item;
             const answer = await callGenericDecisions(
               buildItemCheck(item, transcript.lines),
               getToken,
@@ -1282,52 +1375,82 @@ export const read = internalAction({
           })
         : items;
 
-      const readingRequests = buildReadingRequests({
-        kind,
-        callKind: input.callKind,
-        program: input.program,
-        recordedMinutes: Math.max(
-          0,
-          (input.recordingEndAt - input.recordingStartAt) / 60_000,
-        ),
-        summary: input.summary,
-        actionItems: input.actionItems,
-        lines: transcript.lines,
-      });
-      const parsedReadings: Array<{ key: string; answers: PartialAnswers }> =
-        [];
-      let readingIncomplete = false;
-      await Promise.all(
-        readingRequests.map(async ({ key, request }) => {
-          const answer = await callDecisions(request, getToken);
-          if (answer.kind !== "ok") {
-            readingIncomplete = true;
-            if (answer.kind === "retryable") noteFailure(answer.status);
-            return;
+      let earlyReading: EarlyReading | undefined = input.earlyReading;
+      if (!earlyReading) {
+        const readingRequests = buildReadingRequests({
+          kind,
+          callKind: input.callKind,
+          program: input.program,
+          recordedMinutes: Math.max(
+            0,
+            (input.recordingEndAt - input.recordingStartAt) / 60_000,
+          ),
+          summary: input.summary,
+          actionItems: input.actionItems,
+          lines: transcript.lines,
+        });
+        const parsedReadings: Array<{ key: string; answers: PartialAnswers }> =
+          [];
+        let readingIncomplete = false;
+        await Promise.all(
+          readingRequests.map(async ({ key, request }) => {
+            const answer = await callDecisions(request, getToken);
+            if (answer.kind !== "ok") {
+              readingIncomplete = true;
+              if (answer.kind === "retryable") noteFailure(answer.status);
+              return;
+            }
+            jevCosts.push(answer.parsed.costUsd);
+            parsedReadings.push({ key, answers: answer.parsed.answers });
+          }),
+        );
+        earlyReading = combineReadingAnswers(parsedReadings, readingIncomplete);
+        const resultCheck = result
+          ? buildResultCheck(result, transcript.lines)
+          : null;
+        if (resultCheck) {
+          const answer = await callGenericDecisions(resultCheck, getToken);
+          if (answer.kind === "ok") {
+            jevCosts.push(answer.costUsd);
+            earlyReading = {
+              ...earlyReading,
+              resultCheck: answer.answers.result?.noul,
+            };
+          } else {
+            earlyReading = { ...earlyReading, incomplete: true };
+            if (answer.kind === "busy") noteFailure(answer.status);
           }
-          jevCosts.push(answer.parsed.costUsd);
-          parsedReadings.push({ key, answers: answer.parsed.answers });
-        }),
-      );
-      let earlyReading: EarlyReading = combineReadingAnswers(
-        parsedReadings,
-        readingIncomplete,
-      );
-      const resultCheck = result
-        ? buildResultCheck(result, transcript.lines)
-        : null;
-      if (resultCheck) {
-        const answer = await callGenericDecisions(resultCheck, getToken);
-        if (answer.kind === "ok") {
-          jevCosts.push(answer.costUsd);
-          earlyReading = {
-            ...earlyReading,
-            resultCheck: answer.answers.result?.noul,
-          };
-        } else {
-          earlyReading = { ...earlyReading, incomplete: true };
-          if (answer.kind === "busy") noteFailure(answer.status);
         }
+      }
+
+      let callChecks: CallChecks | undefined;
+      let callCheckFormatChanged = false;
+      if (callChecksWanted && evidence) {
+        const requests = buildCallCheckRequests({
+          evidence,
+          lines: transcript.lines,
+          proposal: callCheckProposal(evidence),
+          timeContext,
+        });
+        const answers = await Promise.all(
+          requests.map(async ({ key, request }) => {
+            const answer = await callGenericDecisions(request, getToken);
+            if (answer.kind === "ok") {
+              jevCosts.push(answer.costUsd);
+              return { key, answers: answer.answers };
+            }
+            if (answer.kind === "busy") noteFailure(answer.status);
+            if (answer.kind === "format_changed") {
+              callCheckFormatChanged = true;
+              jevCostUnknown = true;
+            }
+            return undefined;
+          }),
+        );
+        callChecks = combineCallChecks(
+          answers.filter((answer) => answer !== undefined),
+          answers.includes(undefined),
+        );
       }
       // With any cost unknown the whole Jev reservation is kept as spent.
       const jevCost: ReceiptCost =
@@ -1336,8 +1459,9 @@ export const read = internalAction({
           : { costUsd: sumCost(jevCosts) ?? 0 };
 
       const checkRetries = input.checkRetries + (resuming ? 1 : 0);
+      const legacyIncomplete = missing || earlyReading.incomplete;
       if (
-        (missing || earlyReading.incomplete) &&
+        (legacyIncomplete || callChecks?.incomplete) &&
         checkRetries < MAX_CHECK_RETRIES
       ) {
         // Keep the answers that arrived; a later attempt asks only for the rest.
@@ -1350,10 +1474,14 @@ export const read = internalAction({
         await ctx.runMutation(internal.callInsights.run.release, {
           runId: args.runId,
           claimToken,
-          reason: "upstream_error",
+          reason:
+            !legacyIncomplete && callCheckFormatChanged
+              ? "format_changed"
+              : "upstream_error",
           retry: true,
           costs: open,
           items: checked,
+          earlyReading: legacyIncomplete ? undefined : earlyReading,
         });
         return null;
       }
@@ -1368,6 +1496,7 @@ export const read = internalAction({
             : item,
         ),
         earlyReading,
+        callChecks,
         jevCost,
       });
     } catch {

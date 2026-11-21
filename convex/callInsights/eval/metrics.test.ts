@@ -50,7 +50,21 @@ function fixture(key: string, i: number, bad = false): MetricCase {
     itemClass: "attendance",
     category: "no_show",
   });
-  if (["invented_income", "income_right"].includes(key))
+  if (key === "call_evidence") {
+    c.evidenceExpected = true;
+    c.labels = [
+      label(`a${i}`, {
+        itemClass: "evidence",
+        source: "admin",
+        evidenceBlind: true,
+        recordingScope: "whole",
+      }),
+      label(`e${i}`, {
+        itemClass: "evidence",
+        recordingScope: bad ? "fragment" : "whole",
+      }),
+    ];
+  } else if (["invented_income", "income_right"].includes(key))
     c.labels = [0, 1].map((j) =>
       label(`e${i}:${j}`, {
         adminVerdict: bad ? "wrong" : "right",
@@ -207,6 +221,35 @@ describe("every fixed-sample bar", () => {
       n: 30,
       calls: 1,
       result: "inconclusive",
+    });
+  });
+  it("excludes exposed truth and p1 calls, and fails missing p2 evidence", () => {
+    const sample = Array.from({ length: 15 }, (_, i) =>
+      fixture("call_evidence", i),
+    );
+    sample[0].labels[0].evidenceBlind = false;
+    expect(bar("call_evidence", sample)).toMatchObject({
+      calls: 14,
+      result: "inconclusive",
+    });
+    sample[0].labels[0].evidenceBlind = true;
+    sample[0].labels.pop();
+    sample[0].evidenceExpected = false;
+    expect(bar("call_evidence", sample)).toMatchObject({
+      calls: 14,
+      result: "inconclusive",
+    });
+    sample[0].evidenceExpected = true;
+    expect(bar("call_evidence", sample)).toMatchObject({
+      calls: 15,
+      wrong: 1,
+      result: "pass",
+    });
+    sample[1].labels.pop();
+    expect(bar("call_evidence", sample)).toMatchObject({
+      calls: 15,
+      wrong: 2,
+      result: "fail",
     });
   });
   it("counts one person once, committed labels only, and does not mutate input order", () => {

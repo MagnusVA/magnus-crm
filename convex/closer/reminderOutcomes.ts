@@ -1,3 +1,5 @@
+import { settleReminderPaymentTask } from "../lib/taskSettlement";
+import { assertTypedLossReason } from "../opportunities/reservedLossReason";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -6,7 +8,7 @@ import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { recordPayment } from "../lib/leadLifecycle";
+import { insertRecordedPayment } from "../lib/paymentWrite";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
@@ -41,9 +43,22 @@ import {
   loadDealTasks,
 } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
+import { noteHumanResult } from "../automation/humanResult";
+import { markAttendanceOwed } from "../payments/attendanceDebt";
 import {
-  insertPaymentAggregate,
-} from "../reporting/writeHooks";
+  allocateReconciledPayment,
+  attachReconciledPayment,
+  finishReconciledPayment,
+  loadReminderPaymentTarget,
+  providerIntentValidator,
+  providerWaivesProof,
+  readReconciliationDealPayments,
+  reconcilePaymentWrite,
+  reconciledPaymentFields,
+  reconciledPaymentSelection,
+  type InsertReconciliation,
+  type ProviderIntent,
+} from "../payments/reconcileCheck";
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -97,49 +112,6 @@ async function loadOwnedPendingReminder(
 }
 
 const TASK_PAYMENT_ROLES = ["closer", "tenant_master", "tenant_admin"] as const;
-type TaskPaymentRole = (typeof TASK_PAYMENT_ROLES)[number];
-
-async function loadPendingReminderForPayment(
-  ctx: QueryCtx | MutationCtx,
-  actor: CoreActor & { role: TaskPaymentRole },
-  followUpId: Id<"followUps">,
-): Promise<{
-  followUp: Doc<"followUps">;
-  opportunity: Doc<"opportunities">;
-  tenantId: Id<"tenants">;
-  userId: Id<"users">;
-  role: TaskPaymentRole;
-}> {
-  const { userId, tenantId, role } = actor;
-
-  const followUp = await ctx.db.get("followUps", followUpId);
-  if (!followUp) {
-    throw new Error("Reminder not found");
-  }
-  if (followUp.tenantId !== tenantId) {
-    throw new Error("Access denied");
-  }
-  if (role === "closer" && followUp.closerId !== userId) {
-    throw new Error("Not your reminder");
-  }
-  if (followUp.type !== "manual_reminder") {
-    throw new Error("Only manual reminders can be resolved on this page");
-  }
-  if (followUp.reason === "stale_opportunity_nudge") {
-    throw new Error(
-      "Stale opportunity nudges must be resolved from the opportunity detail page.",
-    );
-  }
-  if (followUp.status !== "pending") {
-    throw new Error("Reminder is not pending");
-  }
-
-  const opportunity = await ctx.db.get("opportunities", followUp.opportunityId);
-  if (!opportunity || opportunity.tenantId !== tenantId) {
-    throw new Error("Opportunity not found");
-  }
-  return { followUp, opportunity, tenantId, userId, role };
-}
 
 export const logReminderPayment = mutation({
   args: {
@@ -149,6 +121,7 @@ export const logReminderPayment = mutation({
     programId: v.id("tenantPrograms"),
     paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
+    provider: v.optional(providerIntentValidator),
   },
   handler: async (ctx, args) => {
     const actor = await requireTenantUser(ctx, [...TASK_PAYMENT_ROLES]);
@@ -164,6 +137,7 @@ export type TaskPaymentArgs = {
   programId: Id<"tenantPrograms">;
   paymentType: PaymentType;
   proofFileId?: Id<"_storage">;
+  provider?: ProviderIntent;
 };
 
 /**
@@ -174,11 +148,12 @@ async function checkTaskPayment(
   ctx: QueryCtx | MutationCtx,
   actor: CoreActor,
   args: TaskPaymentArgs,
-  options: ProofCheckOptions = {},
+  { followUp, opportunity }: Awaited<ReturnType<typeof loadReminderPaymentTarget>>,
+  options: ProofCheckOptions,
+  reconciliation?: InsertReconciliation,
 ) {
-  assertCoreRole(actor, TASK_PAYMENT_ROLES);
-  const { followUp, opportunity, tenantId, userId, role } =
-    await loadPendingReminderForPayment(ctx, actor, args.followUpId);
+  const { userId, tenantId, role } = actor;
+  if (followUp.status !== "pending") throw new Error("Reminder is not pending");
 
   if (!canTakePayment(opportunity, await loadDealTasks(ctx, opportunity._id))) {
     throw new Error(
@@ -190,15 +165,18 @@ async function checkTaskPayment(
   }
 
   const currency = validateCurrency(args.currency);
-  const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
-  const paymentType = resolvePaymentType(args.paymentType);
+  const selection = reconciledPaymentSelection(reconciliation, args);
+  const program = await resolveProgramForWrite(ctx, tenantId, selection.programId);
+  const paymentType = resolvePaymentType(selection.paymentType);
   const now = Date.now();
   const amountMinor = toAmountMinor(args.amount);
   const meetingId = opportunity.latestMeetingId ?? undefined;
   const attributedCloserId =
-    role === "closer" ? userId : followUp.closerId;
-  const origin: PaymentOrigin =
-    role === "closer" ? "closer_reminder" : "admin_reminder";
+    reconciliation?.action === "insert_from_provider" ? reconciliation.proposal.attributedCloserId
+      : role === "closer" ? userId : followUp.closerId;
+  const origin: PaymentOrigin = reconciliation?.action === "insert_from_provider"
+    ? "provider"
+    : role === "closer" ? "closer_reminder" : "admin_reminder";
 
   assertPaymentRow({
     tenantId,
@@ -209,8 +187,9 @@ async function checkTaskPayment(
     programId: program._id,
     paymentType,
   });
+  const whopWaivesProof = reconciliation && providerWaivesProof(reconciliation, amountMinor, currency);
   const proof =
-    options.proof === "skip"
+    options.proof === "skip" || (whopWaivesProof && !args.proofFileId)
       ? null
       : await checkPaymentProof(ctx, { role, userId, proofFileId: args.proofFileId });
 
@@ -255,7 +234,11 @@ export async function checkTaskPaymentAllowed(
   }>
 > {
   return await toCheckResult(async () => {
-    const checked = await checkTaskPayment(ctx, actor, args, options);
+    assertCoreRole(actor, TASK_PAYMENT_ROLES);
+    const target = await loadReminderPaymentTarget(ctx, actor, args.followUpId);
+    const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
+    await reconcilePaymentWrite(ctx, target.opportunity, "reminder", dealPayments);
+    const checked = await checkTaskPayment(ctx, actor, args, target, options);
     return {
       followUpId: checked.followUp._id,
       opportunityId: checked.opportunity._id,
@@ -281,6 +264,18 @@ export async function recordTaskPayment(
   args: TaskPaymentArgs,
   provenance: Provenance,
 ): Promise<Id<"paymentRecords">> {
+  assertCoreRole(actor, TASK_PAYMENT_ROLES);
+  const target = await loadReminderPaymentTarget(ctx, actor, args.followUpId);
+  const dealPayments = await readReconciliationDealPayments(ctx, target.opportunity._id);
+  const reconciliation = await reconcilePaymentWrite(ctx, target.opportunity, "reminder", dealPayments, args.provider, {
+    kind: "reminder", followUpId: target.followUp._id, role: actor.role,
+  });
+  if (reconciliation.action === "attach_existing") {
+    if (await attachReconciledPayment(ctx, reconciliation, actor, args.proofFileId)) {
+      await noteHumanResult(ctx, target.opportunity._id, actor);
+    }
+    return reconciliation.paymentRecordId;
+  }
   const {
     followUp,
     opportunity,
@@ -296,13 +291,15 @@ export async function recordTaskPayment(
     attributedCloserId,
     origin,
     proof,
-  } = await checkTaskPayment(ctx, actor, args);
+  } = await checkTaskPayment(ctx, actor, args, target, {}, reconciliation);
 
   const recordedFields = await newPaymentFields(ctx, tenantId, proof, provenance);
-  const paymentId = await ctx.db.insert("paymentRecords", {
+  // A reminder is evidence for the deal, without naming the call that took the payment.
+  const paymentMeetingId = origin === "provider" ? undefined : meetingId;
+  const paymentId = await insertRecordedPayment(ctx, {
     tenantId,
     opportunityId: opportunity._id,
-    meetingId,
+    meetingId: paymentMeetingId,
     attributedCloserId,
     recordedByUserId: userId,
     amountMinor,
@@ -311,14 +308,12 @@ export async function recordTaskPayment(
     programName: program.name,
     paymentType,
     proofFileId: args.proofFileId ?? undefined,
-    status: "recorded",
-    statusChangedAt: now,
     recordedAt: now,
     origin,
     ...recordedFields,
+    ...reconciledPaymentFields(reconciliation),
   });
-  await recordPayment(ctx, paymentId);
-  await insertPaymentAggregate(ctx, paymentId);
+  await allocateReconciledPayment(ctx, reconciliation, paymentId, actor, now);
   await setSoldProgramCaches(ctx, {
     tenantId,
     opportunityId: opportunity._id,
@@ -353,12 +348,6 @@ export async function recordTaskPayment(
     });
   }
 
-  await ctx.db.patch("followUps", args.followUpId, {
-    status: "completed",
-    completedAt: now,
-    completionOutcome: "payment_received",
-  });
-
   await emitDomainEvent(ctx, {
     tenantId,
     entityType: "payment",
@@ -374,7 +363,7 @@ export async function recordTaskPayment(
       amountMinor,
       currency,
       programId: program._id,
-      programName: program.name,
+      ...(origin !== "provider" && { programName: program.name }),
       paymentType,
       attributedCloserId,
       recordedByUserId: userId,
@@ -383,22 +372,15 @@ export async function recordTaskPayment(
     },
     occurredAt: now,
   });
-  await emitDomainEvent(ctx, {
-    tenantId,
-    entityType: "followUp",
-    entityId: args.followUpId,
-    eventType: "followUp.completed",
+  await settleReminderPaymentTask(ctx, {
+    opportunityId: opportunity._id,
+    paymentRecordId: paymentId,
+    amountMinor,
+    currency,
+    now,
     source: role === "closer" ? "closer" : "admin",
     actorUserId: userId,
-    fromStatus: "pending",
-    toStatus: "completed",
-    metadata: {
-      outcome: "payment_received",
-      origin,
-      ...provenanceMetadata(provenance),
-    },
-    occurredAt: now,
-  });
+  }, followUp, { origin, ...provenanceMetadata(provenance) });
 
   // The person's enrollments follow their payments, and their first one
   // makes them a customer (docs/plans/phase-4-customers.md §4.1, §4.2).
@@ -410,6 +392,12 @@ export async function recordTaskPayment(
     actorUserId: userId,
   });
 
+  if (reconciliation.action === "insert_from_provider") {
+    await markAttendanceOwed(ctx, opportunity._id);
+  }
+  await finishReconciledPayment(ctx, reconciliation, {
+    actor, writer: "reminder", opportunity, paymentId, now, task: followUp,
+  });
   return paymentId;
 }
 
@@ -445,6 +433,7 @@ async function checkTaskLoss(
   if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
     throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
   }
+  assertTypedLossReason(args.reason);
   return { opportunity, tenantId, userId, followUp };
 }
 
@@ -532,6 +521,7 @@ export async function recordTaskLoss(
     },
     occurredAt: now,
   });
+  await noteHumanResult(ctx, opportunity._id, actor);
 }
 
 export const markReminderNoResponse = mutation({
@@ -586,6 +576,7 @@ export const markReminderNoResponse = mutation({
       if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
         throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
       }
+      assertTypedLossReason(trimmedNote);
       const lostReason = trimmedNote ?? "No response to outreach";
 
       await transitionOpportunity(ctx, opportunity._id, {
@@ -667,6 +658,7 @@ export const markReminderNoResponse = mutation({
       });
     }
 
+    await noteHumanResult(ctx, opportunity._id, actor);
     return { newFollowUpId };
   },
 });

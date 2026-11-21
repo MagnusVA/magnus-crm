@@ -4,6 +4,35 @@ type EventLabel = {
 };
 
 export const EVENT_LABELS: Record<string, EventLabel> = {
+  "automation.alert_answered": {
+    verb: "answered a payment check",
+    iconHint: "circle-help",
+  },
+  "automation.audit_recorded": {
+    verb: "audited an automatic result",
+    iconHint: "clipboard-check",
+  },
+  // Written by the system, with no actor.
+  "automation.breaker_tripped": {
+    verb: "Automatic results paused a kind",
+    iconHint: "pause",
+  },
+  "automation.kind_promoted": {
+    verb: "switched a kind to automatic",
+    iconHint: "zap",
+  },
+  "automation.notice_acknowledged": {
+    verb: "acknowledged a refusal notice",
+    iconHint: "eye",
+  },
+  "automation.notice_stopped": {
+    verb: "stopped a refusal",
+    iconHint: "circle-stop",
+  },
+  "automation.settings_changed": {
+    verb: "changed automatic results settings",
+    iconHint: "settings",
+  },
   "customer.conversion_rolled_back": {
     verb: "rolled back a customer conversion",
     iconHint: "undo-2",
@@ -69,6 +98,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     iconHint: "git-branch",
   },
   "meeting.recording_matched": { verb: "matched a call recording", iconHint: "video" },
+  "meeting.attendance_withdrawn": {
+    verb: "withdrew a held mark",
+    iconHint: "undo-2",
+  },
   "meeting.canceled": {
     verb: "canceled a meeting",
     iconHint: "calendar-x-2",
@@ -121,13 +154,41 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "corrected payment details",
     iconHint: "pencil",
   },
+  "payment.flagged_not_my_sale": {
+    verb: "flagged a payment as not their sale",
+    iconHint: "flag",
+  },
+  "payment.not_my_sale_cleared": {
+    verb: "cleared a not-my-sale flag",
+    iconHint: "flag-off",
+  },
   "payment.proof_attached": {
     verb: "attached a payment receipt",
     iconHint: "paperclip",
   },
+  "payment.provider_linked": {
+    verb: "linked Whop evidence to a payment",
+    iconHint: "paperclip",
+  },
+  "payment.provider_unlinked": {
+    verb: "unlinked Whop evidence from a payment",
+    iconHint: "paperclip",
+  },
+  "payment.provider_adverse_acknowledged": {
+    verb: "acknowledged a refund or dispute reported by Whop",
+    iconHint: "badge-check",
+  },
+  "payment.provider_hold_released": {
+    verb: "released a Whop hold on a payment",
+    iconHint: "badge-check",
+  },
   "payment.recorded": {
     verb: "recorded a payment",
     iconHint: "dollar-sign",
+  },
+  "payment.restored": {
+    verb: "restored a payment",
+    iconHint: "undo-2",
   },
   "payment.verified": {
     verb: "marked payment reviewed",

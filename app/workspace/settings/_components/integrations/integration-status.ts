@@ -65,3 +65,37 @@ export function slackState(status: SlackStatus): IntegrationState {
     }
   }
 }
+
+export type WhopConnection = NonNullable<FunctionReturnType<typeof api.payments.connection.getConnection>>;
+
+/**
+ * Whop is optional, so not connected and disconnected are slate, not owed. A
+ * rejected key, a failed check, or a connection still waiting for its webhook
+ * secret counts toward the Integrations tab.
+ */
+export function whopState(connection: WhopConnection | null): IntegrationState {
+  if (!connection) return { word: "Not connected", tone: "muted", connected: false };
+  if (connection.status === "disconnected") return { word: "Disconnected", tone: "muted", connected: false };
+  if (connection.status === "invalid_key") return { word: "Key rejected", tone: "danger", connected: false };
+  if (connection.disputeAccess === "forbidden" &&
+      (connection.lastErrorCode === undefined || connection.lastErrorCode === "forbidden")) {
+    return { word: "Missing permission: disputes", tone: "warning", connected: true };
+  }
+  switch (connection.lastErrorCode) {
+    case "unauthorized":
+      return { word: "Key rejected", tone: "danger", connected: true };
+    case "forbidden":
+      return { word: "Missing permission", tone: "danger", connected: true };
+    case "account_mismatch":
+      return { word: "Wrong account", tone: "danger", connected: true };
+    case "rate_limited":
+      return { word: "Whop busy", tone: "warning", connected: true };
+    case "provider_unavailable":
+    case "unexpected_response":
+      return { word: "Whop not reachable", tone: "warning", connected: true };
+    case undefined:
+      break;
+  }
+  if (!connection.hasWebhookSecret) return { word: "Finish webhook setup", tone: "warning", connected: true };
+  return { word: "Connected", tone: "ok", connected: true };
+}

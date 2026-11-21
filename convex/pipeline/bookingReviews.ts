@@ -450,10 +450,11 @@ export const mergePeople = mutation({
     const keep = await ctx.db.get("leads", keepLeadId);
     const target = keep && (await followMergeChain(ctx, keep));
     if (!target) throw new Error("The person to keep no longer exists");
+    const mergedDeals = people.size > 1 ? new Set<Id<"opportunities">>() : undefined;
     for (const leadId of people) {
-      if (leadId !== target._id) await executeMerge(ctx, tenantId, userId, leadId, target._id);
+      if (leadId !== target._id) await executeMerge(ctx, tenantId, userId, leadId, target._id, mergedDeals);
     }
-    await resolveBookingReview(ctx, review, userId, "merged");
+    await resolveBookingReview(ctx, review, userId, "merged", mergedDeals);
     await retryMergedHold(ctx, review, userId);
     return { alsoClosed: await closeMergedReviews(ctx, tenantId, userId) };
   },

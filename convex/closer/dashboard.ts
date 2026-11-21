@@ -2,8 +2,12 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
+import { ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT, paymentCounts } from "../lib/enrollments";
+import { leadDisplayFromShape, leadDisplayString } from "../lib/leadDisplay";
+import { isCurrentWhopAsk } from "../payments/confirm";
+import { paymentProposalOf } from "../automation/proposals";
 import { requireTenantUser } from "../requireTenantUser";
-import { resolvePaymentType } from "../lib/paymentTypes";
+import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import {
   DEAL_POSITIONS,
   dealPosition,
@@ -261,86 +265,169 @@ export const getNextMeeting = query({
   },
 });
 
+const ATTENDANCE_LIMIT = 30;
+const WHOP_ASK_LIMIT = 20;
+const outcomeRowFields = {
+  scheduledAt: v.number(),
+  durationMinutes: v.number(),
+  leadName: v.string(),
+  programName: v.union(v.string(), v.null()),
+};
+const whopAmountFields = {
+  amountMinor: v.union(v.number(), v.null()),
+  currency: v.union(v.string(), v.null()),
+};
+
+async function meetingOutcomeRow(ctx: QueryCtx, meeting: Doc<"meetings">, opportunity: Doc<"opportunities">) {
+  const eventTypeConfig =
+    meeting.bookingProgramName || opportunity.firstBookingProgramName || !opportunity.eventTypeConfigId
+      ? null
+      : await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId);
+  return {
+    meetingId: meeting._id,
+    scheduledAt: meeting.scheduledAt,
+    durationMinutes: meeting.durationMinutes,
+    leadName: meeting.leadName ?? "Unknown",
+    programName:
+      meeting.bookingProgramName ??
+      opportunity.firstBookingProgramName ??
+      (eventTypeConfig?.tenantId === meeting.tenantId ? eventTypeConfig.displayName : null),
+  };
+}
+
 /**
- * The closer's calls still owed an outcome, newest first: meetings still
- * `scheduled` that start before `before`, whose deal is still the closer's
- * and still takes a meeting outcome (`canRecordMeetingOutcome`), so each one
- * opens on a working outcome bar.
- *
- * Today passes the end of the business day, so the argument moves once a
- * day; queries don't read the clock. Today's calls that haven't ended yet
- * are in the list, and the client keeps the ended ones ("Not recorded",
- * `meetingAttendanceDisplay`) as its clock passes their end.
- *
- * Reads at most NEEDS_OUTCOME_CANDIDATES meetings back from `before` through
- * the attendance index and returns up to NEEDS_OUTCOME_LIMIT. `isPartial`
- * says there may be more than the list holds.
+ * Attendance owed after a Whop win, then asks, then the ordinary calls that
+ * still need a result. The client filters by actual end time as its clock moves.
  */
 export const getMeetingsNeedingOutcome = query({
   args: { before: v.number() },
   returns: v.object({
-    meetings: v.array(
+    meetings: v.array(v.union(
+      v.object({ ...outcomeRowFields, meetingId: v.id("meetings"), rowKind: v.literal("outcome") }),
       v.object({
+        ...outcomeRowFields,
+        ...whopAmountFields,
         meetingId: v.id("meetings"),
-        scheduledAt: v.number(),
-        durationMinutes: v.number(),
-        leadName: v.string(),
-        programName: v.union(v.string(), v.null()),
+        rowKind: v.literal("attendance"),
+        paymentType: v.union(paymentTypeValidator, v.null()),
       }),
-    ),
+      v.object({
+        ...outcomeRowFields,
+        ...whopAmountFields,
+        paidAt: v.union(v.number(), v.null()),
+        rowKind: v.literal("whop_ask"),
+        meetingId: v.optional(v.id("meetings")),
+        followUpId: v.optional(v.id("followUps")),
+        decisionId: v.id("resultAutomationDecisions"),
+        providerPaymentId: v.id("providerPayments"),
+        opportunityId: v.id("opportunities"),
+        href: v.string(),
+      }),
+    )),
     isPartial: v.boolean(),
+    attendancePartial: v.boolean(),
   }),
   handler: async (ctx, { before }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    const [attendanceCandidates, askCandidates, candidates, tenant] = await Promise.all([
+      ctx.db.query("meetings").withIndex("by_tenantId_assignedCloserId_status_attendanceOwedSince", (q) =>
+        q.eq("tenantId", tenantId).eq("assignedCloserId", userId).eq("status", "scheduled")
+          .gt("attendanceOwedSince", undefined).lt("attendanceOwedSince", before))
+        .take(ATTENDANCE_LIMIT + 1),
+      ctx.db.query("resultAutomationDecisions").withIndex("by_tenantId_and_noticeUserId_and_state", (q) =>
+        q.eq("tenantId", tenantId).eq("noticeUserId", userId).eq("state", "ready"))
+        .take(WHOP_ASK_LIMIT + 1),
+      ctx.db.query("meetings").withIndex("by_tenantId_and_assignedCloserId_and_status_and_scheduledAt", (q) =>
+        q.eq("tenantId", tenantId).eq("assignedCloserId", userId).eq("status", "scheduled").lt("scheduledAt", before))
+        .order("desc").take(NEEDS_OUTCOME_CANDIDATES),
+      ctx.db.get("tenants", tenantId),
+    ]);
 
-    const candidates = await ctx.db
-      .query("meetings")
-      .withIndex("by_tenantId_and_assignedCloserId_and_status_and_scheduledAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("assignedCloserId", userId)
-          .eq("status", "scheduled")
-          .lt("scheduledAt", before),
-      )
-      .order("desc")
-      .take(NEEDS_OUTCOME_CANDIDATES);
+    const attendance = [];
+    const includedMeetingIds = new Set<Id<"meetings">>();
+    const paymentsByDeal = new Map<Id<"opportunities">, Doc<"paymentRecords"> | undefined>();
+    const paymentReadState = createLiveReadState();
+    for (const meeting of attendanceCandidates) {
+      if (attendance.length === ATTENDANCE_LIMIT) break;
+      const deal = await ctx.db.get("opportunities", meeting.opportunityId);
+      if (deal?.tenantId !== tenantId || deal.assignedCloserId !== userId || deal.outcome !== "won") continue;
+      if (!paymentsByDeal.has(deal._id) && !paymentReadState.capped) {
+        const { rows } = await readLiveQueryRows(
+          ctx.db.query("paymentRecords").withIndex("by_opportunityId_and_recordedAt", (q) =>
+            q.eq("opportunityId", deal._id)),
+          ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT,
+          paymentReadState,
+        );
+        paymentsByDeal.set(deal._id, rows.find((row) =>
+          row.tenantId === tenantId && row.origin === "provider" && paymentCounts(row)));
+      }
+      const payment = paymentsByDeal.get(deal._id);
+      const [row, lead] = await Promise.all([
+        meetingOutcomeRow(ctx, meeting, deal),
+        meeting.leadName?.trim() ? null : ctx.db.get("leads", deal.leadId),
+      ]);
+      attendance.push({
+        ...row,
+        rowKind: "attendance" as const,
+        leadName: (meeting.leadName?.trim() ? row.leadName : null) ??
+          (lead?.tenantId === tenantId ? leadDisplayFromShape({ fullName: lead.fullName, leadId: lead._id }) : "Unknown"),
+        amountMinor: payment?.amountMinor ?? null,
+        currency: payment?.currency ?? null,
+        paymentType: payment?.paymentType ?? null,
+      });
+      includedMeetingIds.add(meeting._id);
+    }
+
+    const asks = [];
+    for (const decision of askCandidates.slice(0, WHOP_ASK_LIMIT)) {
+      if (!tenant || !decision.opportunityId || !decision.providerPaymentId || decision.createdAt >= before) continue;
+      const [deal, payment] = await Promise.all([
+        ctx.db.get("opportunities", decision.opportunityId), ctx.db.get("providerPayments", decision.providerPaymentId),
+      ]);
+      if (!deal || !payment || !isCurrentWhopAsk(tenant, decision, deal, payment)) continue;
+      const base = {
+        rowKind: "whop_ask" as const, decisionId: decision._id, providerPaymentId: payment._id, opportunityId: deal._id,
+        scheduledAt: decision.createdAt, durationMinutes: 0,
+        amountMinor: payment.totalMinor ?? null, currency: payment.currency, paidAt: payment.paidAt ?? null,
+      };
+      if (decision.confirmRoute === "meeting" && decision.meetingId) {
+        const meeting = await ctx.db.get("meetings", decision.meetingId);
+        if (meeting?.tenantId !== tenantId || meeting.opportunityId !== deal._id || meeting.status !== "scheduled") continue;
+        const row = await meetingOutcomeRow(ctx, meeting, deal);
+        const href = `/workspace/closer/meetings/${meeting._id}`;
+        asks.push({ ...row, ...base, href, followUpId: undefined });
+        includedMeetingIds.add(meeting._id);
+      } else if (decision.confirmRoute === "reminder" && paymentProposalOf(decision)?.completesFollowUpId) {
+        const proposal = paymentProposalOf(decision)!;
+        const task = await ctx.db.get("followUps", proposal.completesFollowUpId!);
+        if (task?.tenantId !== tenantId || task.opportunityId !== deal._id || task.closerId !== userId ||
+            task.type !== "manual_reminder" || task.status !== "pending") continue;
+        const [lead, program] = await Promise.all([
+          ctx.db.get("leads", deal.leadId), ctx.db.get("tenantPrograms", proposal.programId),
+        ]);
+        asks.push({
+          ...base, meetingId: undefined, followUpId: task._id, href: `/workspace/closer/reminders/${task._id}`,
+          leadName: lead?.tenantId === tenantId ? leadDisplayString(lead) : "Unknown",
+          programName: program?.tenantId === tenantId ? program.name : null,
+        });
+      }
+    }
 
     const meetings = [];
     for (const meeting of candidates) {
-      if (meetings.length === NEEDS_OUTCOME_LIMIT) {
-        break;
-      }
-      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
-      if (
-        !opportunity ||
-        opportunity.tenantId !== tenantId ||
-        opportunity.assignedCloserId !== userId ||
-        !canRecordMeetingOutcome(opportunity)
-      ) {
-        continue;
-      }
-      const eventTypeConfig =
-        meeting.bookingProgramName || opportunity.firstBookingProgramName || !opportunity.eventTypeConfigId
-          ? null
-          : await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId);
-      meetings.push({
-        meetingId: meeting._id,
-        scheduledAt: meeting.scheduledAt,
-        durationMinutes: meeting.durationMinutes,
-        leadName: meeting.leadName ?? "Unknown",
-        programName:
-          meeting.bookingProgramName ??
-          opportunity.firstBookingProgramName ??
-          eventTypeConfig?.displayName ??
-          null,
-      });
+      if (meetings.length === NEEDS_OUTCOME_LIMIT) break;
+      if (includedMeetingIds.has(meeting._id)) continue;
+      const deal = await ctx.db.get("opportunities", meeting.opportunityId);
+      if (deal?.tenantId !== tenantId || deal.assignedCloserId !== userId || !canRecordMeetingOutcome(deal)) continue;
+      meetings.push({ ...await meetingOutcomeRow(ctx, meeting, deal), rowKind: "outcome" as const });
     }
 
+    const attendancePartial = attendanceCandidates.length > ATTENDANCE_LIMIT;
     return {
-      meetings,
-      isPartial:
-        meetings.length === NEEDS_OUTCOME_LIMIT ||
-        candidates.length === NEEDS_OUTCOME_CANDIDATES,
+      meetings: [...attendance, ...asks, ...meetings],
+      attendancePartial,
+      isPartial: attendancePartial || askCandidates.length > WHOP_ASK_LIMIT ||
+        meetings.length === NEEDS_OUTCOME_LIMIT || candidates.length === NEEDS_OUTCOME_CANDIDATES,
     };
   },
 });

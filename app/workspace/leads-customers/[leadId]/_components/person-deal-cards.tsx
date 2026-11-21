@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import type { AttributionTouch } from "@/convex/lib/attribution/detailPayload";
-import { SYSTEM_LOSS_REASON_LABELS } from "@/convex/opportunities/stages";
+import { lossReasonLabel } from "@/convex/lib/lossReasonLabel";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 import { formatCash } from "@/lib/closer-pipeline";
@@ -208,7 +208,7 @@ function ClosedDealRow({ deal }: { deal: PersonDealEntry }) {
       ? (latestPayment ?? opportunity.paymentReceivedAt ?? null)
       : (opportunity.lostAt ?? null);
   // A loss the system wrote is already named by the stage word ("Lost: no-show").
-  const reason = opportunity.systemLoss ? null : opportunity.lostReason?.trim() || null;
+  const reason = opportunity.systemLoss ? null : lossReasonLabel(opportunity.lostReason?.trim());
   const amounts = paidByCurrency(own);
 
   return (
@@ -291,9 +291,7 @@ function DealFact({
   }
 
   if (deal.outcome === "lost") {
-    const reason = opportunity.systemLoss
-      ? SYSTEM_LOSS_REASON_LABELS[opportunity.systemLoss]
-      : (opportunity.lostReason?.trim() || "Lost");
+    const reason = lossReasonLabel(opportunity.systemLoss ?? opportunity.lostReason?.trim()) ?? "Lost";
     return (
       <span className={cn(FACT, "min-w-0 truncate")} title={reason} suppressHydrationWarning>
         <span className="text-danger-ink">{reason}</span>

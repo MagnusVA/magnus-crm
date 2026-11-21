@@ -1,5 +1,10 @@
 import type { Doc } from "../../_generated/dataModel";
-import type { InsightItem, SuggestionValues } from "../validators";
+import {
+  EVIDENCE_LABEL_KEYS,
+  type EvidenceLabelValues,
+  type InsightItem,
+  type SuggestionValues,
+} from "../validators";
 import { lowerBound } from "./stats";
 
 export type ReportKind = "quality" | "suggestions" | "no_show";
@@ -24,9 +29,12 @@ export type MetricCase = {
       | "resultTier"
       | "resultValues"
       | "noShowTier"
-    >
+      | "evidenceBlind"
+    > &
+      Partial<EvidenceLabelValues>
   >;
   items?: Pick<InsightItem, "key" | "check">[];
+  evidenceExpected?: boolean;
   recordedKind?: string;
   hardCaseHeld?: boolean;
 };
@@ -104,6 +112,18 @@ export const BAR_DEFINITIONS: readonly BarDefinition[] = [
     callFloor: 15,
     rule: "at most 5 percentage points of call recall lost",
     maxCallLoss: 0.05,
+  },
+  {
+    // Use the first 15 independent, blind-graded p2 calls. Every field
+    // must match on at least 90% of those calls (at least 14 of 15).
+    key: "call_evidence",
+    kind: "quality",
+    label: "Call evidence matches the blind grades",
+    capability: "Call evidence",
+    floor: 15,
+    callFloor: 15,
+    rule: "at least 14 of 15 calls match on every evidence field",
+    callRate: 0.9,
   },
   {
     key: "right_result",
@@ -296,6 +316,17 @@ function valueRight(
     (!admin || label?.resultValues?.[key] === admin.resultValues?.[key])
   );
 }
+export function evidenceDifferences(
+  reading: Partial<EvidenceLabelValues>,
+  truth: Partial<EvidenceLabelValues>,
+) {
+  return EVIDENCE_LABEL_KEYS.filter((key) => reading[key] !== truth[key]);
+}
+
+export function hasWrongObjection(c: MetricCase): boolean {
+  return units(c, "objection_precision").some((u) => u.wrong);
+}
+
 function units(c: MetricCase, key: string): Unit[] {
   const s = result(c),
     a = own(c, "result"),
@@ -309,6 +340,17 @@ function units(c: MetricCase, key: string): Unit[] {
     fieldRight(s, "resultKind") && (!a || s?.resultKind === a.resultKind);
   const attendanceRight = own(c, "attendance") ? !held : fieldRight(attendance);
   switch (key) {
+    case "call_evidence": {
+      const truth = own(c, "evidence");
+      const evidence = extracted(c, "evidence")[0];
+      return one(
+        truth?.evidenceBlind === true &&
+          (c.evidenceExpected === true || !!evidence),
+        !!truth &&
+          !!evidence &&
+          evidenceDifferences(evidence, truth).length === 0,
+      );
+    }
     case "invented_income":
       return extracted(c, "income").map((l) => ({
         wrong:

@@ -39,6 +39,19 @@ exports[`web paths write what they wrote before the split > adminCancelPendingFo
     ],
     "deleted": [],
   },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010009opportunities",
+        "removed": [],
+        "set": {
+          "humanResultRevision": 1,
+        },
+      },
+    ],
+    "deleted": [],
+  },
 }
 `;
 
@@ -77,6 +90,19 @@ exports[`web paths write what they wrote before the split > adminCancelTask, on 
         "removed": [],
         "set": {
           "status": "expired",
+        },
+      },
+    ],
+    "deleted": [],
+  },
+  "opportunities": {
+    "added": [],
+    "changed": [
+      {
+        "_id": "0000000000000010009opportunities",
+        "removed": [],
+        "set": {
+          "humanResultRevision": 2,
         },
       },
     ],
@@ -243,6 +269,7 @@ exports[`web paths write what they wrote before the split > adminCreateFollowUp,
             "nextMeetingId",
           ],
           "set": {
+            "humanResultRevision": 1,
             "latestActivityAt": 1790858400000,
             "stage": "follow_up",
             "updatedAt": 1790858400000,
@@ -429,6 +456,7 @@ exports[`web paths write what they wrote before the split > adminCreateManualRem
             "nextMeetingId",
           ],
           "set": {
+            "humanResultRevision": 1,
             "latestActivityAt": 1790858400000,
             "stage": "follow_up",
             "updatedAt": 1790858400000,
@@ -564,6 +592,7 @@ exports[`web paths write what they wrote before the split > adminCreateReschedul
             "lostReason",
           ],
           "set": {
+            "humanResultRevision": 2,
             "latestActivityAt": 1790858520000,
             "outcome": "open",
             "stage": "follow_up",
@@ -656,6 +685,7 @@ exports[`web paths write what they wrote before the split > adminMarkAsLost, fro
         "_id": "0000000000000010009opportunities",
         "removed": [],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostByUserId": "000000000000000000000010001users",
@@ -803,6 +833,7 @@ exports[`web paths write what they wrote before the split > adminMarkAsLost, fro
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostByUserId": "000000000000000000000010001users",
@@ -951,6 +982,7 @@ exports[`web paths write what they wrote before the split > adminMarkNoShow 1`] 
           "nextMeetingId",
         ],
         "set": {
+          "humanResultRevision": 1,
           "latestActivityAt": 1790858400000,
           "lostAt": 1790858400000,
           "lostReason": "no_show",

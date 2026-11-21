@@ -21,6 +21,7 @@ import { validateCustomDashboardRange } from "./dashboard-date-utils";
 import { DateRangePicker, formatBusinessDateSpan, rangePhrase, type DashboardRangeInput } from "./date-range-picker";
 import type { OverviewDashboard } from "./overview-dashboard-types";
 import { DmClosersRanking, LeadGenRanking, QualifiersRanking } from "./overview-rankings";
+import { AutomationBanner } from "./automation-banner";
 import { PageBand } from "./page-band";
 import { PhoneCloserOperationsSection } from "./phone-closer-operations-section";
 import { OverviewDashboardSkeleton, OverviewSectionsSkeleton } from "./skeletons/overview-dashboard-skeleton";
@@ -134,6 +135,7 @@ export function DashboardPageClient() {
         }
       />
 
+      <AutomationBanner />
       <AnalyticsFreshnessAlert summary={freshness} />
 
       {overview ? (

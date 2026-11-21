@@ -5,6 +5,9 @@ import {
   decisionsAnswer,
   gatewayFetch,
 } from "../../tests/callInsightsHarness";
+import { insertProgram } from "../../tests/enrollmentReadFixtures";
+import { seedProviderRow } from "../../tests/providerRowFixtures";
+import { compareSuggestion, recordedResultForMeeting } from "./recordedResult";
 import { queueRead } from "./trigger";
 
 vi.mock("convex/server", async (importOriginal) => ({
@@ -504,5 +507,113 @@ describe("admin reads", () => {
     expect(
       (await f.owner.query(queries.agreementSplit, {}))?.usedEdited.total,
     ).toBe(1);
+  });
+});
+
+
+describe("recorded payment comparison", () => {
+  it.each(["latest before", "first after"] as const)(
+    "matches a provider first payment to the %s meeting",
+    async (slot) => {
+      const f = await fixture();
+      const { first, otherMeetingId } = await f.t.run(async (ctx) => {
+        const meeting = (await ctx.db.get("meetings", f.meetingId))!;
+        const programId = await insertProgram(ctx, f.tenantId, f.adminId, "Scale Program");
+        const otherMeetingId = await ctx.db.insert("meetings", {
+          tenantId: f.tenantId,
+          opportunityId: f.opportunityId,
+          assignedCloserId: f.closerId,
+          calendlyEventUri: "other-event",
+          calendlyInviteeUri: "other-invitee",
+          scheduledAt: meeting.scheduledAt + (slot === "latest before" ? -60_000 : 60_000),
+          durationMinutes: 30,
+          status: "held",
+          createdAt: meeting.createdAt,
+        });
+        await ctx.db.patch("meetings", f.meetingId, {
+          status: "held",
+          heldMarkedAt: Date.now(),
+        });
+        const at = meeting.scheduledAt + (slot === "latest before" ? 0 : -1);
+        const base = {
+          tenantId: f.tenantId,
+          opportunityId: f.opportunityId,
+          closerId: f.closerId,
+          programId,
+          currency: "USD",
+          recorder: "absent" as const,
+        };
+        await seedProviderRow(ctx, { ...base, amountMinor: 1, recordedAt: at - 1, status: "disputed" });
+        const first = await seedProviderRow(ctx, {
+          ...base,
+          amountMinor: 170_000,
+          paymentType: "deposit",
+          recordedAt: at,
+          status: "verified",
+          ...(slot === "first after" ? { meetingId: otherMeetingId, recorder: f.adminId } : {}),
+        });
+        await seedProviderRow(ctx, { ...base, amountMinor: 180_000, recordedAt: at + 180_000 });
+        return { first, otherMeetingId };
+      });
+      await f.patchDeal({ stage: "closed", outcome: "won" });
+      const recorded = await f.t.run(async (ctx) =>
+        recordedResultForMeeting(ctx, (await ctx.db.get("meetings", f.meetingId))!),
+      );
+      expect(recorded).toEqual({ kind: "paid", amountMinor: 170_000, currency: "USD", paymentType: "deposit" });
+      expect(compareSuggestion(f.state, recorded!)).toBe("same_result");
+      expect((await f.owner.query(queries.suggestionQueue, {})).differs).toEqual([]);
+      if (slot === "latest before") {
+        const earlier = await f.t.run(async (ctx) =>
+          recordedResultForMeeting(ctx, (await ctx.db.get("meetings", otherMeetingId))!),
+        );
+        expect(earlier).toEqual({ kind: "held_other" });
+      }
+
+      await f.t.run((ctx) => ctx.db.patch("paymentRecords", first, { amountMinor: 175_000 }));
+      expect((await f.owner.query(queries.suggestionQueue, {})).differs).toMatchObject([
+        { meetingId: f.meetingId, recordedKind: "paid", comparison: "same_result_different_values" },
+      ]);
+    },
+  );
+
+  it("keeps the explicit manual payment result when a provider installment follows", async () => {
+    const f = await fixture();
+    const manual = await f.t.run(async (ctx) => {
+      const meeting = (await ctx.db.get("meetings", f.meetingId))!;
+      const programId = await insertProgram(ctx, f.tenantId, f.adminId, "Scale Program");
+      await ctx.db.patch("meetings", f.meetingId, { status: "held", heldMarkedAt: Date.now() });
+      const manual = await ctx.db.insert("paymentRecords", {
+        tenantId: f.tenantId,
+        opportunityId: f.opportunityId,
+        meetingId: f.meetingId,
+        attributedCloserId: f.closerId,
+        recordedByUserId: f.closerId,
+        programId,
+        programName: "Scale Program",
+        amountMinor: 170_000,
+        currency: "USD",
+        paymentType: "pif",
+        status: "recorded",
+        origin: "closer_meeting",
+        recordedAt: meeting.scheduledAt,
+      });
+      await seedProviderRow(ctx, {
+        tenantId: f.tenantId,
+        opportunityId: f.opportunityId,
+        closerId: f.closerId,
+        programId,
+        amountMinor: 170_000,
+        recordedAt: meeting.scheduledAt + 1,
+        recorder: "absent",
+      });
+      return manual;
+    });
+    await f.patchDeal({ stage: "closed", outcome: "won" });
+    expect((await f.owner.query(queries.suggestionQueue, {})).differs).toEqual([]);
+
+    await f.t.run((ctx) => ctx.db.patch("paymentRecords", manual, { meetingId: undefined }));
+    expect((await f.owner.query(queries.suggestionQueue, {})).differs).toMatchObject([
+      { meetingId: f.meetingId, recordedKind: "held_other", comparison: "different_result" },
+    ]);
   });
 });

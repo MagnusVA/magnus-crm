@@ -18,13 +18,25 @@ export function isSideDeal(
   return normalizeOpportunitySource(opportunity) === "side_deal";
 }
 
-const SIDE_DEAL_ORIGINS: ReadonlySet<PaymentOrigin> = new Set([
-  "closer_side_deal",
-  "admin_side_deal",
+// Additional payments on a won side deal stay in their own correction path.
+const ADDITIONAL_PAYMENT_ORIGINS: ReadonlySet<PaymentOrigin> = new Set([
+  "closer_additional",
+  "admin_additional",
 ]);
 
-export function isSideDealOrigin(origin: string | undefined | null): boolean {
-  return origin !== undefined && origin !== null
-    ? SIDE_DEAL_ORIGINS.has(origin as PaymentOrigin)
-    : false;
+/**
+ * Whether a payment is a side deal's own payment, voidable through the
+ * side-deal void: a payment on that side deal, recognised by the deal's
+ * source, since a payment confirmed from Whop has `origin: "provider"`.
+ * Additional payments are not.
+ */
+export function isSideDealPayment(
+  payment: Pick<Doc<"paymentRecords">, "opportunityId" | "origin">,
+  opportunity: Pick<Doc<"opportunities">, "_id" | "source">,
+): boolean {
+  return (
+    payment.opportunityId === opportunity._id &&
+    isSideDeal(opportunity) &&
+    !(payment.origin !== undefined && ADDITIONAL_PAYMENT_ORIGINS.has(payment.origin))
+  );
 }

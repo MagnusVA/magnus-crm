@@ -6,7 +6,7 @@ import {
   type ItemKind,
 } from "../../lib/callInsights/taxonomy";
 import { parseAmounts, incomeBandFor } from "./income";
-import type { RawExtraction, RawAttendance } from "./parse";
+import type { ParsedEvidence, RawExtraction, RawAttendance } from "./parse";
 import {
   containsCardNumber,
   normalizeForMatch,
@@ -15,6 +15,7 @@ import {
 } from "./transcriptPrep";
 import type {
   InsightItem,
+  CallEvidence,
   ResultEvidence,
   AttendanceEvidence,
   FoundQuote,
@@ -34,7 +35,7 @@ type Citation = { quote: string; lineIndex: number };
 function findQuote(
   raw: Citation,
   lines: PreparedLine[],
-  dropped: DroppedCounts,
+  dropped: Pick<DroppedCounts, "overLimit" | "quoteNotFound" | "cardNumber">,
 ): { quote: FoundQuote; line: PreparedLine } | undefined {
   if (raw.quote.length > 400) {
     dropped.overLimit++;
@@ -255,6 +256,170 @@ function callbackAt(
     return undefined;
   }
 }
+/** Match the exact wall time of a proposed step, including across offset changes. */
+function exactNextStepAt(local: string, timeZone: string): number | undefined {
+  const at = callbackAt(local, timeZone);
+  if (at === undefined) return undefined;
+  const target = Date.parse(`${local}Z`);
+  const format = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    hourCycle: "h23",
+  });
+  const wallTime = (instant: number) => {
+    const { year, month, day, hour, minute, second, fractionalSecond } =
+      Object.fromEntries(
+        format.formatToParts(instant).map(({ type, value }) => [type, value]),
+      );
+    return Date.parse(
+      `${year}-${month}-${day}T${hour}:${minute}:${second}.${fractionalSecond}Z`,
+    );
+  };
+  const displayed = wallTime(at);
+  if (displayed === target) return at;
+  // Some offsets change partway through an hour. A skipped local time has no matching instant.
+  const corrected = at + target - displayed;
+  return Number.isFinite(corrected) && wallTime(corrected) === target
+    ? corrected
+    : undefined;
+}
+
+/**
+ * Recover the original transcript span when the model changed punctuation,
+ * accents or spacing. findQuote already checked the normalized word boundaries.
+ */
+function exactQuote(line: string, quote: string): string | undefined {
+  if (line.includes(quote)) return quote;
+  const words = [...line.matchAll(/\S+/g)]
+    .map((match) => ({
+      start: match.index,
+      end: match.index + match[0].length,
+      normalized: normalizeForMatch(match[0]),
+    }))
+    .filter((word) => word.normalized);
+  const needle = normalizeForMatch(quote);
+  const offset = ` ${words.map((word) => word.normalized).join(" ")} `.indexOf(
+    ` ${needle} `,
+  );
+  if (offset < 0) return undefined;
+  let position = 0;
+  let start: number | undefined;
+  for (const word of words) {
+    if (position === offset) start = word.start;
+    position += word.normalized.length;
+    if (start !== undefined && position === offset + needle.length)
+      return line.slice(start, word.end);
+    position++;
+  }
+  return undefined;
+}
+
+export function validateEvidence(
+  parsed: ParsedEvidence,
+  transcript: PreparedTranscript,
+  {
+    timeZone,
+    callDateIso,
+    callEndedAt,
+  }: {
+    timeZone: string;
+    callDateIso: string;
+    callEndedAt: number;
+  },
+): CallEvidence {
+  const dropped: CallEvidence["dropped"] = {
+    quoteNotFound: 0,
+    amountNotInQuote: 0,
+    cardNumber: 0,
+    overLimit: 0,
+  };
+  const indexes = new Set(transcript.lines.map((line) => line.index));
+  const validScopeLines = [...new Set(parsed.scopeLines)].filter((index) =>
+    indexes.has(index),
+  );
+  dropped.overLimit += Math.max(0, validScopeLines.length - 6);
+  const statements: CallEvidence["statements"] = [];
+  for (const candidate of parsed.statements) {
+    if (!candidate.kind) continue;
+    if (candidate.lineIndex <= 0) {
+      dropped.quoteNotFound++;
+      continue;
+    }
+    const found = findQuote(candidate, transcript.lines, dropped);
+    if (!found) continue;
+    const quote = exactQuote(found.line.text, candidate.quote);
+    if (quote === undefined) {
+      dropped.quoteNotFound++;
+      continue;
+    }
+    if (quote.length > 400) {
+      dropped.overLimit++;
+      continue;
+    }
+
+    const statement = { ...found.quote, quote, kind: candidate.kind };
+    const amountMinor = minor(candidate.amount);
+    if (
+      amountMinor &&
+      amountFound(found.line.text, candidate.quote, amountMinor) &&
+      saysAmount(quote, amountMinor)
+    ) {
+      statements.push({
+        ...statement,
+        amountMinor,
+        ...(candidate.amountRole ? { amountRole: candidate.amountRole } : {}),
+        ...currencyFor(candidate.currencyAsSaid),
+      });
+    } else {
+      if (candidate.amount !== undefined) dropped.amountNotInQuote++;
+      // Keep the spoken decision in order even if its amount could not be verified.
+      statements.push(statement);
+    }
+  }
+  statements.sort((a, b) => a.lineIndex - b.lineIndex);
+  const overflow = Math.max(0, statements.length - 16);
+  dropped.overLimit += overflow;
+  const kept = statements.slice(overflow);
+
+  const amount = minor(parsed.quotedAmount);
+  const quotedAmountMinor =
+    amount && kept.some((statement) => statement.amountMinor === amount)
+      ? amount
+      : undefined;
+  if (parsed.quotedAmount !== undefined && quotedAmountMinor === undefined)
+    dropped.amountNotInQuote++;
+  const currency = currencyFor(parsed.quotedCurrencyAsSaid);
+  const nextStepAt = exactNextStepAt(parsed.nextStepDateTimeLocal, timeZone);
+  return {
+    recordingScope: parsed.recordingScope,
+    scopeLines: validScopeLines.slice(0, 6),
+    statements: kept,
+    prospectStance: parsed.prospectStance,
+    closerStance: parsed.closerStance,
+    nextStep: parsed.nextStep,
+    ...(nextStepAt !== undefined &&
+    parsed.nextStepDateTimeLocal.slice(0, 10) >= callDateIso &&
+    nextStepAt > callEndedAt
+      ? { nextStepAt }
+      : {}),
+    ...(parsed.nextStepMethod ? { nextStepMethod: parsed.nextStepMethod } : {}),
+    ...(quotedAmountMinor !== undefined
+      ? {
+          quotedAmountMinor,
+          ...(currency.currency ? { quotedCurrency: currency.currency } : {}),
+          ...(currency.currencyAssumed ? { quotedCurrencyAssumed: true } : {}),
+        }
+      : {}),
+    dropped,
+  };
+}
+
 function validateResult(
   raw: RawExtraction["result"],
   t: PreparedTranscript,
