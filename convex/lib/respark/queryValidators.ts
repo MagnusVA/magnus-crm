@@ -31,7 +31,7 @@ export const panelValidator = v.object({
   handle: nullableString, stage: lifecycleStageValidator, disposition: dispositionValidator,
   dispositionReason: nullableString,
   identity: v.object({ name: nullableString, phone: nullableString, email: nullableString }),
-  timeZone: nullableString, timeline: v.array(touch), deals: v.array(deal),
+  country: nullableString, timeZone: nullableString, timeline: v.array(touch), deals: v.array(deal),
   calls: v.array(v.object({ meetingId: v.id("meetings"), opportunityId: v.id("opportunities"),
     scheduledAt: v.number(), durationMinutes: v.number(),
     status: v.union(v.literal("scheduled"), v.literal("held"), v.literal("canceled"), v.literal("no_show")),

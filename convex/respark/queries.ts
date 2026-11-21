@@ -252,15 +252,22 @@ export async function getResparkPersonPanelCore(ctx: QueryCtx, access: TenantUse
     if (state.capped) break;
   }
   const resparks = await personResparkItems(ctx, tenantId, lead._id);
+  const staffRedactor = redactor ?? (access.role === "lead_generator" ? await loadStaffRedactor(ctx, tenantId) : undefined);
+  // A setter types the country in Slack, so a lead generator gets it with
+  // staff names and amounts redacted, like the contact-again note.
+  const countryText = lead.country?.trim();
+  const country = !countryText ? null
+    : staffRedactor ? staffRedactor.safeNote(countryText, people).note?.text || null : safe(countryText);
   return {
     canSetContactAgain: contactAgainForbidden(lead) === null,
-    contactAgain: projectContactAgain(lead, redactor ?? (access.role === "lead_generator" ? await loadStaffRedactor(ctx, tenantId) : undefined)),
+    contactAgain: projectContactAgain(lead, staffRedactor),
     resparkBlockedReason: contactAgainWaitReason(lead),
     handle: safe(instagramHandle(lead) ?? "") || null,
     stage: lead.lifecycleStage, disposition: lead.disposition,
     dispositionReason: lead.dispositionReason ? safe(lead.dispositionReason) : null,
     identity: { name: lead.fullName ? safe(lead.fullName) : null,
       phone: maskPhone(lead.phone), email: maskEmail(lead.email) },
+    country,
     timeZone: timeZone ? safe(timeZone) : null,
     timeline: history.events.filter((event) => event.entityType !== "payment" &&
       !event.eventType.startsWith("payment.")).map(touchSummary),
